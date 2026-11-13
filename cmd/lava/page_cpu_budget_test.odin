@@ -179,10 +179,11 @@ cpu_nested_enter_charges_once :: proc(t: ^testing.T) {
 	}
 	before := thread_cpu_s()
 	lava.vm_cpu_enter(vm)
+	burn(0.04)
 	lava.vm_cpu_enter(vm)
-	burn(0.05)
+	burn(0.03)
 	lava.vm_cpu_exit(vm)
-	burn(0.05)
+	burn(0.03)
 	lava.vm_cpu_exit(vm)
 	wall := thread_cpu_s() - before
 	used := f64(vm.cpu_used_ns) / 1e9
@@ -201,4 +202,39 @@ eval_after_a_killed_page_runs_unlimited :: proc(t: ^testing.T) {
 	defer lava.result_destroy(&result)
 	testing.expect_value(t, result.status, lava.Status.Ok)
 	testing.expect_value(t, result.kill, lava.Kill_Reason.None)
+}
+
+// Many timers due in ONE tick: each is a fresh entry with a fresh watchdog window, so
+// only a per-callback charge stops this near the budget (the review case behind
+// vm_cpu_checkpoint). Unchecked it runs 5000 x 2 ms.
+@(test)
+cpu_budget_kills_many_timers_in_one_tick :: proc(t: ^testing.T) {
+	src := `
+	for (let i = 0; i < 5000; i++) setTimeout(() => { const s = Date.now(); while (Date.now() - s < 2) {} }, 0);
+	`
+	before := thread_cpu_s()
+	result := eval_limited(src, {cpu_budget = 0.2})
+	defer lava.result_destroy(&result)
+	spent := thread_cpu_s() - before
+	testing.expect_value(t, result.kill, lava.Kill_Reason.Cpu_Budget)
+	testing.expectf(t, spent < 1.0, "one tick ran %.3fs of CPU past a 0.2s budget", spent)
+}
+
+// A nextTick/promise ping-pong never returns from the nextTick drain, so the loop
+// never reaches a tick boundary; each drain pass is charged instead.
+@(test)
+cpu_budget_kills_a_next_tick_ping_pong :: proc(t: ^testing.T) {
+	src := `
+	function f() {
+		const s = Date.now(); while (Date.now() - s < 2) {}
+		process.nextTick(() => Promise.resolve().then(f));
+	}
+	setTimeout(f, 0);
+	`
+	before := thread_cpu_s()
+	result := eval_limited(src, {cpu_budget = 0.2})
+	defer lava.result_destroy(&result)
+	spent := thread_cpu_s() - before
+	testing.expect_value(t, result.kill, lava.Kill_Reason.Cpu_Budget)
+	testing.expectf(t, spent < 1.0, "ping-pong ran %.3fs of CPU past a 0.2s budget", spent)
 }

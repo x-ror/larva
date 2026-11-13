@@ -233,6 +233,7 @@ eval :: proc(
 	defer release_global_context_after_eval(ctx)
 
 	state := new_runtime_state(loop)
+	state.vm = vm
 	// Build Node's process.argv = [execPath, scriptPath, ...userArgs]. argv[0] is
 	// the lava binary (absolute, like Node's execPath); argv[1] is the absolute
 	// script path (omitted for `lava eval`, where there is no script file). Built in
@@ -310,6 +311,7 @@ eval :: proc(
 			&wrap_exception,
 		)
 		if !ok {
+			if kill := vm_kill_reason(vm); kill != .None do return page_killed(kill)
 			msg, allocated := value_to_string(cast(jsc.JSContextRef)ctx, wrap_exception)
 			return Result {
 				status = .Execution_Error,
@@ -430,7 +432,12 @@ eval :: proc(
 		}
 	}
 
+	// process.exitCode can be a getter or carry a valueOf: user JS, so charged and
+	// checked like any other entry.
+	vm_cpu_enter(vm)
 	exit_code := resolve_exit_code(cast(jsc.JSContextRef)ctx, state)
+	vm_cpu_exit(vm)
+	if kill := vm_kill_reason(vm); kill != .None do return page_killed(kill)
 	// Captured while the loop is still alive (the deferred destroy runs after this returns): a fatal
 	// backend-poll failure means this worker crashed rather than finished/stopped cleanly.
 	backend_failed := loop != nil && loop.backend_error

@@ -1283,6 +1283,16 @@
       "replace": "\t\tmsg, allocated",
       "gate": "odin:cmd/lava:main.entry_limit_kills_runaway_top_level",
       "expect_detail": "expected result.kill to be Entry_Limit"
+    },
+    {
+      "name": "cpu_budget_kills_many_timers_in_one_tick dies when callbacks are not charged inside a tick",
+      "why": "A tick fires every due timer, each a fresh JSC entry; charged only per tick, one tick runs thousands of entries past the budget.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tvm_cpu_checkpoint(state.vm)\n\tif !page_stop_if_killed(state) do return false",
+      "replace": "\tif !page_stop_if_killed(state) do return false",
+      "gate": "odin:cmd/lava:main.cpu_budget_kills_many_timers_in_one_tick",
+      "expect_detail": "past a 0.2s budget",
+      "timeout_ms": 60000
     }
   ]
 }

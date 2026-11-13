@@ -258,6 +258,20 @@ vm_cpu_exit :: proc(vm: ^VM) {
 	if vm.cpu_used_ns >= vm.cpu_budget_ns do vm.budget_hit = true
 }
 
+// vm_cpu_checkpoint charges the time since the last mark without ending the stretch,
+// then re-clamps the watchdog to what is left. Called at every callback boundary
+// inside a tick (invoke_user_callback, each nextTick drain pass): one tick can fire
+// any number of due timers or drain passes, each a fresh JSC entry with a fresh
+// watchdog window, so a per-tick check alone lets one tick run far past the budget.
+vm_cpu_checkpoint :: proc(vm: ^VM) {
+	if vm == nil || vm.cpu_budget_ns == 0 || vm.cpu_depth == 0 do return
+	now := thread_cpu_ns()
+	vm.cpu_used_ns += max(now - vm.cpu_mark_ns, 0)
+	vm.cpu_mark_ns = now
+	if vm.cpu_used_ns >= vm.cpu_budget_ns do vm.budget_hit = true
+	vm_arm_watchdog(vm)
+}
+
 // vm_kill_reason reports which limit, if any, has ended the VM's current holder. The
 // budget wins a tie: it is the limit that cannot be reset by the next entry.
 vm_kill_reason :: proc(vm: ^VM) -> Kill_Reason {

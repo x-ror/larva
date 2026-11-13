@@ -14,6 +14,10 @@ import eventloop "lava:pkg/runtime/eventloop"
 // to JavaScript, so user code can neither read nor corrupt the loop pointer.
 Runtime_State :: struct {
 	loop:              ^eventloop.Loop,
+	// The pooled VM the context lives in (nil on Windows, where eval uses an implicit
+	// VM). Carries the page's CPU limits; invoke_user_callback charges and checks them
+	// at every callback boundary.
+	vm:                ^VM,
 	// Allocator that owns the module_cache key strings. Captured from the caller's
 	// context at state creation and used EXPLICITLY when cloning/freeing keys, because
 	// keys are cloned inside `proc "c"` require callbacks (where context is reset to
@@ -1026,8 +1030,14 @@ invoke_user_callback :: proc(
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	state := get_state_from_ctx(ctx)
+	// A page a limit has ended runs nothing more: the rest of this tick's due timers,
+	// immediates and I/O callbacks are skipped, not each handed a fresh watchdog
+	// window (see vm_cpu_checkpoint).
+	if state != nil && page_stop_if_killed(state) do return jsc.JSValueMakeUndefined(ctx)
 	if state == nil || state.dispatch_fn == nil {
-		return jsc.JSObjectCallAsFunction(ctx, fn, nil, argc, args, exception)
+		result := jsc.JSObjectCallAsFunction(ctx, fn, nil, argc, args, exception)
+		if state != nil do page_checkpoint(state, exception)
+		return result
 	}
 
 	// dispatch(fn, ...args): prepend the callback so the shim invokes it and then
@@ -1046,8 +1056,27 @@ invoke_user_callback :: proc(
 		raw_data(dispatch_args),
 		exception,
 	)
+	if page_checkpoint(state, exception) do return jsc.JSValueMakeUndefined(ctx)
 	drain_next_ticks_settled(ctx, state)
 	return result
+}
+
+// page_checkpoint charges the callback that just ran to the page's CPU budget and
+// reports whether a limit has now ended the page. A kill's termination exception is
+// dropped: the page is over, the caller reports the kill through Result.kill, and
+// reporting it as an uncaught error too would print one "uncaught" per skipped entry.
+page_checkpoint :: proc(state: ^Runtime_State, exception: ^jsc.JSValueRef) -> (killed: bool) {
+	vm_cpu_checkpoint(state.vm)
+	if !page_stop_if_killed(state) do return false
+	if exception != nil do exception^ = nil
+	return true
+}
+
+// page_stop_if_killed stops the page's loop once a limit has ended it.
+page_stop_if_killed :: proc(state: ^Runtime_State) -> bool {
+	if vm_kill_reason(state.vm) == .None do return false
+	if state.loop != nil do state.loop.force_exit = true
+	return true
 }
 
 // drain_next_ticks_settled runs checkpoint 2: it drains the process.nextTick
@@ -1067,6 +1096,9 @@ drain_next_ticks_settled :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) {
 			nil,
 			&exc,
 		)
+		// Each pass is a separate JSC entry, and a nextTick/promise ping-pong never
+		// lets the loop end, so the budget is charged and checked per pass.
+		if page_checkpoint(state, &exc) do return
 		if exc != nil {
 			report_uncaught(ctx, exc)
 			mark_async_failed(ctx)
