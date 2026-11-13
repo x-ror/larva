@@ -19,7 +19,8 @@ Verdicts:
 
 All of these were run against `pkg/` and `cmd/`, excluding `*_test.odin`:
 
-- package-level declarations starting at column 0 (`name: T`, `name := v`);
+- package-level declarations starting at column 0 (`name: T`, `name := v`),
+  including ones with an `@(…)` attribute on the same line;
 - every `thread_local` attribute, which also finds the indented declarations inside
   `when ODIN_OS` blocks in `pkg/jsc`;
 - every identifier with a `g_` prefix at any indentation.
@@ -33,10 +34,10 @@ be added to this list in the same PR.
 - `ERROR_INTRINSIC_NAMES` (`errors.odin:18`) — **shared-safe**. A read-only name list.
 - `fs_mkdtemp_alphabet` (`fs.odin:1023`) — **shared-safe**. `@(rodata)`.
 - `g_fetch_cancel_class`, `g_fetch_resume_class`, `g_fetch_push_class`, `g_fetch_end_class` (`fetch.odin:188-279`) — **shared-safe**. A `JSClassRef` does not belong to any context group, so one set serves every VM. `g_fetch_classes_once` makes the lazy creation race-free. The classes hold callbacks only; per-request data sits in each object's private pointer.
-- `g_tls_ctx`, `g_tls_ctx_once` (`tls.odin:158-164`) — **shared-safe today, move later**. Today the `SSL_CTX` holds only the trust store, the TLS 1.2 floor and peer verification. It never enables client session caching (no `SSL_CTX_set_session_cache_mode` in the tree), so no ticket from one page can resume a handshake for another. That changes with LARVA.md decision 3: TLS session tickets and the ClientHello profile belong to a **session**, so the context (or at least its session cache) moves into the session object.
-- `g_extra_anchors`, `g_extra_anchors_built` (`tls_darwin.odin:379-381`) — **shared-safe**. Platform trust anchors. Darwin is a stub target.
+- `g_tls_ctx`, `g_tls_ctx_once` (`tls.odin:158-164`) — **shared-safe today, move later**. Today the `SSL_CTX` holds only the trust store, the TLS 1.2 floor and peer verification. The client `SSL_CTX` never sets a session cache mode and nothing reuses an `SSL_SESSION` (only the server context in `tls_server.odin` sets a cache mode), so no ticket from one page can resume a handshake for another. That changes with LARVA.md decision 3: TLS session tickets and the ClientHello profile belong to a **session**, so the context (or at least its session cache) moves into the session object.
+- `g_extra_anchors`, `g_extra_anchors_built` (`tls_darwin.odin:379-381`) — **shared-safe**. The `SSL_CERT_FILE` anchors, built once per process. Unlike `g_tls_ctx` the build is guarded by a plain bool, not a `sync.Once`, so it races under multiple workers; acceptable only while darwin stays a stub target.
 - `output_mutex` (`globals.odin:652`) — **shared-safe**. Serializes stdout/stderr writes so lines from different threads do not interleave. It guards no page data.
-- `perf_once`, `perf_origin_tick`, `perf_time_origin_ms` (`globals.odin:892-896`) — **move**. These are `performance.timeOrigin` and the base of `performance.now()`, captured once per **process**. In a browser each document has its own time origin, so a second page reads a `timeOrigin` from before it existed and a `performance.now()` that already counts the earlier pages' run time. A page can also tell how long the process has been up. Both values move into the page's global when the Window profile installs `performance`.
+- `perf_once`, `perf_origin_tick`, `perf_time_origin_ms` (`globals.odin:892-896`) — **move (Window profile only)**. These are `performance.timeOrigin` and the base of `performance.now()`, captured once per **process**. In a browser each document has its own time origin, so a second page reads a `timeOrigin` from before it existed and a `performance.now()` that already counts the earlier pages' run time. A page can also tell how long the process has been up. For the Node profile the shared origin is intentional and stays: the comment at `perf_init` (`globals.odin:898-900`) keeps `performance.now()` comparable across workers. The Window profile takes a per-document origin instead, and that comment must be updated in the same change.
 - `net_tls_handshake_timeout_ms_cached` (`net.odin:43`) — **shared-safe**. Caches an environment variable. Racy across threads, but every thread writes the same value (see the comment at the declaration).
 - `net_force_readiness_state` (`net.odin:689`) — **shared-safe**. Caches the test-only `LAVA_NET_FORCE_READINESS` switch. Same benign race as above.
 - `g_zc_ok_reported`, `g_zc_engaged_reported` (`net.odin:1022-1024`) — **shared-safe**. One-shot stderr diagnostics for `LAVA_ZC_STATS`. They carry no page data.
@@ -44,7 +45,7 @@ be added to this list in the same PR.
 
 ## Thread-local
 
-- `g_thread_pool`, `g_thread_pool_ready` (`vm_pool.odin:63-66`) — **per-thread OK**. The thread's VM pool itself. A VM holds one live context at a time, so whatever is left in a released VM's heap cannot be reached from the next page's global object. It is collected at the next GC.
+- `g_thread_pool`, `g_thread_pool_ready` (`vm_pool.odin:63-66`) — **per-thread OK**. The thread's VM pool itself. A VM holds one live context at a time, so objects left in a released VM's heap are unreachable from the next page's global object and are collected at the next GC. **Unverified for VM-level state**: some JSC state belongs to the VM, not the global object (for example the `Symbol.for` registry), and survives into the next page. No two-page test pins what a page can observe of its predecessor yet; CLAUDE.md §6 requires one before pages share a VM.
 - `g_host_native_fns`, `g_host_native_cbs`, `g_host_tables_bound` (`host_natives.odin:121-123`) — **per-thread OK**. Cache of host-created native functions. Keys include the context (`Host_Native_Key.ctx`), and `destroy_runtime_state` sweeps a context's entries while the context is still alive. Because of that sweep, a pooled VM that hands a recycled context address to the next page cannot return the previous page's function objects. Pinned by `cmd/lava/repeated_eval_test.odin`.
 - `g_bytes_ptr_mode` (`typed_array.odin:34`) — **per-thread OK**. Records which layout the linked JSC build uses for `JSObjectGetTypedArrayBytesPtr`. It is a fact about the library, and it is the same for every VM.
 - `g_view_*`, `g_vec_off`, `g_len_off`, `g_len_u64`, `g_mode_*`, `g_probe_a..d` (`pkg/jsc/private_view.odin:53-73`) — **per-thread OK**. Private-ABI probe results: field offsets in JSC's ArrayBufferView. They describe the library's layout, not a VM, so they hold for every VM on the thread. The `g_probe_*` buffers are scratch space for the self-test.
