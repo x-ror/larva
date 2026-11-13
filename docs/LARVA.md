@@ -33,7 +33,7 @@ decides which traffic goes to Larva and which stays on Chrome.
    byte results are plain `Uint8Array`. Shared Web API code (`url.js`,
    `encoding.js`, …) takes its error constructors and byte helpers from the
    profile instead of from `buffer`/Node error helpers.
-2. **One VM per page, many VMs per thread, VMs pooled.** A `JSContextGroup` is
+2. **One VM per top-level page, many VMs per thread, VMs pooled.** A `JSContextGroup` is
    one `JSC::VM`: one GC heap, one lock, one microtask queue that JSC drains at
    every exit from the C API. Pages therefore never share a VM — sharing one
    would let page A run page B's promise jobs and would make per-page heap size
@@ -41,9 +41,17 @@ decides which traffic goes to Larva and which stays on Chrome.
    each in its own VM. VMs come from a per-thread pool and are reused
    sequentially, one page at a time:
    - a VM is only ever entered by its owning thread;
+   - **same-origin iframes** live in their page's VM, as extra globals created
+     with `JSGlobalContextCreateInGroup`: the parent reaches
+     `iframe.contentWindow` synchronously, and JSC objects only pass between
+     contexts of one group. They share the page's arena, session and lifecycle.
+     Cross-origin iframes get an opaque `WindowProxy`;
    - **CPU kill:** `JSContextGroupSetExecutionTimeLimit` per VM. The watchdog
      measures time since VM entry, so a runaway script is stopped without
-     touching other pages. Wall-clock page deadlines are event-loop timers;
+     touching other pages. It only covers one synchronous entry, so the page
+     also sums `CLOCK_THREAD_CPUTIME_ID` around every entry into its VM and is
+     killed when the total passes its CPU budget. Wall-clock page deadlines are
+     event-loop timers;
    - **memory:** the VM's heap belongs to one page at a time, so heap growth can
      be attributed and capped. A VM is retired after N pages or M MB of growth;
    - reuse keeps JSC's `CodeCache` warm, so the embedded runtime JS is not
@@ -54,7 +62,9 @@ decides which traffic goes to Larva and which stays on Chrome.
    - Pages on one thread still share its CPU. A long synchronous script delays the
      thread's other pages up to the execution limit; threads are sized to cores.
 3. **Network stack with client profiles; network state belongs to the session.**
-   BoringSSL instead of OpenSSL, an HTTP/2 implementation, and named profiles
+   BoringSSL instead of OpenSSL, HTTP/2 through nghttp2 (I/O-agnostic, driven
+   from our transport; a hand-written H2 stack is not worth its edge cases as
+   long as nghttp2 lets profiles set every wire knob), and named profiles
    (e.g. `chrome_142_mac`) that set the TLS ClientHello, H2 SETTINGS and
    pseudo-header order, header order and Client Hints together so they always
    match the User-Agent. Used by both `fetch` and the page loader. The H2/H1
@@ -90,7 +100,7 @@ decides which traffic goes to Larva and which stays on Chrome.
 | --- | --- | --- |
 | 0 | **Oracle** — record what Chrome returns (HTML, status, cookies) for 100–200 URLs from real JS traffic | Every later stage is measured against it |
 | 1 | **Multi-VM core** — per-page `Runtime_State`, VM pool per thread, execution limits, Window profile skeleton, start-up cost measured | N pages run concurrently in one process with isolated VMs; a runaway page is killed alone |
-| 2 | **Network** — BoringSSL, HTTP/2, per-session connection pool and TLS sessions, CONNECT proxies, cookie jar, redirects, gzip/brotli/zstd, Chrome client profiles | ClientHello and H2 fingerprints match the claimed Chrome version |
+| 2 | **Network** — BoringSSL, HTTP/2 (nghttp2), per-session connection pool and TLS sessions, CONNECT proxies, cookie jar, redirects, gzip/brotli/zstd, Chrome client profiles | ClientHello and H2 fingerprints match the claimed Chrome version |
 | 3 | **HTML + DOM** — streaming parser (pause/resume at `<script>`), tree, mutation, events, serialization, CSS selectors, XPath, shadow DOM, same-origin iframes; `larva fetch URL` | Static pages serialize like the oracle |
 | 4 | **Window** — DOM bindings, script execution (sync/defer/async/module), XHR, `location`/`history`, storage, `MutationObserver`, profile-driven `navigator`/`screen`/timezone, plausible fake geometry | Oracle JS pages match after `load` |
 | 5 | **HTTP server & adapter** — stateless HTTP crawling API: selector and DOM wait conditions, network-idle wait across XHR **and** `fetch`, custom script evaluation with async and scroll helpers, interaction actions DSL, cookie and network capture, response metadata headers, structured error codes, hard per-page kill timeout | Drop-in backend behind per-domain A/B routing |
