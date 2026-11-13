@@ -1377,6 +1377,44 @@
       "gate": "odin:cmd/lava:main.runner_fd_count_stays_flat_over_10k_pages",
       "expect_detail": "fd count grew",
       "timeout_ms": 600000
+    },
+    {
+      "name": "runner_process_exit_ends_only_its_page dies when a runner page's watchdog is not kept armed",
+      "why": "JSC ignores a limit set mid-entry unless one was armed at entry, so process.exit could not stop the code after it and the page would spin forever.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\tif runner_page do vm_enable_stop(vm)\n",
+      "replace": "\n",
+      "gate": "odin:cmd/lava:main.runner_process_exit_ends_only_its_page",
+      "expect_detail": "timed out",
+      "timeout_ms": 30000
+    },
+    {
+      "name": "runner_destroy_reports_live_pages_cancelled dies when destroy reports a cut-off page as finished",
+      "why": "Without the cancel, a page cut off by destroy reads as a page that ran to completion, and its exitCode getter runs during destroy.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\t\t\tpage_cancel(&runner.pages[len(runner.pages) - 1].page)\n",
+      "replace": "\n",
+      "gate": "odin:cmd/lava:main.runner_destroy_reports_live_pages_cancelled",
+      "expect_detail": "expected o.kill to be Cancelled"
+    },
+    {
+      "name": "runner_reports_a_page_it_cannot_start dies when a page that fails at open is reported from inside page_runner_open",
+      "why": "Reporting from inside open lets on_done reopen, recursing once per failing page: a long feed of bad pages overflows the stack.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "runner_finish(runner, index, deliver = false)",
+      "replace": "runner_finish(runner, index)",
+      "gate": "odin:cmd/lava:main.runner_reports_a_page_it_cannot_start",
+      "expect_detail": "reported from inside page_runner_open"
+    },
+    {
+      "name": "runner_wakes_on_io_without_timers dies when a page loop's fd is not in the runner's epoll set",
+      "why": "An I/O-only page has no timer to bound the runner's wait; if its loop fd never reaches the epoll set the runner sleeps forever.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "if linux.epoll_ctl(runner.epfd, .ADD, linux.Fd(fd), &ev) == .NONE do rp.fd = linux.Fd(fd)",
+      "replace": "rp.fd = linux.Fd(fd)",
+      "gate": "odin:cmd/lava:main.runner_wakes_on_io_without_timers",
+      "expect_detail": "timed out",
+      "timeout_ms": 30000
     }
   ]
 }

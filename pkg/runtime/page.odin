@@ -43,9 +43,11 @@ Page :: struct {
 //   true when the page has a loop worth ticking. false when it finished already —
 //   its Result is decided — or has no loop. Either way the caller ends with
 //   page_close, which owns the teardown on every path.
-// Deviates:
-//   n/a: this is eval's body, moved. Ordering, error messages and exit codes are
-//   eval's, pinned by every oracle suite that runs through `lava run`/`lava eval`.
+//
+// This is eval's body, moved: ordering, error messages and exit codes are eval's,
+// pinned by every oracle suite that runs through `lava run`/`lava eval`.
+// `runner_page` makes process.exit() end this page instead of the process (the page
+// runner hosts siblings on the same thread).
 page_open :: proc(
 	page: ^Page,
 	source: string,
@@ -55,6 +57,7 @@ page_open :: proc(
 	script_args: []string = nil,
 	limits: Page_Limits = {},
 	pool: ^VM_Pool = nil,
+	runner_page := false,
 ) -> bool {
 	page^ = {}
 	// The loop is consumed on EVERY path (eval's OWNERSHIP contract). Until the page
@@ -133,9 +136,11 @@ page_open :: proc(
 		vm_set_entry_limit(vm, limits.entry_limit)
 		vm_set_cpu_budget(vm, limits.cpu_budget)
 	}
+	if runner_page do vm_enable_stop(vm)
 
 	state := new_runtime_state(loop)
 	state.vm = vm
+	state.page_runner = runner_page
 	page.state = state
 	// From here the loop is torn down by page_close, with the state and context
 	// still alive around it.
@@ -255,7 +260,7 @@ page_open :: proc(
 	// after-the-boundary re-drain that invoke_user_callback does per callback.
 	drain_next_ticks_settled(cast(jsc.JSContextRef)ctx, state)
 	vm_cpu_exit(vm)
-	if kill := vm_kill_reason(vm); kill != .None do return page_fail(page, page_killed(kill))
+	if ended, result := page_ended(page); ended do return page_fail(page, result)
 
 	return loop != nil
 }
@@ -281,9 +286,9 @@ page_tick :: proc(page: ^Page) -> (alive: bool, did_work: bool) {
 	vm_cpu_enter(page.vm)
 	did_work = eventloop.run_next(loop)
 	vm_cpu_exit(page.vm)
-	if kill := vm_kill_reason(page.vm); kill != .None {
+	if ended, result := page_ended(page); ended {
 		loop.force_exit = true
-		page_fail(page, page_killed(kill))
+		page_fail(page, result)
 		return false, did_work
 	}
 	return true, did_work
@@ -301,7 +306,12 @@ page_tick :: proc(page: ^Page) -> (alive: bool, did_work: bool) {
 //   2. destroy_runtime_state — JSValueUnprotect on cached modules needs the context;
 //   3. release the context;
 //   4. return the VM to its pool, only after its context is gone: a pooled VM never
-//      hosts two live contexts;
+//      hosts two live contexts. Also what keeps a killed page's leftover promise jobs
+//      out of the next page: JSC's job queue is the VM's, and jobs a watchdog cut
+//      leaves behind run during the next C-API exits on the VM — steps 1-3 make
+//      several on this page's own context, and after those they never run again
+//      (pinned by vm_watchdog_cut_job_chain_does_not_outlive_the_next_api_exits and
+//      runner_second_page_in_a_reused_vm_sees_nothing_of_a_killed_first);
 //   5. release the global class.
 page_close :: proc(page: ^Page) -> Result {
 	ctx := cast(jsc.JSContextRef)page.ctx
@@ -311,8 +321,8 @@ page_close :: proc(page: ^Page) -> Result {
 		vm_cpu_enter(page.vm)
 		exit_code := resolve_exit_code(ctx, page.state)
 		vm_cpu_exit(page.vm)
-		if kill := vm_kill_reason(page.vm); kill != .None {
-			page.result = page_killed(kill)
+		if ended, result := page_ended(page); ended {
+			page.result = result
 		} else {
 			// Captured while the loop is still alive: a fatal backend-poll failure means
 			// this worker crashed rather than finished/stopped cleanly.
@@ -358,9 +368,34 @@ page_fail :: proc(page: ^Page, result: Result) -> bool {
 // wrap — unless a limit killed it, in which case the kill is the result.
 @(private = "file")
 page_fail_with_exception :: proc(page: ^Page, exception: jsc.JSValueRef) -> bool {
-	if kill := vm_kill_reason(page.vm); kill != .None do return page_fail(page, page_killed(kill))
+	if ended, result := page_ended(page); ended do return page_fail(page, result)
 	msg, allocated := value_to_string(cast(jsc.JSContextRef)page.ctx, exception)
 	return page_fail(page, Result{status = .Execution_Error, exit_code = 1, message = msg, is_allocated = allocated})
+}
+
+// page_ended reports whether a limit or a requested stop has ended the page, with the
+// Result that says which. A stop (process.exit in a runner page) is a normal end: .Ok
+// with the exit code the page asked for.
+@(private = "file")
+page_ended :: proc(page: ^Page) -> (bool, Result) {
+	if kill := vm_kill_reason(page.vm); kill != .None do return true, page_killed(kill)
+	if page.vm != nil && page.vm.stop_requested && page.state != nil {
+		return true, Result{status = .Ok, exit_code = page.state.page_exit_code}
+	}
+	return false, {}
+}
+
+// page_cancel ends a page that is still running without ticking it further — the
+// runner's destroy. Its Result says so rather than reading as a page that finished.
+page_cancel :: proc(page: ^Page) {
+	if page.finished do return
+	page_fail(page, page_killed(.Cancelled))
+}
+
+// page_killed_result is page_killed for callers outside this file (the runner reports
+// a page it refuses during destroy as .Cancelled without opening it).
+page_killed_result :: proc(kill: Kill_Reason) -> Result {
+	return page_killed(kill)
 }
 
 // page_killed builds the Result for a page a limit ended.
@@ -378,6 +413,8 @@ page_killed :: proc(kill: Kill_Reason) -> Result {
 		msg = "page killed: a script exceeded the execution time limit"
 	case .Cpu_Budget:
 		msg = "page killed: CPU budget exceeded"
+	case .Cancelled:
+		msg = "page cancelled: its runner was destroyed while it ran"
 	case .None:
 	}
 	return Result{status = .Execution_Error, exit_code = 1, message = msg, kill = kill}

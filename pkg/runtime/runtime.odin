@@ -139,8 +139,7 @@ Pre_Run_Hook :: proc(user_data: rawptr) -> bool
 // limit and a cumulative CPU budget on its VM. The budget is charged from runtime
 // install to the last loop tick; the first entry or tick that ends over a limit stops
 // the loop (force_exit) and eval returns .Execution_Error with Result.kill naming the
-// limit. Zero limits (the default) keep the plain eventloop.run path, with no clock
-// reads. Larva policy with no Node counterpart. Pinned by
+// limit. Zero limits (the default) read no clocks. Larva policy with no Node counterpart. Pinned by
 // cmd/lava/page_cpu_budget_test.odin.
 
 eval :: proc(

@@ -58,6 +58,14 @@ VM :: struct {
 	// actually tightens — once the remaining budget drops below the entry limit.
 	armed_limit:     f64,
 	armed_by_budget: bool,
+	// Set by vm_request_stop: the holder asked to end (process.exit in a runner page).
+	// The watchdog is armed at a token limit so the running script stops at its next
+	// trap, and a fire in this state is neither kind of kill.
+	stop_requested:  bool,
+	// vm_enable_stop: keep the watchdog armed (at BACKSTOP_LIMIT when no limit applies),
+	// because JSC only honours a limit set mid-entry if one was armed when the entry
+	// began — and vm_request_stop is called mid-entry.
+	stoppable:       bool,
 }
 
 // Page_Limits are the CPU limits a page runs under. Seconds; 0 = no limit.
@@ -81,6 +89,8 @@ Kill_Reason :: enum {
 	None,
 	Entry_Limit,
 	Cpu_Budget,
+	// Not a limit: the page runner was destroyed while the page was still running.
+	Cancelled,
 }
 
 VM_Pool :: struct {
@@ -167,6 +177,7 @@ vm_acquire :: proc(pool: ^VM_Pool) -> (^VM, VM_Pool_Error) {
 			vm.in_use = true
 			vm.limit_hit = false
 			vm.budget_hit = false
+			vm.stop_requested = false
 			return vm, .None
 		}
 	}
@@ -203,6 +214,8 @@ vm_release :: proc(vm: ^VM) {
 	vm.cpu_budget_ns = 0
 	vm.cpu_used_ns = 0
 	vm.cpu_depth = 0
+	vm.stop_requested = false
+	vm.stoppable = false
 	vm.in_use = false
 	// Move it to the end, so the backward scan in vm_acquire finds the most recently
 	// released VM first. O(capacity), on a list of a few entries.
@@ -290,6 +303,8 @@ vm_kill_reason :: proc(vm: ^VM) -> Kill_Reason {
 // call.
 @(private = "file")
 vm_arm_watchdog :: proc(vm: ^VM) {
+	// A requested stop keeps its token limit until release.
+	if vm.stop_requested do return
 	want := vm.entry_limit
 	by_budget := false
 	if vm.cpu_budget_ns > 0 {
@@ -302,6 +317,7 @@ vm_arm_watchdog :: proc(vm: ^VM) {
 			by_budget = true
 		}
 	}
+	if want <= 0 && vm.stoppable do want = BACKSTOP_LIMIT
 	if want <= 0 {
 		if vm.armed_limit > 0 do jsc.JSContextGroupClearExecutionTimeLimit(vm.group)
 		vm.armed_limit = 0
@@ -328,6 +344,7 @@ vm_watchdog_terminate :: proc "c" (ctx: jsc.JSContextRef, user_data: rawptr) -> 
 	// JSC invokes this on the thread running the script (at a VM trap), so a plain
 	// store is visible to the caller once the evaluation returns.
 	if vm == nil do return true
+	if vm.stop_requested do return true
 	if vm.armed_by_budget {
 		vm.budget_hit = true
 	} else {
@@ -357,6 +374,39 @@ vm_arm_kill_floor :: proc(vm: ^VM) {
 // budget (vm_arm_watchdog's 1 ms clamp); a killed holder reuses it.
 @(private = "file")
 KILL_FLOOR :: 0.001
+
+// BACKSTOP_LIMIT is the watchdog limit of a stoppable VM with no CPU limit of its own:
+// a CPU-seconds limit no entry reaches, there only so that a mid-entry
+// vm_request_stop takes effect.
+BACKSTOP_LIMIT :: 1e6
+
+// vm_enable_stop lets vm_request_stop end the holder mid-entry, by keeping the
+// watchdog armed for every entry. Costs JSC's watchdog timer start per entry, so only
+// holders that can call vm_request_stop (runner pages) ask for it.
+//
+// Measured, not read off the docs: with no limit armed when an entry began, a limit
+// set during it never fired (a `process.exit(); while (true) {}` page hung); with one
+// armed, re-arming mid-entry stopped it (cmd/lava/page_runner_test.odin,
+// runner_process_exit_ends_only_its_page).
+vm_enable_stop :: proc(vm: ^VM) {
+	if vm == nil do return
+	vm.stoppable = true
+	vm_arm_watchdog(vm)
+}
+
+// vm_request_stop ends the VM's current holder from inside one of its natives: the
+// script that called it stops at its next VM trap (the watchdog, armed at a token
+// limit), and every later callback is skipped (page_stop_if_killed). Not a kill:
+// vm_kill_reason stays .None. Cleared on release.
+vm_request_stop :: proc(vm: ^VM) {
+	if vm == nil do return
+	vm.stop_requested = true
+	// The smallest limit that still arms: JSC treats 0 as "no limit".
+	STOP_LIMIT :: 0.0001
+	vm.armed_limit = STOP_LIMIT
+	vm.armed_by_budget = false
+	jsc.JSContextGroupSetExecutionTimeLimit(vm.group, STOP_LIMIT, vm_watchdog_terminate, vm)
+}
 
 // vm_pool_stats reports how many VMs are busy and how many the pool has ever created.
 vm_pool_stats :: proc(pool: ^VM_Pool) -> (busy, created: int) {
