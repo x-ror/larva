@@ -232,9 +232,10 @@ bad frees).
 ### 4.2 Concurrency model
 
 **Single VM, single JS thread, single context (in the base Node profile).** The generic per-loop worker pool
-(`threadpool.odin`) currently backs **async `fs.readFile`/`writeFile`**. DNS
-still runs its own off-loop work — `node:dns` spawns a thread per lookup (`dns.odin`)
-and `fetch` uses a separate process-global resolver pool (`g_fetch_dns_pool`).
+(`threadpool.odin`) backs async fs, crypto, `node:dns` (`dns.odin`) and fetch's
+resolver (`fetch_dns.odin`); the old process-global `g_fetch_dns_pool` was folded
+into it. Package-level state is
+audited for page isolation in [GLOBAL-STATE.md](GLOBAL-STATE.md).
 A worker touches only its own request; all JS-value work stays on the loop thread.
 
 ### 4.3 The FFI trust boundary — resolved (#159)
