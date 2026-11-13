@@ -1423,6 +1423,33 @@
       "replace": "if loop.platform.use_uring do return uintptr(loop.platform.wakeup_pipe[1]), loop.platform.ring.fd >= 0",
       "gate": "odin:pkg/runtime/eventloop:eventloop.backend_fd_wakes_an_outer_epoll_on_watched_io",
       "expect_detail": "did not wake the outer epoll"
+    },
+    {
+      "name": "dispatcher_spreads_pages_over_workers dies when submit stops picking the least-loaded worker",
+      "why": "Without the load comparison every page lands on the first worker and the other threads idle.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "if l := sync.atomic_load(&w.load); l < best_load {",
+      "replace": "if l := sync.atomic_load(&w.load); false {",
+      "gate": "odin:cmd/lava:main.dispatcher_spreads_pages_over_workers",
+      "expect_detail": "got no pages"
+    },
+    {
+      "name": "dispatcher_queues_past_capacity dies when a worker opens pages past its slots",
+      "why": "Opening more pages than the runner has VMs fails them for want of a VM instead of queueing them.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "for len(pending) > 0 && page_runner_live(&runner) < w.capacity {",
+      "replace": "for len(pending) > 0 {",
+      "gate": "odin:cmd/lava:main.dispatcher_queues_past_capacity",
+      "expect_detail": "expected tally.ok to be 12"
+    },
+    {
+      "name": "runner_samples_each_pages_heap dies when page_close stops sampling",
+      "why": "Without the sample a page's Result carries no heap figure, and per-VM heap growth goes untracked.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\tif page.sample_heap && page.state != nil do page.result.heap_bytes = vm_sample_heap(page.vm, ctx)\n",
+      "replace": "\n",
+      "gate": "odin:cmd/lava:main.runner_samples_each_pages_heap",
+      "expect_detail": "heap not attributed per page"
     }
   ]
 }

@@ -34,6 +34,8 @@ Page :: struct {
 	// a limit kill): no more ticks, and page_close returns `result` as is.
 	finished:     bool,
 	result:       Result,
+	// Ask page_close to sample the VM's heap into Result.heap_bytes before teardown.
+	sample_heap:  bool,
 }
 
 // page_open creates the page's context in a VM from `pool` (the thread's implicit
@@ -340,6 +342,8 @@ page_close :: proc(page: ^Page) -> Result {
 		page.finished = true
 	}
 
+	page.result.heap_bytes = -1
+	if page.sample_heap && page.state != nil do page.result.heap_bytes = vm_sample_heap(page.vm, ctx)
 	if page.completion != nil do jsc.JSValueUnprotect(ctx, page.completion)
 	if page.loop != nil {
 		fetch_shutdown_active(page.state)

@@ -56,6 +56,12 @@ Page_Runner :: struct {
 	// their on_done call.
 	done:      [dynamic]Done_Page,
 	closing:   bool,
+	// External fds added by page_runner_watch_fd.
+	watched:   int,
+	// Sample a page's JS heap into its Result.heap_bytes when it closes on every Nth
+	// page a VM hosts (0 = never). vm_sample_heap walks the heap, so keep N large on a
+	// hot path; 1 samples every page (tests, benchmarks).
+	heap_sample_every: int,
 }
 
 // page_runner_init prepares a runner that can hold up to `capacity` live pages (one
@@ -139,6 +145,9 @@ page_runner_open :: proc(
 		runner_finish(runner, index, deliver = false)
 		return
 	}
+	if n := runner.heap_sample_every; n > 0 && rp.page.vm != nil && rp.page.vm.pages_hosted % n == 0 {
+		rp.page.sample_heap = true
+	}
 	// Edge-triggered: a CQE or watched fd the page's own tick is not going to reap
 	// (an I/O-free page waiting on a timer, say) must not keep the runner's wait
 	// returning at once; a new arrival still wakes it.
@@ -160,24 +169,44 @@ page_runner_live :: proc(runner: ^Page_Runner) -> int {
 // page_runner_run ticks the live pages until none is left, including pages that
 // on_done opens along the way.
 page_runner_run :: proc(runner: ^Page_Runner) {
+	for page_runner_step(runner) {}
+}
+
+// page_runner_step runs one round: reports queued Results, gives every live page one
+// tick, and — when nothing progressed — blocks until a page loop or a watched fd
+// (page_runner_watch_fd) is ready or the nearest timer is due. With no pages at all it
+// blocks on the watched fds only. Returns whether pages or Results remain; a driver
+// that feeds the runner from elsewhere (page_dispatcher.odin) keeps stepping anyway.
+page_runner_step :: proc(runner: ^Page_Runner) -> bool {
 	context.allocator = runner.allocator
-	for len(runner.pages) > 0 || len(runner.done) > 0 {
-		runner_report_done(runner)
-		progressed := false
-		i := 0
-		for i < len(runner.pages) {
-			alive, did_work := page_tick(&runner.pages[i].page)
-			if !alive {
-				// Swap-removes index i, so the page moved into it is ticked next.
-				runner_finish(runner, i)
-				progressed = true
-				continue
-			}
-			if did_work do progressed = true
-			i += 1
+	runner_report_done(runner)
+	progressed := false
+	i := 0
+	for i < len(runner.pages) {
+		alive, did_work := page_tick(&runner.pages[i].page)
+		if !alive {
+			// Swap-removes index i, so the page moved into it is ticked next.
+			runner_finish(runner, i)
+			progressed = true
+			continue
 		}
-		if !progressed && len(runner.pages) > 0 do runner_wait(runner)
+		if did_work do progressed = true
+		i += 1
 	}
+	if !progressed && len(runner.done) == 0 && (len(runner.pages) > 0 || runner.watched > 0) do runner_wait(runner)
+	return len(runner.pages) > 0 || len(runner.done) > 0
+}
+
+// page_runner_watch_fd adds `fd` (level-triggered, readable) to what a blocked runner
+// wakes for — the dispatcher's eventfd, written when it queues a page for this runner.
+// The caller keeps ownership of the fd and drains it.
+page_runner_watch_fd :: proc(runner: ^Page_Runner, fd: linux.Fd) -> bool {
+	ev := linux.EPoll_Event {
+		events = {.IN},
+	}
+	if linux.epoll_ctl(runner.epfd, .ADD, fd, &ev) != .NONE do return false
+	runner.watched += 1
+	return true
 }
 
 // runner_wait blocks until some page can make progress: an fd of any page's loop

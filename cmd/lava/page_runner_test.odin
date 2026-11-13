@@ -385,3 +385,39 @@ epoll_watch_count :: proc(epfd: linux.Fd) -> int {
 	if err != nil do return -1
 	return strings.count(string(data), "tfd:")
 }
+
+@(private = "file")
+Heap_Pair :: struct {
+	heavy, light: int,
+}
+
+@(private = "file")
+record_heap :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Result) {
+	result := result
+	(cast(^int)user_data)^ = result.heap_bytes
+	lava.result_destroy(&result)
+}
+
+// Heap sampling attributes heap to the page that grew it: one VM per page, so a page
+// holding 200k objects at close reports several MB more than a trivial page on the
+// other VM. Off by default (it walks the heap): heap_bytes stays unsampled.
+@(test)
+runner_samples_each_pages_heap :: proc(t: ^testing.T) {
+	sample :: proc(t: ^testing.T, every: int) -> Heap_Pair {
+		runner: lava.Page_Runner
+		if !lava.page_runner_init(&runner, 2, record_heap, context.allocator) {
+			testing.fail_now(t, "page_runner_init failed")
+		}
+		defer lava.page_runner_destroy(&runner)
+		runner.heap_sample_every = every
+		p: Heap_Pair
+		lava.page_runner_open(&runner, "globalThis.a = []; for (let i = 0; i < 200000; i++) a.push({ i, s: 'x' + i });", "<heavy>", {}, &p.heavy)
+		lava.page_runner_open(&runner, "1", "<light>", {}, &p.light)
+		lava.page_runner_run(&runner)
+		return p
+	}
+	on := sample(t, 1)
+	testing.expectf(t, on.light > 0 && on.heavy > on.light + 5_000_000, "heap not attributed per page: heavy %d, light %d", on.heavy, on.light)
+	off := sample(t, 0)
+	testing.expectf(t, off.heavy <= 0 && off.light <= 0, "heap sampled with sampling off: %v", off)
+}

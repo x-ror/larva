@@ -39,6 +39,9 @@ Result :: struct {
 	// Which page limit (eval's `limits`) ended the run, if any. A kill is reported as
 	// .Execution_Error, so this is how a caller tells it from an uncaught exception.
 	kill:           Kill_Reason,
+	// The page's JS heap in bytes as it closed, when the page runner sampled it
+	// (Page_Runner.heap_sample_every); 0 or -1 when not sampled.
+	heap_bytes:     int,
 }
 
 result_destroy :: proc(res: ^Result) {
