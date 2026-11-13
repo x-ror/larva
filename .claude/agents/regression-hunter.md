@@ -48,6 +48,12 @@ to ship, because the diff shows what arrived and hides what left.
 - A registration/inject path that misses a platform branch or a backend
   (proactor vs readiness; io_uring vs epoll).
 - Trace one hot path end to end and confirm it still connects.
+- **Profile drift**: shared Web API code changed for one profile (Node or
+  Window) — confirm the other profile's entry point still gets the error
+  constructors, byte helpers and globals it expects.
+- **One-VM assumptions**: code that cached per thread, per process, or "the"
+  context, now reached by several VMs or successive pages on one thread. Trace
+  what happens on the second page in a reused VM, not only the first.
 
 ## Output
 
@@ -70,4 +76,4 @@ regression with no test. **P1** likely bug under realistic input, or a broken
 internal contract with live callers. **P2** edge-case risk. **nit** clarity.
 
 Out of scope (other agents own these): performance without a bug, file size and
-layering, Node-parity of the _intended_ design, test-suite adequacy, style.
+layering, oracle parity of the _intended_ design, test-suite adequacy, style.

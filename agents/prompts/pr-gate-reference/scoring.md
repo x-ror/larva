@@ -5,18 +5,25 @@ it is _mergeable_. A change can be fast and still not merge.
 
 ## Ranked criteria
 
-### 1. Node interface conformance (primary)
+### 1. Oracle conformance (primary)
 
-| Grade | Meaning                                                                                                                  |
-| ----- | ------------------------------------------------------------------------------------------------------------------------ |
-| A     | Verified against real Node on every surface the diff touches; no divergence.                                             |
-| B     | Verified; divergences exist and every one is intentional, commented, declared in the PR, and pinned by a Lava-only test. |
-| C     | Plausible parity, not verified empirically (no oracle run, no `bin/lava` diff).                                          |
-| F     | Undeclared divergence on a user-visible surface, or a wrong error `code`/type/order on a common path.                    |
+The oracle depends on the profile (`docs/LARVA.md` decision 1): real Node 22+/24
+for the Node profile, recorded Chrome output for the Window profile, both for
+shared Web API code. A diff touching several profiles is graded by its worst.
 
-`F` blocks the merge. `C` blocks a PR that claims parity.
+| Grade | Meaning                                                                                                                                                 |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A     | Verified against the profile's oracle on every surface the diff touches; no divergence.                                                                 |
+| B     | Verified; divergences exist and every one is intentional, commented, declared in the PR, and pinned by a Lava-only test.                                |
+| C     | Plausible parity, not verified empirically (no oracle run, no `bin/lava` diff, or no Chrome recording for a Window surface).                            |
+| F     | Undeclared divergence on a user-visible surface; a wrong error `code`/type/order on a common path; a Node global or `ERR_*` code reachable from a page. |
 
-Deviation is legitimate **only** for measured speed or memory control — and then
+`F` blocks the merge. `C` blocks a PR that claims parity. Until the stage-0
+Chrome corpus covers a surface, a Window-profile change is at best `C`: it may
+merge if it does not claim parity and the PR names the recording still owed.
+
+Deviation is legitimate **only** for measured speed or memory control, or an
+explicit non-goal in `docs/LARVA.md` — and then
 the trade must be written at the call site and in the PR body.
 
 ### 2. Speed and memory (secondary)
@@ -35,14 +42,14 @@ code reads.
 
 Each gate is pass / fail. Any fail with an open **P0** blocks.
 
-| Gate          | Owner agent             | Fails when                                                                                                                                                 |
-| ------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Correctness   | `regression-hunter`     | Introduced defect, removed behavior, broken wiring.                                                                                                        |
-| Native safety | `odin-safety-auditor`   | UAF, race, GC hazard, allocator mismatch, lying stub, false probe latch.                                                                                   |
-| Security      | `security-auditor`      | Reachable memory corruption, verification bypass, single-peer DoS, pollution vector, path escape, secret disclosure.                                       |
-| Test coverage | `test-coverage-auditor` | New behavior or bug fix with no test; test deleted or gap widened without reason; smoke not wired into CI.                                                 |
-| Code quality  | `code-quality-auditor`  | Duplicates an existing helper or SDK routine on a hot path; wrong layer; file past ~1k with no split; high incidental complexity with a clear delete path. |
-| Documentation | `docs-auditor`          | A repo document is now false; a lifetime/probe/deviation rule shipped unexplained.                                                                         |
+| Gate          | Owner agent             | Fails when                                                                                                                                                                                            |
+| ------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Correctness   | `regression-hunter`     | Introduced defect, removed behavior, broken wiring.                                                                                                                                                   |
+| Native safety | `odin-safety-auditor`   | UAF, race, GC hazard, allocator mismatch, lying stub, false probe latch, VM entered off-thread, state crossing pages in a reused VM, arena freed before wrappers.                                     |
+| Security      | `security-auditor`      | Reachable memory corruption, verification bypass, single-peer or single-page DoS, page/session isolation break, Node surface reachable from a page, pollution vector, path escape, secret disclosure. |
+| Test coverage | `test-coverage-auditor` | New behavior or bug fix with no test; test deleted or gap widened without reason; smoke not wired into CI.                                                                                            |
+| Code quality  | `code-quality-auditor`  | Duplicates an existing helper or SDK routine on a hot path; wrong layer; file past ~1k with no split; high incidental complexity with a clear delete path.                                            |
+| Documentation | `docs-auditor`          | A repo document is now false; a lifetime/probe/deviation rule shipped unexplained.                                                                                                                    |
 
 Reuse (`odin-sdk-scout`) is not a separate gate — it feeds Code quality: a
 hand-rolled routine that `core:`/`vendor:`/an already-linked C library implements
@@ -52,7 +59,7 @@ is a Code-quality **P1** with the concrete deletion named.
 
 | Severity | Meaning                                                                                                                                                   | Action                                            |
 | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| **P0**   | Correctness, safety, security, or an undeclared Node divergence.                                                                                          | Blocks merge.                                     |
+| **P0**   | Correctness, safety, security, isolation, or an undeclared divergence from the oracle.                                                                    | Blocks merge.                                     |
 | **P1**   | Structural or contract problem: duplicated helper on a hot path, wrong layer, unproven perf claim, missing test for the main path, a document made false. | Fix, or waive explicitly in the PR with a reason. |
 | **P2**   | Real improvement, not a blocker.                                                                                                                          | Optional in this PR.                              |
 | **nit**  | Style, wording.                                                                                                                                           | Ignore unless free.                               |

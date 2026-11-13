@@ -41,8 +41,24 @@ Ask of each structural change: _is there a version of this with zero new concept
 
 - **Layer**: engine/string/view/host ABI → `pkg/jsc`; Node Buffer codecs →
   `pkg/runtime/buffer*.odin`; HTTP → `http.odin` + `js/internal/http.js`; loop
-  mechanics → `pkg/runtime/eventloop`. Logic in the wrong package is a P1 even if
-  it works — `environment.odin` accumulating a UTF-16 bridge is the standing example.
+  mechanics → `pkg/runtime/eventloop`; VM pooling and page/VM lifecycle →
+  `vm_pool.odin` and the page layer, not sprinkled through `eval`. Logic in the
+  wrong package is a P1 even if it works — `environment.odin` accumulating a
+  UTF-16 bridge is the standing example.
+- **Larva layers** (`docs/LARVA.md`; packages land as the roadmap does):
+  - **Profiles.** Node-vs-Window behavior is chosen by what the profile
+    injects (error constructors, byte helpers, the global set), never by
+    `if profile == …` checks scattered through shared Web API code. A shared
+    file importing Node error helpers or `buffer` directly is in the wrong
+    layer.
+  - **Adapters.** A caller's wire format, routing lists and compatibility shims
+    live in `pkg/adapters`. Any of that reaching the engine is a P1.
+  - **DOM.** The tree lives in Odin in a per-page arena; JSC holds only
+    wrappers. Tree state kept on the JS side, or a second tree, is a P1.
+  - **HTML parser.** Behind our own incremental interface (chunks, pause at
+    `<script>`, `document.write`). Calling the vendored parser directly from
+    elsewhere, or adding a batch `parse(string)` path, defeats the seam.
+  - **Network state** belongs to a session, not to the process or a thread.
 - **Size**: `pkg/runtime/buffer.odin` stays under ~1000 lines; any file crossing
   ~1000 without a split plan is a finding. Check with `wc -l` on the changed files.
 - Feature checks scattered into shared inject/require paths instead of living at

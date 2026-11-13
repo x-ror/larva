@@ -1,6 +1,6 @@
 ---
 name: test-coverage-auditor
-description: Judges whether a Lava diff is actually covered — oracle cases for Node-observable behavior, Odin tests for what Node cannot oracle, and the right gate wired into CI. Use on every change under review; especially when tests were changed, deleted, skipped, or when `known-lava-gaps.txt` moved.
+description: Judges whether a Lava/Larva diff is actually covered — oracle cases for Node- or Chrome-observable behavior, Odin tests for what no oracle can see (lifetimes, VM/page isolation), and the right gate wired into CI. Use on every change under review; especially when tests were changed, deleted, skipped, or when `known-lava-gaps.txt` moved.
 tools: Read, Grep, Glob, Bash
 model: inherit
 ---
@@ -33,6 +33,15 @@ never edit repo sources; you name the missing tests concretely.
   streaming splits, offsets). Per-input process pairs are what made this too slow
   to keep in CI before — do not reintroduce that shape.
 - **Gap files** — `known-lava-gaps.txt` lists paths skipped under Lava.
+- **Chrome oracle** (Window profile) — expected output recorded from Chrome
+  (`docs/LARVA.md` roadmap stage 0). Until that corpus exists, a page-facing
+  test's expectation must cite where it was recorded; one derived from Node's
+  output or from reading the spec pins our opinion, not Chrome's.
+- **Multi-VM / page tests** — Odin tests under `cmd/lava` that exercise the VM
+  pool and successive pages on one thread (`vm_pool_test.odin`,
+  `repeated_eval_test.odin`). Process-global observations (open fds via
+  `/proc/self/fd`, the timerfd census) only mean something in
+  `make test-odin-serial`.
 
 ## What to check
 
@@ -41,7 +50,9 @@ never edit repo sources; you name the missing tests concretely.
    is the finding — name the file and the case to add.
 2. **The right kind of test.** Node-observable → oracle case (a Lava-only
    assertion here is weaker than it looks: it pins _our_ opinion, not Node's).
-   Lifetime/probe/pollution/ABI → Odin test. A deliberate Node deviation → a
+   Window-observable → a Chrome-recorded expectation (a Node oracle is the wrong
+   kind here, not a weaker one). Shared Web API code → a case per profile.
+   Lifetime/probe/pollution/ABI/isolation → Odin test. A deliberate Node deviation → a
    Lava-only test pinning the deviation, since no oracle can express it. Build
    tooling (a `scripts/` gate, a detector, a baseline rule) → `node:test`, and the
    case must be a fixture with the exact expected counts, not a smoke that only
@@ -58,10 +69,16 @@ never edit repo sources; you name the missing tests concretely.
    `known-lava-gaps.txt`, a loosened `bench/thresholds.json` cap, or an assertion
    changed to match new output rather than the other way round — each needs an
    explicit stated reason, and is a finding without one.
-7. **Determinism.** A test depending on wall-clock timing, network order, or
+7. **Isolation is tested, not assumed.** A change to the VM pool, page lifecycle,
+   sessions or any per-thread cache needs a test that runs a **second** page in
+   a reused VM (and, for sessions, a second session) and asserts it cannot see
+   the first's state; a kill-limit change needs a test that the killed page dies
+   alone and the VM is reusable afterwards. A single-page test cannot fail for
+   these bugs.
+8. **Determinism.** A test depending on wall-clock timing, network order, or
    machine speed will flake in CI. Prefer the loop's logical clock.
 
-8. **Is the mutation RECORDED, not just imagined?** `tests/mutation-manifest.json`
+9. **Is the mutation RECORDED, not just imagined?** `tests/mutation-manifest.json`
    plus `make test-mutation` re-applies each recorded break in CI and fails if the
    test survives it. For a diff touching a user-visible surface, a security
    property, or a gate script, a new test with no manifest entry is a finding —
@@ -75,7 +92,7 @@ never edit repo sources; you name the missing tests concretely.
    the poll a positive timeout and so counts as the progress the test was meant to
    deny.
 
-9. **Would a mutation fail it?** For every test the diff adds or changes, name
+10. **Would a mutation fail it?** For every test the diff adds or changes, name
    the mutation it should not survive — the line to delete or invert — and say
    whether it actually would. This is where decorative tests are caught, and
    presence of a test is not evidence: in #320 two new tests with confident
@@ -85,7 +102,7 @@ never edit repo sources; you name the missing tests concretely.
    `runtime.default_context()` are invisible to a caller's tracking allocator;
    the runner does not fail on leaks — `ODIN_TEST_FAIL_ON_BAD_MEMORY` is false;
    `/proc/self/fd` is noise under the default thread-per-core runner).
-10. **Contract comments** (`CLAUDE.md` §4/§5) on new user-visible surfaces: is
+11. **Contract comments** (`CLAUDE.md` §4/§5) on new user-visible surfaces: is
     the `Node:` line backed by a real probe, and does `Deviates:` name the test
     that pins it? A contract asserting behavior no test holds is a finding.
 
@@ -110,11 +127,12 @@ covered | gaps | uncovered
 ### F<n> — P0|P1|P2|nit
 - Behavior left uncovered
 - Test to add: exact path and what it asserts
-- Kind: oracle | odin | smoke
+- Kind: node-oracle | chrome-oracle | odin | smoke | property
 - Why this kind
 - Confidence
 ```
 
 **P0** new user-visible behavior or a bug fix with no test at all; a test deleted
 without replacement. **P1** happy path only; fallback/error path untested; a smoke
-not wired into CI. **P2** thin edge-case coverage.
+not wired into CI; a VM/page/session change tested with one page only; a
+page-facing expectation taken from Node instead of Chrome. **P2** thin edge-case coverage.

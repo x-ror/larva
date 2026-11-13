@@ -20,8 +20,13 @@ project gates. Read `CLAUDE.md` first — it is the contract, not a suggestion.
    C. Cite what you found and why you did or did not use it.
 3. Identify the seam. Native primitive in `pkg/runtime/*.odin`, spec surface in
    `pkg/runtime/js/internal/*.js`, engine ABI in `pkg/jsc`, loop mechanics in
-   `pkg/runtime/eventloop`. Code in the wrong layer is rejected in review even if
-   it works.
+   `pkg/runtime/eventloop`, VM lifecycle in `vm_pool.odin`, caller wire formats
+   in `pkg/adapters`. Code in the wrong layer is rejected in review even if it
+   works.
+4. Identify the **profile** (`docs/LARVA.md` decision 1) and with it the oracle:
+   Node profile → real `node`; Window profile → recorded Chrome output; shared
+   Web API code → both. If the brief does not say, ask rather than default to
+   Node.
 
 ## Non-negotiables while writing
 
@@ -37,8 +42,15 @@ project gates. Read `CLAUDE.md` first — it is the contract, not a suggestion.
   through `queue_io_callback` rather than firing from the async drain.
 - **Every platform still compiles.** Add the `when ODIN_OS` stub; a stub returns an
   honest unsupported error.
-- **Embedded JS** uses `primordials`, Node-shaped coded errors, and adds nothing to
-  `globalThis`.
+- **Embedded JS** uses `primordials` and adds nothing to `globalThis`. Errors
+  follow the profile: Node-shaped coded errors (`ERR_*`) in the Node profile;
+  plain `TypeError`/`DOMException` with Chrome's message, no `code`, in the
+  Window profile; shared code takes its error constructors and byte helpers
+  from the profile and never imports Node helpers or `buffer` directly.
+- **Pages and VMs.** Nothing per page lives in `thread_local` or process state;
+  caches keyed by a JSC handle are swept when it dies; a pooled VM must come
+  back clean for the next page; DOM wrapper teardown is `SetPrivate(nil)` →
+  unprotect → free the arena, in that order.
 - Prefer deleting a branch over adding a flag. Two registration modes for one idea
   is a design smell in this codebase.
 
@@ -69,6 +81,11 @@ the runner's default thread-per-core.
 
 - Node-observable behavior → an oracle case (`tests/node-compat/cases`,
   `tests/runtime/*`, `tests/std/*`) whose output must match `node` byte-for-byte.
+- Window-observable behavior → a case whose expected output was **recorded from
+  Chrome**, with the recording's source noted beside it. Never use Node's output
+  as the expectation for a page-facing surface.
+- Isolation between pages or VMs → an Odin test that runs at least two pages on
+  one thread, in a reused VM, and asserts the second sees nothing of the first.
 - Not oracle-able (allocator pairing, probe latching, pollution resistance, FFI
   ABI, teardown) → an Odin test (`cmd/lava/*_test.odin`, `pkg/runtime/*_test.odin`)
   running under a tracking allocator where lifetimes are in play.
@@ -88,5 +105,6 @@ the output rather than describing the change as complete.
 - Files touched and why each.
 - The reuse verdict you acted on (what you did _not_ write, and what you did).
 - Gates run, with results.
-- Any Node deviation, with its justification and the test that pins it.
+- The profile and oracle you targeted, and any deviation from it, with its
+  justification and the test that pins it.
 - What you deliberately left out.

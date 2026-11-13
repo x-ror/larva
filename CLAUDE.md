@@ -269,8 +269,14 @@ Rules that keep this from becoming ceremony:
   TextDecoder JS path.
 - Nothing transient lands on `globalThis`; natives arrive as the factory's fourth
   argument.
-- Errors are Node-shaped coded errors (`ERR_INVALID_ARG_TYPE`, `ERR_OUT_OF_RANGE`)
-  with Node's exact message template.
+- Errors follow the **profile** ([docs/LARVA.md](docs/LARVA.md) decision 1). Node
+  profile: Node-shaped coded errors (`ERR_INVALID_ARG_TYPE`, `ERR_OUT_OF_RANGE`)
+  with Node's exact message template. Window profile (anything a page can reach):
+  plain `TypeError`/`RangeError`/`DOMException` with Chrome's message and no
+  `code`, byte results as plain `Uint8Array`, and no `process`/`require`/`Buffer`
+  reachable. Shared Web API code (`url.js`, `encoding.js`, …) takes its error
+  constructors and byte helpers from the profile and never imports Node error
+  helpers or `buffer` directly.
 - Native byte ops should stay behind a size threshold so small inputs skip FFI
   overhead. NOTE: the constant this rule used to name (`NATIVE_BYTEOP_MIN`) does not
   exist — `bytesToString` crosses to a native codec at every size. Treat the rule as
@@ -298,10 +304,16 @@ Rules that keep this from becoming ceremony:
 ## 6. Tests
 
 Oracle-first: a behavior is correct when the same script produces byte-identical
-output under `node` and under `bin/lava`. Add cases to
-`tests/node-compat/cases`, `tests/runtime/*`, `tests/std/*`. Lava-only Odin tests
-(`cmd/lava/*_test.odin`, `pkg/runtime/*_test.odin`) are for what Node cannot
-oracle: allocator pairing, probe latching, pollution resistance, FFI ABI.
+output under its oracle and under `bin/lava`. Node profile: the oracle is `node`;
+add cases to `tests/node-compat/cases`, `tests/runtime/*`, `tests/std/*`. Window
+profile: the oracle is output **recorded from Chrome** (roadmap stage 0), kept with
+its source; Node's output is never the expectation for a page-facing surface, and
+until a recording exists the behavior is unverified, not passing. Shared Web API
+code needs a case per profile. Lava-only Odin tests (`cmd/lava/*_test.odin`,
+`pkg/runtime/*_test.odin`) are for what no oracle can see: allocator pairing, probe
+latching, pollution resistance, FFI ABI, and isolation between pages and VMs — a
+second page in a reused VM must see nothing of the first, which a single-page
+test cannot show.
 
 Widening `known-lava-gaps.txt` is a regression and needs an explicit reason.
 

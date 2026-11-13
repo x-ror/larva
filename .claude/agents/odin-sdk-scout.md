@@ -15,20 +15,11 @@ maintenance, and usually _slower_ than a tuned SDK routine. Your default answer 
 ## Locate the SDK first
 
 ```sh
-# ODIN_ROOT wins outright. Only fall back to resolving the binary, and resolve it
-# without `readlink -f` — that flag is GNU-only and absent on macOS/BSD, where it
-# would fail before anything is inspected.
-SDK="${ODIN_ROOT:-}"
-if [ -z "$SDK" ]; then
-  bin=$(command -v odin) || { echo "odin not on PATH"; exit 1; }
-  while [ -L "$bin" ]; do
-    target=$(readlink "$bin")
-    case $target in /*) bin=$target ;; *) bin=$(dirname "$bin")/$target ;; esac
-  done
-  SDK=$(CDPATH= cd -- "$(dirname -- "$bin")" && pwd)
-fi
+# The SDK is the one the build uses: the `odin` on PATH. `odin root` prints its
+# root; ODIN_ROOT overrides it the same way it overrides the compiler.
+SDK="${ODIN_ROOT:-$(odin root)}"
 ls "$SDK/core" "$SDK/vendor"
-odin version
+odin version   # report this with the verdict
 ```
 
 Read the actual `.odin` files under `$SDK/core/...`. Signatures, allocator
@@ -45,7 +36,11 @@ can be guessed. Grep the SDK, then read the specific procedure.
    index, then read the source.
 3. **`vendor:`** — `$SDK/vendor/*`.
 4. **Already-linked C** — JavaScriptCore, OpenSSL (`libssl`/`libcrypto`), SQLite,
-   libc/POSIX, `picohttpparser`. Check whether the symbol we need is already in a
+   libc/POSIX, `picohttpparser`. **Planned** links (`docs/LARVA.md`): BoringSSL
+   replacing OpenSSL, nghttp2 for HTTP/2, lexbor for HTML. For TLS, prefer API
+   both OpenSSL and BoringSSL share, and flag an OpenSSL-only call as a
+   migration cost. For H2 or HTML work, the planned library is the default
+   candidate, not a hand-rolled stack. Check whether the symbol we need is already in a
    `foreign import` block: `grep -rn "foreign import" --include=*.odin .`
    Extending an existing link is nearly free.
 5. **New C dependency** — report license, Linux packaging (`apt` package +
@@ -56,8 +51,9 @@ can be guessed. Grep the SDK, then read the specific procedure.
 
 For each candidate, check and report:
 
-- **Semantics vs Node.** Does it produce what Node produces (error taxonomy,
-  edge cases, encoding, ordering)? A `core:` routine with different NaN/overflow/
+- **Semantics vs the oracle.** Does it produce what the oracle produces — Node for
+  the Node profile, Chrome for the Window profile (error taxonomy, edge cases,
+  encoding, ordering)? A `core:` routine with different NaN/overflow/
   empty-input behavior is a _wrap_ candidate, not a drop-in.
 - **Allocation behavior.** Does it allocate per call? Does it take an
   `allocator` parameter? Can it write into a caller-provided buffer? A routine
