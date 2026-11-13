@@ -134,6 +134,12 @@ Loop :: struct {
 	on_shutdown_data:   rawptr,
 	shutdown_mutex:     sync.Mutex,
 	destroyed:          bool,
+	// never_block makes every tick's poll phase non-blocking (timeout 0). Set by a
+	// driver that multiplexes several loops on one thread (the page runner): one
+	// loop must not sleep in its own poll while another loop's page has work. That
+	// driver does the blocking itself, on every loop's backend_fd at once, bounded by
+	// the smallest wait_hint_ms.
+	never_block:        bool,
 }
 
 // Shutdown_Hook runs ONCE on the loop thread the first time run_once observes a stop request. The net
@@ -824,6 +830,7 @@ run_once :: proc(loop: ^Loop) -> bool {
 
 	if has_nothing_to_do {
 		timeout_ms := get_next_timer_timeout(loop)
+		if loop.never_block do timeout_ms = 0
 		// With no timers but pending I/O, block indefinitely until an fd is ready
 		// rather than spinning (get_next_timer_timeout returns -1 in that case).
 		if timeout_ms != 0 || loop.active_io_count > 0 || loop.active_async > 0 {
@@ -1011,11 +1018,36 @@ run :: proc(loop: ^Loop) {
 	// active_io_count/active_async keep has_pending_work true forever.
 	// force_exit (the Forced shutdown state) exits even while work is pending: a listening server keeps
 	// active_io_count > 0 forever, so without it a stop request could never end run().
-	// lava_runtime.run_limited copies this condition for pages under CPU limits; keep
-	// the two in step.
+	// lava_runtime.page_tick copies this condition for pages; keep the two in step.
 	for has_pending_work(loop) && !loop.backend_error && !loop.force_exit {
 		run_next(loop)
 	}
+}
+
+// backend_fd returns a descriptor that becomes readable when this loop has I/O or a
+// cross-thread wakeup to process: the epoll fd, or the io_uring ring fd (readable
+// while its completion queue is non-empty). For a driver that waits on many loops at
+// once. ok is false on backends that have no such descriptor (darwin, windows: they
+// are stubs for this use) and when the backend failed to initialize.
+backend_fd :: proc(loop: ^Loop) -> (fd: uintptr, ok: bool) {
+	if loop.backend != .Native do return 0, false
+	return platform_backend_fd(loop)
+}
+
+// wait_hint_ms is how long a multi-loop driver may block before this loop needs
+// another tick: 0 when work is runnable now, the time to the next timer, or -1 when
+// only I/O (seen through backend_fd) or nothing can wake it. Samples the real clock
+// first, so a timer that came due while another loop ran reports 0.
+wait_hint_ms :: proc(loop: ^Loop) -> int {
+	sync_real_clock(loop)
+	if len(loop.next_ticks) > 0 ||
+	   len(loop.microtasks) > 0 ||
+	   active_immediate_count(loop) > 0 ||
+	   active_io_callback_count(loop) > 0 ||
+	   active_close_count(loop) > 0 {
+		return 0
+	}
+	return get_next_timer_timeout(loop)
 }
 
 // get_next_timer_timeout returns milliseconds until the next timer fires.

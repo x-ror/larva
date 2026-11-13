@@ -71,6 +71,12 @@ decides which traffic goes to Larva and which stays on Chrome.
      scenario C (one warm pooled VM) vs A (a fresh VM per page), each page
      evaluating 8 embedded runtime modules plus a 200k-iteration loop, mean of
      100 pages per launch, medians of 5 interleaved launches per arm.
+   - **one event loop per page**, interleaved by a per-thread page runner
+     (`page_runner.odin`): closing a page destroys its loop, which cancels
+     everything the page registered, so nothing can fire into the next page
+     that reuses the VM. No page loop blocks on its own; when no page can
+     progress the runner blocks on every page loop's descriptor at once,
+     bounded by the nearest timer;
    - Pages on one thread still share its CPU. A long synchronous script delays the
      thread's other pages up to the execution limit; threads are sized to cores.
    - every process-global and thread-local is audited for page isolation in

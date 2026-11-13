@@ -1349,6 +1349,34 @@
       "replace": "\tvm.entry_limit = 0\n",
       "gate": "odin:cmd/lava:main.cpu_budget_is_cleared_on_release",
       "expect_detail": "a cleared budget still terminated the next page"
+    },
+    {
+      "name": "runner_busy_page_is_not_held_up_by_a_waiting_sibling dies when a page loop may block in its own poll",
+      "why": "A page loop that blocks on its own timer stalls every other page on the thread, so ten 300 ms pages run one after another.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\trp.loop.never_block = true\n",
+      "replace": "\trp.loop.never_block = false\n",
+      "gate": "odin:cmd/lava:main.runner_busy_page_is_not_held_up_by_a_waiting_sibling",
+      "expect_detail": "it waited on its sibling's timers"
+    },
+    {
+      "name": "runner_pages_wait_concurrently dies when the runner spins instead of waiting on the page loops",
+      "why": "Without the epoll wait an idle runner busy-loops over its pages, burning a core while every page sleeps.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\t\tif !progressed && len(runner.pages) > 0 do runner_wait(runner)\n",
+      "replace": "\n",
+      "gate": "odin:cmd/lava:main.runner_pages_wait_concurrently",
+      "expect_detail": "runner burned"
+    },
+    {
+      "name": "runner_fd_count_stays_flat_over_10k_pages dies when a closed page keeps its loop open",
+      "why": "Every page loop owns an epoll or io_uring fd plus a wakeup pipe; a page close that skips the loop teardown leaks three fds per page.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\teventloop.destroy(page.loop)\n",
+      "replace": "\n",
+      "gate": "odin:cmd/lava:main.runner_fd_count_stays_flat_over_10k_pages",
+      "expect_detail": "fd count grew",
+      "timeout_ms": 600000
     }
   ]
 }

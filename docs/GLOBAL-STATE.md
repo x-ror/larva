@@ -59,11 +59,14 @@ Each of these is reached through `Runtime_State` or the loop, not through a glob
 so the scan above does not find them. The thread's pages still share them, so they
 are listed here for the page work:
 
-- **The event loop.** There is one per thread, and every page on the thread
-  registers timers, watchers and thread-pool jobs on it. Closing a page must cancel
-  everything that page registered. A page's timers must never fire into the next
-  page that reuses the VM. This needs a per-page owner tag on loop handles; it does
-  not exist yet.
+- **The event loop.** Not shared: each page has its own loop (`page.odin`), and the
+  page runner (`page_runner.odin`) interleaves the loops of a thread's pages, blocking
+  on all their descriptors at once when none can progress. Everything a page
+  registers — timers, watchers, thread-pool jobs — lives on its loop, so closing the
+  page destroys the loop and cancels all of it; no per-handle owner tag is needed, and
+  a page's timer cannot fire into the next page that reuses its VM. Cost: the loop's
+  descriptors (epoll or io_uring plus a wakeup pipe) while the page lives. Pinned by
+  `cmd/lava/page_runner_test.odin` (the fd count stays flat over 10k pages).
 - **The VM's microtask queue.** It is drained on every exit from the C API. Because
   a VM hosts one page at a time, the queue holds only that page's jobs, as long as
   the page drains or drops them before it releases the VM.

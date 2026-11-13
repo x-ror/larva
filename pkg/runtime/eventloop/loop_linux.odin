@@ -313,6 +313,14 @@ platform_unwatch_fd :: proc(loop: ^Loop, watcher: ^IO_Watcher) -> bool {
 	return err == nil
 }
 
+// platform_backend_fd: the ring fd under io_uring (pollable, readable while CQEs are
+// pending — the wakeup pipe completes through the ring too), else the epoll fd (the
+// wakeup pipe is in its set).
+platform_backend_fd :: proc(loop: ^Loop) -> (uintptr, bool) {
+	if loop.platform.use_uring do return uintptr(loop.platform.ring.fd), loop.platform.ring.fd >= 0
+	return uintptr(loop.platform.epoll_fd), loop.platform.epoll_fd >= 0
+}
+
 platform_poll :: proc(loop: ^Loop, timeout_ms: int) {
 	if loop.platform.use_uring {
 		platform_poll_uring(loop, timeout_ms)

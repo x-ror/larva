@@ -104,6 +104,10 @@ platform_unwatch_fd :: proc(loop: ^Loop, watcher: ^IO_Watcher) -> bool {
 	return err == .NONE
 }
 
+// No multi-loop driver on this target yet (Linux-first): backend_fd reports false,
+// and the page runner refuses to start.
+platform_backend_fd :: proc(loop: ^Loop) -> (uintptr, bool) {return 0, false}
+
 platform_poll :: proc(loop: ^Loop, timeout_ms: int) {
 	events: [32]kqueue.KEvent
 
