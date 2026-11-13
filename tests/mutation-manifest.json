@@ -1258,11 +1258,11 @@
       "expect_detail": "budget kill misattributed to the entry limit"
     },
     {
-      "name": "cpu_budget_clamps_to_the_budget_left dies when vm_cpu_enter stops re-arming the watchdog",
+      "name": "cpu_budget_clamps_to_the_budget_left dies when the watchdog is never re-armed as the budget shrinks",
       "why": "Armed once at the full budget, a runaway entry late in the page gets the whole budget again instead of what is left.",
       "source": "pkg/runtime/vm_pool.odin",
-      "find": "\tvm.cpu_mark_ns = thread_cpu_ns()\n\tvm_arm_watchdog(vm)",
-      "replace": "\tvm.cpu_mark_ns = thread_cpu_ns()",
+      "find": "max(0.001, vm.armed_limit * 0.1)",
+      "replace": "max(0.001, vm.armed_limit * 10)",
       "gate": "odin:cmd/lava:main.cpu_budget_clamps_to_the_budget_left",
       "expect_detail": "runaway entry was given"
     },
