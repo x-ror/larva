@@ -116,14 +116,14 @@ cpu_budget_is_cleared_on_release :: proc(t: ^testing.T) {
 	testing.expect(t, exc != nil, "runaway entry was not terminated by the budget")
 	testing.expect(t, vm.budget_hit, "termination not attributed to the budget")
 	testing.expect(t, !vm.limit_hit, "budget kill misattributed to the entry limit")
-	testing.expect(t, lava.vm_cpu_over_budget(vm), "over-budget VM not reported")
+	testing.expect_value(t, lava.vm_kill_reason(vm), lava.Kill_Reason.Cpu_Budget)
 	jsc.JSGlobalContextRelease(ctx)
 	lava.vm_release(vm)
 
 	vm2, _ := lava.vm_acquire(&pool)
 	testing.expect(t, vm2 == vm, "pool did not reuse its only VM")
 	testing.expect(t, !vm2.budget_hit, "budget_hit survived release")
-	testing.expect(t, !lava.vm_cpu_over_budget(vm2), "over-budget state survived release")
+	testing.expect_value(t, lava.vm_kill_reason(vm2), lava.Kill_Reason.None)
 	testing.expect(t, vm2.cpu_budget_ns == 0, "budget survived release")
 	testing.expect_value(t, vm2.cpu_used_ns, 0)
 	ctx2 := lava.vm_create_context(vm2, nil)
@@ -136,4 +136,69 @@ cpu_budget_is_cleared_on_release :: proc(t: ^testing.T) {
 	testing.expect(t, exc2 == nil, "a cleared budget still terminated the next page")
 	jsc.JSGlobalContextRelease(ctx2)
 	lava.vm_release(vm2)
+}
+
+// The watchdog must follow the budget LEFT, not the budget set: after ~0.85 s of a
+// 1 s budget spent in short callbacks, a runaway entry gets ~0.15 s, not a fresh 1 s.
+// Without the re-arm in vm_cpu_enter the page runs ~1.85 s.
+@(test)
+cpu_budget_clamps_to_the_budget_left :: proc(t: ^testing.T) {
+	src := `
+	const t0 = Date.now();
+	function spin() {
+		const s = Date.now();
+		while (Date.now() - s < 2) {}
+		if (Date.now() - t0 < 850) setTimeout(spin, 0);
+		else setTimeout(() => { while (true) {} }, 0);
+	}
+	setTimeout(spin, 0);
+	`
+	before := thread_cpu_s()
+	result := eval_limited(src, {cpu_budget = 1.0})
+	defer lava.result_destroy(&result)
+	spent := thread_cpu_s() - before
+	testing.expect_value(t, result.kill, lava.Kill_Reason.Cpu_Budget)
+	testing.expectf(t, spent < 1.35, "runaway entry was given %.3fs of CPU against a 1s budget", spent)
+}
+
+// Nested enters are one stretch: only the outermost pair reads the clock, so time
+// inside a nested pair is charged once.
+@(test)
+cpu_nested_enter_charges_once :: proc(t: ^testing.T) {
+	pool: lava.VM_Pool
+	lava.vm_pool_init(&pool, 1, context.allocator)
+	defer lava.vm_pool_destroy(&pool)
+	vm, _ := lava.vm_acquire(&pool)
+	if vm == nil do testing.fail_now(t, "no VM")
+	defer lava.vm_release(vm)
+	lava.vm_set_cpu_budget(vm, 100)
+
+	burn :: proc(seconds: f64) {
+		s := thread_cpu_s()
+		for thread_cpu_s() - s < seconds {}
+	}
+	before := thread_cpu_s()
+	lava.vm_cpu_enter(vm)
+	lava.vm_cpu_enter(vm)
+	burn(0.05)
+	lava.vm_cpu_exit(vm)
+	burn(0.05)
+	lava.vm_cpu_exit(vm)
+	wall := thread_cpu_s() - before
+	used := f64(vm.cpu_used_ns) / 1e9
+	testing.expectf(t, used <= wall + 0.005, "nested stretch charged %.3fs for %.3fs of CPU", used, wall)
+	testing.expectf(t, used >= 0.095, "only %.3fs of a ~0.1s stretch was charged", used)
+}
+
+// A killed page leaves nothing behind for the next eval on the thread's pool: the
+// next page runs unlimited and completes.
+@(test)
+eval_after_a_killed_page_runs_unlimited :: proc(t: ^testing.T) {
+	killed := eval_limited("while (true) {}", {cpu_budget = 0.05})
+	lava.result_destroy(&killed)
+	loop := eventloop.init(real_time = true)
+	result := lava.eval("var s = Date.now(); while (Date.now() - s < 150) {}", "<after-kill>", &loop, false)
+	defer lava.result_destroy(&result)
+	testing.expect_value(t, result.status, lava.Status.Ok)
+	testing.expect_value(t, result.kill, lava.Kill_Reason.None)
 }

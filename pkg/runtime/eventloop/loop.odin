@@ -1011,6 +1011,8 @@ run :: proc(loop: ^Loop) {
 	// active_io_count/active_async keep has_pending_work true forever.
 	// force_exit (the Forced shutdown state) exits even while work is pending: a listening server keeps
 	// active_io_count > 0 forever, so without it a stop request could never end run().
+	// lava_runtime.run_limited copies this condition for pages under CPU limits; keep
+	// the two in step.
 	for has_pending_work(loop) && !loop.backend_error && !loop.force_exit {
 		run_next(loop)
 	}

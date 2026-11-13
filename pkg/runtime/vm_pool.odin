@@ -247,22 +247,15 @@ vm_cpu_enter :: proc(vm: ^VM) {
 	vm_arm_watchdog(vm)
 }
 
-// vm_cpu_exit charges the time since the matching vm_cpu_enter to the VM and returns
-// whether the budget is now spent.
-vm_cpu_exit :: proc(vm: ^VM) -> (over_budget: bool) {
-	if vm == nil || vm.cpu_budget_ns == 0 || vm.cpu_depth == 0 do return false
+// vm_cpu_exit charges the time since the matching vm_cpu_enter to the VM and marks
+// the holder over budget once it is spent. vm_kill_reason reports the outcome.
+vm_cpu_exit :: proc(vm: ^VM) {
+	if vm == nil || vm.cpu_budget_ns == 0 || vm.cpu_depth == 0 do return
 	vm.cpu_depth -= 1
 	if vm.cpu_depth == 0 {
 		vm.cpu_used_ns += max(thread_cpu_ns() - vm.cpu_mark_ns, 0)
 	}
 	if vm.cpu_used_ns >= vm.cpu_budget_ns do vm.budget_hit = true
-	return vm.budget_hit
-}
-
-// vm_cpu_over_budget reports whether the VM's holder has spent its CPU budget,
-// whether vm_cpu_exit noticed it or the watchdog cut an entry short.
-vm_cpu_over_budget :: proc(vm: ^VM) -> bool {
-	return vm != nil && vm.budget_hit
 }
 
 // vm_kill_reason reports which limit, if any, has ended the VM's current holder. The
@@ -299,9 +292,10 @@ vm_arm_watchdog :: proc(vm: ^VM) {
 		return
 	}
 	// Re-arm when the clamp tightens by more than a tenth of the armed value (or the
-	// reason changes, or it loosens — which within one holder only vm_set_* does). So
-	// a page with a 30 s budget re-arms a few dozen times over its life, not once per
-	// tick, and an entry can overrun the budget left by at most that tenth.
+	// reason changes, or it loosens — which within one holder only vm_set_* does). The
+	// armed value then shrinks geometrically, so a budget B re-arms at most about
+	// log(B / 1 ms) / log(1/0.9) times over a page's life — ~98 for B = 30 s — instead
+	// of once per tick, and an entry can overrun the budget left by at most that tenth.
 	if vm.armed_limit > 0 && by_budget == vm.armed_by_budget && want <= vm.armed_limit &&
 	   vm.armed_limit - want < max(0.001, vm.armed_limit * 0.1) {
 		return

@@ -49,9 +49,11 @@ decides which traffic goes to Larva and which stays on Chrome.
    - **CPU kill:** `JSContextGroupSetExecutionTimeLimit` per VM. The watchdog
      measures time since VM entry, so a runaway script is stopped without
      touching other pages. It only covers one synchronous entry, so the page
-     also sums `CLOCK_THREAD_CPUTIME_ID` around every entry into its VM and is
-     killed when the total passes its CPU budget. Wall-clock page deadlines are
-     event-loop timers;
+     also sums `CLOCK_THREAD_CPUTIME_ID` over its runtime install, top-level
+     script and every event-loop tick (`vm_cpu_enter`/`vm_cpu_exit`), and is
+     killed when the total passes its CPU budget. The watchdog is clamped to
+     the budget left, so one long entry cannot overrun it either. Wall-clock
+     page deadlines are event-loop timers;
    - **memory:** the VM's heap belongs to one page at a time, so heap growth can
      be attributed and capped. Pools are fixed-size: every VM ever created keeps
      one `timerfd` open for the life of the process, so retiring a VM is a rare,

@@ -1256,6 +1256,33 @@
       "replace": "\tif !vm.armed_by_budget {\n\t\tvm.budget_hit = true",
       "gate": "odin:cmd/lava:main.cpu_budget_is_cleared_on_release",
       "expect_detail": "budget kill misattributed to the entry limit"
+    },
+    {
+      "name": "cpu_budget_clamps_to_the_budget_left dies when vm_cpu_enter stops re-arming the watchdog",
+      "why": "Armed once at the full budget, a runaway entry late in the page gets the whole budget again instead of what is left.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tvm.cpu_mark_ns = thread_cpu_ns()\n\tvm_arm_watchdog(vm)",
+      "replace": "\tvm.cpu_mark_ns = thread_cpu_ns()",
+      "gate": "odin:cmd/lava:main.cpu_budget_clamps_to_the_budget_left",
+      "expect_detail": "runaway entry was given"
+    },
+    {
+      "name": "cpu_nested_enter_charges_once dies when nested enters each read the clock",
+      "why": "Without the depth check a nested enter resets the mark, so the outer stretch's time before it is lost.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tvm.cpu_depth += 1\n\tif vm.cpu_depth > 1 do return",
+      "replace": "\tvm.cpu_depth += 1",
+      "gate": "odin:cmd/lava:main.cpu_nested_enter_charges_once",
+      "expect_detail": "of a ~0.1s stretch was charged"
+    },
+    {
+      "name": "entry_limit_kills_runaway_top_level dies when a top-level kill is reported as an ordinary exception",
+      "why": "The caller must be able to tell a watchdog kill from a thrown error; without the check the kill reads as a script error with kill None.",
+      "source": "pkg/runtime/runtime.odin",
+      "find": "\t\tif kill := vm_kill_reason(vm); kill != .None do return page_killed(kill)\n\t\tmsg, allocated",
+      "replace": "\t\tmsg, allocated",
+      "gate": "odin:cmd/lava:main.entry_limit_kills_runaway_top_level",
+      "expect_detail": "expected result.kill to be Entry_Limit"
     }
   ]
 }

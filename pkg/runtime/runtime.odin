@@ -212,7 +212,8 @@ eval :: proc(
 	}
 	defer jsc.JSClassRelease(global_class)
 	// Limits live on the VM, so without one (Windows: see create_eval_context) they
-	// cannot be enforced. Refuse rather than run the page unlimited.
+	// cannot be enforced. Refuse rather than run the page unlimited. Reached only on
+	// Windows, which CI does not run, so this path has no test.
 	if limits != {} {
 		if vm == nil {
 			release_global_context_after_eval(ctx)
@@ -451,9 +452,13 @@ eval :: proc(
 // run_limited is eventloop.run for a page under Page_Limits: every tick is charged to
 // the VM's CPU budget, and the first tick that ends with a limit hit stops the loop.
 // The tick, not each callback, is the unit: a tick's poll blocks without advancing
-// the thread's CPU clock, so the whole tick is the page's work, and one clock read
-// per tick costs less than one per callback. force_exit makes the deferred teardown
-// in eval reclaim whatever the page still had registered.
+// the thread's CPU clock, so the whole tick — callbacks plus the native work around
+// them — is the page's, and the clock is read twice per tick however many callbacks
+// it runs. force_exit makes the deferred teardown in eval reclaim whatever the page
+// still had registered.
+//
+// The loop condition mirrors eventloop.run's; a new exit condition there belongs here
+// too (loop.odin's run points back at this).
 @(private = "file")
 run_limited :: proc(loop: ^eventloop.Loop, vm: ^VM) -> Kill_Reason {
 	for eventloop.has_pending_work(loop) && !loop.backend_error && !loop.force_exit {
@@ -468,8 +473,13 @@ run_limited :: proc(loop: ^eventloop.Loop, vm: ^VM) -> Kill_Reason {
 	return .None
 }
 
-// page_killed builds the Result for a page a limit ended. Larva policy, not a Node
-// surface: Node has no per-script CPU limit, so the message is ours.
+// page_killed builds the Result for a page a limit ended.
+//
+// Node:
+//   No counterpart: Node has no per-script CPU limit, so the messages are Larva's.
+// Deviates:
+//   n/a (no oracle). Status, Result.kill and the message wording are pinned by
+//   cmd/lava/page_cpu_budget_test.odin.
 @(private = "file")
 page_killed :: proc(kill: Kill_Reason) -> Result {
 	msg: string
