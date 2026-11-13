@@ -1446,7 +1446,7 @@
       "name": "runner_samples_each_pages_heap dies when page_close stops sampling",
       "why": "Without the sample a page's Result carries no heap figure, and per-VM heap growth goes untracked.",
       "source": "pkg/runtime/page.odin",
-      "find": "\tif page.sample_heap && page.state != nil do page.result.heap_bytes = vm_sample_heap(page.vm, ctx)\n",
+      "find": "\t\tpage.result.heap_bytes = vm_sample_heap(page.vm, ctx)\n",
       "replace": "\n",
       "gate": "odin:cmd/lava:main.runner_samples_each_pages_heap",
       "expect_detail": "heap not attributed per page"
