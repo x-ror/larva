@@ -110,8 +110,10 @@ page_runner_destroy :: proc(runner: ^Page_Runner) {
 // page_runner_open starts a page: its runtime install and top-level script run now,
 // and its loop joins the runner. A page that finishes during the open — a throw, a
 // kill, a full pool — is reported to on_done from the next page_runner_run; one with
-// nothing scheduled is reported on its first tick. The temp arena is reset after the
-// open, like eval's: nothing a caller keeps across this call may live in it.
+// nothing scheduled is reported on its first tick. The temp arena does not survive
+// this call — the page's require() calls reset it (native_require_cb), and the open
+// resets it once more at the end so a chain of opens cannot grow it — so `source`
+// and anything else the caller still needs must not live in it.
 page_runner_open :: proc(
 	runner: ^Page_Runner,
 	source: string,

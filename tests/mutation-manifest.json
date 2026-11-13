@@ -1413,8 +1413,16 @@
       "find": "if linux.epoll_ctl(runner.epfd, .ADD, linux.Fd(fd), &ev) == .NONE do rp.fd = linux.Fd(fd)",
       "replace": "rp.fd = linux.Fd(fd)",
       "gate": "odin:cmd/lava:main.runner_wakes_on_io_without_timers",
-      "expect_detail": "timed out",
-      "timeout_ms": 30000
+      "expect_detail": "not in the runner's epoll set"
+    },
+    {
+      "name": "backend_fd_wakes_an_outer_epoll_on_watched_io dies when backend_fd hands out a descriptor that never becomes readable",
+      "why": "A multi-loop driver blocks on backend_fd; a descriptor that does not reflect the loop's I/O leaves an I/O-only page waiting forever.",
+      "source": "pkg/runtime/eventloop/loop_linux.odin",
+      "find": "if loop.platform.use_uring do return uintptr(loop.platform.ring.fd), loop.platform.ring.fd >= 0",
+      "replace": "if loop.platform.use_uring do return uintptr(loop.platform.wakeup_pipe[1]), loop.platform.ring.fd >= 0",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.backend_fd_wakes_an_outer_epoll_on_watched_io",
+      "expect_detail": "did not wake the outer epoll"
     }
   ]
 }

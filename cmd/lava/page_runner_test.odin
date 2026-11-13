@@ -3,7 +3,11 @@
 #+build linux
 package main
 
+import "core:fmt"
 import "core:log"
+import "core:os"
+import "core:strings"
+import "core:sys/linux"
 import "core:sys/posix"
 import "core:testing"
 import "core:time"
@@ -295,9 +299,10 @@ runner_second_page_in_a_reused_vm_sees_nothing_of_a_killed_first :: proc(t: ^tes
 	testing.expect_value(t, created, 1)
 }
 
-// A page whose only pending work is I/O — a thread-pool fs read whose completion comes
-// back through post_async and the loop's wakeup pipe — must wake the runner through
-// the page loop's backend fd: there is no timer to bound the runner's wait.
+// A page whose only pending work is I/O must wake the runner through its loop's
+// backend fd: no timer bounds the runner's wait. The server page has no timer at all;
+// the client page connects 100 ms in, after the runner has long been blocked, so the
+// accept and the reply can only reach a page through the runner's epoll set.
 @(test)
 runner_wakes_on_io_without_timers :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
@@ -305,12 +310,29 @@ runner_wakes_on_io_without_timers :: proc(t: ^testing.T) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 	defer lava.page_runner_destroy(&runner)
-	o: Outcome
+	port := 20000 + int(time.tick_now()._nsec % 20000)
+	// Heap, not tprintf: the server page's require() resets the temp arena.
+	server := fmt.aprintf(`const srv = require('net').createServer((c) => {{ c.end('hi'); srv.close(); process.exitCode = 5; }});
+	srv.listen(%d, '127.0.0.1');`, port)
+	client := fmt.aprintf(`setTimeout(() => {{
+		const s = require('net').connect(%d, '127.0.0.1');
+		s.on('data', (d) => {{ process.exitCode = String(d) === 'hi' ? 5 : 6; }});
+		s.on('error', () => {{ process.exitCode = 8; }});
+	}}, 100);`, port)
+	defer delete(server)
+	defer delete(client)
+	so, co: Outcome
 	start := time.tick_now()
-	lava.page_runner_open(&runner, `require('fs').readFile('/proc/self/status', (e, d) => { process.exitCode = (!e && d.length > 0) ? 5 : 6; });`, "<io>", {}, &o)
+	lava.page_runner_open(&runner, server, "<server>", {}, &so)
+	lava.page_runner_open(&runner, client, "<client>", {}, &co)
+	// Deterministic half: both page loops sit in the runner's epoll set. (A missing
+	// registration can still pass the timing half: JSC's signal thread interrupts
+	// epoll_wait often enough to stand in for the wake.)
+	testing.expectf(t, epoll_watch_count(runner.epfd) == 2, "page loops not in the runner's epoll set (%d of 2)", epoll_watch_count(runner.epfd))
 	lava.page_runner_run(&runner)
-	testing.expectf(t, o.done && o.status == .Ok && o.exit == 5, "I/O-only page: %v", o)
-	testing.expect(t, time.duration_seconds(time.tick_since(start)) < 2, "I/O-only page took over 2s")
+	testing.expectf(t, so.done && so.status == .Ok && so.exit == 5, "server page: %v", so)
+	testing.expectf(t, co.done && co.status == .Ok && co.exit == 5, "client page: %v", co)
+	testing.expect(t, time.duration_seconds(time.tick_since(start)) < 3, "I/O-only pages took over 3s")
 }
 
 // process.exit() in a runner page ends that page — with the code it asked for — and
@@ -353,4 +375,13 @@ runner_destroy_reports_live_pages_cancelled :: proc(t: ^testing.T) {
 	testing.expect(t, o.done, "a live page was not reported on destroy")
 	testing.expect_value(t, o.kill, lava.Kill_Reason.Cancelled)
 	testing.expect_value(t, o.status, lava.Status.Execution_Error)
+}
+
+// epoll_watch_count reads how many fds an epoll instance watches, from the "tfd:"
+// lines of its /proc/self/fdinfo entry.
+@(private = "file")
+epoll_watch_count :: proc(epfd: linux.Fd) -> int {
+	data, err := os.read_entire_file(fmt.tprintf("/proc/self/fdinfo/%d", int(epfd)), context.temp_allocator)
+	if err != nil do return -1
+	return strings.count(string(data), "tfd:")
 }
