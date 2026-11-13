@@ -1,7 +1,7 @@
 // Spike: measure JSC VM (JSContextGroup) costs to size Larva's VM pool (#4).
 // Build: odin build bench/jsc-vm -o:speed -out:/tmp/jsc-vm
 // Run one scenario per process: /tmp/jsc-vm pkg/runtime/js/internal <A|B|C|D|E|F|G|H>
-// Results and conclusions: bench/jsc-vm/README.md.
+// Results and conclusions: docs/LARVA.md §2 and the comments in pkg/runtime/vm_pool.odin.
 package spike_vm
 
 import "core:c"

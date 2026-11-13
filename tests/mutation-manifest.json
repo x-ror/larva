@@ -1139,6 +1139,42 @@
       "replace": "if (slash === -1) throw mimeError('type', str, -1);",
       "gate": "compat:tests/node-compat/cases/46-util-mimetype.js",
       "expect_detail": "\"garbage\" is invalid"
+    },
+    {
+      "name": "vm_pool_reuses_most_recently_released dies when vm_release stops reordering the pool",
+      "why": "Without the move-to-end on release, acquire hands out the most recently ACQUIRED idle VM, not the most recently released one with the warmest CodeCache.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\t\t\tordered_remove(vms, i)\n\t\t\tappend(vms, vm)\n\t\t\tbreak",
+      "replace": "\t\t\tbreak",
+      "gate": "odin:cmd/lava:main.vm_pool_reuses_most_recently_released",
+      "expect_detail": "acquire returned the VM released first"
+    },
+    {
+      "name": "vm_pool_destroy_frees_through_pool_allocator dies when destroy stops freeing VM records",
+      "why": "A pool torn down without freeing its VM records leaks them on the pool's allocator, once per worker thread exit.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\t\tfree(vm, pool.allocator)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.vm_pool_destroy_frees_through_pool_allocator",
+      "expect_detail": "vm_pool_destroy leaked"
+    },
+    {
+      "name": "eval_reports_exhausted_vm_pool dies when pool exhaustion is reported as a missing runtime",
+      "why": "A busy VM pool would tell the user to install JavaScriptCoreGTK, hiding the real cause.",
+      "source": "pkg/runtime/runtime.odin",
+      "find": "return vm_pool_unavailable(\"VM pool exhausted: every JavaScriptCore VM on this thread is busy\")",
+      "replace": "return native_runtime_unavailable()",
+      "gate": "odin:cmd/lava:main.eval_reports_exhausted_vm_pool",
+      "expect_detail": "install JavaScriptCoreGTK"
+    },
+    {
+      "name": "eval_teardown_with_live_net_connections dies when the teardown sweep skips every connection, even run alone",
+      "why": "Run alone on a cold runner thread the baseline used to absorb the first eval's +5 one-time fds, so three leaked sockets passed; the warm-up eval is what lets the census see them.",
+      "source": "pkg/runtime/net.odin",
+      "find": "\tif state == nil do return\n\tcontext = runtime.default_context() // alloc/free conns",
+      "replace": "\tif state != nil do return\n\tcontext = runtime.default_context() // alloc/free conns",
+      "gate": "odin:cmd/lava:main.eval_teardown_with_live_net_connections",
+      "expect_detail": "a connection's socket was never closed"
     }
   ]
 }

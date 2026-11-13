@@ -62,7 +62,10 @@ decides which traffic goes to Larva and which stays on Chrome.
      recompiled for every page. Context start-up cost is measured (stage 1) and
      the Web API surface is installed lazily where it is not;
    - the pool bounds the per-VM `timerfd` leak (`runtime.odin`), and a warm VM
-     starts a page ~40% faster (7.4 vs 12.1 ms on Lava's runtime JS).
+     runs a page in ~41% less time: 7.40 vs 12.61 ms/page, `bench/jsc-vm`
+     scenario C (one warm pooled VM) vs A (a fresh VM per page), each page
+     evaluating 8 embedded runtime modules plus a 200k-iteration loop, mean of
+     100 pages per launch, medians of 5 interleaved launches per arm.
    - Pages on one thread still share its CPU. A long synchronous script delays the
      thread's other pages up to the execution limit; threads are sized to cores.
 3. **Network stack with client profiles; network state belongs to the session.**

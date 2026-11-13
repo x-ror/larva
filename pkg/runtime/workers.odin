@@ -176,6 +176,10 @@ worker_main :: proc(data: rawptr) {
 	sync.unlock(&w.sig_mutex)
 	// eval consumes the loop (destroys it on every path); the pre-run hook is the barrier rendezvous.
 	w.result = eval(w.source, w.source_name, &loop, false, w.script_args, worker_pre_run, w)
+	// This thread is about to end and runs no more evals: destroy its VM pool so the
+	// pooled VM's heap is reclaimed now instead of outliving the thread (Odin has no
+	// thread-exit hook to do it for us). eval has released its context by here.
+	thread_vm_pool_destroy()
 	// Clear the published loop (under sig_mutex) before this stack frame unwinds, so the supervisor's
 	// sweep never dereferences a pointer to a returned stack — and before flagging a crash, so a
 	// crash-driven sweep can't pick up this loop.

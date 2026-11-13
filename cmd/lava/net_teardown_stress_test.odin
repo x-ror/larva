@@ -4,41 +4,23 @@
 package main
 
 import "core:log"
-import "core:os"
 import "core:testing"
 import eventloop "lava:pkg/runtime/eventloop"
 import lava "lava:pkg/runtime"
-
-// The same define core:testing's runner reads for its thread count
-// (runner.odin:34). Re-declared here because `testing.TEST_THREADS` is not
-// exported; #config resolves the identical -define at compile time, so this
-// tracks the runner exactly. 0 is its default, meaning one thread per core.
-@(private = "file")
-RUNNER_THREADS :: #config(ODIN_TEST_THREADS, 0)
-
-@(private = "file")
-open_fd_count :: proc() -> int {
-	handle, err := os.open("/proc/self/fd")
-	if err != nil do return -1
-	defer os.close(handle)
-	infos, read_err := os.read_directory(handle, -1, context.temp_allocator)
-	if read_err != nil do return -1
-	return len(infos)
-}
 
 // eval_fd_delta runs one eval and reports how many file descriptors it left
 // behind. `src` is expected to throw at top level; ok=false means it did not,
 // which would make the number meaningless.
 @(private = "file")
 eval_fd_delta :: proc(src: string) -> (delta: int, ok: bool) {
-	before := open_fd_count()
+	before := fd_census()
 	if before < 0 do return 0, false
 	loop := eventloop.init()
 	// eval CONSUMES the loop — it destroys it on every path, including this
 	// top-level-throw one (see the OWNERSHIP note in runtime.odin).
 	result := lava.eval(src, "<net-teardown-stress-test>", &loop, false)
 	defer lava.result_destroy(&result)
-	after := open_fd_count()
+	after := fd_census()
 	if after < 0 do return 0, false
 	return after - before, result.status != .Ok
 }
@@ -62,15 +44,18 @@ eval_fd_delta :: proc(src: string) -> (delta: int, ok: bool) {
 //     with the sweep mutated to skip a connection, and again with it mutated to
 //     INSERT during the range (the one operation the loop's comment calls
 //     unsafe), an allocator-based version of this test passed both times.
-//   * an ABSOLUTE fd count is confounded: every eval leaves one
-//     `anon_inode:[timerfd]` behind whether or not it touches net. That one is
-//     JavaScriptCore's, not ours — measured at one per JSGlobalContext, with a
-//     bare create/release pair leaking it just as a full eval does, and neither
-//     a forced JSGarbageCollect nor dropping our JSClass reclaims it (see
-//     release_global_context_after_eval in runtime.odin). Unconditional, and
-//     nothing this sweep can influence.
-// So the baseline eval below is the same script minus the connects: it absorbs
-// the per-eval cost, and what remains is attributable to the three sockets.
+//   * an ABSOLUTE fd count is confounded: the FIRST eval on a thread pays
+//     one-time costs that have nothing to do with net — measured at +5 fds on a
+//     cold runner thread, among them JavaScriptCore's per-VM
+//     `anon_inode:[timerfd]`, which survives even the VM's destruction (see
+//     create_eval_context in runtime.odin). eval reuses a pooled VM per thread,
+//     so every later eval costs +0.
+// So the test first runs one throwaway eval to pay those costs, then a baseline
+// eval of the same script minus the connects, which absorbs anything per-eval
+// that remains; what is left beyond it is attributable to the three sockets.
+// Without the warm-up the baseline absorbed the cold start: run alone, with the
+// sweep mutated to skip every connection, it measured baseline=5 withconns=3 and
+// PASSED — it only went red when an earlier test happened to warm the thread.
 //
 // SERIAL ONLY. /proc/self/fd is process-wide, so with the runner's default
 // thread-per-core every other test's sockets and files land in the census: the
@@ -85,6 +70,12 @@ eval_teardown_with_live_net_connections :: proc(t: ^testing.T) {
 		)
 		return
 	}
+
+	// Warm-up: pays the thread's one-time costs (see above). Its delta is not used.
+	// Same script as the baseline, so whatever loading node:net costs once is paid here too.
+	_, warm_ok := eval_fd_delta("const net = require('node:net'); throw new Error('warm-up');")
+	testing.expect(t, warm_ok, "the warm-up script was supposed to throw at top level")
+	if !warm_ok do return
 
 	baseline, base_ok := eval_fd_delta("const net = require('node:net'); throw new Error('x');")
 	testing.expect(t, base_ok, "the baseline script was supposed to throw at top level")
