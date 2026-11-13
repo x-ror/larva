@@ -1175,6 +1175,15 @@
       "replace": "\tif state != nil do return\n\tcontext = runtime.default_context() // alloc/free conns",
       "gate": "odin:cmd/lava:main.eval_teardown_with_live_net_connections",
       "expect_detail": "a connection's socket was never closed"
+    },
+    {
+      "name": "timer_binding_frees_through_its_own_allocator dies when free_js_callback frees into the ambient allocator",
+      "why": "The binding is allocated inside a proc \"c\" native (heap) and freed by the loop under the embedder's context; an ambient free hands heap memory to whatever allocator the embedder installed.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tfree(cb, timer_binding_allocator())",
+      "replace": "\tfree(cb)",
+      "gate": "odin:cmd/lava:main.timer_binding_frees_through_its_own_allocator",
+      "expect_detail": "freed into the wrong allocator"
     }
   ]
 }

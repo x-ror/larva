@@ -333,7 +333,7 @@ make_js_callback :: proc(
 	args: []jsc.JSValueRef = nil,
 ) -> ^JS_Callback {
 	jsc.JSValueProtect(ctx, cast(jsc.JSValueRef)fn)
-	cb := new(JS_Callback)
+	cb := new(JS_Callback, timer_binding_allocator())
 	cb.ctx = ctx
 	cb.func = fn
 	cb.args = args
@@ -353,7 +353,7 @@ capture_timer_args :: proc(
 ) -> []jsc.JSValueRef {
 	n := int(argument_count) - start
 	if n <= 0 do return nil
-	args, err := make([]jsc.JSValueRef, n)
+	args, err := make([]jsc.JSValueRef, n, timer_binding_allocator())
 	if err != nil do return nil
 	for i in 0 ..< n {
 		v := arguments[start + i]
@@ -376,8 +376,17 @@ free_js_callback :: proc(cb: ^JS_Callback, release_roots := true) {
 			jsc.JSValueUnprotect(cb.ctx, arg)
 		}
 	}
-	delete(cb.args)
-	free(cb)
+	delete(cb.args, timer_binding_allocator())
+	free(cb, timer_binding_allocator())
+}
+
+// timer_binding_allocator owns every JS_Callback and its forwarded-args slice. They
+// are made inside a `proc "c"` native (context reset to runtime.default_context) and
+// freed by the loop under whatever context the embedder runs it with, so both sides
+// name the heap explicitly instead of trusting the ambient allocator (CLAUDE.md §4).
+// Pinned by cmd/lava/timer_binding_alloc_test.odin.
+timer_binding_allocator :: #force_inline proc() -> runtime.Allocator {
+	return runtime.default_allocator()
 }
 
 // should_release_fired_callback_roots keeps normal callback GC-root cleanup on
