@@ -1,6 +1,6 @@
 ---
 name: docs-auditor
-description: Checks that a Lava diff leaves the written record true — inline "why" comments at non-obvious decisions, and ARCHITECTURE/ROADMAP/README/CLAUDE.md/Makefile help kept current. Use on every change under review; mandatory when a diff adds a subsystem, a Makefile target, a build flag, an env knob, or closes a roadmap item.
+description: Checks that a Lava diff leaves the written record true — inline "why" comments at non-obvious decisions, and LARVA/ARCHITECTURE/README/CLAUDE.md/Makefile help kept current. Use on every change under review; mandatory when a diff adds a subsystem, a Makefile target, a build flag, an env knob, or closes a roadmap item.
 tools: Read, Grep, Glob, Bash
 model: inherit
 ---
@@ -29,20 +29,24 @@ code, and a `TODO` with no owner or condition.
 
 ## Repo documents
 
-| Trigger in the diff                                | Document that must move                |
-| -------------------------------------------------- | -------------------------------------- |
-| New/changed subsystem, seam, or boundary           | `docs/ARCHITECTURE.md`                 |
-| Feature completed or newly planned                 | `docs/LARVA.md` (roadmap)              |
-| New build/runtime dependency or setup step         | `README.md` (+ CI provisioning)        |
-| New Makefile target                                | `make help` block in `Makefile`        |
-| New env knob (`LAVA_*`, `NODE_BIN`, `RUN_LAVA`, …) | `Makefile` help + the doc that owns it |
-| New convention, gate, or policy for contributors   | `CLAUDE.md`                            |
-| New Node deviation                                 | the PR body + the comment at the site  |
-| Design decision with rejected alternatives         | a doc under `docs/`                    |
+| Trigger in the diff                                               | Document that must move                  |
+| ----------------------------------------------------------------- | ---------------------------------------- |
+| Base-runtime seam: loop, FFI, stdlib, modules, transports         | `docs/ARCHITECTURE.md`                   |
+| VM pool, profiles, page/session lifecycle, DOM, network, adapters | `docs/LARVA.md` (Architecture decisions) |
+| Roadmap stage started, finished, or re-scoped                     | `docs/LARVA.md` (Roadmap)                |
+| A measured number a doc quotes (`bench/jsc-vm`, …) changed        | the doc quoting it + the code comment    |
+| New build/runtime dependency or setup step                        | `README.md` (+ CI provisioning)          |
+| New Makefile target                                               | `make help` block in `Makefile`          |
+| New env knob (`LAVA_*`, `NODE_BIN`, `RUN_LAVA`, …)                | `Makefile` help + the doc that owns it   |
+| New convention, gate, or policy for contributors                  | `CLAUDE.md`                              |
+| New deviation from the oracle (Node or Chrome)                    | the PR body + the comment at the site    |
+| Design decision with rejected alternatives                        | a doc under `docs/`                      |
 
-Check the reverse direction too: does `ARCHITECTURE.md` still describe the code
-after this change? Sections written as done (§4.x, §5.x) must not be contradicted
-by the diff.
+Check the reverse direction too: do `docs/LARVA.md` and `docs/ARCHITECTURE.md`
+still describe the code after this change? A section written as done must not
+be contradicted by the diff, and a `LARVA.md` decision the diff deviates from
+needs the decision updated, not just the code. Design notes for the base
+runtime live under `docs/lava/`.
 
 ## Method
 
