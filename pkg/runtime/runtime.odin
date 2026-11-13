@@ -45,6 +45,42 @@ result_destroy :: proc(res: ^Result) {
 	res^ = Result{}
 }
 
+// create_eval_context makes eval's global context in a VM from the calling thread's
+// pool (vm_pool.odin), so repeated evals reuse a warm VM instead of paying for — and
+// permanently leaking a timerfd with — a new one each time. On Windows the context
+// is never released (see release_global_context_after_eval), so its VM could never
+// be reused: there, eval keeps the one-VM-per-context path and returns a nil VM.
+//
+// Returns:
+//   The VM (nil on Windows, or on error) and the context (nil on error). `err` is
+//   the pool's error, so eval can tell a busy pool from a missing runtime; it is
+//   .None with a nil context when JSC itself failed to create the context.
+// Deviates:
+//   Releasing the context no longer destroys its VM, so what the eval left in the
+//   heap is reclaimed by the VM's next GC, not at release: Odin-owned no-copy
+//   Uint8Array backings stay allocated until another eval on this thread collects
+//   them, or until thread_vm_pool_destroy. Bounded by one eval's garbage per idle VM
+//   and paid for by the warm-VM speedup measured in vm_pool.odin; a thread that runs
+//   one eval and ends (a worker) destroys its pool. A JSValueProtect left unbalanced
+//   (a defect under CLAUDE.md §4 regardless) now pins the old global object graph
+//   until the pool is destroyed, where VM destruction used to hide it. Page-level
+//   heap accounting and VM retirement are #4's memory work.
+create_eval_context :: proc(
+	global_class: jsc.JSClassRef,
+) -> (
+	vm: ^VM,
+	ctx: jsc.JSGlobalContextRef,
+	err: VM_Pool_Error,
+) {
+	when ODIN_OS == .Windows {
+		return nil, jsc.JSGlobalContextCreate(global_class), .None
+	} else {
+		vm, err = vm_acquire(thread_vm_pool())
+		if err != .None do return nil, nil, err
+		return vm, vm_create_context(vm, global_class), .None
+	}
+}
+
 // release_global_context_after_eval frees the JSC global context when eval
 // returns — except on Windows. Releasing the context tears down the whole JSC VM
 // (JIT/GC threads, ICU); on Windows, doing that right before the CLI's os.exit()
@@ -72,21 +108,6 @@ result_destroy :: proc(res: ^Result) {
 // and the fd count stays flat. Remeasured in bench/jsc-vm (2026-11-13): the fd
 // survives even JSContextGroupRelease and a full GC, while the VM's memory does
 // come back — so VMs are pooled for the life of the thread, never churned.
-// create_eval_context makes eval's global context in a VM from the calling thread's
-// pool (vm_pool.odin), so repeated evals reuse a warm VM instead of paying for — and
-// permanently leaking a timerfd with — a new one each time. On Windows the context
-// is never released (see below), so its VM could never be reused: there, eval keeps
-// the one-VM-per-context path and returns a nil VM.
-create_eval_context :: proc(global_class: jsc.JSClassRef) -> (^VM, jsc.JSGlobalContextRef) {
-	when ODIN_OS == .Windows {
-		return nil, jsc.JSGlobalContextCreate(global_class)
-	} else {
-		vm, err := vm_acquire(thread_vm_pool())
-		if err != .None do return nil, nil
-		return vm, vm_create_context(vm, global_class)
-	}
-}
-
 release_global_context_after_eval :: proc(ctx: jsc.JSGlobalContextRef) {
 	when ODIN_OS != .Windows {
 		jsc.JSGlobalContextRelease(ctx)
@@ -160,12 +181,21 @@ eval :: proc(
 	// A custom global class gives the global object a private-data slot, where we
 	// stash Runtime_State (loop + module cache) out of reach of user JavaScript.
 	global_class := make_global_class()
-	vm, ctx := create_eval_context(global_class)
+	vm, ctx, vm_err := create_eval_context(global_class)
 	if ctx == nil {
 		vm_release(vm)
 		jsc.JSClassRelease(global_class)
 		// Still consume the loop (no context was created, so no handles exist).
 		if loop != nil do eventloop.destroy(loop)
+		// A pool error means JSC is present but this thread has no VM to give: saying
+		// "install JavaScriptCoreGTK" there would send the user after the wrong cause.
+		switch vm_err {
+		case .Exhausted:
+			return vm_pool_unavailable("VM pool exhausted: every JavaScriptCore VM on this thread is busy")
+		case .Create_Failed:
+			return vm_pool_unavailable("JavaScriptCore could not create a VM (JSContextGroupCreate failed)")
+		case .None:
+		}
 		return native_runtime_unavailable()
 	}
 	defer jsc.JSClassRelease(global_class)
@@ -471,6 +501,17 @@ native_runtime_unavailable :: proc() -> Result {
 		status = .Native_Runtime_Unavailable,
 		exit_code = 70,
 		message = "native runtime unavailable: install JavaScriptCoreGTK development package",
+	}
+}
+
+// vm_pool_unavailable reports that the runtime is installed but no VM could be had.
+// Same status and exit code as native_runtime_unavailable (EX_SOFTWARE-style 70: the
+// script never ran), a different cause.
+vm_pool_unavailable :: proc(reason: string) -> Result {
+	return Result {
+		status = .Native_Runtime_Unavailable,
+		exit_code = 70,
+		message = reason,
 	}
 }
 

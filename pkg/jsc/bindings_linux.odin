@@ -14,7 +14,6 @@ foreign jsc_lib {
 	// Context groups (one JSC::VM each). JSGlobalContextCreate makes a fresh VM per
 	// context; Larva pools VMs per thread instead (pkg/runtime/vm_pool.odin).
 	JSContextGroupCreate :: proc() -> JSContextGroupRef ---
-	JSContextGroupRetain :: proc(group: JSContextGroupRef) -> JSContextGroupRef ---
 	JSContextGroupRelease :: proc(group: JSContextGroupRef) ---
 	JSGlobalContextCreateInGroup :: proc(group: JSContextGroupRef, global_object_class: JSClassRef) -> JSGlobalContextRef ---
 	// Exported, but declared in WebKit's JSContextRefPrivate.h. The watchdog measures
