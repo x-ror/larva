@@ -50,3 +50,33 @@ To turn the gate on:
 3. Flip the CI step from `make bench` to `make bench-gate` (`.github/workflows/ci.yml`).
 
 A benchmark with no entry in `thresholds.json` is always report-only.
+
+## Pages per thread (`make bench-pages`)
+
+`bench/pages` drives N = 1, 10, 50 and 100 concurrent trivial pages on one thread's
+page runner (#4) and reports, per N, the median of 5 launches (one process per N per
+launch, so a "cold" VM really has run nothing):
+
+| metric | meaning |
+| --- | --- |
+| `cold_ms` | mean `page_runner_open` of the first N pages, each on a fresh VM: Node-profile runtime install plus a one-timer script |
+| `warm_ms` | the same for the next N pages on the same VMs (JSC CodeCache warm) |
+| `live_kb_page` | RSS growth with N pages just opened, per page |
+| `idle_kb_vm` | RSS growth after 1000 pages of churn, per pooled VM: what an idle VM keeps |
+| `pages_per_s` | sustained, N pages in flight, 1000 pages in all |
+
+Report-only; not in CI. A run on the dev container (2026-11-13, 4 cores, one thread
+used), medians of 5 launches per N:
+
+| N | cold_ms | warm_ms | live_kb_page | idle_kb_vm | pages_per_s |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 21.48 | 7.79 | 23220 | 57964 | 162 |
+| 10 | 19.82 | 6.93 | 6222 | 26066 | 164 |
+| 50 | 19.08 | 6.70 | 4661 | 18992 | 166 |
+| 100 | 18.81 | 7.00 | 4466 | 18348 | 161 |
+
+Read: a page's start-up is dominated by the runtime install — ~19 ms on a cold VM,
+~7 ms warm — so throughput is CPU-bound at ~160 pages/s per thread whatever N is. An
+idle pooled VM keeps ~18 MB after churn (N=1's figure carries the process's one-time
+JSC start-up), against ~4.5 MB for a page that has just opened, so a pool sized for
+peak concurrency holds that much per slot between pages.

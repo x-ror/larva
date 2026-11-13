@@ -65,7 +65,11 @@ decides which traffic goes to Larva and which stays on Chrome.
      (`bench/jsc-vm`);
    - reuse keeps JSC's `CodeCache` warm, so the embedded runtime JS is not
      recompiled for every page. Context start-up cost is measured (stage 1) and
-     the Web API surface is installed lazily where it is not;
+     the Web API surface is installed lazily where it is not. `make bench-pages`
+     (bench/README.md): ~19 ms per page on a cold VM, ~7 ms warm, ~160 pages/s on
+     one thread at N = 1..100 concurrent pages, and ~18 MB kept per idle pooled VM
+     (medians of 5 launches per N, 2026-11-13). The Node-profile install is the
+     whole cost today; the Window profile's is measured once it exists (#5);
    - the pool bounds the per-VM `timerfd` leak (`runtime.odin`), and a warm VM
      runs a page in ~41% less time: 7.40 vs 12.61 ms/page, `bench/jsc-vm`
      scenario C (one warm pooled VM) vs A (a fresh VM per page), each page
