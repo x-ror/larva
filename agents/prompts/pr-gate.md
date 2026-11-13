@@ -1,6 +1,6 @@
 ---
 name: pr-gate
-description: Merge gate for Lava changes — runs the mechanical gates the changed paths require, fans out specialist reviewers in parallel, and returns a scorecard (Node parity, speed/memory, plus correctness, safety, security, coverage, quality, docs) with a SHIP / SHIP-AFTER / BLOCK verdict. Use before opening or merging a PR, when the user asks to review a branch, PR, or working diff, or asks "is this ready to merge".
+description: Merge gate for Lava changes — runs the mechanical gates the changed paths require, fans out specialist reviewers in parallel, and returns a scorecard (oracle parity — Node or Chrome by profile, speed/memory, plus correctness, safety, security, coverage, quality, docs) with a SHIP / SHIP-AFTER / BLOCK verdict. Use before opening or merging a PR, when the user asks to review a branch, PR, or working diff, or asks "is this ready to merge".
 argument-hint: '[--local | --branch <name> | --pr <number|url>] [--quick | --review-only] [--post-pending]'
 ---
 
@@ -77,17 +77,17 @@ Launch every applicable agent **in one message** so they run concurrently. Give
 each: the diff path, the changed-file list, the repo root, the target description,
 and the mechanical-gate results.
 
-| Agent                   | Run when                                                                                                                                                                            |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `regression-hunter`     | always                                                                                                                                                                              |
-| `code-quality-auditor`  | always                                                                                                                                                                              |
-| `test-coverage-auditor` | always                                                                                                                                                                              |
-| `docs-auditor`          | always                                                                                                                                                                              |
-| `odin-safety-auditor`   | any `.odin` changed                                                                                                                                                                 |
-| `node-parity-auditor`   | any user-visible surface: `js/internal/**`, a native binding behind a Node API, error construction, event/callback ordering                                                         |
-| `perf-memory-auditor`   | hot paths (buffer, http, net, fetch, url, jsc, eventloop), any `perf(...)` title or perf claim, any `bench/**` change                                                               |
-| `security-auditor`      | parsing, networking, TLS/crypto, fs paths, URL handling, module loader, or any native code fed by JS values                                                                         |
-| `odin-sdk-scout`        | the diff hand-rolls a parser, codec, hash, container, socket dance, or time/number/string conversion — ask it whether `core:`/`vendor:`/an already-linked C library already does it |
+| Agent                   | Run when                                                                                                                                                                                               |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `regression-hunter`     | always                                                                                                                                                                                                 |
+| `code-quality-auditor`  | always                                                                                                                                                                                                 |
+| `test-coverage-auditor` | always                                                                                                                                                                                                 |
+| `docs-auditor`          | always                                                                                                                                                                                                 |
+| `odin-safety-auditor`   | any `.odin` changed — always for `vm_pool.odin`, `runtime.odin`, page/DOM lifecycle, `pkg/jsc`                                                                                                         |
+| `oracle-parity-auditor` | any user-visible surface: `js/**`, a native binding behind a Node or Web API, error construction, event/callback ordering, anything a page can reach — tell it the profile if you know it              |
+| `perf-memory-auditor`   | hot paths (buffer, http, net, fetch, url, jsc, eventloop), any `perf(...)` title or perf claim, any `bench/**` change                                                                                  |
+| `security-auditor`      | parsing (HTTP, HTML), networking, TLS/crypto, sessions/cookies, VM pool or page lifecycle, the Window profile's global set, fs paths, URL handling, module loader, or any native code fed by JS values |
+| `odin-sdk-scout`        | the diff hand-rolls a parser, codec, hash, container, socket dance, or time/number/string conversion — ask it whether `core:`/`vendor:`/an already-linked C library already does it                    |
 
 Specialists are read-only: instruct each explicitly not to modify repo sources.
 In `--review-only` mode, also tell every specialist that the toolchain is absent —
@@ -104,14 +104,16 @@ specialist is reported, never silently dropped.
 - Demote anything an agent could not tie to a concrete failure path — a finding
   with no reproducer is a question, not a defect.
 - Cross-check the two criteria against each other: a `perf-memory-auditor` win
-  that `node-parity-auditor` calls a divergence is a **P0**, not a win.
+  that `oracle-parity-auditor` calls a divergence is a **P0**, not a win.
+- An `oracle-parity-auditor` verdict of `unverified (no Chrome oracle)` is not a
+  pass: grade criterion 1 `C` (see scoring.md).
 
 ## Step 5 — report
 
 ```text
 PR gate — <target>
 
-Criterion 1 · Node parity   : A|B|C|F  — one line
+Criterion 1 · Oracle parity : A|B|C|F  — profile(s) + oracle, one line
 Criterion 2 · Speed & memory: A|B|C|F  — one line
 
 Mechanical gates

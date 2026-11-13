@@ -35,16 +35,25 @@ so the next playbook never has to re-derive it from prose.
 ```
 
 `severity` is one of `P0`/`P1`/`P2`/`nit`; `class` is one of `parity`, `safety`,
-`security`, `gate-weakening`, `memory-safety`, `perf`, `style`, `other`.
+`security`, `isolation`, `gate-weakening`, `memory-safety`, `perf`, `style`,
+`other`.
 
 Focus:
 
-1. Contract vs Node oracle mismatches
+1. Contract vs oracle mismatches — Node for the Node profile, recorded Chrome
+   output for the Window profile, both for shared Web API code. A Node-shaped
+   error (`ERR_*`, `code`) or a Node global reachable from a page is a mismatch,
+   not extra fidelity
 2. Missing red tests / mutation-weak tests
-3. Allocator / JSC lifetime / thread safety (Odin)
-4. Primordials / pollution holes (JS)
-5. Gate-weakening risk
+3. Allocator / JSC lifetime / thread safety (Odin), including multi-VM: state
+   that is per thread but should be per page or VM, a pooled VM handed back
+   dirty, DOM wrapper teardown order, kill/CPU-budget accounting skipped on a new
+   VM entry path
+4. Isolation between pages and sessions (cookies, connections, TLS sessions,
+   heap objects)
+5. Primordials / pollution holes (JS)
+6. Gate-weakening risk
 
-Severity floors: parity, safety, security, gate-weakening are never P2.
+Severity floors: parity, safety, security, isolation, gate-weakening are never P2.
 
 You do **not** fix code. You do **not** open a PR. Hand off to `pr-gate` / `fixer`.

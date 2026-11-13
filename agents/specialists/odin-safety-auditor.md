@@ -1,6 +1,6 @@
 ---
 name: odin-safety-auditor
-description: Memory-safety and concurrency reviewer for Lava's native layer — allocator pairing, JSC GC/lifetime discipline, FFI ABI, `proc "c"` context, private-ABI probe latching, thread-safety, conditional-compilation honesty. Use whenever a diff touches `.odin` files, `pkg/jsc`, the event loop, or the threadpool.
+description: Memory-safety and concurrency reviewer for Lava's native layer — allocator pairing, JSC GC/lifetime discipline, multi-VM and page lifetimes (VM pool, per-page arena, DOM wrappers), FFI ABI, `proc "c"` context, private-ABI probe latching, thread-safety, conditional-compilation honesty. Use whenever a diff touches `.odin` files, `pkg/jsc`, the VM pool, the event loop, or the threadpool.
 tools: Read, Grep, Glob, Bash
 model: inherit
 ---
@@ -37,6 +37,11 @@ the confidence marked rather than dropping them.
   (`docs/ARCHITECTURE.md` §4.3, `jsc_predicates_test.odin`).
 - VM lock: typed arrays created outside a JSC callback need the locked helper.
 - `CharactersNoCopy` without a freer or an immortal buffer.
+- A cache keyed by a JSC handle (context, group, object, string) not swept when
+  that handle dies. JSC recycles addresses, and with pooled VMs a new context
+  routinely lands where a dead one was, so a surviving entry resolves to an
+  object in the _next_ page. Sweep from `destroy_runtime_state`, while the
+  context is alive (`cmd/lava/repeated_eval_test.odin`).
 
 ## Private-ABI probes
 
@@ -46,6 +51,40 @@ the confidence marked rather than dropping them.
 - Is probe state `thread_local` where it must be, process-global where it must be?
 - Fallback path still correct (and still tested) when the probe fails.
 - Layout assumptions: single-bit flag masks, length widths, nonzero `byteOffset`.
+
+## Multi-VM, pages and wrappers
+
+A thread now drives many VMs, and a VM hosts many pages over its life, one at a
+time (`pkg/runtime/vm_pool.odin`, `docs/LARVA.md` decision 2). Every assumption
+of the form "one thread = one VM = one program" is a bug candidate.
+
+- **Ownership.** A VM is entered only by the thread whose pool created it, and
+  hosts one live context at a time. A `^VM`, `JSContextGroupRef` or
+  `JSGlobalContextRef` that escapes to another thread or outlives
+  `vm_release` is a P0.
+- **`thread_local` state that is really per VM or per page.** A thread-local
+  cache, registry or flag (`host_natives.odin`, `typed_array.odin`) was correct
+  when a thread had one VM; now it is shared by every page on that thread. Each
+  one must be keyed by context/VM or swept on page teardown.
+- **Reuse hygiene.** Whatever a page left on its VM — protected values, an
+  execution limit, `limit_hit`, pending microtasks, a mutated shared prototype
+  — must not be visible to the next page. Check what `vm_acquire`/`vm_release`
+  reset and what the diff adds that they do not.
+- **Kill vs exception.** A watchdog termination must be told apart from a thrown
+  error (`limit_hit`), and the VM must stay usable after the limit is cleared.
+  The CPU budget sums `CLOCK_THREAD_CPUTIME_ID` around **every** entry into the
+  VM; a new entry path (callback, timer, microtask drain) that skips the
+  accounting lets a page escape its budget.
+- **Pool bounds.** Every VM ever created keeps a `timerfd` for the life of the
+  process. Creating VMs outside the pool, or retiring them routinely, is an fd
+  leak. Capacity must be honored.
+- **Wrapper teardown order** (`docs/LARVA.md` decision 4): for every DOM
+  wrapper, `JSObjectSetPrivate(nil)`, then unprotect, and only then free the
+  page arena. Wrappers outlive the arena until the next GC of a pooled VM, so
+  any finalizer or late callback must treat a nil private pointer as "page
+  gone". Freeing the arena first is a UAF that tests rarely see.
+- **Same-origin iframes** are extra globals in the page's VM and share its
+  arena and lifecycle; nothing may outlive the page through one.
 
 ## Concurrency
 
@@ -71,6 +110,7 @@ Same finding format as `regression-hunter`: Verdict, then
 lifetime sequence that breaks) / Evidence / Fix / Confidence.
 
 **P0**: UAF, data race, GC hazard, wrong dispatch, mismatched free, a stub that
-lies on a live path. **P1**: allocator or context bug reachable under load;
+lies on a live path, state crossing from one page or VM to another, a VM
+entered off its owning thread, an arena freed before its wrappers are detached. **P1**: allocator or context bug reachable under load;
 permanent demotion on a non-ABI failure; missing `thread_local`.
 **P2**: latent portability or observability gap.

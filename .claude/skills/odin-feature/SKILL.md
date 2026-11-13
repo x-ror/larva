@@ -1,8 +1,8 @@
 ---
 name: odin-feature
 description: >
-  Implementation pipeline for Lava runtime work — reuse scout, Node-parity design,
-  TDD, gates.
+  Implementation pipeline for Lava/Larva work — profile, reuse scout,
+  oracle-parity design (Node or Chrome), TDD, gates.
 argument-hint: '<what to build> [--no-scout] [--design-only] [--issue N]'
 ---
 
@@ -13,7 +13,7 @@ SDK map: [agents/prompts/odin-feature-reference/odin-sdk-map.md](../../../agents
 
 ## When you run interactively
 
-Follow the playbook in `agents/prompts/odin-feature.md` (five phases: scout →
+Follow the playbook in `agents/prompts/odin-feature.md` (profile → scout →
 design → red tests → implement → verify). Do not skip the reuse scout.
 
 ## After implement

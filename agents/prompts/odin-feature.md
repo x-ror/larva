@@ -1,26 +1,45 @@
 ---
 name: odin-feature
-description: Implementation pipeline for Lava runtime work — reuse scout over the Odin SDK and linked C libraries, Node-parity design, layered implementation, tests, and gates. Use when asked to add or change a Node API, a native primitive, an event-loop or I/O capability, or any performance work in `pkg/runtime`, `pkg/jsc`, or `pkg/runtime/js`.
+description: Implementation pipeline for Lava/Larva work — reuse scout over the Odin SDK and linked C libraries, oracle-parity design (Node for the Node profile, Chrome for the Window profile), layered implementation, tests, and gates. Use when asked to add or change a Node or Web API, a DOM or page capability, a native primitive, the VM pool, an event-loop or I/O capability, or any performance work in `pkg/runtime`, `pkg/jsc`, or `pkg/runtime/js`.
 argument-hint: '<what to build> [--no-scout] [--design-only]'
 ---
 
 # Feature pipeline
 
-Five phases. Do not skip phase 1 — writing low-level code that the Odin SDK or an
+Six phases, 0–5. Do not skip phase 0 or phase 1 — writing low-level code that the Odin SDK or an
 already-linked C library already implements is the failure mode this pipeline
 exists to prevent.
 
-Read `CLAUDE.md` first. Reuse index:
+Read `CLAUDE.md` and `docs/LARVA.md` first. Reuse index:
 [odin-feature-reference/odin-sdk-map.md](odin-feature-reference/odin-sdk-map.md). Gate routing:
 [pr-gate-reference/gates.md](pr-gate-reference/gates.md).
 
-## Phase 1 — Node contract + reuse scout (parallel)
+## Phase 0 — profile
+
+Decide which profile the surface belongs to (`docs/LARVA.md` decision 1) — it
+picks the oracle for every later phase:
+
+- **Node** (`process`, `require`, `Buffer`, `node:*`) → real `node` 22+/24.
+- **Window** (anything a page can reach) → recorded Chrome output. No `process`,
+  `require` or `Buffer`; plain `TypeError`/`DOMException` with Chrome's messages
+  and no `code`; plain `Uint8Array`.
+- **Shared** Web API code → both; error constructors and byte helpers come from
+  the profile, never imported directly.
+
+Also name the roadmap stage the work belongs to; a feature that depends on a
+stage not yet built (e.g. a DOM API before stage 3's tree) is a planning problem,
+not an implementation one.
+
+## Phase 1 — oracle contract + reuse scout (parallel)
 
 Launch both in one message:
 
-**(a) The Node contract.** Determine exactly what Node does for the target API —
-run `node` for real, and consult the upstream Node docs
-(<https://nodejs.org/api/>). Capture: exported shape, argument coercion
+**(a) The oracle contract.** Determine exactly what the oracle does for the
+target API. Node profile: run `node` for real and consult
+<https://nodejs.org/api/>. Window profile: use a recorded Chrome result (stage-0
+corpus) or record one — run the snippet in Chrome and keep the output with its
+source; the WHATWG/W3C spec explains it but does not replace it, and Node's
+output is never a stand-in for Chrome's. Capture: exported shape, argument coercion
 _order_, defaults, return types, thrown `code`/`name`/`message`, event and
 callback ordering, and the edge cases (empty, `NaN`, `-0`, out-of-range,
 `undefined` vs missing, detached buffers, lone surrogates). This is the spec you
@@ -47,8 +66,13 @@ Write a short design (not a document — a message) covering:
   completion re-queued so Node's phase ordering survives.
 - **Platforms**: the Linux implementation plus honest stubs for windows/darwin
   (`make check` cross-checks both front ends).
-- **Deviation from Node**, if any: what it buys, measured how, pinned by which test.
-- **Tests**: which oracle cases, which Odin tests, which smoke.
+- **Pages and VMs**: what is per page (arena), per VM, per session, per thread;
+  how a reused VM comes back clean; whether a new VM entry path keeps the
+  execution limit and CPU-budget accounting.
+- **Deviation from the oracle**, if any: what it buys, measured how, pinned by
+  which test.
+- **Tests**: which oracle cases (Node or Chrome-recorded), which Odin tests
+  (including a second page in a reused VM where isolation is in play), which smoke.
 - **Gates**: the commands the touched paths require.
 
 Then land the contract where it survives the session: the phase-1(a) findings go
@@ -95,7 +119,8 @@ Two traps worth naming, both real:
 2. The routed suites and smokes from
    [pr-gate-reference/gates.md](pr-gate-reference/gates.md) — networking
    smokes run on **both** backends.
-3. Node-vs-Lava diff on your own probe script for every surface you touched.
+3. Oracle-vs-Lava diff on your own probe script for every surface you touched —
+   `node` for the Node profile, the Chrome recording for the Window profile.
 4. `make bench` if the change touches a hot path, and always for a `perf(...)`
    change. Record the numbers; a perf claim without them does not pass the gate.
 
@@ -105,9 +130,11 @@ described as done.
 ## Phase 5 — hand off
 
 - Commit message: `type(scope): imperative summary`.
-- PR body: what changed, reuse verdict, gates run with results, Node-parity
-  evidence or the justified deviation, bench numbers if perf is claimed.
+- PR body: what changed, reuse verdict, gates run with results, oracle-parity
+  evidence (which profile, which oracle) or the justified deviation, bench numbers
+  if perf is claimed.
 - Update the docs the change triggers (`docs-auditor`'s table lists them:
-  ARCHITECTURE for a new seam, ROADMAP for a completed item, README for a new
-  dependency, `make help` for a new target).
+  ARCHITECTURE for a base-runtime seam, `docs/LARVA.md` for a VM/profile/page/
+  network decision or a roadmap stage, README for a new dependency, `make help`
+  for a new target).
 - Run `/pr-gate` before requesting review.
