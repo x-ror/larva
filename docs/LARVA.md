@@ -53,12 +53,16 @@ decides which traffic goes to Larva and which stays on Chrome.
      killed when the total passes its CPU budget. Wall-clock page deadlines are
      event-loop timers;
    - **memory:** the VM's heap belongs to one page at a time, so heap growth can
-     be attributed and capped. A VM is retired after N pages or M MB of growth;
+     be attributed and capped. Pools are fixed-size: every VM ever created keeps
+     one `timerfd` open for the life of the process, so retiring a VM is a rare,
+     fd-budgeted event (heap runaway), not a routine step. Measured: a warm VM
+     stays flat over 500 pages, and a live VM with a page costs ~15 MB
+     (`bench/jsc-vm`);
    - reuse keeps JSC's `CodeCache` warm, so the embedded runtime JS is not
      recompiled for every page. Context start-up cost is measured (stage 1) and
      the Web API surface is installed lazily where it is not;
-   - the pool bounds the per-VM `timerfd` that JSC keeps until the VM is
-     finalized (`runtime.odin`).
+   - the pool bounds the per-VM `timerfd` leak (`runtime.odin`), and a warm VM
+     starts a page ~40% faster (7.4 vs 12.1 ms on Lava's runtime JS).
    - Pages on one thread still share its CPU. A long synchronous script delays the
      thread's other pages up to the execution limit; threads are sized to cores.
 3. **Network stack with client profiles; network state belongs to the session.**
