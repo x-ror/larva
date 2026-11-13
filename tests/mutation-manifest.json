@@ -1233,9 +1233,9 @@
     {
       "name": "cpu_budget_kills_timer_spinner dies when the loop ticks are not charged to the budget",
       "why": "Without the per-tick charge only single entries are watched, so thousands of 2 ms callbacks run the whole ~10 s.",
-      "source": "pkg/runtime/runtime.odin",
-      "find": "\t\tvm_cpu_enter(vm)\n\t\teventloop.run_next(loop)",
-      "replace": "\t\teventloop.run_next(loop)",
+      "source": "pkg/runtime/page.odin",
+      "find": "\tvm_cpu_enter(page.vm)\n\tdid_work = eventloop.run_next(loop)",
+      "replace": "\tdid_work = eventloop.run_next(loop)",
       "gate": "odin:cmd/lava:main.cpu_budget_kills_timer_spinner",
       "expect_detail": "expected result.status to be Execution_Error, got Ok"
     },
@@ -1278,9 +1278,9 @@
     {
       "name": "entry_limit_kills_runaway_top_level dies when a top-level kill is reported as an ordinary exception",
       "why": "The caller must be able to tell a watchdog kill from a thrown error; without the check the kill reads as a script error with kill None.",
-      "source": "pkg/runtime/runtime.odin",
-      "find": "\t\tif kill := vm_kill_reason(vm); kill != .None do return page_killed(kill)\n\t\tmsg, allocated",
-      "replace": "\t\tmsg, allocated",
+      "source": "pkg/runtime/page.odin",
+      "find": "-> bool {\n\tif ended, result := page_ended(page); ended do return page_fail(page, result)\n\tmsg, allocated",
+      "replace": "-> bool {\n\tmsg, allocated",
       "gate": "odin:cmd/lava:main.entry_limit_kills_runaway_top_level",
       "expect_detail": "expected result.kill to be Entry_Limit"
     },
