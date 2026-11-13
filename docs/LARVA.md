@@ -68,6 +68,8 @@ decides which traffic goes to Larva and which stays on Chrome.
      100 pages per launch, medians of 5 interleaved launches per arm.
    - Pages on one thread still share its CPU. A long synchronous script delays the
      thread's other pages up to the execution limit; threads are sized to cores.
+   - every process-global and thread-local is audited for page isolation in
+     [GLOBAL-STATE.md](GLOBAL-STATE.md); a new one is added there in the same PR.
 3. **Network stack with client profiles; network state belongs to the session.**
    BoringSSL instead of OpenSSL, HTTP/2 through nghttp2 (I/O-agnostic, driven
    from our transport; a hand-written H2 stack is not worth its edge cases as
