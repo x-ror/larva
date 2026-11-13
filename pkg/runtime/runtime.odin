@@ -67,12 +67,26 @@ result_destroy :: proc(res: ^Result) {
 // waiting. One context running many scripts costs one fd, so the price is per
 // VM, not per eval.
 //
-// Bounded in everything we ship — one context per `lava run`/`lava eval`
-// process, one per worker — so it is a real defect but not a live one. It bites
-// exactly two callers: the Odin test binary (which is why an fd census there
-// must compare against a baseline eval, see cmd/lava/net_teardown_stress_test)
-// and any embedder calling eval repeatedly in one process. Fixing it means
-// getting the VM actually destroyed, which is upstream of this line.
+// Contexts are now created in pooled VMs (create_eval_context), so the fd is paid
+// once per pooled VM, not once per eval: repeated evals on one thread reuse one VM
+// and the fd count stays flat. Remeasured in bench/jsc-vm (2026-11-13): the fd
+// survives even JSContextGroupRelease and a full GC, while the VM's memory does
+// come back — so VMs are pooled for the life of the thread, never churned.
+// create_eval_context makes eval's global context in a VM from the calling thread's
+// pool (vm_pool.odin), so repeated evals reuse a warm VM instead of paying for — and
+// permanently leaking a timerfd with — a new one each time. On Windows the context
+// is never released (see below), so its VM could never be reused: there, eval keeps
+// the one-VM-per-context path and returns a nil VM.
+create_eval_context :: proc(global_class: jsc.JSClassRef) -> (^VM, jsc.JSGlobalContextRef) {
+	when ODIN_OS == .Windows {
+		return nil, jsc.JSGlobalContextCreate(global_class)
+	} else {
+		vm, err := vm_acquire(thread_vm_pool())
+		if err != .None do return nil, nil
+		return vm, vm_create_context(vm, global_class)
+	}
+}
+
 release_global_context_after_eval :: proc(ctx: jsc.JSGlobalContextRef) {
 	when ODIN_OS != .Windows {
 		jsc.JSGlobalContextRelease(ctx)
@@ -146,14 +160,18 @@ eval :: proc(
 	// A custom global class gives the global object a private-data slot, where we
 	// stash Runtime_State (loop + module cache) out of reach of user JavaScript.
 	global_class := make_global_class()
-	ctx := jsc.JSGlobalContextCreate(global_class)
+	vm, ctx := create_eval_context(global_class)
 	if ctx == nil {
+		vm_release(vm)
 		jsc.JSClassRelease(global_class)
 		// Still consume the loop (no context was created, so no handles exist).
 		if loop != nil do eventloop.destroy(loop)
 		return native_runtime_unavailable()
 	}
 	defer jsc.JSClassRelease(global_class)
+	// Declared before the context release, so (LIFO) the VM goes back to the pool only
+	// after its context is gone: a pooled VM never hosts two live contexts.
+	defer vm_release(vm)
 	defer release_global_context_after_eval(ctx)
 
 	state := new_runtime_state(loop)

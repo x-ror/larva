@@ -9,6 +9,17 @@ foreign import jsc_lib "system:JavaScriptCore.framework"
 foreign jsc_lib {
 	JSGlobalContextCreate :: proc(global_object_class: JSClassRef) -> JSGlobalContextRef ---
 	JSGlobalContextRelease :: proc(ctx: JSGlobalContextRef) ---
+	// Context groups (one JSC::VM each). JSGlobalContextCreate makes a fresh VM per
+	// context; Larva pools VMs per thread instead (pkg/runtime/vm_pool.odin).
+	JSContextGroupCreate :: proc() -> JSContextGroupRef ---
+	JSContextGroupRetain :: proc(group: JSContextGroupRef) -> JSContextGroupRef ---
+	JSContextGroupRelease :: proc(group: JSContextGroupRef) ---
+	JSGlobalContextCreateInGroup :: proc(group: JSContextGroupRef, global_object_class: JSClassRef) -> JSGlobalContextRef ---
+	// Exported, but declared in WebKit's JSContextRefPrivate.h. The watchdog measures
+	// time since the VM was entered; when `limit` seconds pass, `callback` decides
+	// whether to terminate the running script. Per VM, per entry, not cumulative.
+	JSContextGroupSetExecutionTimeLimit :: proc(group: JSContextGroupRef, limit: f64, callback: JSShouldTerminateCallback, ctx: rawptr) ---
+	JSContextGroupClearExecutionTimeLimit :: proc(group: JSContextGroupRef) ---
 	// Exported by JavaScriptCore (declared in WebKit's JSContextRefPrivate.h, not
 	// the public C API headers). The handler is invoked as fn(promise, reason)
 	// when a promise rejects with no handler at a microtask checkpoint.

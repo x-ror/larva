@@ -9,6 +9,12 @@ JSStringRef :: distinct rawptr
 JSValueRef :: distinct rawptr
 JSObjectRef :: distinct rawptr
 JSClassRef :: distinct rawptr
+// A context group is a JSC::VM: one GC heap, one lock, one microtask queue.
+JSContextGroupRef :: distinct rawptr
+
+// Called by the execution watchdog once a script has run past the group's limit.
+// Return true to terminate it (it surfaces as an uncatchable termination exception).
+JSShouldTerminateCallback :: #type proc "c" (ctx: JSContextRef, user_data: rawptr) -> bool
 
 JSChar :: u16
 
