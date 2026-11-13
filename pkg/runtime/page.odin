@@ -343,7 +343,13 @@ page_close :: proc(page: ^Page) -> Result {
 	}
 
 	page.result.heap_bytes = -1
-	if page.sample_heap && page.state != nil do page.result.heap_bytes = vm_sample_heap(page.vm, ctx)
+	// The walk is the page's own cost (19 ms at ~300k objects), charged to its budget
+	// like any other work it caused, though it can no longer be killed for it.
+	if page.sample_heap && page.state != nil {
+		vm_cpu_enter(page.vm)
+		page.result.heap_bytes = vm_sample_heap(page.vm, ctx)
+		vm_cpu_exit(page.vm)
+	}
 	if page.completion != nil do jsc.JSValueUnprotect(ctx, page.completion)
 	if page.loop != nil {
 		fetch_shutdown_active(page.state)

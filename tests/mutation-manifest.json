@@ -1450,6 +1450,35 @@
       "replace": "\n",
       "gate": "odin:cmd/lava:main.runner_samples_each_pages_heap",
       "expect_detail": "heap not attributed per page"
+    },
+    {
+      "name": "dispatcher_runaway_page_is_killed_alone dies when a job's limits do not reach its page",
+      "why": "Dropped limits let a spinning page burn its whole run on a worker shared with other pages.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "page_runner_open(&runner, job.source, job.name, job.limits, job.user_data)",
+      "replace": "page_runner_open(&runner, job.source, job.name, {}, job.user_data)",
+      "gate": "odin:cmd/lava:main.dispatcher_runaway_page_is_killed_alone",
+      "expect_detail": "expected tally.killed to be 1",
+      "timeout_ms": 120000
+    },
+    {
+      "name": "runner_samples_every_nth_page_per_vm dies when the every-Nth gate is dropped",
+      "why": "Sampling walks the heap; sampling every page instead of every Nth costs up to 19 ms a page.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "rp.page.vm.pages_hosted % n == 0",
+      "replace": "true",
+      "gate": "odin:cmd/lava:main.runner_samples_every_nth_page_per_vm",
+      "expect_detail": "sampled the wrong pages"
+    },
+    {
+      "name": "dispatcher_cancelling_shutdown_cancels_running_and_queued dies when cancel does not stop the worker",
+      "why": "A cancelling shutdown that still waits for pages hangs on a page that never ends.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "\t\tw.cancel = cancel\n",
+      "replace": "\n",
+      "gate": "odin:cmd/lava:main.dispatcher_cancelling_shutdown_cancels_running_and_queued",
+      "expect_detail": "timed out",
+      "timeout_ms": 30000
     }
   ]
 }

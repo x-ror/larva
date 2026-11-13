@@ -48,14 +48,17 @@ dispatcher_spreads_pages_over_workers :: proc(t: ^testing.T) {
 	testing.expectf(t, wall < 3, "40 x 100 ms pages on 4 workers took %.2fs: not parallel", wall)
 }
 
-// A runaway page is killed on its worker; every other page, on that worker and the
-// rest, still completes.
+// A runaway page is killed on its worker — its limits travel with the job — and every
+// other page, on that worker and the rest, still completes. The runaway is a timer
+// spinner (5000 x 2 ms), so a job whose limits were dropped finishes in ~10 s and
+// fails the kill count instead of hanging the suite.
 @(test)
 dispatcher_runaway_page_is_killed_alone :: proc(t: ^testing.T) {
 	d: lava.Page_Dispatcher
 	if !lava.page_dispatcher_init(&d, 2, 4, tally_done) do testing.fail_now(t, "page_dispatcher_init failed")
 	tally: Tally
-	lava.page_dispatcher_submit(&d, "setTimeout(() => { while (true) {} }, 5);", "<runaway>", {entry_limit = 0.1}, &tally)
+	spinner := "let n = 0; (function f() { const s = Date.now(); while (Date.now() - s < 2) {} if (++n < 5000) setTimeout(f, 0); })();"
+	lava.page_dispatcher_submit(&d, spinner, "<runaway>", {cpu_budget = 0.2}, &tally)
 	for _ in 0 ..< 10 {
 		lava.page_dispatcher_submit(&d, "setTimeout(() => { process.exitCode = 7; }, 50);", "<ok>", {entry_limit = 1}, &tally)
 	}
@@ -84,4 +87,55 @@ dispatcher_idle_shutdown_returns :: proc(t: ^testing.T) {
 	d: lava.Page_Dispatcher
 	if !lava.page_dispatcher_init(&d, 3, 2, tally_done) do testing.fail_now(t, "page_dispatcher_init failed")
 	lava.page_dispatcher_shutdown(&d)
+}
+
+@(private = "file")
+Follow :: struct {
+	d:                           ^lava.Page_Dispatcher,
+	done, accepted, refused:     int,
+}
+
+@(private = "file")
+follow_done :: proc(d: ^lava.Page_Dispatcher, user_data: rawptr, result: lava.Result) {
+	result := result
+	lava.result_destroy(&result)
+	f := cast(^Follow)user_data
+	sync.atomic_add(&f.done, 1)
+	// Every finished page queues a follow-up, as a crawler queues the links it found.
+	if lava.page_dispatcher_submit(d, "setTimeout(() => {}, 1);", "<follow>", {}, f) {
+		sync.atomic_add(&f.accepted, 1)
+	} else {
+		sync.atomic_add(&f.refused, 1)
+	}
+}
+
+// on_done submitting while shutdown runs: accepted follow-ups all run and are
+// reported, the rest are refused — nothing is left in an inbox nobody drains, and no
+// submit touches a worker shutdown has freed (workers are freed after every join).
+@(test)
+dispatcher_shutdown_refuses_follow_up_submits :: proc(t: ^testing.T) {
+	d: lava.Page_Dispatcher
+	if !lava.page_dispatcher_init(&d, 3, 4, follow_done) do testing.fail_now(t, "page_dispatcher_init failed")
+	f := Follow {
+		d = &d,
+	}
+	for _ in 0 ..< 12 do lava.page_dispatcher_submit(&d, "setTimeout(() => {}, 1);", "<seed>", {}, &f)
+	time.sleep(30 * time.Millisecond)
+	lava.page_dispatcher_shutdown(&d)
+	testing.expectf(t, f.done == 12 + f.accepted, "%d pages reported for 12 seeds + %d accepted follow-ups", f.done, f.accepted)
+	testing.expect(t, f.refused > 0, "no follow-up was refused: shutdown never stopped the chain")
+}
+
+// A cancelling shutdown does not wait for pages that never end: running and queued
+// pages are reported .Cancelled.
+@(test)
+dispatcher_cancelling_shutdown_cancels_running_and_queued :: proc(t: ^testing.T) {
+	d: lava.Page_Dispatcher
+	if !lava.page_dispatcher_init(&d, 1, 2, tally_done) do testing.fail_now(t, "page_dispatcher_init failed")
+	tally: Tally
+	for _ in 0 ..< 5 do lava.page_dispatcher_submit(&d, "setInterval(() => {}, 5);", "<forever>", {}, &tally)
+	time.sleep(50 * time.Millisecond)
+	lava.page_dispatcher_shutdown(&d, cancel = true)
+	testing.expect_value(t, tally.killed, 5)
+	testing.expect_value(t, tally.ok + tally.other, 0)
 }

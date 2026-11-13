@@ -421,3 +421,35 @@ runner_samples_each_pages_heap :: proc(t: ^testing.T) {
 	off := sample(t, 0)
 	testing.expectf(t, off.heavy <= 0 && off.light <= 0, "heap sampled with sampling off: %v", off)
 }
+
+@(private = "file")
+Nth :: struct {
+	heap:   [3]int,
+	n:      int,
+}
+
+@(private = "file")
+nth_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Result) {
+	result := result
+	h := cast(^Nth)user_data
+	h.heap[h.n] = result.heap_bytes
+	h.n += 1
+	lava.result_destroy(&result)
+	if h.n < 3 do lava.page_runner_open(runner, "1", "<nth>", {}, h)
+}
+
+// Sampling every 2nd page a VM hosts: three pages in a row on the runner's one VM, and
+// only the second is sampled.
+@(test)
+runner_samples_every_nth_page_per_vm :: proc(t: ^testing.T) {
+	runner: lava.Page_Runner
+	if !lava.page_runner_init(&runner, 1, nth_done, context.allocator) {
+		testing.fail_now(t, "page_runner_init failed")
+	}
+	defer lava.page_runner_destroy(&runner)
+	runner.heap_sample_every = 2
+	h: Nth
+	lava.page_runner_open(&runner, "1", "<nth>", {}, &h)
+	lava.page_runner_run(&runner)
+	testing.expectf(t, h.n == 3 && h.heap[0] == -1 && h.heap[1] > 0 && h.heap[2] == -1, "sampled the wrong pages: %v", h.heap)
+}
