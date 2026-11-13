@@ -1363,8 +1363,8 @@
       "name": "runner_pages_wait_concurrently dies when the runner spins instead of waiting on the page loops",
       "why": "Without the epoll wait an idle runner busy-loops over its pages, burning a core while every page sleeps.",
       "source": "pkg/runtime/page_runner.odin",
-      "find": "\t\tif !progressed && len(runner.pages) > 0 do runner_wait(runner)\n",
-      "replace": "\n",
+      "find": "\t\trunner_wait(runner)\n\t}",
+      "replace": "\t}",
       "gate": "odin:cmd/lava:main.runner_pages_wait_concurrently",
       "expect_detail": "runner burned"
     },
@@ -1437,8 +1437,8 @@
       "name": "dispatcher_queues_past_capacity dies when a worker opens pages past its slots",
       "why": "Opening more pages than the runner has VMs fails them for want of a VM instead of queueing them.",
       "source": "pkg/runtime/page_dispatcher.odin",
-      "find": "for len(pending) > 0 && page_runner_live(&runner) < w.capacity {",
-      "replace": "for len(pending) > 0 {",
+      "find": "for queue.len(pending) > 0 && page_runner_live(&runner) < w.capacity {",
+      "replace": "for queue.len(pending) > 0 {",
       "gate": "odin:cmd/lava:main.dispatcher_queues_past_capacity",
       "expect_detail": "expected tally.ok to be 12"
     },

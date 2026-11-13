@@ -467,6 +467,8 @@ runner_run_returns_with_a_watched_fd_and_no_pages :: proc(t: ^testing.T) {
 	if err != .NONE do testing.fail_now(t, "eventfd failed")
 	defer linux.close(efd)
 	testing.expect(t, lava.page_runner_watch_fd(&runner, efd), "watch_fd failed")
+	// No pages at all: the idle step is what would wait on the eventfd forever.
+	lava.page_runner_run(&runner)
 	o: Outcome
 	lava.page_runner_open(&runner, "setTimeout(() => {}, 5);", "<one>", {}, &o)
 	lava.page_runner_run(&runner)
