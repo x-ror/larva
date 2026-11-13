@@ -31,7 +31,7 @@ const LOOPING = new Set(['replace', 'replaceAll', 'match', 'matchAll', 'split', 
 const PRIMORDIAL_RE = /^StringPrototype(Replace|ReplaceAll|Match|MatchAll|Split|Search)$/;
 
 // Sites that are known, declared, and deliberately still open. Each needs a reason and
-// an owner entry in ROADMAP.md; the point of listing them here rather than deleting the
+// a tracking issue; the point of listing them here rather than deleting the
 // check is that the count is enforced — a NEW site cannot hide behind an old one.
 //
 // Keys are stable: `file:bindingName` (or `file:how:what` for literals). Keying by

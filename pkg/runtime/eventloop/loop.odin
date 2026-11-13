@@ -1321,7 +1321,7 @@ unwatch_fd :: proc(loop: ^Loop, watcher: ^IO_Watcher) -> bool {
 //
 // Unlike watch_fd (readiness: the loop tells you the fd is ready and you do the recv/send),
 // submit_recv/submit_send hand the transfer itself to the kernel and deliver its result via
-// Op_Completion. This is the io_uring proactor path (see docs/io-uring-proactor.md); it is
+// Op_Completion. This is the io_uring proactor path (see docs/lava/io-uring-proactor.md); it is
 // available only on the Linux io_uring backend with kernel RECV/SEND opcode support (probed at
 // init) — proactor_available reports false on other backends AND on io_uring kernels predating
 // those ops, and callers fall back to watch_fd. An in-flight op counts as pending work

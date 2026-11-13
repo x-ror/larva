@@ -6,7 +6,7 @@
 // bodies and consumes request bodies through this same ReadableStream type, so
 // there is one stream implementation, not a fetch-only fork.
 //
-// Scope (see reference/node-compatibility.md): the default (chunk) ReadableStream
+// Scope: the default (chunk) ReadableStream
 // path is implemented in full — reader, async iteration, tee, cancel, locking,
 // desiredSize-driven backpressure, pipeTo, and pipeThrough. WritableStream and
 // TransformStream are implemented to the level pipeTo/pipeThrough need (and are

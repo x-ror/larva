@@ -1,3 +1,0 @@
-Source: https://github.com/nodejs/node/tree/463e56fb000f3e2943d68973bfb4fde9378c942a/doc/api
-Node main commit: 463e56fb000f3e2943d68973bfb4fde9378c942a
-Files: 70 markdown pages

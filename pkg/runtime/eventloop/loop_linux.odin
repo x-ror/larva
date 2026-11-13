@@ -94,7 +94,7 @@ Platform_Loop :: struct {
 	// page-aligned mmap of N Uring_Buf entries (the kernel overlays the producer `tail` on bufs[0]);
 	// `bufring_tail` is our running producer index. The -ENOBUFS refill budget is tracked at the net
 	// layer (a recycle-driven credit), NOT here — a userspace ring-occupancy count can't see the
-	// kernel's consumer head and so can't be a reliable credit. See docs/io-uring-proactor.md (Slice 2).
+	// kernel's consumer head and so can't be a reliable credit. See docs/lava/io-uring-proactor.md (Slice 2).
 	bufring_ok:    bool,
 	multishot_ok:  bool, // submit ring recvs as MULTISHOT (2b); cleared on a -EINVAL (kernel lacks it)
 	zc_ok:         bool, // large sends may use SEND_ZC (3b); set by the init-time .SEND_ZC opcode probe, cleared on a -EINVAL/-EOPNOTSUPP
@@ -1105,7 +1105,7 @@ platform_disable_multishot :: proc(loop: ^Loop) {loop.platform.multishot_ok = fa
 // — the pages are pinned, a notification is owed) then a notification (`more=false`: the pages are
 // released, the buffer is free). `more` is derived from IORING_CQE_F_MORE in the drain, so the existing
 // F_MORE slot-lifetime machinery holds the op as ONE slot / ONE active_io_count from submit to the
-// notification — see docs/zerocopy-slice3b-design.md. The buffer is freeable exactly on the first
+// notification — see docs/lava/zerocopy-slice3b-design.md. The buffer is freeable exactly on the first
 // `more=false` CQE; `res` (bytes/-errno) is an independent axis the net layer classifies.
 Op_Send_Completion :: proc(loop: ^Loop, user_data: rawptr, res: i32, more: bool)
 

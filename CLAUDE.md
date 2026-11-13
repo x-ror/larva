@@ -1,8 +1,9 @@
-# Lava — working agreement
+# Larva — working agreement
 
-Node-compatible JavaScript runtime: **JavaScriptCore** is the VM, **Odin** owns the
-runtime (FFI, event loop, I/O transports, native stdlib). Read
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before any structural change.
+Lightweight headless browser engine built on the Lava runtime: **JavaScriptCore**
+is the VM, **Odin** owns the runtime, DOM, and I/O transports. Read
+[docs/LARVA.md](docs/LARVA.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+before any structural change.
 
 Layering (never blur it):
 
@@ -18,12 +19,15 @@ Layering (never blur it):
 
 ## 1. How code is judged (ranked, in this order)
 
-1. **Node interface conformance.** The observable surface — names, argument
-   coercion order, defaults, thrown error `code`/`name`/`message`, event order,
-   return types — matches Node 22+/24. Node is the oracle, not our reading of the
-   docs. Deviation is allowed **only** when it buys measured speed or memory
-   control, and then it must be: written down in the code comment, listed in the
-   PR, and covered by a Lava-only test pinning the intended behavior.
+1. **Oracle conformance.** For the browser (`Window`/DOM/network) layer, recorded
+   Chrome output is the oracle ([docs/LARVA.md](docs/LARVA.md)); for the base
+   runtime (`Node` profile), Node 22+/24 is the oracle. The observable surface —
+   names, argument coercion order, defaults, thrown error `code`/`name`/`message`,
+   event order, return types — matches the oracle, not our reading of the docs.
+   Deviation is allowed **only** when it buys measured speed or memory control
+   (or is an explicit non-goal in `docs/LARVA.md`), and then it must be: written
+   down in the code comment, listed in the PR, and covered by a test pinning the
+   intended behavior.
 2. **Speed and memory.** Fewer allocations, fewer copies, fewer FFI crossings,
    less memory per connection/request. A perf claim without a `make bench` number
    or a profile is not a perf claim.

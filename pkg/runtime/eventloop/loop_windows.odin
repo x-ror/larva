@@ -279,7 +279,7 @@ platform_poll :: proc(loop: ^Loop, timeout_ms: int) {
 
 // Proactor (completion-mode socket I/O) is io_uring-only; this backend has no equivalent, so
 // proactor_available is false and submit_recv/submit_send never succeed (callers use the
-// readiness path, watch_fd). See docs/io-uring-proactor.md.
+// readiness path, watch_fd). See docs/lava/io-uring-proactor.md.
 platform_proactor_available :: proc(loop: ^Loop) -> bool {
 	return false
 }

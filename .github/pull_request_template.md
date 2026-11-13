@@ -49,4 +49,4 @@ reason. -->
 ## Docs
 
 - [ ] Non-obvious decisions (lifetimes, probes, thresholds, deviations) commented at the site
-- [ ] `docs/ARCHITECTURE.md` / `ROADMAP.md` / `README.md` / `make help` updated where the change triggers it
+- [ ] `docs/ARCHITECTURE.md` / `docs/LARVA.md` / `README.md` / `make help` updated where the change triggers it

@@ -28,10 +28,6 @@ reports/
 /eventloop
 /lava
 
-# Mirrored upstream Node.js API docs — regenerable via scripts/node-compat/fetch-node-docs.py
-# (only SOURCE.txt, which pins the commit, is tracked)
-/reference/node-doc-api/*.md
-
 # graphify knowledge-graph build output — regenerate with `graphify update`
 graphify-out/
 

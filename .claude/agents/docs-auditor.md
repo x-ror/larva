@@ -32,7 +32,7 @@ code, and a `TODO` with no owner or condition.
 | Trigger in the diff                                | Document that must move                |
 | -------------------------------------------------- | -------------------------------------- |
 | New/changed subsystem, seam, or boundary           | `docs/ARCHITECTURE.md`                 |
-| Feature completed or newly planned                 | `ROADMAP.md`                           |
+| Feature completed or newly planned                 | `docs/LARVA.md` (roadmap)              |
 | New build/runtime dependency or setup step         | `README.md` (+ CI provisioning)        |
 | New Makefile target                                | `make help` block in `Makefile`        |
 | New env knob (`LAVA_*`, `NODE_BIN`, `RUN_LAVA`, …) | `Makefile` help + the doc that owns it |

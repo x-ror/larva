@@ -30,8 +30,8 @@ probably does. You never edit repo sources; test scratch files go in a temp dir.
    If `bin/lava` is missing, say so and fall back to source reading — but state
    that the finding is unverified.
 
-4. Cross-check `reference/node-doc-api` and `reference/node-compat.json` in-repo
-   for the documented contract.
+4. Cross-check the upstream Node docs (<https://nodejs.org/api/>) for the
+   documented contract.
 
 ## What parity actually covers
 

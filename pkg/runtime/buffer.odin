@@ -268,7 +268,7 @@ buffer_alloc_uninit_cb :: proc "c" (
 // before JSC ever sees it (raw typed arrays rely on JSC's own throw). 4 GiB on 64-bit
 // matches the JSC/Bun array-buffer ceiling; 2 GiB-1 on 32-bit is the addressable
 // signed limit. Allocations within the cap that still exhaust RAM remain a
-// documented JSC-vs-V8 difference (see reference/node-compatibility.md).
+// known JSC-vs-V8 difference.
 when size_of(uintptr) >= 8 {
 	DEFAULT_MAX_BUFFER_BYTES :: 4294967296.0
 } else {

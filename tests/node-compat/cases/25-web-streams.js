@@ -3,9 +3,8 @@
 // surface. Run under both Node and Lava; outputs must match exactly. Only
 // behaviour that is identical to Node is asserted here — errors are compared by
 // constructor name (messages differ), and deferred APIs (BYOB byte streams,
-// compression / text encoder-decoder streams) are documented in
-// reference/node-compatibility.md rather than asserted (Node implements them,
-// Lava does not, so a presence/absence check would legitimately diverge).
+// compression / text encoder-decoder streams) are deliberately not asserted
+// (Node implements them, Lava does not, so a presence/absence check would legitimately diverge).
 const assert = require('node:assert/strict');
 
 function enc(s) {

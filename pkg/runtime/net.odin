@@ -57,7 +57,7 @@ net_tls_handshake_timeout_ms :: proc() -> u64 {
 	return net_tls_handshake_timeout_ms_cached
 }
 
-// Proactor (io_uring completion-mode) tunables — see docs/io-uring-proactor.md (Slice 1b).
+// Proactor (io_uring completion-mode) tunables — see docs/lava/io-uring-proactor.md (Slice 1b).
 // A per-conn recv landing buffer is a real idle-memory cost vs the readiness path's transient
 // stack buffer (Slice 2's provided-buffer ring reclaims it), so it is smaller than NET_READ_CHUNK.
 NET_PROACTOR_RECV :: 16 * 1024
@@ -702,7 +702,7 @@ net_force_readiness :: proc() -> bool {
 
 // --- proactor (io_uring completion) connection I/O ---------------------------
 //
-// See docs/io-uring-proactor.md (Slice 1b). The connection holds an `inflight` op refcount so
+// See docs/lava/io-uring-proactor.md (Slice 1b). The connection holds an `inflight` op refcount so
 // it OUTLIVES its in-flight recv/send ops; the single free site (net_maybe_free) runs only when
 // closing && inflight == 0, so the kernel never touches a freed buffer and {callback XOR dispose}
 // fires exactly once per op. All of these run on the loop thread (op completions / disposers).
@@ -1135,7 +1135,7 @@ on_send_complete :: proc(loop: ^eventloop.Loop, user_data: rawptr, res: i32) {
 // (the notification, a single non-pinned CQE, or an error) after which the buffer is free. `res`
 // (bytes/-errno) is the SEPARATE classification axis. Mirrors net_recv_ring_complete / on_send_complete
 // exactly: clear send_op FIRST, do the buffer decision under !closing, net_op_finished LAST. See
-// docs/zerocopy-slice3b-design.md §3.
+// docs/lava/zerocopy-slice3b-design.md §3.
 net_send_zc_complete :: proc(loop: ^eventloop.Loop, user_data: rawptr, res: i32, more: bool) {
 	context = runtime.default_context()
 	conn := cast(^Net_Connection)user_data
@@ -1284,7 +1284,7 @@ net_maybe_free :: proc(conn: ^Net_Connection) {
 	// the kernel is still transmitting (silent cross-connection corruption). So LEAK the backing: a bounded
 	// (≤ teardown-time pinned conns), one-time leak reclaimed by the OS at process exit, safe because the
 	// orphaned allocation's address is never reused. The normal path frees it on the notification (send_op
-	// == INVALID by then). See docs/zerocopy-slice3b-design.md §6.
+	// == INVALID by then). See docs/lava/zerocopy-slice3b-design.md §6.
 	if !net_zc_pinned_at_teardown(conn) {
 		delete(conn.active_send)
 	}

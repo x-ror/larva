@@ -8,8 +8,6 @@
 
   "ignores": [
     "node_modules",
-    // Vendored upstream Node documentation — not ours to reformat.
-    "reference/node-doc-api",
     // Build outputs and the ignored Windows dependency cache.
     "bin",
     "build",
@@ -31,7 +29,7 @@
     // MD024 (no-duplicate-heading) stays on, but scoped to siblings. The design docs
     // repeat a per-phase heading under each slice on purpose — e.g. "Safety invariants
     // (verification checklist)" appears under both Slice 1b and Slice 2 in
-    // docs/io-uring-proactor.md. Those are different checklists under different parents,
+    // docs/lava/io-uring-proactor.md. Those are different checklists under different parents,
     // not a copy-paste slip, and flattening them would lose the parallel structure.
     "MD024": { "siblings_only": true },
   },

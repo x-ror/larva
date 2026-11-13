@@ -19,8 +19,8 @@ Read `CLAUDE.md` first. Reuse index:
 Launch both in one message:
 
 **(a) The Node contract.** Determine exactly what Node does for the target API —
-run `node` for real, and consult `reference/node-doc-api` and
-`reference/node-compat.json` in-repo. Capture: exported shape, argument coercion
+run `node` for real, and consult the upstream Node docs
+(<https://nodejs.org/api/>). Capture: exported shape, argument coercion
 _order_, defaults, return types, thrown `code`/`name`/`message`, event and
 callback ordering, and the edge cases (empty, `NaN`, `-0`, out-of-range,
 `undefined` vs missing, detached buffers, lone surrogates). This is the spec you

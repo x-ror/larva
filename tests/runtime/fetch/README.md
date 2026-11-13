@@ -39,5 +39,4 @@ The explicit-CA HTTPS cases run on **Linux and macOS** (and Windows codegen). La
 honors `SSL_CERT_FILE` on every platform — OpenSSL loads it on Linux/Windows, and on
 macOS the SecureTransport backend loads its certificates as additional trust anchors
 (see `pkg/runtime/tls_darwin.odin`). The generated cert carries the `serverAuth`
-extended key usage, which Apple's TLS policy requires and OpenSSL accepts too. See
-`ROADMAP.md`.
+extended key usage, which Apple's TLS policy requires and OpenSSL accepts too.

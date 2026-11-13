@@ -54,7 +54,7 @@ if (unexpected.length > 0) {
       '`@@replace`, so a captured replace is not a fix. `primordials.replaceCharAll(s,\n' +
       'needle, repl)` covers a single character; anything wider wants a code-unit scan.\n' +
       'If a site genuinely cannot be rewritten, add it to ALLOWED in\n' +
-      'scripts/lib/global-replace-detect.mjs with a reason, and record it in ROADMAP.md.',
+      'scripts/lib/global-replace-detect.mjs with a reason and a tracking issue.',
   );
   process.exit(1);
 }

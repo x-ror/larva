@@ -9,7 +9,7 @@
 // `fileURLToPath` the ESM loader and node:sqlite depend on, and adds
 // `pathToFileURL`, `urlToHttpOptions`, `format`, `domainToASCII`, `domainToUnicode`.
 //
-// Deliberate deviations from Node, documented in reference/node-compatibility.md:
+// Deliberate deviations from Node:
 //   * IDNA/UTS-46 host processing is approximated (NFC + lowercase + Punycode)
 //     rather than the full ICU mapping; common Unicode domains round-trip, but
 //     exotic mapping/validation edge cases may differ.

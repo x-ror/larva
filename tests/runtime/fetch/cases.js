@@ -189,7 +189,7 @@ async function main() {
   // An empty streamed body delivers an empty request body. (Framing is NOT
   // asserted: Node sends Content-Length: 0 for an immediately-empty producer,
   // while Lava sends an empty chunked body — terminator only; the received body is
-  // identical either way. See reference/node-compatibility.md.)
+  // identical either way.)
   {
     async function* empty() {}
     const j = await fetch(base + '/echo', { method: 'POST', body: empty(), duplex: 'half' }).then(

@@ -508,7 +508,7 @@
   // isStreamLikeBody recognizes a request body that cannot be turned into bytes
   // synchronously: a Blob, a ReadableStream (anything with getReader), or an async
   // iterable. These are collected asynchronously in fetch() before the request is
-  // sent (see the v1 limitation note in reference/node-compatibility.md).
+  // sent.
   function isStreamLikeBody(b) {
     if (b === null || b === undefined || typeof b === 'string') return false;
     if (b instanceof Uint8Array || b instanceof ArrayBuffer || ArrayBuffer.isView(b)) return false;
