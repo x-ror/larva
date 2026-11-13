@@ -35,6 +35,49 @@ VM :: struct {
 	limit_hit:   bool,
 	// Seconds per VM entry; 0 = no limit. Kept so vm_release can clear it.
 	entry_limit: f64,
+	// Cumulative CPU budget (vm_set_cpu_budget). The watchdog above only sees one
+	// entry at a time, so a page burning CPU in thousands of short callbacks never
+	// trips it; this sums the thread's CPU time across every entry instead. All of it
+	// is per holder: vm_release clears it, so a reused VM starts the next page at zero.
+	//
+	// Nanoseconds; 0 = no budget.
+	cpu_budget_ns:   i64,
+	// CPU time spent inside this VM since acquire, summed by vm_cpu_exit.
+	cpu_used_ns:     i64,
+	// Thread CPU clock at the outermost vm_cpu_enter.
+	cpu_mark_ns:     i64,
+	// vm_cpu_enter nesting depth: only the outermost enter/exit pair reads the clock,
+	// so a nested entry (a callback that re-enters through eval's tick) is not counted
+	// twice.
+	cpu_depth:       int,
+	// Set when the budget, not the entry limit, ended the page: either the watchdog
+	// fired while armed for the remaining budget, or vm_cpu_exit found it spent.
+	budget_hit:      bool,
+	// The limit currently armed in JSC's watchdog (0 = none) and what armed it.
+	// Re-arming takes the VM lock, so vm_cpu_enter does it only when the clamp
+	// actually tightens — once the remaining budget drops below the entry limit.
+	armed_limit:     f64,
+	armed_by_budget: bool,
+}
+
+// Page_Limits are the CPU limits a page runs under. Seconds; 0 = no limit.
+//
+// entry_limit  One synchronous entry into the VM (a script, a callback). Enforced by
+//              JSC's watchdog, which measures CPU time since the entry.
+// cpu_budget   Every entry summed over the page's life, measured on the thread's
+//              CPU clock (CLOCK_THREAD_CPUTIME_ID). Also clamps the watchdog to the
+//              remaining budget, so one long entry cannot overrun it either.
+Page_Limits :: struct {
+	entry_limit: f64,
+	cpu_budget:  f64,
+}
+
+// Kill_Reason says which limit ended a page, so a caller can tell a kill from an
+// ordinary uncaught exception.
+Kill_Reason :: enum {
+	None,
+	Entry_Limit,
+	Cpu_Budget,
 }
 
 VM_Pool :: struct {
@@ -103,7 +146,7 @@ vm_pool_init :: proc(pool: ^VM_Pool, capacity: int, allocator: runtime.Allocator
 vm_pool_destroy :: proc(pool: ^VM_Pool) {
 	for vm in pool.vms {
 		assert(!vm.in_use, "vm_pool_destroy: VM still in use")
-		if vm.entry_limit > 0 do jsc.JSContextGroupClearExecutionTimeLimit(vm.group)
+		if vm.armed_limit > 0 do jsc.JSContextGroupClearExecutionTimeLimit(vm.group)
 		jsc.JSContextGroupRelease(vm.group)
 		free(vm, pool.allocator)
 	}
@@ -120,6 +163,7 @@ vm_acquire :: proc(pool: ^VM_Pool) -> (^VM, VM_Pool_Error) {
 		if !vm.in_use {
 			vm.in_use = true
 			vm.limit_hit = false
+			vm.budget_hit = false
 			return vm, .None
 		}
 	}
@@ -149,10 +193,13 @@ vm_acquire :: proc(pool: ^VM_Pool) -> (^VM, VM_Pool_Error) {
 // created in this VM. Any execution limit set while it was held is cleared.
 vm_release :: proc(vm: ^VM) {
 	if vm == nil do return
-	if vm.entry_limit > 0 {
-		jsc.JSContextGroupClearExecutionTimeLimit(vm.group)
-		vm.entry_limit = 0
-	}
+	if vm.armed_limit > 0 do jsc.JSContextGroupClearExecutionTimeLimit(vm.group)
+	vm.entry_limit = 0
+	vm.armed_limit = 0
+	vm.armed_by_budget = false
+	vm.cpu_budget_ns = 0
+	vm.cpu_used_ns = 0
+	vm.cpu_depth = 0
 	vm.in_use = false
 	// Move it to the end, so the backward scan in vm_acquire finds the most recently
 	// released VM first. O(capacity), on a list of a few entries.
@@ -172,17 +219,96 @@ vm_create_context :: proc(vm: ^VM, global_class: jsc.JSClassRef) -> jsc.JSGlobal
 }
 
 // vm_set_entry_limit makes the watchdog terminate any single entry into this VM (one
-// script evaluation or one callback) that runs longer than `seconds`. It does not
-// accumulate across entries: a page burning CPU in many short callbacks needs its
-// own cumulative budget on top (see #17).
+// script evaluation or one callback) that runs longer than `seconds` of CPU. It does
+// not accumulate across entries: a page burning CPU in many short callbacks is caught
+// by vm_set_cpu_budget instead. 0 clears it.
 vm_set_entry_limit :: proc(vm: ^VM, seconds: f64) {
-	if seconds <= 0 {
-		if vm.entry_limit > 0 do jsc.JSContextGroupClearExecutionTimeLimit(vm.group)
-		vm.entry_limit = 0
+	vm.entry_limit = max(seconds, 0)
+	vm_arm_watchdog(vm)
+}
+
+// vm_set_cpu_budget gives the VM's current holder `seconds` of CPU time in total,
+// counted by vm_cpu_enter/vm_cpu_exit. 0 clears it. Time already spent is kept, so
+// lowering the budget below it makes the page over budget at once.
+vm_set_cpu_budget :: proc(vm: ^VM, seconds: f64) {
+	vm.cpu_budget_ns = seconds > 0 ? max(i64(seconds * 1e9), 1) : 0
+	vm_arm_watchdog(vm)
+}
+
+// vm_cpu_enter marks the start of an entry into the VM for the cumulative budget,
+// and tightens the watchdog to the budget that is left. Pair every call with
+// vm_cpu_exit. Without a budget it costs nothing but a branch: the clock is read
+// only when there is something to charge it to.
+vm_cpu_enter :: proc(vm: ^VM) {
+	if vm == nil || vm.cpu_budget_ns == 0 do return
+	vm.cpu_depth += 1
+	if vm.cpu_depth > 1 do return
+	vm.cpu_mark_ns = thread_cpu_ns()
+	vm_arm_watchdog(vm)
+}
+
+// vm_cpu_exit charges the time since the matching vm_cpu_enter to the VM and returns
+// whether the budget is now spent.
+vm_cpu_exit :: proc(vm: ^VM) -> (over_budget: bool) {
+	if vm == nil || vm.cpu_budget_ns == 0 || vm.cpu_depth == 0 do return false
+	vm.cpu_depth -= 1
+	if vm.cpu_depth == 0 {
+		vm.cpu_used_ns += max(thread_cpu_ns() - vm.cpu_mark_ns, 0)
+	}
+	if vm.cpu_used_ns >= vm.cpu_budget_ns do vm.budget_hit = true
+	return vm.budget_hit
+}
+
+// vm_cpu_over_budget reports whether the VM's holder has spent its CPU budget,
+// whether vm_cpu_exit noticed it or the watchdog cut an entry short.
+vm_cpu_over_budget :: proc(vm: ^VM) -> bool {
+	return vm != nil && vm.budget_hit
+}
+
+// vm_kill_reason reports which limit, if any, has ended the VM's current holder. The
+// budget wins a tie: it is the limit that cannot be reset by the next entry.
+vm_kill_reason :: proc(vm: ^VM) -> Kill_Reason {
+	if vm == nil do return .None
+	if vm.budget_hit do return .Cpu_Budget
+	if vm.limit_hit do return .Entry_Limit
+	return .None
+}
+
+// vm_arm_watchdog sets JSC's watchdog to the tighter of the entry limit and the budget
+// left, re-arming only when that changes the armed value: the budget left shrinks
+// monotonically, so in a page well under budget this does nothing after the first
+// call.
+@(private = "file")
+vm_arm_watchdog :: proc(vm: ^VM) {
+	want := vm.entry_limit
+	by_budget := false
+	if vm.cpu_budget_ns > 0 {
+		left := f64(max(vm.cpu_budget_ns - vm.cpu_used_ns, 0)) / 1e9
+		// JSC treats a non-positive limit as "no limit"; a spent budget still has to
+		// stop the next entry at once.
+		left = max(left, 0.001)
+		if want <= 0 || left < want {
+			want = left
+			by_budget = true
+		}
+	}
+	if want <= 0 {
+		if vm.armed_limit > 0 do jsc.JSContextGroupClearExecutionTimeLimit(vm.group)
+		vm.armed_limit = 0
+		vm.armed_by_budget = false
 		return
 	}
-	vm.entry_limit = seconds
-	jsc.JSContextGroupSetExecutionTimeLimit(vm.group, seconds, vm_watchdog_terminate, vm)
+	// Re-arm when the clamp tightens by more than a tenth of the armed value (or the
+	// reason changes, or it loosens — which within one holder only vm_set_* does). So
+	// a page with a 30 s budget re-arms a few dozen times over its life, not once per
+	// tick, and an entry can overrun the budget left by at most that tenth.
+	if vm.armed_limit > 0 && by_budget == vm.armed_by_budget && want <= vm.armed_limit &&
+	   vm.armed_limit - want < max(0.001, vm.armed_limit * 0.1) {
+		return
+	}
+	vm.armed_limit = want
+	vm.armed_by_budget = by_budget
+	jsc.JSContextGroupSetExecutionTimeLimit(vm.group, want, vm_watchdog_terminate, vm)
 }
 
 @(private = "file")
@@ -190,7 +316,12 @@ vm_watchdog_terminate :: proc "c" (ctx: jsc.JSContextRef, user_data: rawptr) -> 
 	vm := cast(^VM)user_data
 	// JSC invokes this on the thread running the script (at a VM trap), so a plain
 	// store is visible to the caller once the evaluation returns.
-	if vm != nil do vm.limit_hit = true
+	if vm == nil do return true
+	if vm.armed_by_budget {
+		vm.budget_hit = true
+	} else {
+		vm.limit_hit = true
+	}
 	return true
 }
 
@@ -199,3 +330,4 @@ vm_pool_stats :: proc(pool: ^VM_Pool) -> (busy, created: int) {
 	for vm in pool.vms do if vm.in_use do busy += 1
 	return busy, pool.created
 }
+

@@ -36,6 +36,9 @@ Result :: struct {
 	// not because work drained or a stop was requested. The multi-worker supervisor reads this to tell
 	// a crashed worker from one that finished cleanly (so a crash stops the other workers).
 	backend_failed: bool,
+	// Which page limit (eval's `limits`) ended the run, if any. A kill is reported as
+	// .Execution_Error, so this is how a caller tells it from an uncaught exception.
+	kill:           Kill_Reason,
 }
 
 result_destroy :: proc(res: ^Result) {
@@ -131,6 +134,14 @@ release_global_context_after_eval :: proc(ctx: jsc.JSGlobalContextRef) {
 // falls through to the normal teardown. nil (the default) means "just run" — the single-worker path.
 Pre_Run_Hook :: proc(user_data: rawptr) -> bool
 
+// LIMITS: `limits` (Page_Limits, vm_pool.odin) puts the eval under a per-entry CPU
+// limit and a cumulative CPU budget on its VM. The budget is charged from runtime
+// install to the last loop tick; the first entry or tick that ends over a limit stops
+// the loop (force_exit) and eval returns .Execution_Error with Result.kill naming the
+// limit. Zero limits (the default) keep the plain eventloop.run path, with no clock
+// reads. Larva policy with no Node counterpart. Pinned by
+// cmd/lava/page_cpu_budget_test.odin.
+
 eval :: proc(
 	source: string,
 	source_name := "<eval>",
@@ -139,6 +150,7 @@ eval :: proc(
 	script_args: []string = nil,
 	pre_run: Pre_Run_Hook = nil,
 	pre_run_data: rawptr = nil,
+	limits: Page_Limits = {},
 ) -> Result {
 	// eval consumes the loop on EVERY path (see the OWNERSHIP note above). These two
 	// pre-flight rejections return before the JS context (and the deferred teardown
@@ -199,6 +211,21 @@ eval :: proc(
 		return native_runtime_unavailable()
 	}
 	defer jsc.JSClassRelease(global_class)
+	// Limits live on the VM, so without one (Windows: see create_eval_context) they
+	// cannot be enforced. Refuse rather than run the page unlimited.
+	if limits != {} {
+		if vm == nil {
+			release_global_context_after_eval(ctx)
+			if loop != nil do eventloop.destroy(loop)
+			return Result {
+				status = .Invalid_Input,
+				exit_code = 2,
+				message = "page CPU limits need a pooled VM, which this platform does not use",
+			}
+		}
+		vm_set_entry_limit(vm, limits.entry_limit)
+		vm_set_cpu_budget(vm, limits.cpu_budget)
+	}
 	// Declared before the context release, so (LIFO) the VM goes back to the pool only
 	// after its context is gone: a pooled VM never hosts two live contexts.
 	defer vm_release(vm)
@@ -257,6 +284,12 @@ eval :: proc(
 		net_shutdown_active(state)
 		eventloop.destroy(loop)
 	}
+
+	// Everything from here to the loop is one stretch on the page's VM, charged to its
+	// CPU budget: runtime install, the entry body, its promise jobs and nextTicks.
+	// Released on every return; vm_cpu_exit is a no-op once the depth is back at 0.
+	vm_cpu_enter(vm)
+	defer vm_cpu_exit(vm)
 
 	setup_module_environment(cast(jsc.JSContextRef)ctx, source_name, loop)
 
@@ -355,6 +388,7 @@ eval :: proc(
 	)
 
 	if exception != nil {
+		if kill := vm_kill_reason(vm); kill != .None do return page_killed(kill)
 		msg, allocated := value_to_string(cast(jsc.JSContextRef)ctx, exception)
 		return Result {
 			status = .Execution_Error,
@@ -376,6 +410,8 @@ eval :: proc(
 	// first timer/I/O phase, since Node drains nextTicks ahead of timers. Same
 	// after-the-boundary re-drain that invoke_user_callback does per callback.
 	drain_next_ticks_settled(cast(jsc.JSContextRef)ctx, state)
+	vm_cpu_exit(vm)
+	if kill := vm_kill_reason(vm); kill != .None do return page_killed(kill)
 
 	if loop != nil {
 		// Startup-barrier rendezvous (multi-worker): report this worker ready and block until the
@@ -384,7 +420,9 @@ eval :: proc(
 		// direct teardown, not a drain. nil hook (single-worker) always proceeds.
 		proceed := true
 		if pre_run != nil do proceed = pre_run(pre_run_data)
-		if proceed {
+		if proceed && limits != {} {
+			if kill := run_limited(loop, vm); kill != .None do return page_killed(kill)
+		} else if proceed {
 			eventloop.run(loop)
 			// Loop teardown is the deferred eventloop.destroy declared above — it covers
 			// this success path and every early return once the context exists.
@@ -408,6 +446,41 @@ eval :: proc(
 		is_allocated = allocated,
 		backend_failed = backend_failed,
 	}
+}
+
+// run_limited is eventloop.run for a page under Page_Limits: every tick is charged to
+// the VM's CPU budget, and the first tick that ends with a limit hit stops the loop.
+// The tick, not each callback, is the unit: a tick's poll blocks without advancing
+// the thread's CPU clock, so the whole tick is the page's work, and one clock read
+// per tick costs less than one per callback. force_exit makes the deferred teardown
+// in eval reclaim whatever the page still had registered.
+@(private = "file")
+run_limited :: proc(loop: ^eventloop.Loop, vm: ^VM) -> Kill_Reason {
+	for eventloop.has_pending_work(loop) && !loop.backend_error && !loop.force_exit {
+		vm_cpu_enter(vm)
+		eventloop.run_next(loop)
+		vm_cpu_exit(vm)
+		if kill := vm_kill_reason(vm); kill != .None {
+			loop.force_exit = true
+			return kill
+		}
+	}
+	return .None
+}
+
+// page_killed builds the Result for a page a limit ended. Larva policy, not a Node
+// surface: Node has no per-script CPU limit, so the message is ours.
+@(private = "file")
+page_killed :: proc(kill: Kill_Reason) -> Result {
+	msg: string
+	switch kill {
+	case .Entry_Limit:
+		msg = "page killed: a script exceeded the execution time limit"
+	case .Cpu_Budget:
+		msg = "page killed: CPU budget exceeded"
+	case .None:
+	}
+	return Result{status = .Execution_Error, exit_code = 1, message = msg, kill = kill}
 }
 
 // resolve_exit_code computes the final process exit code after the event loop

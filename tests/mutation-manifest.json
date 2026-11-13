@@ -1229,6 +1229,33 @@
       "replace": "loop, alloc := state.loop, context.allocator\n\n\tfn := callback_arg(ctx, arguments[0])\n\tif fn == nil do return jsc.JSValueMakeUndefined(ctx)\n\n\tdelay := 0.0",
       "gate": "odin:cmd/lava:main.timer_binding_frees_through_its_own_allocator",
       "expect_detail": "made through the state allocator"
+    },
+    {
+      "name": "cpu_budget_kills_timer_spinner dies when the loop ticks are not charged to the budget",
+      "why": "Without the per-tick charge only single entries are watched, so thousands of 2 ms callbacks run the whole ~10 s.",
+      "source": "pkg/runtime/runtime.odin",
+      "find": "\t\tvm_cpu_enter(vm)\n\t\teventloop.run_next(loop)",
+      "replace": "\t\teventloop.run_next(loop)",
+      "gate": "odin:cmd/lava:main.cpu_budget_kills_timer_spinner",
+      "expect_detail": "expected result.status to be Execution_Error, got Ok"
+    },
+    {
+      "name": "cpu_budget_is_cleared_on_release dies when vm_release keeps the budget",
+      "why": "A pooled VM that keeps its holder's budget kills the next page for time it never spent.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tvm.cpu_budget_ns = 0\n\tvm.cpu_used_ns = 0\n",
+      "replace": "\tvm.cpu_used_ns = 0\n",
+      "gate": "odin:cmd/lava:main.cpu_budget_is_cleared_on_release",
+      "expect_detail": "budget survived release"
+    },
+    {
+      "name": "cpu_budget_is_cleared_on_release dies when a budget-armed watchdog kill is blamed on the entry limit",
+      "why": "The watchdog is clamped to the remaining budget; if its kill is attributed to the entry limit the caller is told the wrong limit ended the page.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tif vm.armed_by_budget {\n\t\tvm.budget_hit = true",
+      "replace": "\tif !vm.armed_by_budget {\n\t\tvm.budget_hit = true",
+      "gate": "odin:cmd/lava:main.cpu_budget_is_cleared_on_release",
+      "expect_detail": "budget kill misattributed to the entry limit"
     }
   ]
 }

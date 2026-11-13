@@ -20,6 +20,8 @@ foreign kernel32 {
 	// Not in core:sys/windows; hand-declared like GetTickCount64 above.
 	GetPriorityClass :: proc(hProcess: windows.HANDLE) -> windows.DWORD ---
 	SetPriorityClass :: proc(hProcess: windows.HANDLE, dwPriorityClass: windows.DWORD) -> windows.BOOL ---
+	// Same; thread_cpu_ns (vm_cpu_windows.odin) reads the page CPU budget clock here.
+	GetThreadTimes :: proc(hThread: windows.HANDLE, lpCreationTime, lpExitTime, lpKernelTime, lpUserTime: ^windows.FILETIME) -> windows.BOOL ---
 }
 
 // NtQuerySystemInformation (per-CPU tick counts) is not in core:sys/windows;
