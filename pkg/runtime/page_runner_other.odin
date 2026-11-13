@@ -10,7 +10,8 @@ import "base:runtime"
 Page_Done_Proc :: proc(runner: ^Page_Runner, user_data: rawptr, result: Result)
 
 Page_Runner :: struct {
-	on_done: Page_Done_Proc,
+	on_done:           Page_Done_Proc,
+	heap_sample_every: int,
 }
 
 page_runner_init :: proc(runner: ^Page_Runner, capacity: int, on_done: Page_Done_Proc, allocator: runtime.Allocator) -> bool {
@@ -30,3 +31,9 @@ page_runner_open :: proc(runner: ^Page_Runner, source: string, source_name: stri
 page_runner_live :: proc(runner: ^Page_Runner) -> int {return 0}
 
 page_runner_run :: proc(runner: ^Page_Runner) {}
+
+page_runner_step :: proc(runner: ^Page_Runner, block_when_idle := false) -> bool {return false}
+
+// Takes the fd as uintptr here: the Linux signature's linux.Fd does not exist on this
+// target. Always fails, like the rest of this stub.
+page_runner_watch_fd :: proc(runner: ^Page_Runner, fd: uintptr) -> bool {return false}

@@ -174,10 +174,11 @@ page_runner_run :: proc(runner: ^Page_Runner) {
 
 // page_runner_step runs one round: reports queued Results, gives every live page one
 // tick, and — when nothing progressed — blocks until a page loop or a watched fd
-// (page_runner_watch_fd) is ready or the nearest timer is due. With no pages at all it
-// blocks on the watched fds only. Returns whether pages or Results remain; a driver
-// that feeds the runner from elsewhere (page_dispatcher.odin) keeps stepping anyway.
-page_runner_step :: proc(runner: ^Page_Runner) -> bool {
+// (page_runner_watch_fd) is ready or the nearest timer is due. With no pages it
+// returns at once, unless `block_when_idle` asks it to wait on the watched fds (a
+// driver that feeds the runner from elsewhere, page_dispatcher.odin). Returns whether
+// pages or Results remain.
+page_runner_step :: proc(runner: ^Page_Runner, block_when_idle := false) -> bool {
 	context.allocator = runner.allocator
 	runner_report_done(runner)
 	progressed := false
@@ -193,7 +194,9 @@ page_runner_step :: proc(runner: ^Page_Runner) -> bool {
 		if did_work do progressed = true
 		i += 1
 	}
-	if !progressed && len(runner.done) == 0 && (len(runner.pages) > 0 || runner.watched > 0) do runner_wait(runner)
+	if !progressed && len(runner.done) == 0 && (len(runner.pages) > 0 || (block_when_idle && runner.watched > 0)) {
+		runner_wait(runner)
+	}
 	return len(runner.pages) > 0 || len(runner.done) > 0
 }
 

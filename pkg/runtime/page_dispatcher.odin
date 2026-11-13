@@ -2,6 +2,7 @@
 package lava_runtime
 
 import "base:runtime"
+import "core:container/queue"
 import "core:strings"
 import "core:sync"
 import "core:sys/linux"
@@ -39,8 +40,12 @@ Dispatch_Job :: struct {
 Dispatch_Worker :: struct {
 	dispatcher: ^Page_Dispatcher,
 	thread:     ^thread.Thread,
-	// Guards inbox and stopping; the worker swaps the inbox out under it.
+	// Guards inbox, stopping and cancel; the worker swaps the inbox out under it.
 	mutex:      sync.Mutex,
+	// Set (after the eventfd write) whenever inbox or stopping changes, so the worker
+	// pays the eventfd read and the lock only on rounds where something was posted —
+	// not on every round of a worker whose pages keep it busy.
+	posted:     bool,
 	inbox:      [dynamic]Dispatch_Job,
 	stopping:   bool,
 	// Set with stopping by a cancelling shutdown: running pages are cancelled, not
@@ -65,6 +70,8 @@ Page_Dispatcher :: struct {
 	allocator: runtime.Allocator,
 	// Passed to every worker's runner (Page_Runner.heap_sample_every).
 	heap_sample_every: int,
+	// Set by shutdown before it stops the workers; submit refuses from then on.
+	closed:    bool,
 }
 
 // page_dispatcher_init starts `threads` workers, each able to run `pages_per_thread`
@@ -111,6 +118,8 @@ page_dispatcher_init :: proc(
 		// pages that never run.
 		sync.sema_wait(&w.ready)
 		if !w.init_ok do ok = false
+		// No point starting more workers only to shut them down again.
+		if !ok do break
 	}
 	if !ok {
 		page_dispatcher_shutdown(d)
@@ -133,6 +142,11 @@ page_dispatcher_submit :: proc(
 	limits: Page_Limits = {},
 	user_data: rawptr = nil,
 ) -> bool {
+	// After shutdown the worker list is gone; during it, closed refuses before any
+	// worker record is touched. A submit racing shutdown from ANOTHER feeding thread is
+	// still the caller's error (shutdown frees the records once the workers are
+	// joined); on_done's submits are safe, since they come from the joined workers.
+	if len(d.workers) == 0 || sync.atomic_load(&d.closed) do return false
 	best := d.workers[0]
 	best_load := sync.atomic_load(&best.load)
 	for w in d.workers[1:] {
@@ -159,7 +173,7 @@ page_dispatcher_submit :: proc(
 	sync.atomic_add(&best.load, 1)
 	append(&best.inbox, job)
 	sync.mutex_unlock(&best.mutex)
-	dispatch_wake(best)
+	dispatch_post(best)
 	return true
 }
 
@@ -172,17 +186,21 @@ page_dispatcher_load :: proc(d: ^Page_Dispatcher, out: []int) {
 // page_dispatcher_shutdown stops the workers, then joins them and frees the
 // dispatcher. By default every accepted page runs to its end — a page with no limits
 // that never ends then holds shutdown forever; with `cancel` the running and queued
-// pages are reported .Cancelled instead. Submits from then on, including from on_done,
+// pages are reported .Cancelled instead, as soon as their worker is between ticks. A
+// page stuck in one synchronous entry is not interrupted by cancel: stopping it takes
+// its VM's lock, which only its own thread can get while the script runs. Give pages
+// an entry limit if shutdown must be bounded. Submits from then on, including from on_done,
 // are refused. Workers are freed only after all are joined, since a worker's on_done
 // may still submit (and so read every worker's load) until it exits.
 page_dispatcher_shutdown :: proc(d: ^Page_Dispatcher, cancel := false) {
+	sync.atomic_store(&d.closed, true)
 	for w in d.workers {
 		if w == nil do continue
 		sync.mutex_lock(&w.mutex)
 		w.stopping = true
 		w.cancel = cancel
 		sync.mutex_unlock(&w.mutex)
-		if w.wake_fd >= 0 do dispatch_wake(w)
+		if w.wake_fd >= 0 do dispatch_post(w)
 	}
 	for w in d.workers {
 		if w == nil || w.thread == nil do continue
@@ -199,10 +217,15 @@ page_dispatcher_shutdown :: proc(d: ^Page_Dispatcher, cancel := false) {
 	d^ = {}
 }
 
+// dispatch_post wakes the worker for a change to its inbox or stop state. The eventfd
+// is written BEFORE `posted` is set: a worker that sees posted then drains a write
+// that already happened, and one that misses it wakes on the still-readable fd and
+// sees posted on its next round.
 @(private = "file")
-dispatch_wake :: proc(w: ^Dispatch_Worker) {
+dispatch_post :: proc(w: ^Dispatch_Worker) {
 	one := u64(1)
 	linux.write(w.wake_fd, ([^]u8)(&one)[:8])
+	sync.atomic_store(&w.posted, true)
 }
 
 @(private = "file")
@@ -224,6 +247,13 @@ dispatch_page_done :: proc(runner: ^Page_Runner, user_data: rawptr, result: Resu
 @(private = "file")
 dispatch_worker_main :: proc(w: ^Dispatch_Worker) {
 	context.user_ptr = w
+	defer {
+		// The runner's pool held this thread's VMs; the implicit pool may hold more if
+		// anything on this thread called eval. Then the thread-local host-native tables,
+		// which would otherwise leak with the thread. On every exit, init failure too.
+		thread_vm_pool_destroy()
+		host_native_thread_teardown()
+	}
 	runner: Page_Runner
 	runner_ok := page_runner_init(&runner, w.capacity, dispatch_page_done, runtime.heap_allocator())
 	w.init_ok = runner_ok && page_runner_watch_fd(&runner, w.wake_fd)
@@ -233,52 +263,52 @@ dispatch_worker_main :: proc(w: ^Dispatch_Worker) {
 		if runner_ok do page_runner_destroy(&runner)
 		return
 	}
+	// Cancels whatever is still running (only after a cancelling shutdown).
+	defer page_runner_destroy(&runner)
 
-	pending: [dynamic]Dispatch_Job
-	pending.allocator = runtime.heap_allocator()
-	defer delete(pending)
+	// A queue, not a dynamic array: a backlog of thousands of jobs drains in O(n).
+	pending: queue.Queue(Dispatch_Job)
+	queue.init(&pending, allocator = runtime.heap_allocator())
+	defer queue.destroy(&pending)
+	free_job :: proc(w: ^Dispatch_Worker, job: Dispatch_Job) {
+		delete(job.source, w.dispatcher.allocator)
+		delete(job.name, w.dispatcher.allocator)
+	}
+	stopping, cancel: bool
 	for {
-		// Drain the eventfd before reading the inbox, so a submit that lands after the
-		// read below still leaves the fd readable for the next wait.
-		counter: u64
-		linux.read(w.wake_fd, ([^]u8)(&counter)[:8])
-
-		sync.mutex_lock(&w.mutex)
-		stopping, cancel := w.stopping, w.cancel
-		for job in w.inbox do append(&pending, job)
-		clear(&w.inbox)
-		sync.mutex_unlock(&w.mutex)
+		if sync.atomic_exchange(&w.posted, false) {
+			// Drain the eventfd, then read the inbox: a post after this read sets posted
+			// again, so the next round picks it up.
+			counter: u64
+			linux.read(w.wake_fd, ([^]u8)(&counter)[:8])
+			sync.mutex_lock(&w.mutex)
+			stopping, cancel = w.stopping, w.cancel
+			for job in w.inbox do queue.push_back(&pending, job)
+			clear(&w.inbox)
+			sync.mutex_unlock(&w.mutex)
+		}
 
 		if cancel {
 			// Queued jobs never ran: report them like the running pages destroy cancels.
-			for len(pending) > 0 {
-				job := pop_front(&pending)
-				delete(job.source, w.dispatcher.allocator)
-				delete(job.name, w.dispatcher.allocator)
+			for queue.len(pending) > 0 {
+				job := queue.pop_front(&pending)
+				free_job(w, job)
 				dispatch_page_done(&runner, job.user_data, page_killed_result(.Cancelled))
 			}
-			break
+			return
 		}
 
 		// Jobs wait here, not in the runner, while every page slot is busy: opening
 		// past capacity would fail the page for want of a VM.
-		for len(pending) > 0 && page_runner_live(&runner) < w.capacity {
-			job := pop_front(&pending)
+		for queue.len(pending) > 0 && page_runner_live(&runner) < w.capacity {
+			job := queue.pop_front(&pending)
 			page_runner_open(&runner, job.source, job.name, job.limits, job.user_data)
-			delete(job.source, w.dispatcher.allocator)
-			delete(job.name, w.dispatcher.allocator)
+			free_job(w, job)
 		}
 
 		// Checked before stepping: with nothing left, a step would block on an eventfd
 		// this turn has already drained.
-		if stopping && len(pending) == 0 && page_runner_live(&runner) == 0 && len(runner.done) == 0 do break
-		page_runner_step(&runner)
+		if stopping && queue.len(pending) == 0 && page_runner_live(&runner) == 0 && len(runner.done) == 0 do return
+		page_runner_step(&runner, block_when_idle = true)
 	}
-	// Cancels whatever is still running (only after a cancelling shutdown).
-	page_runner_destroy(&runner)
-	// The runner's pool held this thread's VMs; the implicit pool may hold more if
-	// anything on this thread called eval. Then the thread-local host-native tables,
-	// which would otherwise leak with the thread.
-	thread_vm_pool_destroy()
-	host_native_thread_teardown()
 }

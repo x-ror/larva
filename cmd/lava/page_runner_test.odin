@@ -453,3 +453,38 @@ runner_samples_every_nth_page_per_vm :: proc(t: ^testing.T) {
 	lava.page_runner_run(&runner)
 	testing.expectf(t, h.n == 3 && h.heap[0] == -1 && h.heap[1] > 0 && h.heap[2] == -1, "sampled the wrong pages: %v", h.heap)
 }
+
+// page_runner_run returns once its pages are done even when the runner watches an
+// external fd: only a driver that asks (block_when_idle) waits on it with no pages.
+@(test)
+runner_run_returns_with_a_watched_fd_and_no_pages :: proc(t: ^testing.T) {
+	runner: lava.Page_Runner
+	if !lava.page_runner_init(&runner, 1, record_outcome, context.allocator) {
+		testing.fail_now(t, "page_runner_init failed")
+	}
+	defer lava.page_runner_destroy(&runner)
+	efd, err := linux.eventfd(0, {.CLOEXEC, .NONBLOCK})
+	if err != .NONE do testing.fail_now(t, "eventfd failed")
+	defer linux.close(efd)
+	testing.expect(t, lava.page_runner_watch_fd(&runner, efd), "watch_fd failed")
+	o: Outcome
+	lava.page_runner_open(&runner, "setTimeout(() => {}, 5);", "<one>", {}, &o)
+	lava.page_runner_run(&runner)
+	testing.expect(t, o.done, "page not reported")
+}
+
+// A killed page is not heap-sampled even on a sampled slot (its heap is not a finished
+// page's, and sampling would run its leftover jobs).
+@(test)
+runner_does_not_sample_a_killed_page :: proc(t: ^testing.T) {
+	runner: lava.Page_Runner
+	if !lava.page_runner_init(&runner, 1, record_heap, context.allocator) {
+		testing.fail_now(t, "page_runner_init failed")
+	}
+	defer lava.page_runner_destroy(&runner)
+	runner.heap_sample_every = 1
+	heap := 7
+	lava.page_runner_open(&runner, "setTimeout(() => { while (true) {} }, 1);", "<killed>", {entry_limit = 0.05}, &heap)
+	lava.page_runner_run(&runner)
+	testing.expectf(t, heap == -1, "a killed page was sampled (%d)", heap)
+}

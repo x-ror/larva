@@ -343,9 +343,12 @@ page_close :: proc(page: ^Page) -> Result {
 	}
 
 	page.result.heap_bytes = -1
-	// The walk is the page's own cost (19 ms at ~300k objects), charged to its budget
-	// like any other work it caused, though it can no longer be killed for it.
-	if page.sample_heap && page.state != nil {
+	// The walk is the page's own cost — 19 ms on a VM holding ~300k objects (three
+	// calls on one VM, libjavascriptcoregtk-6.0 2.52) — charged to its budget like any
+	// other work it caused. Skipped for a killed or cancelled page: its heap is not a
+	// finished page's, the walk's C-API exits would run a killed page's leftover jobs
+	// first, and a destroy of N pages would pay N walks.
+	if page.sample_heap && page.state != nil && page.result.kill == .None {
 		vm_cpu_enter(page.vm)
 		page.result.heap_bytes = vm_sample_heap(page.vm, ctx)
 		vm_cpu_exit(page.vm)

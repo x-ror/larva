@@ -139,3 +139,13 @@ dispatcher_cancelling_shutdown_cancels_running_and_queued :: proc(t: ^testing.T)
 	testing.expect_value(t, tally.killed, 5)
 	testing.expect_value(t, tally.ok + tally.other, 0)
 }
+
+// A submit after shutdown is refused with false, not a crash on the emptied worker list.
+@(test)
+dispatcher_submit_after_shutdown_is_refused :: proc(t: ^testing.T) {
+	d: lava.Page_Dispatcher
+	if !lava.page_dispatcher_init(&d, 2, 2, tally_done) do testing.fail_now(t, "page_dispatcher_init failed")
+	lava.page_dispatcher_shutdown(&d)
+	tally: Tally
+	testing.expect(t, !lava.page_dispatcher_submit(&d, "1", "<late>", {}, &tally), "submit after shutdown was accepted")
+}

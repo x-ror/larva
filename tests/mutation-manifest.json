@@ -1479,6 +1479,25 @@
       "gate": "odin:cmd/lava:main.dispatcher_cancelling_shutdown_cancels_running_and_queued",
       "expect_detail": "timed out",
       "timeout_ms": 30000
+    },
+    {
+      "name": "runner_does_not_sample_a_killed_page dies when killed pages are sampled",
+      "why": "Sampling a killed page runs its leftover jobs in the walk's C-API exits and makes a destroy of N pages pay N heap walks.",
+      "source": "pkg/runtime/page.odin",
+      "find": "if page.sample_heap && page.state != nil && page.result.kill == .None {",
+      "replace": "if page.sample_heap && page.state != nil {",
+      "gate": "odin:cmd/lava:main.runner_does_not_sample_a_killed_page",
+      "expect_detail": "a killed page was sampled"
+    },
+    {
+      "name": "runner_run_returns_with_a_watched_fd_and_no_pages dies when an idle step waits on watched fds unasked",
+      "why": "page_runner_run would block forever on an external fd once its last page is gone.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "(block_when_idle && runner.watched > 0)",
+      "replace": "(runner.watched > 0)",
+      "gate": "odin:cmd/lava:main.runner_run_returns_with_a_watched_fd_and_no_pages",
+      "expect_detail": "timed out",
+      "timeout_ms": 30000
     }
   ]
 }
