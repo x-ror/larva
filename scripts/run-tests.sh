@@ -43,49 +43,13 @@ printf '%s\n' '== Oracle suites =='
 if [ "$RUN_LAVA" = 1 ]; then
 	RUN_LAVA=1 "$ROOT_DIR/scripts/run-oracles.sh"
 else
-	if [ "${LAVA_ORACLE_SERIAL:-0}" = "1" ]; then
-		"$ROOT_DIR/scripts/run-node-compat-all.sh"
-		"$ROOT_DIR/scripts/run-sqlite-oracle.sh"
-		"$ROOT_DIR/scripts/run-fs-oracle.sh"
-		"$ROOT_DIR/scripts/run-eventloop-oracle.sh"
-	else
-		OUT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/lava-test-oracles.XXXXXX")
-		cleanup_oracles() {
-			rm -rf "$OUT_DIR"
-		}
-		trap cleanup_oracles EXIT
-
-		"$ROOT_DIR/scripts/run-node-compat-all.sh" >"$OUT_DIR/01-node-compat.log" 2>&1 &
-		pid_compat=$!
-		"$ROOT_DIR/scripts/run-sqlite-oracle.sh" >"$OUT_DIR/02-sqlite.log" 2>&1 &
-		pid_sqlite=$!
-		"$ROOT_DIR/scripts/run-fs-oracle.sh" >"$OUT_DIR/03-fs.log" 2>&1 &
-		pid_fs=$!
-		"$ROOT_DIR/scripts/run-eventloop-oracle.sh" >"$OUT_DIR/04-eventloop.log" 2>&1 &
-		pid_eventloop=$!
-
-		failed=0
-		for spec in \
-			"node-compat:$pid_compat:$OUT_DIR/01-node-compat.log" \
-			"sqlite:$pid_sqlite:$OUT_DIR/02-sqlite.log" \
-			"fs:$pid_fs:$OUT_DIR/03-fs.log" \
-			"eventloop:$pid_eventloop:$OUT_DIR/04-eventloop.log"; do
-			name=${spec%%:*}
-			rest=${spec#*:}
-			pid=${rest%%:*}
-			log=${rest#*:}
-			set +e
-			wait "$pid"
-			rc=$?
-			set -e
-			cat "$log"
-			if [ "$rc" -ne 0 ]; then
-				printf 'oracle suite %s failed (exit %s)\n' "$name" "$rc" >&2
-				failed=1
-			fi
-		done
-		[ "$failed" -eq 0 ] || exit 1
-	fi
+	# shellcheck source=lib/parallel-suites.sh
+	. "$ROOT_DIR/scripts/lib/parallel-suites.sh"
+	suite node-compat "$ROOT_DIR/scripts/run-node-compat-all.sh"
+	suite sqlite "$ROOT_DIR/scripts/run-sqlite-oracle.sh"
+	suite fs "$ROOT_DIR/scripts/run-fs-oracle.sh"
+	suite eventloop "$ROOT_DIR/scripts/run-eventloop-oracle.sh"
+	run_suites || exit 1
 fi
 
 if [ "$INCLUDE_FETCH_SMOKE" = 1 ]; then

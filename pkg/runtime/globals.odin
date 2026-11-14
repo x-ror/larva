@@ -1366,32 +1366,43 @@ make_native_function :: proc(
 	return jsc.JSObjectMakeFunctionWithCallback(ctx, js_name, callback)
 }
 
+// LAVA_JS_OVERRIDE compiles in the dev-only "builtin JS from disk" path. It is OFF
+// in every normal build (`make build`, release, bench): such a binary never stats or
+// reads a file to get its runtime JS, so the embedded `#load` strings are the only
+// source and nothing on disk can steer it. scripts/build.sh turns it on only when
+// LAVA_JS_OVERRIDE=1 is in the environment, which the mutation runner sets for its
+// mutant builds.
+LAVA_JS_OVERRIDE :: #config(LAVA_JS_OVERRIDE, false)
+
 RUNTIME_SOURCE_FILE :: #file
 
-// js_override_dir returns the compile-time `pkg/runtime` directory when
-// `bin/.lava.js-override` exists (written by `scripts/build.sh` when only
-// `pkg/runtime/js/**/*.js` changed since `bin/lava` was linked). This mirrors
-// Node's `--node-builtin-modules-path`: JS-only edits and `make test-mutation`
-// patches take effect immediately from disk without relinking `bin/lava` 70+
-// times, while normal runs and benchmarks do a single `os.exists` check per
-// context init and use the embedded `#load` strings.
+// js_override_dir returns the compile-time `pkg/runtime` directory when this is a
+// LAVA_JS_OVERRIDE build and `bin/.lava.js-override` exists (written by
+// scripts/build.sh when only `pkg/runtime/js/**/*.js` changed since `bin/lava` was
+// linked). The analogue of Node's `--node-builtin-modules-path`: a JS-only mutation
+// takes effect from disk without relinking `bin/lava` once per mutation.
+// It costs one `os.exists` per context init, and only in override builds.
 js_override_dir :: proc() -> string {
-	file := RUNTIME_SOURCE_FILE
-	last_sep := -1
-	for i := len(file) - 1; i >= 0; i -= 1 {
-		if file[i] == '/' || file[i] == '\\' {
-			last_sep = i
-			break
+	when !LAVA_JS_OVERRIDE {
+		return ""
+	} else {
+		file := RUNTIME_SOURCE_FILE
+		last_sep := -1
+		for i := len(file) - 1; i >= 0; i -= 1 {
+			if file[i] == '/' || file[i] == '\\' {
+				last_sep = i
+				break
+			}
 		}
+		if last_sep < 0 do return ""
+		runtime_dir := file[:last_sep]
+		marker, err := strings.concatenate(
+			{runtime_dir, "/../../bin/.lava.js-override"},
+			context.temp_allocator,
+		)
+		if err != nil || !os.exists(marker) do return ""
+		return runtime_dir
 	}
-	if last_sep < 0 do return ""
-	runtime_dir := file[:last_sep]
-	marker, err := strings.concatenate(
-		{runtime_dir, "/../../bin/.lava.js-override"},
-		context.temp_allocator,
-	)
-	if err != nil || !os.exists(marker) do return ""
-	return runtime_dir
 }
 
 eval_internal_source :: proc(

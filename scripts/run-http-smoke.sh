@@ -226,9 +226,7 @@ start_assert "$ROOT_DIR/tests/runtime/http/malformed.js" malformed-poisoned-char
 start_assert "$ROOT_DIR/tests/runtime/http/malformed.js" malformed-poisoned-parseint "HTTP_POISON_REGEXP=parseint"
 # Phase 3 — keep-alive: connection reuse, pipelining, Connection: close, HTTP/1.0.
 start_assert "$ROOT_DIR/tests/runtime/http/keepalive.js" keepalive
-# Phase 4 — timeouts / slowloris: idle, slow-head, slow-body evicted; fast client OK.
-# (HTTP_SHORT_TIMEOUTS makes the fixture use sub-second timeouts.)
-start_assert "$ROOT_DIR/tests/runtime/http/timeouts.js" timeouts HTTP_SHORT_TIMEOUTS=1
+# (Phase 4, timeouts, runs alone after this batch — see below.)
 
 # Phase 5 — ServerResponse head/body coalescing unit test. Runs in-process under Lava with a
 # mock socket (no server/client): asserts the single-write fast path, its head+body size
@@ -241,6 +239,14 @@ start_response_unit
 # result contract and headBytes/latin1WriteInto.
 start_assert "$ROOT_DIR/tests/runtime/http/headers-bridge.js" headers-bridge
 
+wait_phases
+
+# Phase 4 — timeouts / slowloris: idle, slow-head, slow-body evicted; fast client OK.
+# (HTTP_SHORT_TIMEOUTS makes the fixture use sub-second timeouts.) Run AFTER the
+# parallel batch, alone: its assertions are sub-second deadlines, and sharing a 4-core
+# CI runner with seven other servers would turn scheduler delay into a flaky verdict.
+PHASE_JOBS=""
+start_assert "$ROOT_DIR/tests/runtime/http/timeouts.js" timeouts HTTP_SHORT_TIMEOUTS=1
 wait_phases
 
 printf '%s\n' 'http smoke passed (parity + malformed + keep-alive + timeouts + response-unit + headers-bridge)'

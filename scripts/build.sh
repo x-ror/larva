@@ -10,6 +10,12 @@ mkdir -p bin
 # Optimized release build by default (-o:speed). Override for a fast debug/iteration
 # build, e.g. `LAVA_OPT=none ./scripts/build.sh`. Levels: none|minimal|size|speed|aggressive.
 OPT="${LAVA_OPT:-speed}"
+# LAVA_JS_OVERRIDE=1 builds the dev-only binary that can load pkg/runtime/js from disk
+# (pkg/runtime/globals.odin, js_override_dir). Only the mutation runner sets it; a
+# normal build never contains that code path.
+JS_OVERRIDE="${LAVA_JS_OVERRIDE:-0}"
+DEFINES=""
+[ "$JS_OVERRIDE" = "1" ] && DEFINES="-define:LAVA_JS_OVERRIDE=true"
 BIN_PATH="$ROOT_DIR/bin/lava"
 NATIVE_STAMP_FILE="$ROOT_DIR/bin/.lava.native.stamp"
 JS_STAMP_FILE="$ROOT_DIR/bin/.lava.js.stamp"
@@ -17,7 +23,9 @@ JS_OVERRIDE_FILE="$ROOT_DIR/bin/.lava.js-override"
 
 compute_native_stamp() {
 	{
-		printf 'OPT=%s\n' "$OPT"
+		printf 'OPT=%s DEFINES=%s\n' "$OPT" "$DEFINES"
+		# A new Odin toolchain recompiles core: — the sources below would not show it.
+		odin version 2>/dev/null || true
 		cksum "$ROOT_DIR/scripts/build.sh" "$ROOT_DIR/scripts/build-native-deps.sh"
 		if [ -f "$ROOT_DIR/pkg/runtime/picohttpparser/libpicohttpparser.a" ]; then
 			cksum "$ROOT_DIR/pkg/runtime/picohttpparser/libpicohttpparser.a"
@@ -47,20 +55,23 @@ if [ "${LAVA_FORCE_BUILD:-0}" != "1" ] &&
 	if [ "$cur_native" = "$old_native" ]; then
 		if [ "$cur_js" = "$old_js" ]; then
 			rm -f "$JS_OVERRIDE_FILE"
-		else
-			# Only embedded runtime JS changed since bin/lava was linked: mirror Node's
-			# --node-builtin-modules-path by letting runtime/globals.odin load js/** from
-			# disk instead of relinking bin/lava on every JS edit or mutation check.
+			exit 0
+		elif [ "$JS_OVERRIDE" = "1" ]; then
+			# Only embedded runtime JS changed since this override build was linked: let
+			# pkg/runtime/globals.odin load js/** from disk instead of relinking bin/lava
+			# for every JS mutation. A normal build never takes this branch — it relinks,
+			# so the JS it ships is always the JS it embeds.
 			printf '1\n' >"$JS_OVERRIDE_FILE"
+			exit 0
 		fi
-		exit 0
 	fi
 fi
 
 # No extra linker flags are needed: Linux links system libssl/libcrypto from the
 # default path, and macOS needs no OpenSSL linker flags for fetch TLS (#143).
 # (Windows builds via scripts/build-windows.ps1.)
-odin build cmd/lava -collection:lava=. -out:bin/lava -o:"$OPT"
+# shellcheck disable=SC2086 # DEFINES is empty or one flag
+odin build cmd/lava -collection:lava=. -out:bin/lava -o:"$OPT" $DEFINES
 printf '%s\n' "$cur_native" >"$NATIVE_STAMP_FILE"
 printf '%s\n' "$cur_js" >"$JS_STAMP_FILE"
 rm -f "$JS_OVERRIDE_FILE"
