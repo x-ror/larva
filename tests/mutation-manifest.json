@@ -801,7 +801,7 @@
       "name": "57-format-single-arg dies when a lone surrogate is not escaped",
       "why": "node escapes an unpaired surrogate as \\\\udXXX; Lava used to hand it to the string conversion, which replaced it with U+FFFD — the value came back LOSSY, not merely rendered differently.",
       "source": "pkg/runtime/js/internal/util.js",
-      "find": "        if (next >= 0xdc00 && next <= 0xdfff)\n          i++; // consume the pair\n        else esc = escUnit(c);",
+      "find": "        if (next >= 0xdc00 && next <= 0xdfff) i++; // consume the pair\n        else esc = escUnit(c);",
       "replace": "        if (next >= 0xdc00 && next <= 0xdfff) i++;",
       "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
       "expect_detail": [
@@ -1229,6 +1229,126 @@
       "replace": "loop, alloc := state.loop, context.allocator\n\n\tfn := callback_arg(ctx, arguments[0])\n\tif fn == nil do return jsc.JSValueMakeUndefined(ctx)\n\n\tdelay := 0.0",
       "gate": "odin:cmd/lava:main.timer_binding_frees_through_its_own_allocator",
       "expect_detail": "made through the state allocator"
+    },
+    {
+      "name": "cpu_budget_kills_timer_spinner dies when the loop ticks are not charged to the budget",
+      "why": "Without the per-tick charge only single entries are watched, so thousands of 2 ms callbacks run the whole ~10 s.",
+      "source": "pkg/runtime/runtime.odin",
+      "find": "\t\tvm_cpu_enter(vm)\n\t\teventloop.run_next(loop)",
+      "replace": "\t\teventloop.run_next(loop)",
+      "gate": "odin:cmd/lava:main.cpu_budget_kills_timer_spinner",
+      "expect_detail": "expected result.status to be Execution_Error, got Ok"
+    },
+    {
+      "name": "cpu_budget_is_cleared_on_release dies when vm_release keeps the budget",
+      "why": "A pooled VM that keeps its holder's budget kills the next page for time it never spent.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tvm.cpu_budget_ns = 0\n\tvm.cpu_used_ns = 0\n",
+      "replace": "\tvm.cpu_used_ns = 0\n",
+      "gate": "odin:cmd/lava:main.cpu_budget_is_cleared_on_release",
+      "expect_detail": "budget survived release"
+    },
+    {
+      "name": "cpu_budget_is_cleared_on_release dies when a budget-armed watchdog kill is blamed on the entry limit",
+      "why": "The watchdog is clamped to the remaining budget; if its kill is attributed to the entry limit the caller is told the wrong limit ended the page.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tif vm.armed_by_budget {\n\t\tvm.budget_hit = true",
+      "replace": "\tif !vm.armed_by_budget {\n\t\tvm.budget_hit = true",
+      "gate": "odin:cmd/lava:main.cpu_budget_is_cleared_on_release",
+      "expect_detail": "budget kill misattributed to the entry limit"
+    },
+    {
+      "name": "cpu_budget_clamps_to_the_budget_left dies when the watchdog is never re-armed as the budget shrinks",
+      "why": "Armed once at the full budget, a runaway entry late in the page gets the whole budget again instead of what is left.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "max(0.001, vm.armed_limit * 0.1)",
+      "replace": "max(0.001, vm.armed_limit * 10)",
+      "gate": "odin:cmd/lava:main.cpu_budget_clamps_to_the_budget_left",
+      "expect_detail": "runaway entry was given"
+    },
+    {
+      "name": "cpu_nested_enter_charges_once dies when nested enters each read the clock",
+      "why": "Without the depth check a nested enter resets the mark, so the outer stretch's time before it is lost.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tvm.cpu_depth += 1\n\tif vm.cpu_depth > 1 do return",
+      "replace": "\tvm.cpu_depth += 1",
+      "gate": "odin:cmd/lava:main.cpu_nested_enter_charges_once",
+      "expect_detail": "of a ~0.1s stretch was charged"
+    },
+    {
+      "name": "entry_limit_kills_runaway_top_level dies when a top-level kill is reported as an ordinary exception",
+      "why": "The caller must be able to tell a watchdog kill from a thrown error; without the check the kill reads as a script error with kill None.",
+      "source": "pkg/runtime/runtime.odin",
+      "find": "\t\tif kill := vm_kill_reason(vm); kill != .None do return page_killed(kill)\n\t\tmsg, allocated",
+      "replace": "\t\tmsg, allocated",
+      "gate": "odin:cmd/lava:main.entry_limit_kills_runaway_top_level",
+      "expect_detail": "expected result.kill to be Entry_Limit"
+    },
+    {
+      "name": "cpu_budget_kills_many_timers_in_one_tick dies when callbacks are not charged inside a tick",
+      "why": "A tick fires every due timer, each a fresh JSC entry; charged only per tick, one tick runs thousands of entries past the budget.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tvm_cpu_checkpoint(state.vm)\n\tif !page_stop_if_killed(state) do return false",
+      "replace": "\tif !page_stop_if_killed(state) do return false",
+      "gate": "odin:cmd/lava:main.cpu_budget_kills_many_timers_in_one_tick",
+      "expect_detail": "past a 0.2s budget",
+      "timeout_ms": 60000
+    },
+    {
+      "name": "cpu_budget_kill_latches_over_queued_microtasks dies when the watchdog callback does not latch the kill",
+      "why": "JSC drains the promise jobs queued before a cut as the cut entry returns; without the re-arm to the floor inside the callback each runs under the limit it just cut, so a page spends ~2x its budget.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tcontext = runtime.default_context()\n\tvm_arm_kill_floor(vm)\n\treturn true\n",
+      "replace": "\treturn true\n",
+      "gate": "odin:cmd/lava:main.cpu_budget_kill_latches_over_queued_microtasks",
+      "expect_detail": "against a 0.5s budget"
+    },
+    {
+      "name": "entry_limit_kill_latches_over_queued_microtasks dies when the watchdog callback does not latch the kill",
+      "why": "Same latch for an entry-limit kill: the queued jobs must not get a fresh entry_limit window.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tcontext = runtime.default_context()\n\tvm_arm_kill_floor(vm)\n\treturn true\n",
+      "replace": "\treturn true\n",
+      "gate": "odin:cmd/lava:main.entry_limit_kill_latches_over_queued_microtasks",
+      "expect_detail": "against a 0.3s entry limit"
+    },
+    {
+      "name": "cpu_budget_kills_many_timers_in_one_tick dies when a killed page runs the rest of its tick",
+      "why": "The timers phase fires every due timer in one tick and never reads force_exit; this check is the only thing that stops the rest after a kill, each under a 1 ms clamp (~10 s for 5000 timers).",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tif state != nil && page_stop_if_killed(state) do return jsc.JSValueMakeUndefined(ctx)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.cpu_budget_kills_many_timers_in_one_tick",
+      "expect_detail": "past a 0.2s budget",
+      "timeout_ms": 60000
+    },
+    {
+      "name": "cpu_budget_kills_a_next_tick_ping_pong dies when nextTick drain passes are not checkpointed",
+      "why": "A nextTick/promise ping-pong never returns from the drain, and each pass is a short fresh entry the watchdog never cuts; the per-pass checkpoint is the only stop. Without it the gate hangs.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\t\tif page_checkpoint(state, &exc) do return\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.cpu_budget_kills_a_next_tick_ping_pong",
+      "expect_detail": "timed out",
+      "timeout_ms": 30000
+    },
+    {
+      "name": "cpu_budget_is_cleared_on_release dies when vm_acquire keeps budget_hit",
+      "why": "A reused VM that keeps its last holder's budget_hit reports the next page killed before it runs: one page's state leaking into the next in a reused VM.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\t\t\tvm.budget_hit = false\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.cpu_budget_is_cleared_on_release",
+      "expect_detail": "budget_hit survived release"
+    },
+    {
+      "name": "cpu_budget_is_cleared_on_release dies when vm_release keeps the armed watchdog",
+      "why": "A watchdog left armed (by the budget, or the kill floor) terminates the next page on the reused VM for time it never spent.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tif vm.armed_limit > 0 do jsc.JSContextGroupClearExecutionTimeLimit(vm.group)\n\tvm.entry_limit = 0\n",
+      "replace": "\tvm.entry_limit = 0\n",
+      "gate": "odin:cmd/lava:main.cpu_budget_is_cleared_on_release",
+      "expect_detail": "a cleared budget still terminated the next page"
     }
   ]
 }
