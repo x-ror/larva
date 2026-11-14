@@ -27,8 +27,6 @@
       "Bash(bun:*)",
       "Bash(bun install:*)",
       "Bash(npx markdownlint-cli2:*)",
-      "Bash(npx vp:*)",
-      "Bash(vp:*)",
       "Bash(npm test:*)",
       "Bash(npm run:*)",
 

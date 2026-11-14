@@ -45,11 +45,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libjavascriptcoregtk-6.0-dev libsqlite3-dev libssl-dev pkg-config
 
-      - uses: voidzero-dev/setup-vp@v1
+      - uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: true
-          run-install: true
+
+      # Bun runs the JS gates (`bun fmt`, `bun run js:*`) and installs the dev
+      # dependencies. The version comes from package.json's packageManager so CI
+      # formats with the same Bun as `make check-js` does locally.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install JS dev dependencies
+        run: bun install --frozen-lockfile
 
       - name: Setup Odin
         if: steps.scope.outputs.scope != 'docs'
