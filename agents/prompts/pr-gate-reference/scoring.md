@@ -18,6 +18,10 @@ shared Web API code. A diff touching several profiles is graded by its worst.
 | C     | Plausible parity, not verified empirically (no oracle run, no `bin/lava` diff, or no Chrome recording for a Window surface).                            |
 | F     | Undeclared divergence on a user-visible surface; a wrong error `code`/type/order on a common path; a Node global or `ERR_*` code reachable from a page. |
 
+`n/a` — the diff touches no user-visible surface (tooling, docs, agent text).
+It is not a grade and blocks nothing; it must not be used for a surface that
+was touched and not checked, which is `C`.
+
 `F` blocks the merge. `C` blocks a PR that claims parity. Until the stage-0
 Chrome corpus covers a surface, a Window-profile change is at best `C`: it may
 merge if it does not claim parity and the PR names the recording still owed.
@@ -36,7 +40,7 @@ the trade must be written at the call site and in the PR body.
 | F     | Measured regression, or a perf claim with no number, or a pathological cost (unbounded allocation, O(n²) per request, leak). |
 
 A perf claim without evidence is graded `F` on this axis regardless of how the
-code reads.
+code reads. `n/a` — no hot path touched and no perf claim made.
 
 ## Merge gates
 
@@ -65,11 +69,31 @@ is a Code-quality **P1** with the concrete deletion named.
 | **P2**   | Real improvement, not a blocker.                                                                                                                          | Optional in this PR.                              |
 | **nit**  | Style, wording.                                                                                                                                           | Ignore unless free.                               |
 
+Calibration, from findings three reviewers graded three ways in one run:
+
+- A playbook or agent file naming an agent, command or file that no longer
+  exists is a document made false → **P1**, Documentation.
+- A new test on a gate script with no entry in `tests/mutation-manifest.json`
+  → **P1**, Test coverage (`CLAUDE.md` §6), even when the mutation was done by
+  hand.
+
+## Review gate states
+
+| State          | When                                                                | Verdict effect          |
+| -------------- | ------------------------------------------------------------------- | ----------------------- |
+| `PASS`/`FAIL`  | The owner ran and reported.                                         | as its findings dictate |
+| `N/A`          | No changed path routes to the owner (Safety on a `.md`-only diff).  | none                    |
+| `NOT REVIEWED` | The owner was due — by tier or by path — and did not run or report. | ceiling is `SHIP-AFTER` |
+
+A gate is never printed `PASS` because nobody looked.
+
 ## Verdict
 
 ```text
-SHIP        — no P0; P1s either fixed or explicitly waived
-SHIP-AFTER  — P0 count is small and each has a concrete named fix
+SHIP        — no P0; P1s either fixed or explicitly waived by a human
+SHIP-AFTER  — P0 count is small and each has a concrete named fix; or no P0
+              but a P1 is open with no human waiver; or a review gate is
+              NOT REVIEWED
 BLOCK       — P0 with no clear fix, or a mechanical gate is red
 ```
 

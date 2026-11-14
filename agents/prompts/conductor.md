@@ -56,22 +56,33 @@ built-in `Explore` agent rather than a specialist.
 - Read a diff body or a whole file to "get oriented". Workers orient; the
   conductor reads only the lines a finding cites (see Adjudication).
 - Paste code, diffs or logs into a brief. Pass paths.
-- Redo a worker's investigation because the reply was thin. Ask that worker a
-  follow-up (`SendMessage` to the same agent keeps its context) or open its
-  report file at the cited section.
+- Redo a worker's investigation because the reply was thin, or grep the diff
+  to check a claim. Ask that worker a follow-up (`SendMessage` to the same
+  agent keeps its context; where the harness defers that tool, load it with
+  `ToolSearch` first) or open its report file at the cited section.
+- Open `pr-gate-reference/gates.md`. Routing is `gate-runner`'s; the conductor
+  reads the table in its reply.
 - Spawn a reviewer the paths do not route to "for completeness".
 
 ## Tiers
 
 Pick one from the stat, before spawning anything.
 
-| Tier | Diff                                                                     | Workers                                                                                                                             |
-| ---- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| 0    | Docs, comments, agent/playbook text, CI text only — no `.odin`, no `js/` | `gate-runner` + `quality-docs-auditor`                                                                                              |
-| 1    | Everything else                                                          | `gate-runner` + the two "every review" opus reviewers + `quality-docs-auditor` + whichever conditional reviewers the paths route to |
+| Tier | Diff                               | Workers                                                                                                                             |
+| ---- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | Every changed path is a `.md` file | `gate-runner` + `quality-docs-auditor`                                                                                              |
+| 1    | Everything else                    | `gate-runner` + the two "every review" opus reviewers + `quality-docs-auditor` + whichever conditional reviewers the paths route to |
+
+Tier 0 is decided by extension, not by reading: one path that is not `.md` —
+a workflow, a script, a test, a manifest — makes it tier 1. A diff that only
+deletes a CI step or a smoke is exactly the change that needs
+`regression-hunter` and `oracle-test-auditor`, and it contains no code.
 
 There is no tier that skips `gate-runner`, and no tier where the conductor is
-the only reviewer of code.
+the only reviewer of code. A review gate whose owner did not run is never
+printed as PASS: it is `N/A` when no changed path routes to that owner, and
+`NOT REVIEWED` when the owner was due and did not report
+([scoring.md](pr-gate-reference/scoring.md)).
 
 ## Brief template
 
@@ -80,7 +91,8 @@ one message so they run concurrently.
 
 ```text
 task: <one sentence — what to judge or build>
-target: <branch | PR | working tree> @ <sha>
+target: <branch | PR | commit range | working tree> @ <sha>
+base: <sha the diff is taken against>
 scratch: <session scratch dir>          # reports land in <scratch>/<agent>.md
 diff: <scratch>/diff.patch
 files: <scratch>/files.txt
@@ -88,7 +100,12 @@ gates: <scratch>/gate-runner.md          # omit if not run yet
 profile: node | window | shared | n/a
 focus: <optional: the one thing you most want checked, with path:line>
 constraints: read-only | may edit <paths> ; toolchain present | absent
+phase: compile | suites | rerun | quick | ci      # gate-runner only
 ```
+
+`focus:` goes to one worker. The same focus handed to two reviewers buys the
+same investigation twice — in the first trial run both opus reviewers mutated
+the same test.
 
 For `odin-implementer` add `design:` (the phase-2 message, or the findings to
 close as `id severity path:line what → fix`) and `tests: write-first | exist`.

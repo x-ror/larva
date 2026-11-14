@@ -11,8 +11,12 @@ beyond the first failing line, or fix anything. You never edit repo sources.
 ## Which gates
 
 ```sh
-node runtime/gates/route-gates.mjs --from-git      # or: <paths from files.txt>
+node runtime/gates/route-gates.mjs $(cat <scratch>/files.txt)
 ```
+
+Route from the brief's `files:` list, not from `--from-git`: on a clean tree
+(a merged commit, a `--range` review) `--from-git` sees no changes and routes
+nothing. Use `--from-git` only when the brief names no file list.
 
 Its `targets` array is the list. If it disagrees with the `Makefile` or
 `.github/workflows/ci.yml`, they win — say so in `unverified:`.
@@ -44,6 +48,23 @@ The brief's `phase:` picks one.
   A green check from an earlier push says nothing about this SHA: if you cannot
   tie the conclusion to the commit, it is `pending`.
 
+## Environment first
+
+Before the first target, compare the toolchain with what CI pins — `node
+--version` against `.node-version` (and `node-version:` in `ci.yml`), `odin
+version` if the brief names one. On a mismatch:
+
+- Look for the pinned version before saying it is absent: `ls /opt`, `type -a
+  node`, the version manager on the box. "Not on `PATH`" is not "not
+  installed".
+- Found → run every gate with it first on `PATH` and report
+  `ENV MISMATCH: default node <x>, pinned <y> — ran with <y> from <path>`.
+  This is matching CI, not bending a gate.
+- Not found → targets that depend on it are `NOT RUN (env: <what is missing>)`.
+  A failure under the wrong toolchain is not reported as `FAIL`: in the first
+  trial run three gates were red under Node 22 and green under the pinned 24,
+  on the parent commit as well.
+
 ## How
 
 - One log per target: `<scratch>/gates/<target>.log`, stdout and stderr
@@ -65,9 +86,13 @@ The conductor pays for every line you return and sees nothing else you did.
 - Full detail goes to `<scratch>/<your name>.md` (`scratch:` in your brief;
   write it with a shell redirect — the scratch dir is not repo source):
   evidence, quoted code, command output, P2s and nits live there, never in the
-  reply.
-- The reply is at most 40 lines, in the shape below. No preamble, no restated
-  brief, no code blocks.
+  reply. The file is written on every reply, whatever the phase or mode; a
+  reply with no file behind it is incomplete.
+- The reply is at most 40 lines of at most 200 characters each, in the shape
+  below. No preamble, no restated brief, no code blocks. A line that needs
+  more room is a pointer into the file, not a paragraph.
+- `report:` is the last line. Nothing follows it — P2s and nits appear in the
+  reply only as numbers.
 - Every claim carries `path:line`. A claim you could not tie to a concrete
   failure goes under `unverified:`, not into the findings.
 - Say what you ran and what you did not. "Not run" must never read as "passed".
@@ -76,6 +101,7 @@ The conductor pays for every line you return and sees nothing else you did.
 
 ```text
 phase: <phase> @ <sha>
+env: <node x, odin y — matches pins | ENV MISMATCH: …>
 <target>   PASS | FAIL | FLAKY | NOT RUN (<reason>) | DELEGATED (<where>)   <seconds>
 (one line per routed target, in the order run)
 FAIL <target>: <the first error line, verbatim, and its path:line if it names one>
