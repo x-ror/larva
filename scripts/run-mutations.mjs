@@ -58,7 +58,7 @@
 //   MUTATION_TIMEOUT_MS=N                          # default per-gate bound (default 120000)
 //   manifest timeout_ms                            # per-entry override (hang pins use 30000)
 
-import { readFileSync, writeFileSync, realpathSync } from 'node:fs';
+import { readFileSync, writeFileSync, realpathSync, rmSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, dirname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -344,11 +344,34 @@ function positiveIntMs(raw, fallback) {
 const GATE_TIMEOUT_MS = positiveIntMs(process.env.MUTATION_TIMEOUT_MS, 120_000);
 let activeTimeoutMs = GATE_TIMEOUT_MS;
 
+// A hang pin is killed BY its timeout, so its timeout is its cost: eleven of them
+// waited out 30 s each, about half of a full run (measured: 656 s for 134 entries,
+// 4 cores). The gate's own green baseline says how long a healthy run takes, so a
+// mutant that has not finished in HANG_FACTOR times that is spinning, and waiting
+// the rest of the recorded bound proves nothing more.
+//
+// Only for entries that RECORD a timeout as their reason (`expect_detail` accepts
+// "timed out"). An entry with `timeout_ms` and some other recorded reason is a slow
+// kill, not a hang — cutting it short would turn its assertion into a timeout and
+// the verdict into WRONG REASON. And never below HANG_FLOOR_MS: a bound close to
+// the baseline would time out a mutant that was about to PASS, and report a test
+// that pins nothing as killed. Neither constant is configurable for that reason.
+const HANG_FACTOR = 20;
+const HANG_FLOOR_MS = 5_000;
+const baselineMs = new Map(); // gate -> ms its green baseline took (run phase only)
+
+function acceptsTimeout(m) {
+  const alts = typeof m.expect_detail === 'string' ? [m.expect_detail] : m.expect_detail;
+  return alts.some((s) => s.includes('timed out'));
+}
+
 function entryTimeoutMs(m) {
   // spawnSync requires an unsigned integer timeout; a fractional manifest value
   // throws ERR_OUT_OF_RANGE before any structured gate result exists.
   if (m && typeof m.timeout_ms === 'number' && Number.isInteger(m.timeout_ms) && m.timeout_ms > 0) {
-    return m.timeout_ms;
+    const base = baselineMs.get(m.gate);
+    if (base === undefined || !acceptsTimeout(m)) return m.timeout_ms;
+    return Math.min(m.timeout_ms, Math.max(HANG_FLOOR_MS, Math.ceil(HANG_FACTOR * base)));
   }
   return GATE_TIMEOUT_MS;
 }
@@ -460,25 +483,50 @@ function timedOut(r) {
   return r.timedOut ? { ok: false, detail: r.stderr } : null;
 }
 
+// Build and run are separate steps so the entry's timeout bounds only the RUN.
+// `odin test` did both under one clock, which put ~9 s of compiling inside every
+// hang pin's budget and made the baseline time useless for telling a spin from a
+// slow compile. `odin build -build-mode:test` produces the same test executable
+// without running it. The build keeps the default bound: a mutant can make the
+// compiler slow, but it cannot make it spin.
 function gateOdin(pkg, testName) {
   const out = join(ROOT, 'bin', '.mutation-odin.bin');
-  const r = capture(ODIN, [
-    'test',
-    join(ROOT, pkg),
-    `-collection:lava=${ROOT}`,
-    '-define:ODIN_TEST_THREADS=1',
-    `-define:ODIN_TEST_NAMES=${testName}`,
-    `-out:${out}`,
-  ]);
+  // Remove the previous entry's executable first. If a build ever fails without a
+  // non-zero status, the old binary must not be there to run and answer for it.
+  rmSync(out, { force: true });
+  const b = capture(
+    ODIN,
+    [
+      'build',
+      join(ROOT, pkg),
+      '-build-mode:test',
+      `-collection:lava=${ROOT}`,
+      '-define:ODIN_TEST_THREADS=1',
+      `-define:ODIN_TEST_NAMES=${testName}`,
+      `-out:${out}`,
+    ],
+    { timeout: GATE_TIMEOUT_MS },
+  );
+  const bTo = timedOut(b);
+  if (bTo) return bTo;
+  if (b.status !== 0 || !existsSync(out)) {
+    // A mutant that does not compile is RED, with the compiler's own line.
+    const err = (b.stdout + b.stderr).split('\n').find((l) => l.includes('Error:'));
+    return { ok: false, detail: err ? err.trim() : `odin build exited ${b.status}` };
+  }
+  const t0 = Date.now();
+  const r = capture(out, []);
+  const runMs = Date.now() - t0;
   const to = timedOut(r);
   if (to) return to;
   const text = r.stdout + r.stderr;
-  // The Odin runner exits 0 on a build failure in some versions, so read the
-  // summary line rather than trusting the status alone.
+  // Read the summary line rather than trusting the status alone.
   if (/\bAll tests were successful\.|The test was successful\./.test(text)) {
-    return { ok: true, detail: 'odin test passed' };
+    return { ok: true, detail: 'odin test passed', runMs };
   }
   const err = text.split('\n').find((l) => l.includes('[ERROR]') || l.includes('Error:'));
+  // "odin test exited N" is the text manifest entries record for a signal-killed
+  // or runner-caught crash, so it stays worded as it was when `odin test` ran both.
   return { ok: false, detail: err ? err.trim() : `odin test exited ${r.status}` };
 }
 
@@ -696,7 +744,10 @@ try {
   const gates = [...new Set(selected.map((m) => m.gate))];
   for (const gate of gates) {
     process.stdout.write(`  baseline ${gate} ... `);
+    const b0 = Date.now();
     const r = runGate(gate);
+    // What a healthy run of this gate costs — the yardstick for its hang pins.
+    baselineMs.set(gate, r.runMs ?? Date.now() - b0);
     if (!r.ok) {
       console.log('RED');
       die(`gate "${gate}" is already failing before any mutation:\n    ${r.detail}`);

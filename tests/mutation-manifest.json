@@ -1391,6 +1391,24 @@
       "replace": "  return 'HEAD';\n  die(",
       "gate": "node-test:scripts/run-mutations.test.mjs",
       "expect_detail": "--changed with no resolvable base fails rather than selecting nothing"
+    },
+    {
+      "name": "the runner's own tests die when a slow kill is given a hang pin's shortened bound",
+      "why": "An entry with timeout_ms and a non-timeout reason is a slow kill; cutting it at the baseline-scaled bound replaces its assertion with a timeout and reports WRONG REASON for a mutation that works.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "    if (base === undefined || !acceptsTimeout(m)) return m.timeout_ms;",
+      "replace": "    if (base === undefined) return m.timeout_ms;",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "expect_detail": "an entry with timeout_ms but a non-timeout reason keeps its full bound"
+    },
+    {
+      "name": "the runner's own tests die when the hang floor drops near the baseline",
+      "why": "A bound close to the baseline times out a mutant that was about to pass, so a test that pins nothing is reported killed; the 5 s floor is what keeps the shortcut from manufacturing kills.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "const HANG_FLOOR_MS = 5_000;",
+      "replace": "const HANG_FLOOR_MS = 50;",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "expect_detail": "a hang pin is cut at the baseline-scaled bound, not its full timeout_ms"
     }
   ]
 }

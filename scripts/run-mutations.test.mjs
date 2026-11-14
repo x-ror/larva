@@ -607,3 +607,68 @@ test('mutant builds get MUTATION_OPT; the restore build gets the caller’s leve
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// --- baseline-scaled hang timeouts ----------------------------------------------
+
+test('a hang pin is cut at the baseline-scaled bound, not its full timeout_ms', () => {
+  // The entry records 60 s. Its gate's green baseline takes well under a second, so
+  // the spin must be killed at the 5 s floor — and the verdict must still be a
+  // timeout, since that is the reason the entry records.
+  withTree(
+    [
+      entry({
+        gate: 'node-test:fx/hang.test.mjs',
+        expect_detail: 'timed out',
+        timeout_ms: 60_000,
+      }),
+    ],
+    {},
+    (dir) => {
+      writeFileSync(
+        join(dir, 'fx', 'hang.test.mjs'),
+        "import { VALUE } from './src.mjs';\n" + "if (VALUE !== 'expected') { for (;;) {} }\n",
+      );
+      const t0 = Date.now();
+      const { status, out } = runClean(dir);
+      const took = Date.now() - t0;
+      assert.equal(status, 0, out);
+      assert.match(out, /killed/);
+      assert.match(out, /timed out after 5000ms/);
+      assert.ok(took < 30_000, `waited ${took}ms — the recorded 60 s bound was not shortened`);
+      assert.equal(sourceOf(dir), SOURCE);
+    },
+  );
+});
+
+test('an entry with timeout_ms but a non-timeout reason keeps its full bound', () => {
+  // A slow kill, not a hang: the mutant takes 7 s — past the 5 s floor — and then
+  // fails for the reason the entry records. Shortening its bound would replace that
+  // assertion with a timeout and report WRONG REASON for a mutation that works.
+  withTree(
+    [
+      entry({
+        gate: 'node-test:fx/slow.test.mjs',
+        expect_detail: 'THE-SLOW-REASON',
+        timeout_ms: 60_000,
+      }),
+    ],
+    {},
+    (dir) => {
+      writeFileSync(
+        join(dir, 'fx', 'slow.test.mjs'),
+        "import test from 'node:test';\n" +
+          "import assert from 'node:assert/strict';\n" +
+          "import { VALUE } from './src.mjs';\n" +
+          "test('slow', async () => {\n" +
+          "  if (VALUE !== 'expected') await new Promise((r) => setTimeout(r, 7000));\n" +
+          "  assert.equal(VALUE, 'expected', 'THE-SLOW-REASON');\n" +
+          '});\n',
+      );
+      const { status, out } = runClean(dir);
+      assert.equal(status, 0, out);
+      assert.match(out, /killed/);
+      assert.doesNotMatch(out, /timed out/);
+      assert.doesNotMatch(out, /WRONG REASON/);
+    },
+  );
+});
