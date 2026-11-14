@@ -34,7 +34,7 @@
 // and `node.loc` gives line numbers that cannot drift. Reuse verdict (CLAUDE.md
 // §2): acorn 8 + acorn-walk, MIT, pure JS with no transitive dependencies and no
 // native binary, dev-only so `bin/lava` is unaffected, and `bun install` already
-// runs in CI. `@oxlint/plugins` is present and was the alternative — rejected
+// runs in CI. `@oxlint/plugins` (then bundled by vite-plus) was the alternative — rejected
 // because oxlint documents `jsPlugins` as alpha and not semver-bound, and the
 // ratchet would have to map lint diagnostics back into per-class counts.
 //

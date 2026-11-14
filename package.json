@@ -1,9 +1,9 @@
 {
   "private": true,
   "scripts": {
-    "js:check": "vp fmt 'pkg/runtime/js/**/*.js' 'tests/**/*.js' 'tests/**/*.mjs' 'tests/**/*.cjs' 'scripts/**/*.{js,mjs}' 'bench/**/*.js' 'bench/**/*.mjs' 'runtime/**/*.mjs' --check && vp lint pkg/runtime/js tests scripts bench runtime && bun run js:deadcode && bun run js:scripttests && bun run js:primordials && bun run js:globalreplace",
+    "js:check": "bun fmt --check 'pkg/runtime/js/**/*.js' 'tests/**/*.js' 'tests/**/*.mjs' 'tests/**/*.cjs' 'scripts/**/*.{js,mjs}' 'bench/**/*.js' 'bench/**/*.mjs' 'runtime/**/*.mjs' && oxlint pkg/runtime/js tests scripts bench runtime && bun run js:deadcode && bun run js:scripttests && bun run js:primordials && bun run js:globalreplace",
     "js:deadcode": "bun run scripts/check-orphan-js.mjs",
-    "js:fix": "vp lint pkg/runtime/js tests scripts bench runtime --fix && vp fmt 'pkg/runtime/js/**/*.js' 'tests/**/*.js' 'tests/**/*.mjs' 'tests/**/*.cjs' 'scripts/**/*.{js,mjs}' 'bench/**/*.js' 'bench/**/*.mjs' 'runtime/**/*.mjs' --write",
+    "js:fix": "oxlint pkg/runtime/js tests scripts bench runtime --fix && bun fmt 'pkg/runtime/js/**/*.js' 'tests/**/*.js' 'tests/**/*.mjs' 'tests/**/*.cjs' 'scripts/**/*.{js,mjs}' 'bench/**/*.js' 'bench/**/*.mjs' 'runtime/**/*.mjs'",
     "js:primordials": "bun run scripts/check-primordials.mjs",
     "js:globalreplace": "bun run scripts/check-global-replace.mjs",
     "actions:check": "bun run scripts/check-actions.mjs",
@@ -17,7 +17,7 @@
     "actionlint": "^2.0.6",
     "fast-check": "^4.9.0",
     "markdownlint-cli2": "^0.23.2",
-    "vite-plus": "^0.2.7"
+    "oxlint": "1.93.0"
   },
-  "packageManager": "bun@1.3.9"
+  "packageManager": "bun@1.4.4"
 }
