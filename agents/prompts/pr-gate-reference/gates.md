@@ -16,6 +16,13 @@ and cannot fail.) (`make test-scripts` runs in CI inside `make check-js`;
 `make test-mutation` is its own CI step because it rebuilds `bin/lava` once per
 embedded-JS mutation.)
 
+**What CI itself runs on a pull request** is decided by `scripts/ci-scope.mjs`, not
+by this table: a docs-only PR runs only the lints, a tooling-only PR (gates, agents,
+Node scripts) adds `check-js` and `make test-mutation CHANGED=1`, and any other PR
+runs every gate with the mutation gate as `CHANGED=1`. Every push to `master` runs
+everything, including the whole mutation manifest. This table is still what a
+change MUST pass; a gate CI skipped on the PR is checked on `master`.
+
 **Machine-readable routing:** `node runtime/gates/route-gates.mjs <paths>`
 (or `--from-git`). Prefer that over hand-parsing this table; if Makefile/ci.yml
 disagree with this file, they win — fix this file.

@@ -1420,6 +1420,26 @@
       "replace": "## Reply",
       "gate": "node-test:scripts/agents-mirror.test.mjs",
       "expect_detail": "odin-sdk-scout.md carries the reply contract verbatim"
+    },
+    {
+      "name": "ci-scope tests die when an empty change list narrows instead of running every gate",
+      "why": "[].every() is true, so without the guard a PR whose diff could not be read is classified docs and skips the build and every test.",
+      "source": "scripts/ci-scope.mjs",
+      "find": "  if (paths.length === 0) return 'code';\n",
+      "replace": "",
+      "gate": "node-test:scripts/ci-scope.test.mjs",
+      "test": "no paths is code, never a skip",
+      "expect_detail": "no paths is code, never a skip"
+    },
+    {
+      "name": "ci-scope tests die when a shell script under scripts/ counts as tooling",
+      "why": "build.sh and the oracle/smoke runners decide what the code gates see; classing them as tooling would let a PR that breaks the build skip it.",
+      "source": "scripts/ci-scope.mjs",
+      "find": "/^scripts\\/.*\\.mjs$/",
+      "replace": "/^scripts\\//",
+      "gate": "node-test:scripts/ci-scope.test.mjs",
+      "test": "a shell script under scripts/ is code, not tooling",
+      "expect_detail": "a shell script under scripts/ is code, not tooling"
     }
   ]
 }
