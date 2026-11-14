@@ -238,3 +238,46 @@ cpu_budget_kills_a_next_tick_ping_pong :: proc(t: ^testing.T) {
 	testing.expect_value(t, result.kill, lava.Kill_Reason.Cpu_Budget)
 	testing.expectf(t, spent < 1.0, "ping-pong ran %.3fs of CPU past a 0.2s budget", spent)
 }
+
+// A kill must latch. After the watchdog cuts an entry, JSC still drains the promise
+// jobs queued before the cut as that entry returns, and the next nextTick drain pass
+// is a fresh entry: each used to get a fresh window of the armed limit, so a page
+// spent about twice its budget (measured against JSC 2.52: 0.202 s for a 0.1 s
+// limit, one probe run). Margins: the latched page stops near 0.5 s plus setup; the
+// unlatched one runs ~1.0 s.
+@(test)
+cpu_budget_kill_latches_over_queued_microtasks :: proc(t: ^testing.T) {
+	src := `
+	function spin() { const s = Date.now(); while (Date.now() - s < 2) {} }
+	let n = 0;
+	function f() { spin(); if (++n < 1000) Promise.resolve().then(f); }
+	Promise.resolve().then(f);
+	while (true) {}
+	`
+	before := thread_cpu_s()
+	result := eval_limited(src, {cpu_budget = 0.5})
+	defer lava.result_destroy(&result)
+	spent := thread_cpu_s() - before
+	testing.expect_value(t, result.kill, lava.Kill_Reason.Cpu_Budget)
+	testing.expectf(t, spent < 0.75, "killed page ran %.3fs of CPU against a 0.5s budget", spent)
+}
+
+// Same latch for the entry limit: the window the queued jobs get must not be a fresh
+// entry_limit. Latched ~0.3 s; unlatched ~0.6 s.
+@(test)
+entry_limit_kill_latches_over_queued_microtasks :: proc(t: ^testing.T) {
+	src := `
+	function spin() { const s = Date.now(); while (Date.now() - s < 2) {} }
+	let n = 0;
+	function f() { spin(); if (++n < 1000) Promise.resolve().then(f); }
+	Promise.resolve().then(f);
+	while (true) {}
+	`
+	before := thread_cpu_s()
+	result := eval_limited(src, {entry_limit = 0.3, cpu_budget = 30})
+	defer lava.result_destroy(&result)
+	spent := thread_cpu_s() - before
+	testing.expect_value(t, result.kill, lava.Kill_Reason.Entry_Limit)
+	testing.expectf(t, spent < 0.45, "killed page ran %.3fs of CPU against a 0.3s entry limit", spent)
+}
+

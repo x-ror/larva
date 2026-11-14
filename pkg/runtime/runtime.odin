@@ -458,11 +458,13 @@ eval :: proc(
 
 // run_limited is eventloop.run for a page under Page_Limits: every tick is charged to
 // the VM's CPU budget, and the first tick that ends with a limit hit stops the loop.
-// The tick, not each callback, is the unit: a tick's poll blocks without advancing
-// the thread's CPU clock, so the whole tick — callbacks plus the native work around
-// them — is the page's, and the clock is read twice per tick however many callbacks
-// it runs. force_exit makes the deferred teardown in eval reclaim whatever the page
-// still had registered.
+// The tick is the outer stretch: its poll blocks without advancing the thread's CPU
+// clock, so the native work around the callbacks is the page's too. Inside it,
+// vm_cpu_checkpoint charges each callback and each nextTick drain pass, because one
+// tick can fire any number of fresh JSC entries. Under a budget that is two clock
+// reads per tick plus one per callback and per drain pass (a syscall on Linux: this
+// clock has no vDSO path). force_exit makes the deferred teardown in eval reclaim
+// whatever the page still had registered.
 //
 // The loop condition mirrors eventloop.run's; a new exit condition there belongs here
 // too (loop.odin's run points back at this).

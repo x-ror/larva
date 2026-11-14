@@ -66,7 +66,10 @@ VM :: struct {
 //              JSC's watchdog, which measures CPU time since the entry.
 // cpu_budget   Every entry summed over the page's life, measured on the thread's
 //              CPU clock (CLOCK_THREAD_CPUTIME_ID). Also clamps the watchdog to the
-//              remaining budget, so one long entry cannot overrun it either.
+//              remaining budget (re-armed once it shrinks by more than a tenth), so
+//              one long entry overruns it by at most about 10%. Enforced at JS
+//              traps and callback boundaries only: a native call (pbkdf2Sync with a
+//              huge iteration count) is not interrupted until it returns.
 Page_Limits :: struct {
 	entry_limit: f64,
 	cpu_budget:  f64,
@@ -330,8 +333,30 @@ vm_watchdog_terminate :: proc "c" (ctx: jsc.JSContextRef, user_data: rawptr) -> 
 	} else {
 		vm.limit_hit = true
 	}
+	// Latch the kill. JSC still drains the promise jobs queued before the cut as this
+	// entry returns, and each of them would run under the limit armed for the entry it
+	// just cut: a page killed at its budget B ran ~2B (measured on JSC 2.52 with a
+	// standalone C probe, one run: 0.202 s of CPU for a 0.1 s limit; 0.102 s once the
+	// limit is re-armed here). Re-arming from inside the callback is what makes the
+	// floor apply to that same drain.
+	context = runtime.default_context()
+	vm_arm_kill_floor(vm)
 	return true
 }
+
+// vm_arm_kill_floor arms the watchdog at its 1 ms floor for a holder a limit has
+// ended, so whatever JS it still reaches is cut at once. vm_release clears it.
+@(private = "file")
+vm_arm_kill_floor :: proc(vm: ^VM) {
+	if vm.armed_limit == KILL_FLOOR do return
+	vm.armed_limit = KILL_FLOOR
+	jsc.JSContextGroupSetExecutionTimeLimit(vm.group, KILL_FLOOR, vm_watchdog_terminate, vm)
+}
+
+// KILL_FLOOR is the smallest watchdog limit the budget path already arms for a spent
+// budget (vm_arm_watchdog's 1 ms clamp); a killed holder reuses it.
+@(private = "file")
+KILL_FLOOR :: 0.001
 
 // vm_pool_stats reports how many VMs are busy and how many the pool has ever created.
 vm_pool_stats :: proc(pool: ^VM_Pool) -> (busy, created: int) {

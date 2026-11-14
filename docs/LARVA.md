@@ -52,7 +52,10 @@ decides which traffic goes to Larva and which stays on Chrome.
      also sums `CLOCK_THREAD_CPUTIME_ID` over its runtime install, top-level
      script and every event-loop tick (`vm_cpu_enter`/`vm_cpu_exit`), and is
      killed when the total passes its CPU budget. The watchdog is clamped to
-     the budget left, so one long entry cannot overrun it either. Wall-clock
+     the budget left (re-armed when that shrinks by more than a tenth), so one
+     long entry overruns it by at most about 10%, and a kill latches: whatever
+     the page still reaches after it is cut at once. Both limits act at JS traps
+     and callback boundaries only; a long native call is not interrupted. Wall-clock
      page deadlines are event-loop timers;
    - **memory:** the VM's heap belongs to one page at a time, so heap growth can
      be attributed and capped. Pools are fixed-size: every VM ever created keeps
