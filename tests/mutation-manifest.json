@@ -1202,6 +1202,33 @@
       "replace": "\tif cb == nil do return\n}",
       "gate": "odin:cmd/lava:main.timer_binding_frees_through_its_own_allocator",
       "expect_detail": "timer bindings leaked"
+    },
+    {
+      "name": "timer_binding_frees_through_its_own_allocator dies when free_js_callback frees the binding into the ambient allocator",
+      "why": "clearTimeout/clearImmediate dispose synchronously inside the proc \"c\" clear_timer_cb, whose ambient allocator is the heap; an ambient free there hands tracked memory to malloc, which aborts (SIGABRT, \"free(): invalid pointer\"). gateOdin reports only [ERROR]/Error: lines, and a signal-killed run as \"odin test exited -1\" (capture maps a null status to -1), so that is the detail recorded.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tfree(cb, allocator)\n",
+      "replace": "\tfree(cb)\n",
+      "gate": "odin:cmd/lava:main.timer_binding_frees_through_its_own_allocator",
+      "expect_detail": "odin test exited -1"
+    },
+    {
+      "name": "timer_binding_frees_through_its_own_allocator dies when free_js_callback deletes the args into the ambient allocator",
+      "why": "Same synchronous clear path for the forwarded-args slice (clearTimeout(setTimeout(fn, d, x))); same SIGABRT, reported by gateOdin as \"odin test exited -1\".",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tdelete(cb.args, allocator)\n",
+      "replace": "\tdelete(cb.args)\n",
+      "gate": "odin:cmd/lava:main.timer_binding_frees_through_its_own_allocator",
+      "expect_detail": "odin test exited -1"
+    },
+    {
+      "name": "timer_binding_frees_through_its_own_allocator dies when setTimeout makes bindings from the heap instead of the state allocator",
+      "why": "A hard-coded heap pairs alloc and free just as well, so only the routing count can see it; it is what keeps a leaked binding visible to the embedder's allocator.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "loop, alloc := state.loop, state.allocator\n\n\tfn := callback_arg(ctx, arguments[0])\n\tif fn == nil do return jsc.JSValueMakeUndefined(ctx)\n\n\tdelay := 0.0",
+      "replace": "loop, alloc := state.loop, context.allocator\n\n\tfn := callback_arg(ctx, arguments[0])\n\tif fn == nil do return jsc.JSValueMakeUndefined(ctx)\n\n\tdelay := 0.0",
+      "gate": "odin:cmd/lava:main.timer_binding_frees_through_its_own_allocator",
+      "expect_detail": "made through the state allocator"
     }
   ]
 }

@@ -217,7 +217,9 @@ tracking allocator). The fix is _localized_ — each request/job captures the ow
 alloc/free pair stays matched no matter which context is active at either end. This is
 applied to `module_cache` keys, `fetch` (`Fetch_Request` method/url/host/path +
 `request_bytes` + the struct), `dns` (`Dns_Lookup_Request.hostname` + the struct), and
-the fetch DNS pool (`DNS_Job.host` + the struct), and the host-native registry's cached
+the fetch DNS pool (`DNS_Job.host` + the struct), timer bindings (`JS_Callback` + its
+forwarded `args`, freed under eval's context on fire/teardown but under the heap when
+`clearTimeout`/`clearImmediate` dispose synchronously), and the host-native registry's cached
 names (`host_natives.odin`; note that registry's two tables are thread-lived, so their
 _backing_ is bound to a process-lifetime allocator rather than to a state's). It is
 deliberately _not_ context-based:
@@ -226,8 +228,9 @@ operation vs `fetch_destroy_pending` at teardown; a global DNS pool freeing jobs
 several runtimes), which a "rebind `context.allocator` at the callback entry" approach
 cannot cover. Dynamic-array fields (`response`/`carry`/`body_out`, `results`) carry their
 own bound allocator, so `delete()` already frees them correctly. Guarded by
-`module_cache_alloc_test` and `dns_alloc_test` (eval under a tracking allocator asserts no
-bad frees).
+`module_cache_alloc_test`, `dns_alloc_test` and `timer_binding_frees_through_its_own_allocator`
+(eval under a tracking allocator asserts no bad frees; the timer test also asserts the
+bindings were routed through it and none leaked).
 
 ### 4.2 Concurrency model
 
