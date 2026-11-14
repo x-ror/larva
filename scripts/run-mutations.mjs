@@ -229,8 +229,12 @@ function selectChanged(entries) {
   const lines = (out) => out.split('\n').filter((l) => l !== '');
   // Base vs the WORKING TREE (committed, staged and unstaged), plus untracked files:
   // a gate file that exists only on disk is still a gate file that changed.
+  // --no-renames: porcelain diff detects renames by default and then lists only the
+  // NEW path, so an entry still naming the old source or gate file was never
+  // selected and --changed exited 0 on an entry the full gate fails. Without rename
+  // detection a rename is a delete plus an add, and both paths are listed.
   const changed = new Set([
-    ...lines(git(['diff', '--name-only', base])),
+    ...lines(git(['diff', '--name-only', '--no-renames', base])),
     ...lines(git(['ls-files', '--others', '--exclude-standard'])),
   ]);
   const short = base.slice(0, 7);
@@ -484,9 +488,12 @@ function timedOut(r) {
 }
 
 // Build and run are separate steps so the entry's timeout bounds only the RUN.
-// `odin test` did both under one clock, which put ~9 s of compiling inside every
-// hang pin's budget and made the baseline time useless for telling a spin from a
-// slow compile. `odin build -build-mode:test` produces the same test executable
+// `odin test` did both under one clock, so the compile sat inside every hang pin's
+// budget and dominated its baseline: 0.89–0.98 s to build cmd/lava with exactly the
+// flags below against 0.07 s to run the resulting regexp_pollution_immunity binary
+// (3 builds and 1 run, wall clock, 4 cores). A baseline that is >90% compiler says
+// nothing about how long a healthy RUN takes, which is all the hang bound should
+// scale with. `odin build -build-mode:test` produces the same test executable
 // without running it. The build keeps the default bound: a mutant can make the
 // compiler slow, but it cannot make it spin.
 function gateOdin(pkg, testName) {

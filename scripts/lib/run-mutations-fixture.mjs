@@ -3,11 +3,12 @@
 // Each case drives the real runner as a subprocess against a THROWAWAY git tree
 // (`--root=` / `--manifest=`), never the repo. Split out of run-mutations.test.mjs
 // so the slow cases — the ones that must wait out a real timeout — can live in
-// their own file: eleven manifest entries use run-mutations.test.mjs as their
-// gate, so every second in that file is paid eleven times per full mutation run.
+// their own file: every manifest entry gated on run-mutations.test.mjs runs that
+// whole file once (plus once for its baseline), so every second in it is paid per
+// entry. See run-mutations.hang.test.mjs for what the split measured.
 
 import { spawnSync, execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -81,6 +82,34 @@ export function withTree(mutations, opts, fn) {
     rmSync(dir, { recursive: true, force: true });
   }
 }
+
+// A stand-in for the `odin` compiler, so `odin:` gates can be driven without the
+// toolchain (the runner honours ODIN=). gateOdin calls it as
+// `build <pkg> -build-mode:test -collection:lava=<root> … -out:<exe>`; the stub
+// writes `green` or `mutant` as the shell body of <exe>, chosen by whether the
+// fixture source carries the mutation, after sleeping `buildDelay` seconds. A body
+// of `null` writes nothing and still exits 0 — a build that "succeeds" with no
+// executable. Returns the stub's absolute path, for ODIN=.
+export const ODIN_PASS = 'echo "All tests were successful."';
+export function odinStub(dir, { green = ODIN_PASS, mutant, buildDelay = 0 }) {
+  const body = (exe) =>
+    exe === null ? 'exit 0' : `printf '%s\\n' '#!/bin/sh' ${shq(exe)} > "$out" && chmod +x "$out"`;
+  const path = join(dir, 'odin-stub.sh');
+  writeFileSync(
+    path,
+    '#!/bin/sh\n' +
+      'for a in "$@"; do case "$a" in\n' +
+      '  -out:*) out="${a#-out:}" ;;\n' +
+      '  -collection:lava=*) root="${a#-collection:lava=}" ;;\n' +
+      'esac; done\n' +
+      `sleep ${buildDelay}\n` +
+      'mkdir -p "$(dirname "$out")"\n' +
+      `if grep -q BROKEN "$root/fx/src.mjs"; then ${body(mutant)}; else ${body(green)}; fi\n`,
+  );
+  chmodSync(path, 0o755);
+  return path;
+}
+const shq = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 // MUTATION_BASE and MUTATION_OPT are set explicitly per case and stripped
 // otherwise, so a value in the developer's shell cannot decide a verdict here.

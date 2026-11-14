@@ -1409,6 +1409,132 @@
       "replace": "const HANG_FLOOR_MS = 50;",
       "gate": "node-test:scripts/run-mutations.hang.test.mjs",
       "expect_detail": "a hang pin is cut at the baseline-scaled bound, not its full timeout_ms"
+    },
+    {
+      "name": "the runner's own tests die when --changed lets git fold a rename into its new path",
+      "why": "With rename detection on, a renamed gate file or source is listed only under its new name, so an entry naming the old one is never selected and --changed exits 0 on an entry the full gate fails.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "    ...lines(git(['diff', '--name-only', '--no-renames', base])),",
+      "replace": "    ...lines(git(['diff', '--name-only', base])),",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "expect_detail": "--changed sees a renamed gate file under its OLD name"
+    },
+    {
+      "name": "the runner's own tests die when a machinery change stops widening --changed to every entry",
+      "why": "A changed runner, Makefile or build script means no earlier verdict is evidence; without the widening --changed runs only the entries whose own paths moved and reports a narrow pass for a changed gate.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "const MACHINERY = ['scripts/run-mutations.mjs', 'scripts/build.sh', 'Makefile'];",
+      "replace": "const MACHINERY = [];",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "expect_detail": "--changed runs everything when the build machinery changed"
+    },
+    {
+      "name": "the runner's own tests die when --changed ignores untracked files",
+      "why": "git diff never lists a file that exists only on disk, so a new gate file not yet added would select nothing.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "    ...lines(git(['ls-files', '--others', '--exclude-standard'])),\n",
+      "replace": "",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "expect_detail": "--changed counts an untracked file as changed"
+    },
+    {
+      "name": "the runner's own tests die when --changed diffs base..HEAD instead of the working tree",
+      "why": "Iterating means uncommitted edits; a commit-only diff misses every one of them and selects nothing.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "'--no-renames', base])),",
+      "replace": "'--no-renames', base, 'HEAD'])),",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "expect_detail": "--changed diffs the working tree, not just the commits"
+    },
+    {
+      "name": "the runner's own tests die when --changed stops reading an odin: gate's package test files",
+      "why": "An odin: gate names a test, not a file; without the package's *_test.odin standing in for it, editing the test an entry runs never selects that entry.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "      for (const f of changed) if (f.startsWith(pkg) && f.endsWith('_test.odin')) return true;\n",
+      "replace": "",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "expect_detail": "--changed keeps an odin: entry when a *_test.odin in its package changed"
+    },
+    {
+      "name": "the runner's own tests die when --changed stops selecting an entry by its source",
+      "why": "The source is the code a mutation patches; an edit to it is the most direct way an entry's verdict can change, and without this line --changed skips it.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "    if (changed.has(norm(m.source))) return true;\n",
+      "replace": "",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "expect_detail": "--changed runs only the entries whose source the diff touches"
+    },
+    {
+      "name": "the runner's own tests die when --changed stops selecting a new or edited manifest entry",
+      "why": "A freshly recorded mutation has never been shown to kill; skipping it because its source is untouched lets an entry that pins nothing merge unrun.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "    if (!before.has(JSON.stringify(m))) return true;\n",
+      "replace": "",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "expect_detail": "--changed keeps an entry that is new in the manifest even if its source is untouched"
+    },
+    {
+      "name": "the runner's own tests die when --changed stops selecting an entry by its gate file",
+      "why": "Editing the test an entry runs can make it stop pinning anything; without this line that edit selects nothing.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "if (kind === 'compat' || kind === 'node-test') return changed.has(norm(rest.join(':')));",
+      "replace": "if (kind === 'compat' || kind === 'node-test') return false;",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "expect_detail": "--changed keeps an entry whose gate file changed"
+    },
+    {
+      "name": "the runner's own tests die when an empty --changed selection reads as a full pass",
+      "why": "With the early exit gone an empty selection falls through to 'mutation gate ok: 0/0', the full gate's sentence, for a run that checked nothing.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "  if (selected.length === 0) {\n    // Exit 0, and say exactly what that 0 means.",
+      "replace": "  if (false) {\n    // Exit 0, and say exactly what that 0 means.",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "expect_detail": "--changed with nothing affected exits 0 and says it is not a full pass"
+    },
+    {
+      "name": "gate-integrity dies when MUTATION_BASE stops being blocked",
+      "why": "MUTATION_BASE=HEAD makes --changed diff against nothing, select nothing and exit 0; an agent must not be able to set it.",
+      "source": "runtime/gates/integrity.mjs",
+      "find": "MUTATION_(?:MANIFEST|ROOT|BASE)\\s*=",
+      "replace": "MUTATION_(?:MANIFEST|ROOT)\\s*=",
+      "gate": "node-test:runtime/gates/integrity.test.mjs",
+      "expect_detail": "blocks: mutation-override — MUTATION_BASE=HEAD"
+    },
+    {
+      "name": "the runner's own tests die when an odin: gate stops removing the previous executable",
+      "why": "gateOdin builds to a fixed path; a build that exits 0 without writing would then run the PREVIOUS entry's binary and let it answer for this mutant.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "  rmSync(out, { force: true });\n",
+      "replace": "",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "expect_detail": "an odin: build that leaves no executable is RED, never a stale one answering"
+    },
+    {
+      "name": "the runner's own tests die when a missing odin: executable is no longer read as RED",
+      "why": "Without the check the runner spawns a path that is not there and records a spawn error, so the verdict names nothing about the build that failed to produce it.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "  if (b.status !== 0 || !existsSync(out)) {",
+      "replace": "  if (b.status !== 0) {",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "expect_detail": "an odin: build that leaves no executable is RED, never a stale one answering"
+    },
+    {
+      "name": "the runner's own tests die when the hang bound stops scaling with the baseline",
+      "why": "With a factor of 1 every hang pin is cut at the floor whatever its baseline, so a gate whose healthy run is slow times out a mutant that was about to pass and reports a kill.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "const HANG_FACTOR = 20;",
+      "replace": "const HANG_FACTOR = 1;",
+      "gate": "node-test:scripts/run-mutations.hang.test.mjs",
+      "expect_detail": "a hang pin whose baseline is slow is cut at HANG_FACTOR times it, not the floor"
+    },
+    {
+      "name": "the runner's own tests die when an odin: baseline charges the compile to the hang bound",
+      "why": "The compile dominates an odin: baseline; scaling the bound with it lets a spinning mutant run many times longer than any healthy test run before it is cut.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "    baselineMs.set(gate, r.runMs ?? Date.now() - b0);",
+      "replace": "    baselineMs.set(gate, Date.now() - b0);",
+      "gate": "node-test:scripts/run-mutations.hang.test.mjs",
+      "expect_detail": "an odin: hang bound scales with the test run, not with the compile"
     }
   ]
 }

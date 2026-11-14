@@ -1,17 +1,28 @@
 // The mutation gate's SLOW tests: the cases that have to wait out a real timeout.
 //
-// They live apart from run-mutations.test.mjs on purpose. That file is the gate for
-// eleven manifest entries, so it runs eleven times in a full `make test-mutation`;
-// with these three cases in it, each of those runs cost ~15 s more (measured:
-// node-test gates went from 98 s to 210 s for the full manifest, Larva environment,
-// 4 cores). Entries that pin the timeout logic name THIS file as their gate.
+// They live apart from run-mutations.test.mjs on purpose. Every manifest entry gated
+// on that file runs it whole, once per entry plus once for its baseline, so a slow
+// case there is paid per entry. Measured when the split was made (008f478), with
+// eight entries gated on it: those eight took 164.5 s of one full
+// `make test-mutation` before the split and 61.1 s after (Larva environment,
+// 4 cores, Node 24, one run each). Entries that pin the timeout logic name THIS
+// file as their gate, and any new case that waits out a timeout belongs here.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { SOURCE, run, runClean, entry, sourceOf, withTree } from './lib/run-mutations-fixture.mjs';
+import {
+  SOURCE,
+  ODIN_PASS,
+  run,
+  runClean,
+  entry,
+  sourceOf,
+  withTree,
+  odinStub,
+} from './lib/run-mutations-fixture.mjs';
 
 test('a gate that hangs is RED with a timeout verdict, not a hang', () => {
   // Several manifest entries deliberately reintroduce a spin, because the bug class
@@ -106,6 +117,48 @@ test('an entry with timeout_ms but a non-timeout reason keeps its full bound', (
       assert.match(out, /killed/);
       assert.doesNotMatch(out, /timed out/);
       assert.doesNotMatch(out, /WRONG REASON/);
+    },
+  );
+});
+
+// The two cases below drive an `odin:` gate through a stub compiler (ODIN=), since
+// gateOdin is the only gate that reports a run-only time and so the only place the
+// bound's scaling and its build/run split can be seen.
+
+test('a hang pin whose baseline is slow is cut at HANG_FACTOR times it, not the floor', () => {
+  // Every other hang case has a baseline far under 250 ms, where the 5 s floor wins
+  // and the factor never shows. Here a healthy run takes 400 ms, so the bound must
+  // be at least 20 x 400 ms — a factor of 1 would cut it at the floor and time out
+  // a mutant that a slower runner might have been about to pass.
+  withTree(
+    [entry({ gate: 'odin:pkg:main.t', expect_detail: 'timed out', timeout_ms: 60_000 })],
+    {},
+    (dir) => {
+      const odin = odinStub(dir, { green: `sleep 0.4; ${ODIN_PASS}`, mutant: 'exec sleep 600' });
+      const { status, out } = runClean(dir, [], { ODIN: odin });
+      assert.equal(status, 0, out);
+      assert.match(out, /killed/);
+      const ms = Number(/timed out after (\d+)ms/.exec(out)?.[1]);
+      assert.ok(ms >= 8_000 && ms < 60_000, `bound ${ms}ms is not 20 x a 400 ms baseline:\n${out}`);
+      assert.equal(sourceOf(dir), SOURCE);
+    },
+  );
+});
+
+test('an odin: hang bound scales with the test run, not with the compile', () => {
+  // The build takes 1 s and the run is instant. Charging the build to the baseline
+  // would make the bound 20 x ~1 s, capped here at the entry's 15 s; the run alone
+  // keeps it at the 5 s floor.
+  withTree(
+    [entry({ gate: 'odin:pkg:main.t', expect_detail: 'timed out', timeout_ms: 15_000 })],
+    {},
+    (dir) => {
+      const odin = odinStub(dir, { mutant: 'exec sleep 600', buildDelay: 1 });
+      const { status, out } = runClean(dir, [], { ODIN: odin });
+      assert.equal(status, 0, out);
+      assert.match(out, /killed/);
+      assert.match(out, /timed out after 5000ms/);
+      assert.equal(sourceOf(dir), SOURCE);
     },
   );
 });

@@ -32,6 +32,7 @@ import {
   entry,
   sourceOf,
   withTree,
+  odinStub,
 } from './lib/run-mutations-fixture.mjs';
 
 test('a mutation that kills its gate for the recorded reason passes', () => {
@@ -463,6 +464,99 @@ test('--changed keeps an entry whose gate file changed', () => {
   }
 });
 
+// The cases below pin the paths that WIDEN the selection — the ones that make
+// `--changed` safe to route /pr-gate through. Each had no test, and a review
+// removed each in turn with the suite staying green. They use `--list`, which is
+// decided after selection and runs no gate, so they cost a git call and no more.
+const listChanged = (dir, base) => runClean(dir, ['--changed', '--list'], { MUTATION_BASE: base });
+
+test('--changed sees a renamed gate file under its OLD name', () => {
+  // `git diff --name-only` follows renames and lists only the new path, so an entry
+  // still naming the old one was never selected: "0 of 2 affected", exit 0, while
+  // the full gate dies on a baseline that cannot find its file.
+  const { dir, git, base } = makeTwoSourceTree([entry(), otherEntry()]);
+  try {
+    git('mv', 'fx/other.test.mjs', 'fx/renamed.test.mjs');
+    git('commit', '-qm', 'rename the second gate');
+    const { status, out } = listChanged(dir, base);
+    assert.equal(status, 0, out);
+    assert.match(out, /1 of 2 mutation\(s\) affected/);
+    assert.match(out, /second fixture dies when SECOND is broken/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--changed runs everything when the build machinery changed', () => {
+  // A changed Makefile, build script or runner means no entry's earlier verdict is
+  // evidence; the promise route-gates and gates.md both make on --changed's behalf.
+  const { dir, git, base } = makeTwoSourceTree([entry(), otherEntry()]);
+  try {
+    writeFileSync(join(dir, 'Makefile'), 'build:\n\ttrue\n');
+    git('add', 'Makefile');
+    git('commit', '-qm', 'touch the Makefile');
+    const { status, out } = listChanged(dir, base);
+    assert.equal(status, 0, out);
+    assert.match(out, /Makefile changed — running all 2/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--changed counts an untracked file as changed', () => {
+  // A gate file that exists only on disk is still a gate file that changed.
+  // `git diff` never lists one; `ls-files --others` is the only thing that does.
+  const { dir, base } = makeTwoSourceTree([
+    entry(),
+    otherEntry({ gate: 'node-test:fx/untracked.test.mjs' }),
+  ]);
+  try {
+    writeFileSync(join(dir, 'fx', 'untracked.test.mjs'), OTHER_GATE);
+    const { status, out } = listChanged(dir, base);
+    assert.equal(status, 0, out);
+    assert.match(out, /1 of 2 mutation\(s\) affected/);
+    assert.match(out, /second fixture dies when SECOND is broken/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--changed diffs the working tree, not just the commits', () => {
+  // Iterating means uncommitted edits. Diffing base..HEAD would miss every one of
+  // them and select nothing.
+  const { dir, base } = makeTwoSourceTree([entry(), otherEntry()]);
+  try {
+    writeFileSync(join(dir, 'fx', 'other.test.mjs'), OTHER_GATE + '// uncommitted\n');
+    const { status, out } = listChanged(dir, base);
+    assert.equal(status, 0, out);
+    assert.match(out, /1 of 2 mutation\(s\) affected/);
+    assert.match(out, /second fixture dies when SECOND is broken/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--changed keeps an odin: entry when a *_test.odin in its package changed', () => {
+  // An odin: gate names a test, not a file, so the package's test files stand in
+  // for "the gate's own file".
+  const { dir, git, base } = makeTwoSourceTree([
+    entry(),
+    otherEntry({ gate: 'odin:pkg/x:main.t' }),
+  ]);
+  try {
+    mkdirSync(join(dir, 'pkg', 'x'), { recursive: true });
+    writeFileSync(join(dir, 'pkg', 'x', 'y_test.odin'), 'package main\n');
+    git('add', '-A');
+    git('commit', '-qm', 'add an odin test');
+    const { status, out } = listChanged(dir, base);
+    assert.equal(status, 0, out);
+    assert.match(out, /1 of 2 mutation\(s\) affected/);
+    assert.match(out, /second fixture dies when SECOND is broken/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('--changed with no resolvable base fails rather than selecting nothing', () => {
   // The fixture repo has no origin/master. Without MUTATION_BASE there is no diff
   // to take, and "nothing changed" would be a guess that exits 0.
@@ -472,6 +566,26 @@ test('--changed with no resolvable base fails rather than selecting nothing', ()
     assert.match(out, /no merge-base/);
     assert.equal(sourceOf(dir), SOURCE);
   });
+});
+
+test('an odin: build that leaves no executable is RED, never a stale one answering', () => {
+  // gateOdin builds to a fixed path, so the BASELINE leaves a passing executable
+  // there. The mutant build below exits 0 and writes nothing. Two guards stand
+  // between that and a false SURVIVED: removing the previous executable first, and
+  // reading a missing one as RED. Without the first, the baseline's binary runs and
+  // passes; without the second, the runner spawns a path that is not there and the
+  // verdict names nothing about the build.
+  withTree(
+    [entry({ gate: 'odin:pkg:main.t', expect_detail: 'odin build exited 0' })],
+    {},
+    (dir) => {
+      const odin = odinStub(dir, { mutant: null });
+      const { status, out } = runClean(dir, [], { ODIN: odin });
+      assert.equal(status, 0, out);
+      assert.match(out, /killed \(odin build exited 0\)/);
+      assert.equal(sourceOf(dir), SOURCE);
+    },
+  );
 });
 
 test('mutant builds get MUTATION_OPT; the restore build gets the caller’s level', () => {
