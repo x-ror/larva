@@ -549,7 +549,12 @@ function gateOdin(pkg, testName) {
   if (/\bAll tests were successful\.|The test was successful\./.test(text)) {
     return { ok: true, detail: 'odin test passed', runMs };
   }
-  const err = text.split('\n').find((l) => l.includes('[ERROR]') || l.includes('Error:'));
+  // A crash has no [ERROR] line. When the Odin runner catches the signal it
+  // exits 1 and names it in its summary ("Signal caught: Segmentation_Fault");
+  // surface that, or a crash records as the same "exited 1" as any other red.
+  const err = text
+    .split('\n')
+    .find((l) => l.includes('[ERROR]') || l.includes('Error:') || l.includes('Signal caught:'));
   // "odin test exited N" is the text manifest entries record for a signal-killed
   // or runner-caught crash, so it stays worded as it was when `odin test` ran both.
   return { ok: false, detail: err ? err.trim() : `odin test exited ${r.status}` };

@@ -1211,26 +1211,26 @@
     },
     {
       "name": "timer_binding_frees_through_its_own_allocator dies when free_js_callback frees the binding into the ambient allocator",
-      "why": "clearTimeout/clearImmediate dispose synchronously inside the proc \"c\" clear_timer_cb, whose ambient allocator is the heap; an ambient free there hands tracked memory to malloc, which aborts (SIGABRT, \"free(): invalid pointer\"). gateOdin reports only [ERROR]/Error: lines, and a signal-killed run as \"odin test exited -1\" (capture maps a null status to -1), so that is the detail recorded. Where the bad free faults instead of tripping malloc's check, Odin's test runner catches the SIGSEGV itself (\"Signal caught: Segmentation_Fault\", no [ERROR] line) and exits 1, so \"odin test exited 1\" is accepted as the same kill.",
+      "why": "clearTimeout/clearImmediate dispose synchronously inside the proc \"c\" clear_timer_cb, whose ambient allocator is the heap; an ambient free there hands tracked memory to malloc, which crashes (SIGABRT \"free(): invalid pointer\" or SIGSEGV, depending on the allocator state). The Odin runner either catches the signal and names it (\"Signal caught:\", which gateOdin surfaces) or the process dies and capture maps the null status to -1; both are recorded.",
       "source": "pkg/runtime/globals.odin",
       "find": "\tfree(cb, allocator)\n",
       "replace": "\tfree(cb)\n",
       "gate": "odin:cmd/lava:main.timer_binding_frees_through_its_own_allocator",
       "expect_detail": [
-        "odin test exited -1",
-        "odin test exited 1"
+        "Signal caught:",
+        "odin test exited -1"
       ]
     },
     {
       "name": "timer_binding_frees_through_its_own_allocator dies when free_js_callback deletes the args into the ambient allocator",
-      "why": "Same synchronous clear path for the forwarded-args slice (clearTimeout(setTimeout(fn, d, x))); same SIGABRT, reported by gateOdin as \"odin test exited -1\" — or the runner-caught SIGSEGV as \"odin test exited 1\", as in the entry above.",
+      "why": "Same synchronous clear path for the forwarded-args slice (clearTimeout(setTimeout(fn, d, x))); same crash, recorded the same two ways.",
       "source": "pkg/runtime/globals.odin",
       "find": "\tdelete(cb.args, allocator)\n",
       "replace": "\tdelete(cb.args)\n",
       "gate": "odin:cmd/lava:main.timer_binding_frees_through_its_own_allocator",
       "expect_detail": [
-        "odin test exited -1",
-        "odin test exited 1"
+        "Signal caught:",
+        "odin test exited -1"
       ]
     },
     {
