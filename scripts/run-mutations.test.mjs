@@ -611,3 +611,72 @@ test('mutant builds get MUTATION_OPT; the restore build gets the caller’s leve
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// --- `test`: one named test instead of the whole file ----------------------------
+
+test('an entry that names its test is killed by that test alone', () => {
+  withTree([entry({ test: 'value is expected' })], {}, (dir) => {
+    const { status, out } = runClean(dir);
+    assert.equal(status, 0, out);
+    assert.match(out, /baseline node-test:fx\/gate\.test\.mjs#value is expected \.\.\. green/);
+    assert.match(out, /killed/);
+    assert.equal(sourceOf(dir), SOURCE);
+  });
+});
+
+test('naming a test the mutation does not break is SURVIVED, even if another test goes red', () => {
+  // The whole point of narrowing: the mutation breaks `value is expected`, but the
+  // entry claims `other is untouched` pins it. Run whole-file, the gate goes red
+  // and the entry would be judged on its expect_detail; narrowed, the named test
+  // still passes, and that is the honest answer about the named test.
+  withTree([entry({ test: 'other is untouched', expect_detail: '' })], {}, (dir) => {
+    const { status, out } = runClean(dir);
+    assert.equal(status, 1, out);
+    assert.match(out, /SURVIVED/);
+    assert.equal(sourceOf(dir), SOURCE);
+  });
+});
+
+test('a test name that matches nothing is a red baseline, not a pass', () => {
+  // node --test exits 0 when the name pattern matches no test, so without the
+  // explicit "did it run" check a typo here is a green baseline and then SURVIVED
+  // for a mutation nothing ever looked at — or, with a renamed test, silently so.
+  withTree([entry({ test: 'value is expcted' })], {}, (dir) => {
+    const { status, out } = runClean(dir);
+    assert.equal(status, 1, out);
+    assert.match(out, /already failing before any mutation/);
+    assert.match(out, /did not run/);
+    assert.doesNotMatch(out, /killed|SURVIVED/);
+    assert.equal(sourceOf(dir), SOURCE);
+  });
+});
+
+test('a test name is a literal, not a pattern', () => {
+  // Two tests whose names differ only where `.` is a regex wildcard. The mutation
+  // breaks `abc`; the entry names `a.c`, which keeps passing. As a literal, only
+  // `a.c` runs and the honest verdict is SURVIVED. Reaching node as a pattern,
+  // `a.c` would also select `abc`, whose failure would then count as this entry's
+  // kill — a narrowed entry quietly judged on a test it did not name.
+  const gate =
+    "import test from 'node:test';\n" +
+    "import assert from 'node:assert/strict';\n" +
+    "import { VALUE } from './src.mjs';\n" +
+    "test('a.c', () => {});\n" +
+    "test('abc', () => assert.equal(VALUE, 'expected', 'THE-RECORDED-REASON'));\n";
+  withTree([entry({ test: 'a.c' })], { gate }, (dir) => {
+    const { status, out } = runClean(dir);
+    assert.equal(status, 1, out);
+    assert.match(out, /SURVIVED/);
+    assert.doesNotMatch(out, /killed/);
+    assert.equal(sourceOf(dir), SOURCE);
+  });
+});
+
+test('`test` on a gate that is not node-test: is refused', () => {
+  withTree([entry({ gate: 'make:gate', test: 'value is expected' })], {}, (dir) => {
+    const { status, out } = runClean(dir);
+    assert.equal(status, 1, out);
+    assert.match(out, /names a "test" but its gate is not node-test:/);
+    assert.equal(sourceOf(dir), SOURCE);
+  });
+});

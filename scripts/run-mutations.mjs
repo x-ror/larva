@@ -168,7 +168,25 @@ for (const [i, m] of manifest.mutations.entries()) {
     }
   }
   if (m.find === m.replace) die(`mutation "${m.name}" does not change anything`);
+  // Optional `test`: the ONE test in a `node-test:` file this mutation must kill.
+  // Without it the gate runs the whole file per entry, and a file that many entries
+  // share is paid for once per entry — measured, the runner's own 21 entries were
+  // 307 s of a 648 s full run (150 entries, 4 cores, Larva environment).
+  // Narrowing is also stricter, not looser: a mutation that breaks some OTHER test
+  // in the file no longer counts.
+  if (m.test !== undefined) {
+    if (typeof m.test !== 'string' || m.test === '') {
+      die(`mutation "${m.name}" has an empty "test"`);
+    }
+    if (!m.gate.startsWith('node-test:')) {
+      die(`mutation "${m.name}" names a "test" but its gate is not node-test:`);
+    }
+  }
 }
+
+// One baseline per (gate, test) pair: a narrowed run and a whole-file run of the
+// same file are different measurements and different green/red questions.
+const gateKey = (m) => (m.test ? `${m.gate}#${m.test}` : m.gate);
 
 let selected = filter
   ? manifest.mutations.filter((m) => m.name.includes(filter))
@@ -304,11 +322,11 @@ if (listOnly) {
 
 // Every gate returns {ok, detail}. `ok: false` is RED, which under mutation is
 // what we want and on the baseline is a hard stop.
-function runGate(gate) {
+function runGate(gate, test) {
   const [kind, ...rest] = gate.split(':');
   if (kind === 'compat') return gateCompat(rest.join(':'));
   if (kind === 'odin') return gateOdin(rest[0], rest[1]);
-  if (kind === 'node-test') return gateNodeTest(rest.join(':'));
+  if (kind === 'node-test') return gateNodeTest(rest.join(':'), test);
   if (kind === 'make') return gateMake(rest.join(':'));
   die(`unknown gate kind "${kind}" in "${gate}"`);
 }
@@ -373,7 +391,7 @@ function entryTimeoutMs(m) {
   // spawnSync requires an unsigned integer timeout; a fractional manifest value
   // throws ERR_OUT_OF_RANGE before any structured gate result exists.
   if (m && typeof m.timeout_ms === 'number' && Number.isInteger(m.timeout_ms) && m.timeout_ms > 0) {
-    const base = baselineMs.get(m.gate);
+    const base = baselineMs.get(gateKey(m));
     if (base === undefined || !acceptsTimeout(m)) return m.timeout_ms;
     return Math.min(m.timeout_ms, Math.max(HANG_FLOOR_MS, Math.ceil(HANG_FACTOR * base)));
   }
@@ -566,12 +584,32 @@ function gateMake(target) {
   };
 }
 
-function gateNodeTest(relPath) {
-  const r = capture(NODE_BIN, ['--test', join(ROOT, relPath)]);
+const escapeRe = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+function gateNodeTest(relPath, test) {
+  const argv = ['--test'];
+  // Anchored and escaped: the name is a literal, not a pattern an entry can widen.
+  if (test) argv.push(`--test-name-pattern=^${escapeRe(test)}$`);
+  argv.push(join(ROOT, relPath));
+  const r = capture(NODE_BIN, argv);
   const to = timedOut(r);
   if (to) return to;
   const text = r.stdout + r.stderr;
-  if (r.status === 0) return { ok: true, detail: 'node:test passed' };
+  if (r.status === 0) {
+    // A name that matches NOTHING still exits 0: node reports the file itself as
+    // one passing test (verified on node 24: `ℹ tests 1`, `ℹ pass 1`). So status
+    // and counts cannot tell "the named test passed" from "no such test" — only
+    // the named test's own pass line can. Without this check a typo in `test`, or
+    // a renamed test, gives a green baseline and then SURVIVED for a mutation that
+    // was never observed by anything.
+    if (test && !new RegExp(`^\\s*(?:✔|ok \\d+ -) ${escapeRe(test)}(?: \\(|$)`, 'm').test(text)) {
+      return {
+        ok: false,
+        detail: `test "${test}" did not run in ${relPath} — no test has exactly that name`,
+      };
+    }
+    return { ok: true, detail: 'node:test passed' };
+  }
   // BOTH the failing test name and the assertion message. Returning only the `✖`
   // line gave the test's NAME and threw the reason away, so `expect_detail` could
   // never name why a gate went red — only which test did. An assertion message is
@@ -748,11 +786,11 @@ try {
 
   // Baseline: every gate must be GREEN before anything is mutated. A gate that is
   // already red would "go red" under mutation for free.
-  const gates = [...new Set(selected.map((m) => m.gate))];
-  for (const gate of gates) {
+  const gates = new Map(selected.map((m) => [gateKey(m), m]));
+  for (const [gate, m] of gates) {
     process.stdout.write(`  baseline ${gate} ... `);
     const b0 = Date.now();
-    const r = runGate(gate);
+    const r = runGate(m.gate, m.test);
     // What a healthy run of this gate costs — the yardstick for its hang pins.
     baselineMs.set(gate, r.runMs ?? Date.now() - b0);
     if (!r.ok) {
@@ -780,7 +818,7 @@ try {
     const t0 = Date.now();
     try {
       if (m.rebuild || m.gate.startsWith('compat:')) build();
-      const r = withTimeout(entryTimeoutMs(m), () => runGate(m.gate));
+      const r = withTimeout(entryTimeoutMs(m), () => runGate(m.gate, m.test));
       process.stdout.write(`${secs(Date.now() - t0)} `);
       if (r.ok) {
         failures++;
