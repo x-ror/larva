@@ -52,6 +52,8 @@ be added to this list in the same PR.
 - `g_i32_checked`, `g_i32_ok`, `g_i32_tag` (`pkg/jsc/private_value.odin:17-19`) — **per-thread OK**. Probe result for the JSValue int32 encoding. A library fact.
 - `g_checked`, `g_ok`, `g_create8/16`, `g_try_create`, `g_read_ok`, `g_flag_*`, `g_val_*`, `g_string_type`, `g_fiber_off` (`pkg/jsc/private_string.odin:69-85, 240-243`) — **per-thread OK**. Resolved string-ABI entry points and layout offsets. Library facts.
 - `g_host_checked`, `g_host_ok`, `g_host_create`, `g_host_lock_*`, `g_vm_throw`, `g_probe_seen`, `g_probe_callee` (`pkg/jsc/host_function.odin:96-103`) — **per-thread OK**. Resolved host-function ABI entry points. `g_probe_seen`/`g_probe_callee` are written only during the one-time self-test call. The private-ABI rule in CLAUDE.md §4 still applies: a probe latches failure only on a self-test mismatch, so one bad page cannot demote the thread for the pages after it.
+- `g_term_checked`, `g_term_ensure`, `g_term_lock_ctor`, `g_term_lock_dtor` (`pkg/jsc/private_terminate.odin:49-52`) — **per-thread OK**. The resolved `VM::ensureTerminationException` and JSLockHolder entry points behind `process.exit()` in a runner page. Library facts. The latch is set only by the dlsym answer, never by a call that fails at run time.
+- `force_readiness_backend` (`pkg/runtime/eventloop/loop_linux.odin:68`) — **per-thread OK**. A test-only switch that makes this thread's new loops use epoll instead of io_uring. Nothing outside `*_test.odin` sets it, and it chooses a backend without holding page data.
 
 ## Not package-level, but shared by every page on a thread
 

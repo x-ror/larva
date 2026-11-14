@@ -1107,7 +1107,7 @@
     {
       "name": "69-view-probe-pollution dies when the runtime stops priming the typed-array cell probe",
       "why": "Probed lazily, the mode probe learns from a user-replaced Uint8Array and whitelists the resizable-fixed mode, so natives read stale bytes past a shrunk buffer's end.",
-      "source": "pkg/runtime/runtime.odin",
+      "source": "pkg/runtime/page.odin",
       "find": "\tjsc.prime_view_probe(cast(jsc.JSContextRef)ctx)\n",
       "replace": "",
       "gate": "compat:tests/node-compat/cases/69-view-probe-pollution.js",
@@ -1161,9 +1161,9 @@
     {
       "name": "eval_reports_exhausted_vm_pool dies when pool exhaustion is reported as a missing runtime",
       "why": "A busy VM pool would tell the user to install JavaScriptCoreGTK, hiding the real cause.",
-      "source": "pkg/runtime/runtime.odin",
-      "find": "return vm_pool_unavailable(\"VM pool exhausted: every JavaScriptCore VM on this thread is busy\")",
-      "replace": "return native_runtime_unavailable()",
+      "source": "pkg/runtime/page.odin",
+      "find": "vm_pool_unavailable(\"VM pool exhausted: every JavaScriptCore VM on this thread is busy\")",
+      "replace": "native_runtime_unavailable()",
       "gate": "odin:cmd/lava:main.eval_reports_exhausted_vm_pool",
       "expect_detail": "install JavaScriptCoreGTK"
     },
@@ -1472,8 +1472,8 @@
       "name": "runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator dies when net's read copy goes back to context.allocator",
       "why": "jsc_buffer_deallocator frees through the heap; a read copy made under the runner's allocator is a bad free when JSC collects it (glibc abort at VM teardown).",
       "source": "pkg/runtime/net.odin",
-      "find": "copy_buf := make([]byte, n, runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap\n\t\t\tcopy(copy_buf, buf[:n])",
-      "replace": "copy_buf := make([]byte, n, context.allocator)\n\t\t\tcopy(copy_buf, buf[:n])",
+      "find": "copy_buf := make([]byte, len(src), runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap",
+      "replace": "copy_buf := make([]byte, len(src), context.allocator)",
       "gate": "odin:cmd/lava:main.runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator",
       "expect_detail": "odin test exited"
     },
@@ -1483,15 +1483,6 @@
       "source": "pkg/runtime/fetch.odin",
       "find": "copy_buf := make([]byte, len(bytes), runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap",
       "replace": "copy_buf := make([]byte, len(bytes), context.allocator)",
-      "gate": "odin:cmd/lava:main.runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator",
-      "expect_detail": "odin test exited"
-    },
-    {
-      "name": "runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator dies when net's landing-buffer copy goes back to context.allocator",
-      "why": "The io_uring receive path copies out of the reused landing buffer under the runner's allocator too.",
-      "source": "pkg/runtime/net.odin",
-      "find": "copy_buf := make([]byte, n, runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap\n\t\t\t\tcopy(copy_buf, conn.recv_buf[:n])",
-      "replace": "copy_buf := make([]byte, n, context.allocator)\n\t\t\t\tcopy(copy_buf, conn.recv_buf[:n])",
       "gate": "odin:cmd/lava:main.runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator",
       "expect_detail": "odin test exited"
     }
