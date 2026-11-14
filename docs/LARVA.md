@@ -17,11 +17,16 @@ actions → return the serialized DOM, status, headers and cookies.
 
 ## Non-goals
 
-Anything that needs real layout or pixels stays on Chrome: screenshots, PDF,
-video, coordinate-based clicks, slider/Turnstile captchas, canvas/WebGL
-fingerprint surfaces, and sites gated by JS sensor scripts (Akamai
-`sensor_data`, PerimeterX). A per-domain router (fed by the oracle below)
-decides which traffic goes to Larva and which stays on Chrome.
+The engine does not lay out or paint. Anything that needs real layout or pixels
+is outside the core: screenshots, PDF, video, coordinate-based clicks,
+slider/Turnstile captchas, canvas/WebGL fingerprint surfaces, and sites gated by
+JS sensor scripts (Akamai `sensor_data`, PerimeterX). A per-domain router (fed by
+the oracle below) decides which traffic goes to Larva and which goes to Chrome.
+
+"Outside the core" is not "never available". Those capabilities are served by
+extension modules (decision 6) — first by handing the request to a Chrome
+fallback behind the same API, later by a real layout engine plugged in where the
+core has fake geometry. Sensor-script and captcha sites stay on Chrome either way.
 
 ## Architecture decisions
 
@@ -102,18 +107,64 @@ decides which traffic goes to Larva and which stays on Chrome.
    domain routing lists and compatibility shims live in an adapter package
    (`pkg/adapters`), keeping the browser engine independent of any single
    caller's wire format.
+6. **Open core; extensions attach at named seams.** The core in this repository
+   is AGPL-3.0 and is complete by itself: parser, DOM, script execution, network
+   stack, the HTTP API and CDP. Extension modules live in a separate repository
+   under a commercial licence and are compiled in as an extra Odin collection,
+   producing a second binary — Odin has no stable plugin ABI, so there is no
+   runtime loading. JavaScriptCore is LGPL, so both binaries link it dynamically.
+   - **The rule for what goes where.** The core holds whatever one developer needs
+     for the engine to be correct and fast. An extension holds what an
+     organisation needs around it: rendering, fleet management, managed
+     identities, recording, tenancy. The core never ships a stub that exists only
+     to be unlocked, and no core gate depends on an extension being present.
+   - **Seams.** An extension may only attach where the core defines an interface,
+     and each interface has a working core implementation:
+     - _geometry provider_ — the core's implementation returns the plausible fake
+       geometry of stage 4; a layout engine replaces it. DOM bindings read
+       geometry only through this interface, never from the tree directly;
+     - _DOM mutation hooks_ — a subscriber is told about every tree change, which
+       is what a layout engine or a DOM recorder needs. `MutationObserver` is the
+       core's own subscriber;
+     - _client profiles as data_ — a profile (decision 3) is a file, not code, so
+       adding or updating one never needs a rebuild of the core;
+     - _session hooks_ — proxy selection, cookie and storage persistence, and
+       connection events are callbacks on the session;
+     - _request router_ — the per-domain decision to serve a request in Larva or
+       hand it elsewhere is an interface in the adapter layer (decision 5).
+   - **Cost rule.** A seam with no subscriber costs one predictable branch on the
+     path it sits on. A seam that would cost more on a hot path needs a
+     `make bench` number before it lands, as any other perf-relevant change does.
+   - None of these seams exists yet. Each is introduced by the stage that builds
+     its core implementation, not ahead of it.
 
 ## Roadmap
 
-| # | Stage | Done when |
-| --- | --- | --- |
-| 0 | **Oracle** — record what Chrome returns (HTML, status, cookies) for 100–200 URLs from real JS traffic | Every later stage is measured against it |
-| 1 | **Multi-VM core** — per-page `Runtime_State`, VM pool per thread, execution limits, Window profile skeleton, start-up cost measured | N pages run concurrently in one process with isolated VMs; a runaway page is killed alone |
-| 2 | **Network** — BoringSSL, HTTP/2 (nghttp2), per-session connection pool and TLS sessions, CONNECT proxies, cookie jar, redirects, gzip/brotli/zstd, Chrome client profiles | ClientHello and H2 fingerprints match the claimed Chrome version |
-| 3 | **HTML + DOM** — streaming parser (pause/resume at `<script>`), tree, mutation, events, serialization, CSS selectors, XPath, shadow DOM, same-origin iframes; `larva fetch URL` | Static pages serialize like the oracle |
-| 4 | **Window** — DOM bindings, script execution (sync/defer/async/module), XHR, `location`/`history`, storage, `MutationObserver`, profile-driven `navigator`/`screen`/timezone, plausible fake geometry | Oracle JS pages match after `load` |
-| 5 | **HTTP server & adapter** — stateless HTTP crawling API: selector and DOM wait conditions, network-idle wait across XHR **and** `fetch`, custom script evaluation with async and scroll helpers, interaction actions DSL, cookie and network capture, response metadata headers, structured error codes, hard per-page kill timeout | Drop-in backend behind per-domain A/B routing |
-| 6 | **Scale and CDP** — memory limits per page, recycling, then CDP for Puppeteer/Playwright | — |
+| # | Stage | Done when | Status | Issues |
+| --- | --- | --- | --- | --- |
+| 0 | **Oracle** — record what Chrome returns (HTML, status, cookies) for 100–200 URLs from real JS traffic | Every later stage is measured against it | Not started | [#2](https://github.com/x-ror/larva/issues/2) |
+| 1 | **Multi-VM core** — per-page `Runtime_State`, VM pool per thread, execution limits, Window profile skeleton, start-up cost measured | N pages run concurrently in one process with isolated VMs; a runaway page is killed alone | In progress | [#3](https://github.com/x-ror/larva/issues/3), [#4](https://github.com/x-ror/larva/issues/4), [#5](https://github.com/x-ror/larva/issues/5) |
+| 2 | **Network** — BoringSSL, HTTP/2 (nghttp2), per-session connection pool and TLS sessions, CONNECT proxies, cookie jar, redirects, gzip/brotli/zstd, Chrome client profiles | ClientHello and H2 fingerprints match the claimed Chrome version | Not started | [#6](https://github.com/x-ror/larva/issues/6), [#7](https://github.com/x-ror/larva/issues/7), [#8](https://github.com/x-ror/larva/issues/8), [#9](https://github.com/x-ror/larva/issues/9) |
+| 3 | **HTML + DOM** — streaming parser (pause/resume at `<script>`), tree, mutation, events, serialization, CSS selectors, XPath, shadow DOM, same-origin iframes; `larva fetch URL` | Static pages serialize like the oracle | Not started | [#10](https://github.com/x-ror/larva/issues/10), [#11](https://github.com/x-ror/larva/issues/11) |
+| 4 | **Window** — DOM bindings, script execution (sync/defer/async/module), XHR, `location`/`history`, storage, `MutationObserver`, profile-driven `navigator`/`screen`/timezone, plausible fake geometry | Oracle JS pages match after `load` | Not started | [#12](https://github.com/x-ror/larva/issues/12), [#13](https://github.com/x-ror/larva/issues/13), [#14](https://github.com/x-ror/larva/issues/14) |
+| 5 | **HTTP server & adapter** — stateless HTTP crawling API: selector and DOM wait conditions, network-idle wait across XHR **and** `fetch`, custom script evaluation with async and scroll helpers, interaction actions DSL, cookie and network capture, response metadata headers, structured error codes, hard per-page kill timeout | Drop-in backend behind per-domain A/B routing | Not started | [#15](https://github.com/x-ror/larva/issues/15) |
+| 6 | **Scale and CDP** — memory limits per page, recycling, then CDP for Puppeteer/Playwright | — | Not started | [#16](https://github.com/x-ror/larva/issues/16), [#17](https://github.com/x-ror/larva/issues/17) |
+
+Status as of 2026-11-14. The issues are the source of truth; this column is updated
+in the PR that changes a stage's state.
+
+Stage 1 so far, all on the Node profile's `eval` path — there is no page object yet:
+
+- the per-thread VM pool (`pkg/runtime/vm_pool.odin`); `eval` runs in a pooled VM
+  on Linux and macOS, while Windows still creates a VM per context;
+- the per-entry execution limit (`vm_set_entry_limit`), exercised only by
+  `cmd/lava/vm_pool_test.odin` — nothing sets it for real work yet;
+- VM cost measurements (`bench/jsc-vm`) and the global-state audit
+  ([GLOBAL-STATE.md](GLOBAL-STATE.md)).
+
+Still open in stage 1: the page lifecycle and per-page loop ownership, the
+cumulative CPU budget, heap accounting, the thread dispatcher, the Window profile,
+and the two-page isolation test that GLOBAL-STATE.md calls for.
 
 ## Risks
 

@@ -65,7 +65,7 @@ Two design decisions shape the whole system:
 
 The strongest part of the system, and the right thing to have gotten right first.
 
-- **Node-faithful phases.** `run_once` (`loop.odin:619`) runs the canonical order:
+- **Node-faithful phases.** `run_once` (`loop.odin`) runs the canonical order:
   next-tick → microtasks → timers → poll (I/O completions, then block) → check
   (`setImmediate`) → close. Each phase uses a _sequence limit_ so callbacks queued
   _during_ a phase defer to the next iteration — this is what makes ordering
@@ -77,13 +77,14 @@ The strongest part of the system, and the right thing to have gotten right first
   (used by tests) advances a _logical_ clock explicitly, enabling deterministic
   scheduling tests.
 - **Cross-thread completion handoff** mirrors libuv's `uv_async`:
-  `async_begin`/`post_async`/`drain_async` (`loop.odin:248-302`) let an off-loop
+  `async_begin`/`post_async`/`drain_async` (`loop.odin`) let an off-loop
   worker enqueue a completion under a mutex and wake the loop, which drains it on
   its own thread. `active_async` keeps the loop alive and blocked in `poll` until
   the worker finishes. This primitive backs the generic worker pool
   (`threadpool.odin`) and DNS resolution.
 - **Lifecycle accounting is meticulous.** `watched`/`active_io_count`,
-  `reffed_timer_count`, and the `dispose` hook contract (`loop.odin:8-14`) ensure a
+  `reffed_timer_count`, and the `Dispose` hook contract (declared at the top of
+  `loop.odin`) ensure a
   handle's GC-protected binding is released exactly once — on fire or on
   cancellation, never both, never neither.
 
@@ -201,11 +202,12 @@ subsystem after the loop, and it validates the `post_async` design end to end.
 ### 4.1 Memory model
 
 Disciplined and consistent. A per-tick `free_all(context.temp_allocator)` at the
-single choke point in `run_once` (`loop.odin:620`), mirrored per-require
-(`require.odin:58`) and per-eval (`runtime.odin:106`), bounds scratch growth. JSC
+single choke point in `run_once` (`loop.odin`), mirrored per-require
+(`native_require_cb`, `require.odin`) and per-eval (`eval`, `runtime.odin`), bounds
+scratch growth. JSC
 values held across loop turns are explicitly `JSValueProtect`/`Unprotect`'d with
 the lifecycle documented at every site. Queue buffers are bound to the loop
-allocator up front (`loop.odin:157`) so a worker thread's `post_async` cannot
+allocator up front (`init`, `loop.odin`) so a worker thread's `post_async` cannot
 accidentally adopt the wrong allocator.
 
 One allocator hazard is the `proc "c"` boundary: a JSC callback resets `context` to
@@ -234,12 +236,23 @@ bindings were routed through it and none leaked).
 
 ### 4.2 Concurrency model
 
-**Single VM, single JS thread, single context (in the base Node profile).** The generic per-loop worker pool
-(`threadpool.odin`) backs async fs, crypto, `node:dns` (`dns.odin`) and fetch's
-resolver (`fetch_dns.odin`); the old process-global `g_fetch_dns_pool` was folded
-into it. Package-level state is
-audited for page isolation in [GLOBAL-STATE.md](GLOBAL-STATE.md).
-A worker touches only its own request; all JS-value work stays on the loop thread.
+**One JS thread per loop, one live context per VM.** Each `eval` takes a VM from
+its thread's pool (`vm_pool.odin`), creates one global context in it and returns the
+VM when it finishes, so the next `eval` on that thread runs in a warm VM. A VM is
+only ever entered by the thread that created it and never holds two live contexts.
+Windows is the exception: it still calls `JSGlobalContextCreate`, a fresh VM per
+context (`create_eval_context`, `runtime.odin`).
+
+The Node profile runs one context at a time per thread. Several pages on one
+thread, each in its own pooled VM and sharing that thread's loop, is the Larva
+design ([LARVA.md](LARVA.md) decision 2) and is not built yet: no page object
+exists, and loop handles carry no per-page owner. Package-level state is audited
+for page isolation in [GLOBAL-STATE.md](GLOBAL-STATE.md).
+
+The generic per-loop worker pool (`threadpool.odin`) backs async fs, crypto,
+`node:dns` (`dns.odin`) and fetch's resolver (`fetch_dns.odin`); the old
+process-global `g_fetch_dns_pool` was folded into it. A worker touches only its own
+request; all JS-value work stays on the loop thread.
 
 ### 4.3 The FFI trust boundary — resolved (#159)
 
