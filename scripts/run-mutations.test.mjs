@@ -370,8 +370,8 @@ test('--shard slices are disjoint, cover every entry, and keep a gate together',
     };
     const one = names('1/2');
     const two = names('2/2');
-    assert.deepEqual([...one, ...two].sort(), entries.map((e) => e.name).sort());
     assert.equal(one.filter((n) => two.includes(n)).length, 0, 'an entry ran in two shards');
+    assert.deepEqual([...one, ...two].sort(), entries.map((e) => e.name).sort());
     // whole-a and whole-b share a gate, so one baseline: never split.
     assert.equal(one.includes('whole-a'), one.includes('whole-b'));
   });
