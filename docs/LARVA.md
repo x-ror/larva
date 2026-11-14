@@ -82,18 +82,19 @@ decides which traffic goes to Larva and which stays on Chrome.
      page that spins is killed alone. Until then it delays its siblings by up to its
      **budget**, not its entry limit: one tick fires every timer already due, so a
      page that queues many timers holds the thread for all of them. Slicing a tick
-     is open work.
+     is open work (#35).
    - Known limits of the runner, open as issues:
      - `page_close` joins the page loop's worker pool on the runner thread, so
        blocking work still in flight there holds every sibling on the thread, with
        no CPU limit to cut it: a `fetch` DNS lookup until the resolver times out —
        reachable from the Window profile too — and an `fs` read on a pipe or FIFO
-       without bound. Must be fixed before the multi-thread dispatcher ships.
+       without bound. Must be fixed before the multi-thread dispatcher ships
+       (#34).
      - The process fd table is shared. Under the Node profile a page can leak
        descriptors to `EMFILE` or `closeSync` a sibling's; the runner is not a
        security boundary there. The Window profile has no `fs`, which is what
-       isolates descriptors between untrusted pages.
-     - Each page loop starts its own 4-thread worker pool on first use.
+       isolates descriptors between untrusted pages (#37).
+     - Each page loop starts its own 4-thread worker pool on first use (#36).
    - every process-global and thread-local is audited for page isolation in
      [GLOBAL-STATE.md](GLOBAL-STATE.md); a new one is added there in the same PR.
 3. **Network stack with client profiles; network state belongs to the session.**
