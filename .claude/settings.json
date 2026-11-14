@@ -30,7 +30,6 @@
       "Bash(odin strip-semicolon:*)",
       "Bash(node:*)",
       "Bash(bun run js:*)",
-      "Bash(vp run:*)",
       "Bash(./bin/lava:*)",
       "Bash(./scripts/run-:*)",
       "Bash(./commands/:*)",

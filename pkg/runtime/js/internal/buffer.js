@@ -270,9 +270,11 @@
     var out = '';
     for (var i = 0; i < n; i++) {
       var c = StringPrototypeCharCodeAt(src, i);
-      if (c === 0x2d)
+      if (c === 0x2d) {
         c = 0x2b; // '-' -> '+'
-      else if (c === 0x5f) c = 0x2f; // '_' -> '/'
+      } else if (c === 0x5f) {
+        c = 0x2f; // '_' -> '/'
+      }
       if (
         (c >= 0x41 && c <= 0x5a) || // A-Z
         (c >= 0x61 && c <= 0x7a) || // a-z
