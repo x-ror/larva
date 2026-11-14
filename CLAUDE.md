@@ -95,6 +95,7 @@ make test             # Odin unit tests + oracle suites
 make test-lava        # every oracle suite compared node-vs-Lava
 make test-lava-nohostfn  # same suites with the private host-call ABI forced off
 make test-odin-serial # cmd/lava tests on ONE runner thread (shared-thread defects)
+make test-mutation CHANGED=1  # recorded mutations this diff can affect (drop CHANGED for all)
 make bench            # node-vs-Lava ratio table (report-only)
 ```
 
@@ -346,7 +347,9 @@ afterwards it is a separate, mandatory step.
 For anything on a user-visible surface, a security property, or a gate script,
 **record the mutation** in `tests/mutation-manifest.json` instead of only doing it
 once by hand: `make test-mutation` re-applies it in CI and fails if the test
-survives. Doing it by hand depends on remembering to, and that is exactly how the
+survives (`CHANGED=1` runs only the entries the diff against `origin/master` can
+affect — the form for iterating and for `/pr-gate`; the bare target is still what
+proves the whole manifest). Doing it by hand depends on remembering to, and that is exactly how the
 three examples below got in — each passed, and each passed just as well with the
 code it claimed to pin deleted. The runner refuses to report unless the tree is
 clean, each `find` is unique, and every gate is green _before_ mutating; a stale

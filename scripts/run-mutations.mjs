@@ -53,6 +53,8 @@
 //   node scripts/run-mutations.mjs                 # all
 //   node scripts/run-mutations.mjs --filter=clone  # substring match on `name`
 //   node scripts/run-mutations.mjs --list
+//   node scripts/run-mutations.mjs --changed       # only entries the diff can affect
+//   MUTATION_OPT=none|minimal|speed                # opt level of mutant builds (default none)
 //   MUTATION_TIMEOUT_MS=N                          # default per-gate bound (default 120000)
 //   manifest timeout_ms                            # per-entry override (hang pins use 30000)
 
@@ -95,6 +97,19 @@ const ODIN = process.env.ODIN ?? 'odin';
 
 const filter = argOf('filter') ?? '';
 const listOnly = args.includes('--list');
+const changedOnly = args.includes('--changed');
+
+// Optimization level for every build made while mutating (the baseline build, each
+// mutant, and what a `make:` gate builds through its own prerequisite). The gates
+// compare OBSERVABLE output — node vs lava, a test's assertion — and none of that
+// depends on how hard LLVM worked, while 74 of the manifest's 132 entries rebuild
+// bin/lava and used to pay `-o:speed` each time. The baseline is built at the same
+// level, so "green before, red after" still compares like with like.
+//
+// The restore build at the end does NOT use this: it runs with the caller's own
+// environment, so bin/lava is left at the level `make build` would have produced.
+const MUTATION_OPT = process.env.MUTATION_OPT || 'none';
+const mutantEnv = () => ({ ...process.env, LAVA_OPT: MUTATION_OPT });
 
 function die(msg) {
   console.error(`mutation gate: ${msg}`);
@@ -155,10 +170,125 @@ for (const [i, m] of manifest.mutations.entries()) {
   if (m.find === m.replace) die(`mutation "${m.name}" does not change anything`);
 }
 
-const selected = filter
+let selected = filter
   ? manifest.mutations.filter((m) => m.name.includes(filter))
   : manifest.mutations;
 if (selected.length === 0) die(`no mutation matches --filter=${filter}`);
+
+// --- --changed ----------------------------------------------------------------
+//
+// The full gate is minutes because it rebuilds per entry; while iterating on one
+// file almost none of those entries can change their answer. `--changed` keeps an
+// entry only when the diff against the merge-base with the default branch touches
+// something that entry reads:
+//   * its `source`
+//   * its gate's own file (`compat:`/`node-test:` path) or, for `odin:`, any
+//     `*_test.odin` in the gate's package
+//   * the entry itself (new, or edited, relative to the manifest at the base)
+// and keeps EVERYTHING when the machinery changed (this runner, the Makefile, the
+// build script), since then no entry's previous verdict is evidence.
+//
+// What it cannot see: a shared helper a gate imports, or a `make:` target's
+// scripts. So this is the iteration and review form, not a replacement — the full
+// `make test-mutation` is still what proves the whole manifest.
+//
+// The base is not a parameter. `--changed=HEAD` would select nothing and exit 0,
+// which is a bypass with a flag's name; MUTATION_BASE exists for the fixture trees
+// in run-mutations.test.mjs and is blocked for agents by runtime/gates/integrity.mjs
+// alongside MUTATION_ROOT and MUTATION_MANIFEST.
+function git(argv, { tolerate = false } = {}) {
+  const env = { ...process.env };
+  delete env.NODE_TEST_CONTEXT;
+  const r = spawnSync('git', argv, { cwd: ROOT, encoding: 'utf8', env, maxBuffer: 64 << 20 });
+  if (r.status !== 0) {
+    if (tolerate) return null;
+    die(`--changed: git ${argv.join(' ')} failed (exit ${r.status}): ${(r.stderr ?? '').trim()}`);
+  }
+  return r.stdout;
+}
+
+function changedBase() {
+  if (process.env.MUTATION_BASE) {
+    return git(['rev-parse', '--verify', `${process.env.MUTATION_BASE}^{commit}`]).trim();
+  }
+  for (const ref of ['origin/master', 'origin/main']) {
+    const out = git(['merge-base', 'HEAD', ref], { tolerate: true });
+    if (out && out.trim()) return out.trim();
+  }
+  // Not a pass: with no base there is no diff, and "nothing changed" would be a guess.
+  die(
+    '--changed: no merge-base with origin/master or origin/main — fetch it, or run the full gate',
+  );
+}
+
+const MACHINERY = ['scripts/run-mutations.mjs', 'scripts/build.sh', 'Makefile'];
+
+function selectChanged(entries) {
+  const base = changedBase();
+  const lines = (out) => out.split('\n').filter((l) => l !== '');
+  // Base vs the WORKING TREE (committed, staged and unstaged), plus untracked files:
+  // a gate file that exists only on disk is still a gate file that changed.
+  const changed = new Set([
+    ...lines(git(['diff', '--name-only', base])),
+    ...lines(git(['ls-files', '--others', '--exclude-standard'])),
+  ]);
+  const short = base.slice(0, 7);
+  const hitMachinery = MACHINERY.filter((f) => changed.has(f));
+  if (hitMachinery.length > 0) {
+    console.log(
+      `mutation gate: --changed vs ${short}: ${hitMachinery.join(', ')} changed — running all ${entries.length}`,
+    );
+    return entries;
+  }
+
+  // Entries as they stood at the base, to spot a new or edited one. A manifest
+  // that did not exist there (or does not parse) makes every entry new.
+  const manifestRel = MANIFEST.startsWith(ROOT + sep)
+    ? MANIFEST.slice(ROOT.length + 1)
+        .split(sep)
+        .join('/')
+    : null;
+  let before = new Set();
+  const old = manifestRel ? git(['show', `${base}:${manifestRel}`], { tolerate: true }) : null;
+  if (old) {
+    try {
+      before = new Set((JSON.parse(old).mutations ?? []).map((m) => JSON.stringify(m)));
+    } catch {
+      before = new Set();
+    }
+  }
+
+  const norm = (p) => p.replace(/\\/g, '/').replace(/^\.\//, '');
+  const affected = (m) => {
+    if (changed.has(norm(m.source))) return true;
+    if (!before.has(JSON.stringify(m))) return true;
+    const [kind, ...rest] = m.gate.split(':');
+    if (kind === 'compat' || kind === 'node-test') return changed.has(norm(rest.join(':')));
+    if (kind === 'odin') {
+      const pkg = norm(rest[0]) + '/';
+      for (const f of changed) if (f.startsWith(pkg) && f.endsWith('_test.odin')) return true;
+    }
+    return false;
+  };
+  const kept = entries.filter(affected);
+  console.log(
+    `mutation gate: --changed vs ${short}: ${changed.size} changed path(s), ` +
+      `${kept.length} of ${entries.length} mutation(s) affected`,
+  );
+  return kept;
+}
+
+if (changedOnly) {
+  selected = selectChanged(selected);
+  if (selected.length === 0) {
+    // Exit 0, and say exactly what that 0 means. It is not "the manifest passed".
+    console.log(
+      'mutation gate: nothing to run — no recorded mutation reads a path this diff touches.\n' +
+        'This is NOT a full pass; `make test-mutation` without CHANGED runs every entry.',
+    );
+    process.exit(0);
+  }
+}
 
 if (listOnly) {
   for (const m of selected) console.log(`${m.gate}\n  ${m.name}\n  ${m.why}\n`);
@@ -355,7 +485,8 @@ function gateOdin(pkg, testName) {
 // `rebuild: false` is correct even for an embedded-JS mutation here, because the
 // target's own `build` prerequisite picks the patched source up.
 function gateMake(target) {
-  const r = capture('make', [target], { cwd: ROOT });
+  // mutantEnv: the target's own `build` prerequisite is a mutant build too.
+  const r = capture('make', [target], { cwd: ROOT, env: mutantEnv() });
   const to = timedOut(r);
   if (to) return to;
   if (r.status === 0) return { ok: true, detail: `make ${target} passed` };
@@ -475,8 +606,10 @@ function applyMutation(m) {
   writeFileSync(file, text.slice(0, at) + m.replace + text.slice(at + m.find.length));
 }
 
-function build() {
-  const r = capture('make', ['build'], { cwd: ROOT });
+// `restore: true` is the one build that must NOT take MUTATION_OPT — it is what is
+// left on disk as bin/lava when the run ends.
+function build({ restore = false } = {}) {
+  const r = capture('make', ['build'], { cwd: ROOT, env: restore ? process.env : mutantEnv() });
   if (r.status !== 0) throw new Error(`make build failed:\n${(r.stdout + r.stderr).slice(-2000)}`);
 }
 
@@ -516,7 +649,22 @@ if (dirty) {
   );
 }
 
-console.log(`mutation gate: ${selected.length} mutation(s)\n`);
+console.log(`mutation gate: ${selected.length} mutation(s), mutant builds at -o:${MUTATION_OPT}\n`);
+
+// Where the minutes go, by gate kind — printed at the end. A run that got slow
+// should say which kind did it without anyone bisecting the manifest by hand.
+const startedAt = Date.now();
+const spent = new Map(); // gate kind -> { n, ms }
+const slowest = []; // { name, ms }
+const secs = (ms) => `${(ms / 1000).toFixed(1)}s`;
+function charge(m, ms) {
+  const kind = m.gate.split(':')[0];
+  const e = spent.get(kind) ?? { n: 0, ms: 0 };
+  e.n++;
+  e.ms += ms;
+  spent.set(kind, e);
+  slowest.push({ name: m.name, ms });
+}
 
 let failures = 0;
 let checked = 0;
@@ -570,9 +718,11 @@ try {
       console.log(`           ${err.message}`);
       continue;
     }
+    const t0 = Date.now();
     try {
       if (m.rebuild || m.gate.startsWith('compat:')) build();
       const r = withTimeout(entryTimeoutMs(m), () => runGate(m.gate));
+      process.stdout.write(`${secs(Date.now() - t0)} `);
       if (r.ok) {
         failures++;
         console.log('SURVIVED');
@@ -593,6 +743,7 @@ try {
         console.log(`killed (${r.detail.split('\n')[0]})`);
       }
     } finally {
+      charge(m, Date.now() - t0);
       restoreAll();
     }
   }
@@ -607,7 +758,7 @@ try {
   if (dirtiesBinary) {
     process.stdout.write('\n  restore build ... ');
     try {
-      build();
+      build({ restore: true });
       console.log('ok');
     } catch (err) {
       // Report rather than mask whatever is already propagating. A successful
@@ -620,6 +771,16 @@ try {
 }
 
 console.log('');
+if (checked > 0) {
+  const kinds = [...spent].sort((a, b) => b[1].ms - a[1].ms);
+  console.log(
+    `time: ${secs(Date.now() - startedAt)} total — ` +
+      kinds.map(([k, e]) => `${k} ${secs(e.ms)}/${e.n}`).join(', '),
+  );
+  const top = slowest.sort((a, b) => b.ms - a.ms).slice(0, 3);
+  for (const s of top) console.log(`  slowest: ${secs(s.ms)}  ${s.name}`);
+  console.log('');
+}
 if (failures > 0) {
   console.error(
     `mutation gate FAILED: ${failures}/${checked} mutation(s) did not do their job —\n` +

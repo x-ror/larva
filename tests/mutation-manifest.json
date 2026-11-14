@@ -1367,6 +1367,24 @@
       "replace": "## Reply",
       "gate": "node-test:scripts/agents-mirror.test.mjs",
       "expect_detail": "odin-sdk-scout.md carries the reply contract verbatim"
+    },
+    {
+      "name": "the runner's own tests die when the restore build inherits MUTATION_OPT",
+      "why": "Mutant builds run at -o:none for speed; if the final rebuild did too, a run would leave an unoptimized bin/lava on disk with a success message and every later bench would measure it.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "      build({ restore: true });",
+      "replace": "      build();",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "expect_detail": "restore build must not inherit MUTATION_OPT"
+    },
+    {
+      "name": "the runner's own tests die when --changed guesses a base instead of failing",
+      "why": "With no merge-base there is no diff; falling back to HEAD selects nothing and exits 0, which reads as a pass for a gate that ran no mutation.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "  // Not a pass: with no base there is no diff, and \"nothing changed\" would be a guess.\n  die(",
+      "replace": "  return 'HEAD';\n  die(",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "expect_detail": "--changed with no resolvable base fails rather than selecting nothing"
     }
   ]
 }

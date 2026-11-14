@@ -458,3 +458,152 @@ test('every mutation runs — one failure does not abort the rest', () => {
     assert.equal(sourceOf(dir), SOURCE);
   });
 });
+
+// --- --changed ----------------------------------------------------------------
+//
+// Two sources, two gates, two entries. A second commit touches only the first
+// source, so `--changed` against the first commit must run exactly one entry.
+const OTHER_SOURCE = `export const SECOND = 'second';\n`;
+const OTHER_GATE = `import test from 'node:test';
+import assert from 'node:assert/strict';
+import { SECOND } from './other.mjs';
+test('second is second', () => {
+  assert.equal(SECOND, 'second', 'THE-SECOND-REASON');
+});
+`;
+const otherEntry = (over = {}) => ({
+  name: 'second fixture dies when SECOND is broken',
+  why: 'the second gate must observe SECOND',
+  source: 'fx/other.mjs',
+  find: "export const SECOND = 'second';",
+  replace: "export const SECOND = 'BROKEN';",
+  gate: 'node-test:fx/other.test.mjs',
+  expect_detail: 'THE-SECOND-REASON',
+  ...over,
+});
+
+function makeTwoSourceTree(mutations) {
+  const dir = makeTree(mutations);
+  const git = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' });
+  writeFileSync(join(dir, 'fx', 'other.mjs'), OTHER_SOURCE);
+  writeFileSync(join(dir, 'fx', 'other.test.mjs'), OTHER_GATE);
+  git('add', '-A');
+  git('commit', '-qm', 'second source');
+  const base = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim();
+  return { dir, git, base };
+}
+
+// MUTATION_BASE and MUTATION_OPT are set explicitly per case and stripped
+// otherwise, so a value in the developer's shell cannot decide a verdict here.
+function runClean(dir, extra = [], env = {}) {
+  const base = { ...process.env };
+  delete base.MUTATION_BASE;
+  delete base.MUTATION_OPT;
+  delete base.LAVA_OPT;
+  const r = spawnSync(
+    process.execPath,
+    [RUNNER, `--root=${dir}`, `--manifest=${join(dir, 'manifest.json')}`, ...extra],
+    { encoding: 'utf8', cwd: dir, env: { ...base, ...env } },
+  );
+  return { status: r.status, out: (r.stdout ?? '') + (r.stderr ?? '') };
+}
+
+test('--changed runs only the entries whose source the diff touches', () => {
+  const { dir, git, base } = makeTwoSourceTree([entry(), otherEntry()]);
+  try {
+    // Touch the first source without changing what its gate asserts on.
+    writeFileSync(join(dir, 'fx', 'src.mjs'), SOURCE.replace('MARKER', 'MARKER edited'));
+    git('commit', '-qam', 'touch first source');
+    const { status, out } = runClean(dir, ['--changed'], { MUTATION_BASE: base });
+    assert.equal(status, 0, out);
+    assert.match(out, /1 of 2 mutation\(s\) affected/);
+    assert.match(out, /fixture dies when VALUE is broken/);
+    // The unaffected entry must not have run at all — not its baseline, not its kill.
+    assert.doesNotMatch(out, /second fixture/);
+    assert.doesNotMatch(out, /other\.test\.mjs/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--changed with nothing affected exits 0 and says it is not a full pass', () => {
+  const { dir, base } = makeTwoSourceTree([entry(), otherEntry()]);
+  try {
+    const { status, out } = runClean(dir, ['--changed'], { MUTATION_BASE: base });
+    assert.equal(status, 0, out);
+    assert.match(out, /0 of 2 mutation\(s\) affected/);
+    assert.match(out, /NOT a full pass/);
+    // "ok: N/N died" is the full gate's sentence and must not appear for a no-op.
+    assert.doesNotMatch(out, /mutation gate ok/);
+    assert.equal(sourceOf(dir), SOURCE);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--changed keeps an entry that is new in the manifest even if its source is untouched', () => {
+  const { dir, git, base } = makeTwoSourceTree([entry()]);
+  try {
+    writeFileSync(
+      join(dir, 'manifest.json'),
+      JSON.stringify({ mutations: [entry(), otherEntry()] }, null, 2),
+    );
+    git('commit', '-qam', 'record a second mutation');
+    const { status, out } = runClean(dir, ['--changed'], { MUTATION_BASE: base });
+    assert.equal(status, 0, out);
+    assert.match(out, /1 of 2 mutation\(s\) affected/);
+    assert.match(out, /second fixture dies when SECOND is broken/);
+    assert.match(out, /killed/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--changed keeps an entry whose gate file changed', () => {
+  const { dir, git, base } = makeTwoSourceTree([entry(), otherEntry()]);
+  try {
+    writeFileSync(join(dir, 'fx', 'other.test.mjs'), OTHER_GATE + '// edited\n');
+    git('commit', '-qam', 'edit the second gate');
+    const { status, out } = runClean(dir, ['--changed'], { MUTATION_BASE: base });
+    assert.equal(status, 0, out);
+    assert.match(out, /1 of 2 mutation\(s\) affected/);
+    assert.match(out, /second fixture dies when SECOND is broken/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--changed with no resolvable base fails rather than selecting nothing', () => {
+  // The fixture repo has no origin/master. Without MUTATION_BASE there is no diff
+  // to take, and "nothing changed" would be a guess that exits 0.
+  withTree([entry()], {}, (dir) => {
+    const { status, out } = runClean(dir, ['--changed']);
+    assert.equal(status, 1, out);
+    assert.match(out, /no merge-base/);
+    assert.equal(sourceOf(dir), SOURCE);
+  });
+});
+
+test('mutant builds get MUTATION_OPT; the restore build gets the caller’s level', () => {
+  // The speed-up is only safe if the binary LEFT ON DISK is the one `make build`
+  // would have made. `build` logs the LAVA_OPT it was given, so the last line is
+  // the restore build and every earlier one is a baseline or mutant build.
+  const dir = makeTree([entry({ gate: 'make:gate', expect_detail: 'make gate saw BROKEN' })]);
+  try {
+    writeFileSync(
+      join(dir, 'Makefile'),
+      'build:\n\t@mkdir -p bin && cp fx/src.mjs bin/lava && echo "$${LAVA_OPT:-unset}" >> bin/opt.log\n\n' +
+        'gate: build\n\t@grep -q BROKEN bin/lava && { echo "make gate saw BROKEN"; exit 1; } || exit 0\n',
+    );
+    const { status, out } = runClean(dir);
+    assert.equal(status, 0, out);
+    const log = readFileSync(join(dir, 'bin', 'opt.log'), 'utf8')
+      .trim()
+      .split('\n');
+    assert.ok(log.length >= 3, `baseline, mutant and restore builds expected, got ${log}`);
+    assert.equal(log.at(-1), 'unset', 'restore build must not inherit MUTATION_OPT');
+    assert.deepEqual([...new Set(log.slice(0, -1))], ['none'], 'mutant builds run at -o:none');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
