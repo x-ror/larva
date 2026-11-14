@@ -2,7 +2,7 @@
   "$comment": [
     "Every entry names a test and the ONE-LINE change to production source that must",
     "make it go red. `make test-mutation` applies each change, runs the named gate,",
-    "and fails if the gate still passes \u2014 because a test that survives the deletion of",
+    "and fails if the gate still passes — because a test that survives the deletion of",
     "the code it claims to pin is asserting something else.",
     "",
     "This exists because three tests landed in #321 that passed for the wrong reason,",
@@ -18,7 +18,7 @@
     "  why     one sentence: the defect this catches if the mutation survives",
     "  source  production file to patch (never a test file)",
     "  find    exact string to replace; must appear EXACTLY once (the runner checks)",
-    "  replace what to put there \u2014 usually the pre-fix code, or a deleted guard",
+    "  replace what to put there — usually the pre-fix code, or a deleted guard",
     "  gate    how to observe red; see GATE KINDS in scripts/run-mutations.mjs",
     "  expect_detail  substring the RED output must contain; '' is a visible opt-out",
     "  (`rebuild` is gone: it was derivable from the gate kind, and a run filtered to",
@@ -1107,7 +1107,7 @@
     {
       "name": "69-view-probe-pollution dies when the runtime stops priming the typed-array cell probe",
       "why": "Probed lazily, the mode probe learns from a user-replaced Uint8Array and whitelists the resizable-fixed mode, so natives read stale bytes past a shrunk buffer's end.",
-      "source": "pkg/runtime/runtime.odin",
+      "source": "pkg/runtime/page.odin",
       "find": "\tjsc.prime_view_probe(cast(jsc.JSContextRef)ctx)\n",
       "replace": "",
       "gate": "compat:tests/node-compat/cases/69-view-probe-pollution.js",
@@ -1161,9 +1161,9 @@
     {
       "name": "eval_reports_exhausted_vm_pool dies when pool exhaustion is reported as a missing runtime",
       "why": "A busy VM pool would tell the user to install JavaScriptCoreGTK, hiding the real cause.",
-      "source": "pkg/runtime/runtime.odin",
-      "find": "return vm_pool_unavailable(\"VM pool exhausted: every JavaScriptCore VM on this thread is busy\")",
-      "replace": "return native_runtime_unavailable()",
+      "source": "pkg/runtime/page.odin",
+      "find": "vm_pool_unavailable(\"VM pool exhausted: every JavaScriptCore VM on this thread is busy\")",
+      "replace": "native_runtime_unavailable()",
       "gate": "odin:cmd/lava:main.eval_reports_exhausted_vm_pool",
       "expect_detail": "install JavaScriptCoreGTK"
     },
@@ -1233,9 +1233,9 @@
     {
       "name": "cpu_budget_kills_timer_spinner dies when the loop ticks are not charged to the budget",
       "why": "Without the per-tick charge only single entries are watched, so thousands of 2 ms callbacks run the whole ~10 s.",
-      "source": "pkg/runtime/runtime.odin",
-      "find": "\t\tvm_cpu_enter(vm)\n\t\teventloop.run_next(loop)",
-      "replace": "\t\teventloop.run_next(loop)",
+      "source": "pkg/runtime/page.odin",
+      "find": "\tvm_cpu_enter(page.vm)\n\tdid_work = eventloop.run_next(loop)",
+      "replace": "\tdid_work = eventloop.run_next(loop)",
       "gate": "odin:cmd/lava:main.cpu_budget_kills_timer_spinner",
       "expect_detail": "expected result.status to be Execution_Error, got Ok"
     },
@@ -1278,9 +1278,9 @@
     {
       "name": "entry_limit_kills_runaway_top_level dies when a top-level kill is reported as an ordinary exception",
       "why": "The caller must be able to tell a watchdog kill from a thrown error; without the check the kill reads as a script error with kill None.",
-      "source": "pkg/runtime/runtime.odin",
-      "find": "\t\tif kill := vm_kill_reason(vm); kill != .None do return page_killed(kill)\n\t\tmsg, allocated",
-      "replace": "\t\tmsg, allocated",
+      "source": "pkg/runtime/page.odin",
+      "find": "-> bool {\n\tif ended, result := page_ended(page); ended do return page_fail(page, result)\n\tmsg, allocated",
+      "replace": "-> bool {\n\tmsg, allocated",
       "gate": "odin:cmd/lava:main.entry_limit_kills_runaway_top_level",
       "expect_detail": "expected result.kill to be Entry_Limit"
     },
@@ -1349,6 +1349,142 @@
       "replace": "\tvm.entry_limit = 0\n",
       "gate": "odin:cmd/lava:main.cpu_budget_is_cleared_on_release",
       "expect_detail": "a cleared budget still terminated the next page"
+    },
+    {
+      "name": "runner_busy_page_is_not_held_up_by_a_waiting_sibling dies when a page loop may block in its own poll",
+      "why": "A page loop that blocks on its own timer stalls every other page on the thread, so ten 300 ms pages run one after another.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\trp.loop.never_block = true\n",
+      "replace": "\trp.loop.never_block = false\n",
+      "gate": "odin:cmd/lava:main.runner_busy_page_is_not_held_up_by_a_waiting_sibling",
+      "expect_detail": "it waited on its sibling's timers"
+    },
+    {
+      "name": "runner_pages_wait_concurrently dies when the runner spins instead of waiting on the page loops",
+      "why": "Without the epoll wait an idle runner busy-loops over its pages, burning a core while every page sleeps.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\t\tif !progressed && len(runner.pages) > 0 do runner_wait(runner)\n",
+      "replace": "\n",
+      "gate": "odin:cmd/lava:main.runner_pages_wait_concurrently",
+      "expect_detail": "runner burned"
+    },
+    {
+      "name": "runner_fd_count_stays_flat_over_10k_pages dies when a closed page keeps its loop open",
+      "why": "Every page loop owns an epoll or io_uring fd plus a wakeup pipe; a page close that skips the loop teardown leaks three fds per page.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\teventloop.destroy(page.loop)\n",
+      "replace": "\n",
+      "gate": "odin:cmd/lava:main.runner_fd_count_stays_flat_over_10k_pages",
+      "expect_detail": "fd count grew",
+      "timeout_ms": 600000
+    },
+    {
+      "name": "runner_destroy_reports_live_pages_cancelled dies when destroy reports a cut-off page as finished",
+      "why": "Without the cancel, a page cut off by destroy reads as a page that ran to completion, and its exitCode getter runs during destroy.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\t\t\tpage_cancel(&runner.pages[len(runner.pages) - 1].page)\n",
+      "replace": "\n",
+      "gate": "odin:cmd/lava:main.runner_destroy_reports_live_pages_cancelled",
+      "expect_detail": "expected o.kill to be Cancelled"
+    },
+    {
+      "name": "runner_reports_a_page_it_cannot_start dies when a page that fails at open is reported from inside page_runner_open",
+      "why": "Reporting from inside open lets on_done reopen, recursing once per failing page: a long feed of bad pages overflows the stack.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "runner_finish(runner, index, deliver = false)",
+      "replace": "runner_finish(runner, index)",
+      "gate": "odin:cmd/lava:main.runner_reports_a_page_it_cannot_start",
+      "expect_detail": "reported from inside page_runner_open"
+    },
+    {
+      "name": "runner_wakes_on_io_without_timers dies when a page loop's fd is not in the runner's epoll set",
+      "why": "An I/O-only page has no timer to bound the runner's wait; if its loop fd never reaches the epoll set the runner sleeps forever.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "if linux.epoll_ctl(runner.epfd, .ADD, linux.Fd(fd), &ev) == .NONE do rp.fd = linux.Fd(fd)",
+      "replace": "rp.fd = linux.Fd(fd)",
+      "gate": "odin:cmd/lava:main.runner_wakes_on_io_without_timers",
+      "expect_detail": "not in the runner's epoll set"
+    },
+    {
+      "name": "backend_fd_wakes_an_outer_epoll_on_watched_io dies when backend_fd hands out a descriptor that never becomes readable",
+      "why": "A multi-loop driver blocks on backend_fd; a descriptor that does not reflect the loop's I/O leaves an I/O-only page waiting forever.",
+      "source": "pkg/runtime/eventloop/loop_linux.odin",
+      "find": "if loop.platform.use_uring do return uintptr(loop.platform.ring.fd), loop.platform.ring.fd >= 0",
+      "replace": "if loop.platform.use_uring do return uintptr(loop.platform.wakeup_pipe[1]), loop.platform.ring.fd >= 0",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.backend_fd_wakes_an_outer_epoll_on_watched_io",
+      "expect_detail": "did not wake the outer epoll"
+    },
+    {
+      "name": "runner_process_exit_runs_no_code_after_it dies when process.exit() in a runner page stops raising JSC's termination exception",
+      "why": "Node runs nothing after process.exit() in a worker; without the uncatchable exception the next statement, catch and finally run until the stop watchdog's trap.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\t\tif term := jsc.termination_exception(ctx); term != nil && exception != nil do exception^ = term\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.runner_process_exit_runs_no_code_after_it",
+      "expect_detail": "ran code after process.exit()"
+    },
+    {
+      "name": "runner_refuses_a_page_without_a_cpu_budget dies when a NaN budget slips past the refusal",
+      "why": "vm_set_cpu_budget reads NaN as no budget; a `<= 0` check lets it through and the page runs unbounded.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "if !(limits.cpu_budget > 0) {",
+      "replace": "if limits.cpu_budget <= 0 {",
+      "gate": "odin:cmd/lava:main.runner_refuses_a_page_without_a_cpu_budget",
+      "expect_detail": "page_runner_live"
+    },
+    {
+      "name": "runner_refuses_a_page_without_a_cpu_budget dies when the refusal is dropped",
+      "why": "Without it, 'a page that spins is killed alone' holds only for callers who passed a budget.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\tif !(limits.cpu_budget > 0) {\n\t\tappend(",
+      "replace": "\tif false {\n\t\tappend(",
+      "gate": "odin:cmd/lava:main.runner_refuses_a_page_without_a_cpu_budget",
+      "expect_detail": "page_runner_live"
+    },
+    {
+      "name": "runner_process_exit_bounds_promise_jobs_queued_before_it dies when a requested stop no longer arms the watchdog",
+      "why": "The drained promise jobs are bounded only by the stop's token limit; without it an endless job runs to the page's budget and the exit reads as a kill.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tjsc.JSContextGroupSetExecutionTimeLimit(vm.group, STOP_LIMIT, vm_watchdog_terminate, vm)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.runner_process_exit_bounds_promise_jobs_queued_before_it",
+      "expect_detail": "drained promise job"
+    },
+    {
+      "name": "runner_vm_reused_after_process_exit_runs_the_next_page dies when acquiring a VM keeps the last holder's stop request",
+      "why": "A stop left set on a pooled VM ends the next page that takes it at its first check, with exit code 0, before its timer runs.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\t\t\tvm.budget_hit = false\n\t\t\tvm.stop_requested = false\n",
+      "replace": "\t\t\tvm.budget_hit = false\n",
+      "gate": "odin:cmd/lava:main.runner_vm_reused_after_process_exit_runs_the_next_page",
+      "expect_detail": "second page"
+    },
+    {
+      "name": "runner_wakes_on_io_without_timers_on_the_readiness_backend dies when the readiness switch is ignored",
+      "why": "Without the switch the case re-tests io_uring and the epoll half of backend_fd and the runner never runs in CI.",
+      "source": "pkg/runtime/eventloop/loop_linux.odin",
+      "find": "if !force_readiness_backend && uring.init(",
+      "replace": "if uring.init(",
+      "gate": "odin:cmd/lava:main.runner_wakes_on_io_without_timers_on_the_readiness_backend",
+      "expect_detail": "page loop backend is"
+    },
+    {
+      "name": "runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator dies when net's readiness read copy goes back to context.allocator",
+      "why": "jsc_buffer_deallocator frees through the heap; a read copy made under the runner's allocator is a bad free when JSC collects it (glibc abort at VM teardown).",
+      "source": "pkg/runtime/net.odin",
+      "find": "copy_buf := make([]byte, n, runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap\n\t\t\tcopy(copy_buf, buf[:n])",
+      "replace": "copy_buf := make([]byte, n, context.allocator)\n\t\t\tcopy(copy_buf, buf[:n])",
+      "gate": "odin:cmd/lava:main.runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator",
+      "expect_detail": "odin test exited"
+    },
+    {
+      "name": "runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator dies when fetch's chunk copy goes back to context.allocator",
+      "why": "Same pairing as net's read copy: fetch_deliver_chunk runs in a loop callback under the runner's allocator.",
+      "source": "pkg/runtime/fetch.odin",
+      "find": "copy_buf := make([]byte, len(bytes), runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap",
+      "replace": "copy_buf := make([]byte, len(bytes), context.allocator)",
+      "gate": "odin:cmd/lava:main.runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator",
+      "expect_detail": "odin test exited"
     },
     {
       "name": "agents-mirror dies when a specialist goes back to model: inherit",

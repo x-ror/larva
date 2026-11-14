@@ -100,20 +100,25 @@ typed_array_view :: proc(ctx: jsc.JSContextRef, value: jsc.JSValueRef) -> ([]byt
 	return (cast([^]byte)ptr)[offset:][:n], true
 }
 
-// jsc_buffer_deallocator frees a heap-allocated (context.allocator) byte slice
-// that was handed to JavaScriptCore as the NoCopy backing of a Uint8Array.
+// jsc_buffer_deallocator frees a byte slice handed to JavaScriptCore as the NoCopy
+// backing of a Uint8Array. JSC calls it from GC or VM teardown, with no Odin context
+// of its own, so it frees through the heap allocator — and the bytes must come from
+// runtime.heap_allocator(), not whatever context.allocator a caller happens to run
+// under: a page runner installs its own allocator for everything a tick does.
 jsc_buffer_deallocator :: proc "c" (bytes: rawptr, deallocator_context: rawptr) {
 	context = runtime.default_context()
 	if bytes != nil do free(bytes)
 }
 
-// make_uint8_array hands a heap-allocated (context.allocator) byte slice to
-// JavaScriptCore as a Uint8Array without copying.
+// make_uint8_array hands a byte slice from runtime.heap_allocator() to JavaScriptCore
+// as a Uint8Array without copying; jsc_buffer_deallocator frees it. Natives reached
+// as `proc "c"` callbacks run under runtime.default_context(), whose allocator is the
+// heap, so their context.allocator qualifies; loop callbacks do not (net.odin).
 make_uint8_array :: proc(ctx: jsc.JSContextRef, data: []byte) -> jsc.JSValueRef {
 	ptr := raw_data(data)
 	n := len(data)
 	if ptr == nil {
-		pad := make([]byte, 1, context.allocator)
+		pad := make([]byte, 1, runtime.heap_allocator())
 		ptr = raw_data(pad)
 		n = 0
 	}

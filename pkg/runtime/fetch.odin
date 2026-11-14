@@ -845,7 +845,7 @@ fetch_status_has_no_body :: proc(method: string, status: int) -> bool {
 // because `bytes` aliases the transient socket / carry buffer.
 fetch_deliver_chunk :: proc(req: ^Fetch_Request, bytes: []byte) {
 	if len(bytes) == 0 do return
-	copy_buf := make([]byte, len(bytes), context.allocator)
+	copy_buf := make([]byte, len(bytes), runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap
 	copy(copy_buf, bytes)
 	arg := make_uint8_array(req.ctx, copy_buf)
 	exception: jsc.JSValueRef

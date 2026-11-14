@@ -58,6 +58,10 @@ VM :: struct {
 	// actually tightens — once the remaining budget drops below the entry limit.
 	armed_limit:     f64,
 	armed_by_budget: bool,
+	// Set by vm_request_stop: the holder asked to end (process.exit in a runner page).
+	// The watchdog is armed at a token limit so the running script stops at its next
+	// trap, and a fire in this state is neither kind of kill.
+	stop_requested:  bool,
 }
 
 // Page_Limits are the CPU limits a page runs under. Seconds; 0 = no limit.
@@ -81,6 +85,8 @@ Kill_Reason :: enum {
 	None,
 	Entry_Limit,
 	Cpu_Budget,
+	// Not a limit: the page runner was destroyed while the page was still running.
+	Cancelled,
 }
 
 VM_Pool :: struct {
@@ -167,6 +173,7 @@ vm_acquire :: proc(pool: ^VM_Pool) -> (^VM, VM_Pool_Error) {
 			vm.in_use = true
 			vm.limit_hit = false
 			vm.budget_hit = false
+			vm.stop_requested = false
 			return vm, .None
 		}
 	}
@@ -290,6 +297,8 @@ vm_kill_reason :: proc(vm: ^VM) -> Kill_Reason {
 // call.
 @(private = "file")
 vm_arm_watchdog :: proc(vm: ^VM) {
+	// A requested stop keeps its token limit until release.
+	if vm.stop_requested do return
 	want := vm.entry_limit
 	by_budget := false
 	if vm.cpu_budget_ns > 0 {
@@ -328,6 +337,7 @@ vm_watchdog_terminate :: proc "c" (ctx: jsc.JSContextRef, user_data: rawptr) -> 
 	// JSC invokes this on the thread running the script (at a VM trap), so a plain
 	// store is visible to the caller once the evaluation returns.
 	if vm == nil do return true
+	if vm.stop_requested do return true
 	if vm.armed_by_budget {
 		vm.budget_hit = true
 	} else {
@@ -357,6 +367,35 @@ vm_arm_kill_floor :: proc(vm: ^VM) {
 // budget (vm_arm_watchdog's 1 ms clamp); a killed holder reuses it.
 @(private = "file")
 KILL_FLOOR :: 0.001
+
+// vm_request_stop ends the VM's current holder from inside one of its natives: every
+// later callback is skipped (page_stop_if_killed), and whatever JS still runs stops
+// at its next VM trap (the watchdog, armed at a token limit). Not a kill:
+// vm_kill_reason stays .None. Cleared when the VM is next acquired.
+//
+// The token limit only takes if a limit was already armed when the current entry
+// began: measured, with none armed a limit set mid-entry never fired (a
+// `process.exit(); while (true) {}` page hung). Runner pages always carry a CPU
+// budget (page_runner_open refuses one without), which keeps the watchdog armed for
+// every entry, so no extra arming is needed for this.
+//
+// Node:
+//   process.exit() in a worker runs no more JS at all (TerminateExecution). The
+//   calling script gets the same from JSC's termination exception (process_exit_cb).
+// Deviates:
+//   Promise jobs queued before the call still start when the entry returns — JSC
+//   drains its job queue at every C-API exit, and nothing public skips that — and run
+//   until the token limit's trap: bounded, not prevented. Pinned by
+//   cmd/lava/page_runner_test.odin, runner_process_exit_bounds_promise_jobs_queued_before_it.
+vm_request_stop :: proc(vm: ^VM) {
+	if vm == nil do return
+	vm.stop_requested = true
+	// The smallest limit that still arms: JSC treats 0 as "no limit".
+	STOP_LIMIT :: 0.0001
+	vm.armed_limit = STOP_LIMIT
+	vm.armed_by_budget = false
+	jsc.JSContextGroupSetExecutionTimeLimit(vm.group, STOP_LIMIT, vm_watchdog_terminate, vm)
+}
 
 // vm_pool_stats reports how many VMs are busy and how many the pool has ever created.
 vm_pool_stats :: proc(pool: ^VM_Pool) -> (busy, created: int) {
