@@ -217,7 +217,8 @@ function changedBase() {
   }
   // Not a pass: with no base there is no diff, and "nothing changed" would be a guess.
   die(
-    '--changed: no merge-base with origin/master or origin/main — fetch it, or run the full gate',
+    '--changed: no merge-base with origin/master or origin/main — run `git fetch origin master` ' +
+      '(a fresh single-branch clone does not have it), or run the full gate',
   );
 }
 
