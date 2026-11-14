@@ -10,8 +10,13 @@ needs a later stage's foundation depends on it explicitly.
 
 ## Inputs
 
-- Issue number(s) and bodies (`gh issue view`)
-- Tree reality (read code; do not trust stale issue text alone)
+- Issue number(s) and bodies (GitHub MCP tools, or `gh issue view`)
+- Tree reality (do not trust stale issue text alone)
+
+Checking the tree is reading, not planning: send it to the built-in `Explore`
+agent — one question per issue ("is X already implemented, and where", "which
+files would Y touch") — and build the DAG from its answers. The dependency and
+stage decisions are yours ([conductor.md](conductor.md)).
 
 ## Output
 
