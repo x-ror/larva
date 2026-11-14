@@ -102,6 +102,20 @@ JS_Callback :: struct {
 	// Owned + GC-protected by this binding; nil when there are none.
 	args:      []jsc.JSValueRef,
 	repeating: bool,
+	// allocator made this binding and its args slice, and is the only one that may
+	// free them: the owning Runtime_State's, captured by the timer native that made
+	// the binding — the same capture dns.odin makes for its requests (CLAUDE.md §4).
+	// The native is a `proc "c"`, so its ambient allocator is
+	// runtime.default_context()'s heap, while the free runs under a different
+	// context depending on the path: eval's, when the loop fires, re-arms or tears
+	// the binding down; the heap again, when clearTimeout/clearImmediate disposes it
+	// synchronously inside clear_timer_cb (eventloop.clear_timeout runs the dispose
+	// eagerly). Neither side may trust the ambient allocator, so the binding carries
+	// its own, and free_js_callback depends on nothing but the binding. Taking the
+	// state's allocator rather than a hard-coded heap keeps bindings visible to the
+	// embedder's allocator, so a leaked binding shows up in a tracking test instead
+	// of vanishing into malloc. Pinned by cmd/lava/timer_binding_alloc_test.odin.
+	allocator: runtime.Allocator,
 }
 
 when ODIN_OS == .Darwin {
@@ -330,11 +344,13 @@ make_js_callback :: proc(
 	ctx: jsc.JSContextRef,
 	fn: jsc.JSObjectRef,
 	repeating: bool,
-	args: []jsc.JSValueRef = nil,
+	args: []jsc.JSValueRef,
+	allocator: runtime.Allocator,
 ) -> ^JS_Callback {
 	jsc.JSValueProtect(ctx, cast(jsc.JSValueRef)fn)
-	cb := new(JS_Callback)
+	cb := new(JS_Callback, allocator)
 	cb.ctx = ctx
+	cb.allocator = allocator
 	cb.func = fn
 	cb.args = args
 	cb.repeating = repeating
@@ -345,15 +361,17 @@ make_js_callback :: proc(
 // argument at or after `start` (index 2 for setTimeout/setInterval, 1 for
 // setImmediate). The returned slice is owned by the JS_Callback and released by
 // free_js_callback. Returns nil when there are none (or on allocation failure).
+// `allocator` must be the one the owning JS_Callback is made with.
 capture_timer_args :: proc(
 	ctx: jsc.JSContextRef,
 	argument_count: c.size_t,
 	arguments: [^]jsc.JSValueRef,
 	start: int,
+	allocator: runtime.Allocator,
 ) -> []jsc.JSValueRef {
 	n := int(argument_count) - start
 	if n <= 0 do return nil
-	args, err := make([]jsc.JSValueRef, n)
+	args, err := make([]jsc.JSValueRef, n, allocator)
 	if err != nil do return nil
 	for i in 0 ..< n {
 		v := arguments[start + i]
@@ -376,8 +394,9 @@ free_js_callback :: proc(cb: ^JS_Callback, release_roots := true) {
 			jsc.JSValueUnprotect(cb.ctx, arg)
 		}
 	}
-	delete(cb.args)
-	free(cb)
+	allocator := cb.allocator
+	delete(cb.args, allocator)
+	free(cb, allocator)
 }
 
 // should_release_fired_callback_roots keeps normal callback GC-root cleanup on
@@ -536,8 +555,11 @@ set_timeout_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	loop := get_loop_from_ctx(ctx)
-	if loop == nil || argument_count < 1 do return jsc.JSValueMakeUndefined(ctx)
+	// One state lookup serves both the loop and the binding allocator (see
+	// JS_Callback.allocator); get_loop_from_ctx would repeat the two FFI crossings.
+	state := get_state_from_ctx(ctx)
+	if state == nil || state.loop == nil || argument_count < 1 do return jsc.JSValueMakeUndefined(ctx)
+	loop, alloc := state.loop, state.allocator
 
 	fn := callback_arg(ctx, arguments[0])
 	if fn == nil do return jsc.JSValueMakeUndefined(ctx)
@@ -546,7 +568,7 @@ set_timeout_cb :: proc "c" (
 	if argument_count >= 2 do delay = jsc.JSValueToNumber(ctx, arguments[1], nil)
 
 	// Trailing args (setTimeout(fn, delay, ...args)) are forwarded on fire.
-	cb := make_js_callback(ctx, fn, false, capture_timer_args(ctx, argument_count, arguments, 2))
+	cb := make_js_callback(ctx, fn, false, capture_timer_args(ctx, argument_count, arguments, 2, alloc), alloc)
 	id := eventloop.set_timeout(
 		loop,
 		js_callback_trampoline,
@@ -566,8 +588,11 @@ set_interval_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	loop := get_loop_from_ctx(ctx)
-	if loop == nil || argument_count < 1 do return jsc.JSValueMakeUndefined(ctx)
+	// One state lookup serves both the loop and the binding allocator (see
+	// JS_Callback.allocator); get_loop_from_ctx would repeat the two FFI crossings.
+	state := get_state_from_ctx(ctx)
+	if state == nil || state.loop == nil || argument_count < 1 do return jsc.JSValueMakeUndefined(ctx)
+	loop, alloc := state.loop, state.allocator
 
 	fn := callback_arg(ctx, arguments[0])
 	if fn == nil do return jsc.JSValueMakeUndefined(ctx)
@@ -576,7 +601,7 @@ set_interval_cb :: proc "c" (
 	if argument_count >= 2 do interval = jsc.JSValueToNumber(ctx, arguments[1], nil)
 
 	// Trailing args (setInterval(fn, delay, ...args)) are forwarded on every fire.
-	cb := make_js_callback(ctx, fn, true, capture_timer_args(ctx, argument_count, arguments, 2))
+	cb := make_js_callback(ctx, fn, true, capture_timer_args(ctx, argument_count, arguments, 2, alloc), alloc)
 	id := eventloop.set_interval(
 		loop,
 		js_callback_trampoline,
@@ -596,14 +621,17 @@ set_immediate_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	loop := get_loop_from_ctx(ctx)
-	if loop == nil || argument_count < 1 do return jsc.JSValueMakeUndefined(ctx)
+	// One state lookup serves both the loop and the binding allocator (see
+	// JS_Callback.allocator); get_loop_from_ctx would repeat the two FFI crossings.
+	state := get_state_from_ctx(ctx)
+	if state == nil || state.loop == nil || argument_count < 1 do return jsc.JSValueMakeUndefined(ctx)
+	loop, alloc := state.loop, state.allocator
 
 	fn := callback_arg(ctx, arguments[0])
 	if fn == nil do return jsc.JSValueMakeUndefined(ctx)
 
 	// Trailing args (setImmediate(fn, ...args)) are forwarded on fire.
-	cb := make_js_callback(ctx, fn, false, capture_timer_args(ctx, argument_count, arguments, 1))
+	cb := make_js_callback(ctx, fn, false, capture_timer_args(ctx, argument_count, arguments, 1, alloc), alloc)
 	id := eventloop.set_immediate(loop, js_callback_trampoline, cb, js_callback_dispose)
 	return jsc.JSValueMakeNumber(ctx, f64(id))
 }
