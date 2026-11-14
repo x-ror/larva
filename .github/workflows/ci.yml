@@ -107,7 +107,8 @@ jobs:
       # The Odin runner gives each test its own thread by default; on one thread the
       # eval call sites share the thread-local host-native registry and JSC's recycled
       # context addresses. That sharing is the shape of two already-fixed defects, and
-      # nothing else in CI produces it. ~0.25s.
+      # nothing else in CI produces it. Also the only run of the page runner's 10k-page
+      # /proc/self/fd census (#4), which is most of its ~75s.
       - name: Test (Odin, single runner thread)
         run: make test-odin-serial
 

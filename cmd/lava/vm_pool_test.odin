@@ -170,3 +170,46 @@ eval_reports_exhausted_vm_pool :: proc(t: ^testing.T) {
 	testing.expectf(t, strings.contains(result.message, "VM pool exhausted"), "unexpected message: %q", result.message)
 	testing.expect(t, !strings.contains(result.message, "JavaScriptCoreGTK"), "pool exhaustion reported as a missing runtime")
 }
+
+// JSC's job queue belongs to the VM, not the context. When the watchdog cuts an
+// endless promise-job chain, the leftover jobs run during the next C-API exit or two on
+// the VM — and then never again. The page runner relies on that: page_close makes
+// several C-API calls on the dead page's context (unprotects, the context release)
+// before the VM goes back to the pool, so the leftovers run inside the dead page's
+// teardown, never in the next page's entry. This pins the JSC behaviour, so a JSC
+// upgrade that changes it fails here. Measured on libjavascriptcoregtk-6.0 2.52: the
+// leftovers ran ~650k jobs during the first property read after the cut, none after.
+@(private = "file")
+read_n :: proc(ctx: jsc.JSGlobalContextRef) -> f64 {
+	c := cast(jsc.JSContextRef)ctx
+	k := jsc.JSStringCreateWithUTF8CString("n")
+	defer jsc.JSStringRelease(k)
+	return jsc.JSValueToNumber(c, jsc.JSObjectGetProperty(c, jsc.JSContextGetGlobalObject(c), k, nil), nil)
+}
+
+@(test)
+vm_watchdog_cut_job_chain_does_not_outlive_the_next_api_exits :: proc(t: ^testing.T) {
+	pool: lava.VM_Pool
+	lava.vm_pool_init(&pool, 1, context.allocator)
+	defer lava.vm_pool_destroy(&pool)
+	vm, _ := lava.vm_acquire(&pool)
+	if vm == nil do testing.fail_now(t, "no VM")
+	defer lava.vm_release(vm)
+	lava.vm_set_entry_limit(vm, 0.05)
+	ctx1 := lava.vm_create_context(vm, nil)
+	defer jsc.JSGlobalContextRelease(ctx1)
+	eval_source(ctx1, "globalThis.n = 0; (function f() { n++; Promise.resolve().then(f); })();")
+	testing.expect(t, vm.limit_hit, "the chain was not cut by the watchdog")
+	// Stand-ins for page_close's own C-API calls on the dead context.
+	read_n(ctx1)
+	read_n(ctx1)
+	settled := read_n(ctx1)
+	// The next page gets this VM through vm_release, which clears the watchdog — and
+	// with it the 1 ms floor a kill latches (vm_watchdog_terminate). Model that, or the
+	// stand-in "next page" below is cut at 1 ms for the first page's kill.
+	lava.vm_set_entry_limit(vm, 0)
+	ctx2 := lava.vm_create_context(vm, nil)
+	defer jsc.JSGlobalContextRelease(ctx2)
+	testing.expect(t, eval_source(ctx2, "var s = Date.now(); while (Date.now() - s < 20) {}"), "second context failed")
+	testing.expectf(t, read_n(ctx1) == settled, "the cut chain ran again in another context's entry (n %v -> %v)", settled, read_n(ctx1))
+}

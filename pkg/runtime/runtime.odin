@@ -48,8 +48,8 @@ result_destroy :: proc(res: ^Result) {
 	res^ = Result{}
 }
 
-// create_eval_context makes eval's global context in a VM from the calling thread's
-// pool (vm_pool.odin), so repeated evals reuse a warm VM instead of paying for — and
+// create_eval_context makes eval's global context in a VM from `pool`, or the calling
+// thread's implicit pool when nil (vm_pool.odin), so repeated evals reuse a warm VM instead of paying for — and
 // permanently leaking a timerfd with — a new one each time. On Windows the context
 // is never released (see release_global_context_after_eval), so its VM could never
 // be reused: there, eval keeps the one-VM-per-context path and returns a nil VM.
@@ -70,6 +70,7 @@ result_destroy :: proc(res: ^Result) {
 //   heap accounting and VM retirement are #4's memory work.
 create_eval_context :: proc(
 	global_class: jsc.JSClassRef,
+	pool: ^VM_Pool = nil,
 ) -> (
 	vm: ^VM,
 	ctx: jsc.JSGlobalContextRef,
@@ -78,7 +79,7 @@ create_eval_context :: proc(
 	when ODIN_OS == .Windows {
 		return nil, jsc.JSGlobalContextCreate(global_class), .None
 	} else {
-		vm, err = vm_acquire(thread_vm_pool())
+		vm, err = vm_acquire(pool != nil ? pool : thread_vm_pool())
 		if err != .None do return nil, nil, err
 		return vm, vm_create_context(vm, global_class), .None
 	}
@@ -138,8 +139,7 @@ Pre_Run_Hook :: proc(user_data: rawptr) -> bool
 // limit and a cumulative CPU budget on its VM. The budget is charged from runtime
 // install to the last loop tick; the first entry or tick that ends over a limit stops
 // the loop (force_exit) and eval returns .Execution_Error with Result.kill naming the
-// limit. Zero limits (the default) keep the plain eventloop.run path, with no clock
-// reads. Larva policy with no Node counterpart. Pinned by
+// limit. Zero limits (the default) read no clocks. Larva policy with no Node counterpart. Pinned by
 // cmd/lava/page_cpu_budget_test.odin.
 
 eval :: proc(
@@ -152,28 +152,6 @@ eval :: proc(
 	pre_run_data: rawptr = nil,
 	limits: Page_Limits = {},
 ) -> Result {
-	// eval consumes the loop on EVERY path (see the OWNERSHIP note above). These two
-	// pre-flight rejections return before the JS context (and the deferred teardown
-	// below) exists, so they destroy the loop explicitly. It holds no handles yet, so
-	// this single destroy needs no live context.
-	if len(source) == 0 {
-		if loop != nil do eventloop.destroy(loop)
-		return Result{status = .Invalid_Input, exit_code = 2, message = "empty JavaScript source"}
-	}
-
-	if strings.has_prefix(source_name, "node:") {
-		if loop != nil do eventloop.destroy(loop)
-		return Result {
-			status = .Invalid_Input,
-			exit_code = 2,
-			message = "node: specifiers are module names, not eval source names",
-		}
-	}
-
-	// A JS runtime must survive writes to closed pipes/sockets (Node parity):
-	// see signals_posix.odin. Installed per eval — the call is idempotent.
-	ignore_sigpipe()
-
 	// Per-eval temp arena boundary, mirroring the per-tick reset in
 	// eventloop.run_once and the per-require reset in native_require_cb. It
 	// reclaims the scratch allocated around the loop (setup_module_environment,
@@ -183,323 +161,25 @@ eval :: proc(
 	// context.allocator, so nothing returned escapes through the temp arena.
 	defer free_all(context.temp_allocator)
 
-	// Configure JSC before the first JSGlobalContextCreate. On Windows this disables
-	// the (buggy on this bun-webkit build) baseline JIT tier and runs JSC's proper
-	// process bring-up — without it, heavy JS corrupts memory mid-execution
-	// (0xC0000409, surfaced as exit 127). See pkg/jsc/jsc_init_windows.cpp for the
-	// full rationale. Idempotent; a no-op on Linux/macOS.
-	jsc.lava_jsc_init()
-
-	// A custom global class gives the global object a private-data slot, where we
-	// stash Runtime_State (loop + module cache) out of reach of user JavaScript.
-	global_class := make_global_class()
-	vm, ctx, vm_err := create_eval_context(global_class)
-	if ctx == nil {
-		vm_release(vm)
-		jsc.JSClassRelease(global_class)
-		// Still consume the loop (no context was created, so no handles exist).
-		if loop != nil do eventloop.destroy(loop)
-		// A pool error means JSC is present but this thread has no VM to give: saying
-		// "install JavaScriptCoreGTK" there would send the user after the wrong cause.
-		switch vm_err {
-		case .Exhausted:
-			return vm_pool_unavailable("VM pool exhausted: every JavaScriptCore VM on this thread is busy")
-		case .Create_Failed:
-			return vm_pool_unavailable("JavaScriptCore could not create a VM (JSContextGroupCreate failed)")
-		case .None:
-		}
-		return native_runtime_unavailable()
-	}
-	defer jsc.JSClassRelease(global_class)
-	// Limits live on the VM, so without one (Windows: see create_eval_context) they
-	// cannot be enforced. Refuse rather than run the page unlimited. Reached only on
-	// Windows, which CI does not run, so this path has no test.
-	if limits != {} {
-		if vm == nil {
-			release_global_context_after_eval(ctx)
-			if loop != nil do eventloop.destroy(loop)
-			return Result {
-				status = .Invalid_Input,
-				exit_code = 2,
-				message = "page CPU limits need a pooled VM, which this platform does not use",
-			}
-		}
-		vm_set_entry_limit(vm, limits.entry_limit)
-		vm_set_cpu_budget(vm, limits.cpu_budget)
-	}
-	// Declared before the context release, so (LIFO) the VM goes back to the pool only
-	// after its context is gone: a pooled VM never hosts two live contexts.
-	defer vm_release(vm)
-	defer release_global_context_after_eval(ctx)
-
-	state := new_runtime_state(loop)
-	state.vm = vm
-	// Build Node's process.argv = [execPath, scriptPath, ...userArgs]. argv[0] is
-	// the lava binary (absolute, like Node's execPath); argv[1] is the absolute
-	// script path (omitted for `lava eval`, where there is no script file). Built in
-	// the per-eval temp arena, which outlives install_process (see the defer above).
-	state.script_argv = build_process_argv(source_name, script_args)
-	jsc.JSObjectSetPrivate(
-		jsc.JSContextGetGlobalObject(cast(jsc.JSContextRef)ctx),
-		cast(rawptr)state,
-	)
-	// Runs before the context is released (defers execute in reverse order), so
-	// JSValueUnprotect on cached modules still has a live context.
-	defer destroy_runtime_state(cast(jsc.JSContextRef)ctx, state)
-
-	// Register the graceful-shutdown drain hook (multi-worker, Linux only): when the supervisor
-	// requests a stop, the loop runs net_drain_begin on its own thread to stop accepting and drain
-	// in-flight connections. KNOWN DIVERGENCE (design §9): only the multi-worker supervisor blocks
-	// SIGINT/SIGTERM and calls request_shutdown, so this hook never fires for a single-worker run
-	// (LAVA_WORKERS unset/1) — there SIGTERM still terminates immediately without draining, as it did
-	// before Slice 3a. Routing the single-worker path through the same machinery is a follow-up.
-	when ODIN_OS == .Linux {
-		if loop != nil do eventloop.set_shutdown_hook(loop, net_drain_begin, state)
-	}
-
-	// Snapshot the standard error constructors while globalThis is still pristine —
-	// before setup_module_environment's builtin JS and, crucially, before any user
-	// code. make_native_error builds native throws from these captured intrinsics, so
-	// a script that later overwrites globalThis.RangeError/TypeError/etc. cannot
-	// intercept or reshape a native error (matches Node, whose internal errors never
-	// route through user-patched globals). See errors.odin.
-	capture_error_intrinsics(cast(jsc.JSContextRef)ctx, state)
-	// Same window, same reason: the typed-array cell probe learns which view modes
-	// have a fixed length by constructing views through the global Uint8Array and
-	// ArrayBuffer, so it must run before user code can replace them.
-	jsc.prime_view_probe(cast(jsc.JSContextRef)ctx)
-
-	// eval owns the loop's teardown (see the OWNERSHIP note above). A deferred
-	// destroy — not a tail call after eventloop.run — so that EVERY return once the
-	// context exists tears the loop down: a thrown top-level exception (which may
-	// already have created timers/sockets), an .mjs wrap error, or a source-string
-	// allocation failure would otherwise return the loop alive with GC-protected
-	// callbacks stranded. Declared after destroy_runtime_state so it fires first
-	// (LIFO), and before the context release, so dispose hooks still see a live
-	// context. On abnormal returns it first stops active fetches and joins the fetch
-	// resolver workers; node:dns lookups run on the loop's worker pool, which
-	// eventloop.destroy -> pool_shutdown joins and disposes — so no background thread
-	// can post into a destroyed loop/context. On the success path it runs after
-	// eventloop.run returns.
-	defer if loop != nil {
-		fetch_shutdown_active(state)
-		net_shutdown_active(state)
-		eventloop.destroy(loop)
-	}
-
-	// Everything from here to the loop is one stretch on the page's VM, charged to its
-	// CPU budget: runtime install, the entry body, its promise jobs and nextTicks.
-	// Released on every return; vm_cpu_exit is a no-op once the depth is back at 0.
-	vm_cpu_enter(vm)
-	defer vm_cpu_exit(vm)
-
-	setup_module_environment(cast(jsc.JSContextRef)ctx, source_name, loop)
-
-	// ESM entrypoints (.mjs) are rewritten to CommonJS via the same transform the
-	// loader applies to imported .mjs modules; script (.js) and `lava eval`
-	// sources run unchanged.
-	eval_source := source
-	mjs_wrapped: string
-	mjs_allocated := false
-	defer if mjs_allocated do delete(mjs_wrapped)
-	if strings.has_suffix(source_name, ".mjs") {
-		wrap_exception: jsc.JSValueRef
-		wrapped, ok := esm_wrap_source(
-			cast(jsc.JSContextRef)ctx,
-			source,
-			source_name,
-			&wrap_exception,
-		)
-		if !ok {
-			if kill := vm_kill_reason(vm); kill != .None do return page_killed(kill)
-			msg, allocated := value_to_string(cast(jsc.JSContextRef)ctx, wrap_exception)
-			return Result {
-				status = .Execution_Error,
-				exit_code = 1,
-				message = msg,
-				is_allocated = allocated,
-			}
-		}
-		eval_source = wrapped
-		mjs_wrapped = wrapped
-		mjs_allocated = true
-	} else {
-		// Register the CommonJS/script entry in the module cache before it runs, so
-		// requiring the entry by path returns the same instance (and an entry-
-		// involved require cycle terminates instead of re-executing the entry). The
-		// .mjs entry handles this itself via __lava_precache in its transformed body.
-		register_entry_module(cast(jsc.JSContextRef)ctx, state, source_name)
-	}
-
-	// Drain the top-level turn's process.nextTick queue *before* JSEvaluateScript
-	// returns: JSC auto-drains its promise jobs at that boundary, so a nextTick
-	// queued at top level would otherwise lose to a promise job queued before it
-	// (Node runs nextTick first). There is no native hook between "script body done"
-	// and "JSC drains", so we append the drain as a trailing statement — the same
-	// role dispatch plays for event-loop callbacks. It is a VariableStatement (empty
-	// completion value) so it does not clobber the script's completion value used by
-	// `lava eval`'s echo; the leading "\n;" guards a trailing line comment / missing
-	// semicolon; typeof keeps it a no-op if the microtask shim failed to install.
-	TOP_LEVEL_DRAIN :: "\n;var __lava_tl_drain = (typeof __lavaDrainNextTicks === 'function') && __lavaDrainNextTicks();\n"
-	if combined, concat_err := strings.concatenate(
-		{eval_source, TOP_LEVEL_DRAIN},
-		context.temp_allocator,
-	); concat_err == nil {
-		eval_source = combined
-	}
-
-	script := js_string_from_string(eval_source)
-	if script == nil {
-		return Result {
-			status = .Invalid_Input,
-			exit_code = 2,
-			message = "could not allocate JavaScript source string",
-		}
-	}
-	defer jsc.JSStringRelease(script)
-
-	c_source_name, c_source_name_err := strings.clone_to_cstring(
-		source_name,
-		context.temp_allocator,
-	)
-	if c_source_name_err != nil {
-		return Result {
-			status = .Invalid_Input,
-			exit_code = 2,
-			message = "could not allocate JavaScript source name",
-		}
-	}
-
-	source_url := jsc.JSStringCreateWithUTF8CString(c_source_name)
-	if source_url == nil {
-		return Result {
-			status = .Invalid_Input,
-			exit_code = 2,
-			message = "could not allocate JavaScript source URL object",
-		}
-	}
-	defer jsc.JSStringRelease(source_url)
-
-	exception: jsc.JSValueRef
-	value := jsc.JSEvaluateScript(
-		cast(jsc.JSContextRef)ctx,
-		script,
-		nil,
-		source_url,
-		1,
-		&exception,
-	)
-
-	if exception != nil {
-		if kill := vm_kill_reason(vm); kill != .None do return page_killed(kill)
-		msg, allocated := value_to_string(cast(jsc.JSContextRef)ctx, exception)
-		return Result {
-			status = .Execution_Error,
-			exit_code = 1,
-			message = msg,
-			is_allocated = allocated,
-		}
-	}
-
-	// Refresh the cached entry exports: a CommonJS entry body may have reassigned
-	// module.exports, so the pre-eval partial registered above is now stale.
-	if !mjs_allocated {
-		register_entry_module(cast(jsc.JSContextRef)ctx, state, source_name)
-	}
-
-	// The drain appended above ran nextTicks queued synchronously by the top-level
-	// body; this runs the ones queued by the promise jobs JSC auto-drained when
-	// JSEvaluateScript returned — so the nextTick queue is empty before the loop's
-	// first timer/I/O phase, since Node drains nextTicks ahead of timers. Same
-	// after-the-boundary re-drain that invoke_user_callback does per callback.
-	drain_next_ticks_settled(cast(jsc.JSContextRef)ctx, state)
-	vm_cpu_exit(vm)
-	if kill := vm_kill_reason(vm); kill != .None do return page_killed(kill)
-
-	if loop != nil {
+	// eval is one page run to completion on the calling thread (page.odin): open it
+	// (runtime install + top-level script), drive its loop, close it. The page runner
+	// drives the same three steps for many pages interleaved on one thread.
+	page: Page
+	if page_open(&page, source, source_name, loop, echo_result, script_args, limits) && loop != nil {
 		// Startup-barrier rendezvous (multi-worker): report this worker ready and block until the
 		// supervisor releases all workers, or aborts startup (some worker failed). On abort, skip the
-		// loop entirely and fall through to the deferred teardown — the loop never ran, so this is a
-		// direct teardown, not a drain. nil hook (single-worker) always proceeds.
+		// loop entirely and fall through to the teardown — the loop never ran, so this is a direct
+		// teardown, not a drain. nil hook (single-worker) always proceeds.
 		proceed := true
 		if pre_run != nil do proceed = pre_run(pre_run_data)
-		if proceed && limits != {} {
-			if kill := run_limited(loop, vm); kill != .None do return page_killed(kill)
-		} else if proceed {
-			eventloop.run(loop)
-			// Loop teardown is the deferred eventloop.destroy declared above — it covers
-			// this success path and every early return once the context exists.
+		if proceed {
+			for {
+				alive, _ := page_tick(&page)
+				if !alive do break
+			}
 		}
 	}
-
-	// process.exitCode can be a getter or carry a valueOf: user JS, so charged and
-	// checked like any other entry.
-	vm_cpu_enter(vm)
-	exit_code := resolve_exit_code(cast(jsc.JSContextRef)ctx, state)
-	vm_cpu_exit(vm)
-	if kill := vm_kill_reason(vm); kill != .None do return page_killed(kill)
-	// Captured while the loop is still alive (the deferred destroy runs after this returns): a fatal
-	// backend-poll failure means this worker crashed rather than finished/stopped cleanly.
-	backend_failed := loop != nil && loop.backend_error
-
-	if !echo_result || value == nil || jsc.JSValueIsUndefined(cast(jsc.JSContextRef)ctx, value) {
-		return Result{status = .Ok, exit_code = exit_code, backend_failed = backend_failed}
-	}
-
-	msg, allocated := value_to_string(cast(jsc.JSContextRef)ctx, value)
-	return Result {
-		status = .Ok,
-		exit_code = exit_code,
-		message = msg,
-		is_allocated = allocated,
-		backend_failed = backend_failed,
-	}
-}
-
-// run_limited is eventloop.run for a page under Page_Limits: every tick is charged to
-// the VM's CPU budget, and the first tick that ends with a limit hit stops the loop.
-// The tick is the outer stretch: its poll blocks without advancing the thread's CPU
-// clock, so the native work around the callbacks is the page's too. Inside it,
-// vm_cpu_checkpoint charges each callback and each nextTick drain pass, because one
-// tick can fire any number of fresh JSC entries. Under a budget that is two clock
-// reads per tick plus one per callback and per drain pass (a syscall on Linux: this
-// clock has no vDSO path). force_exit makes the deferred teardown in eval reclaim
-// whatever the page still had registered.
-//
-// The loop condition mirrors eventloop.run's; a new exit condition there belongs here
-// too (loop.odin's run points back at this).
-@(private = "file")
-run_limited :: proc(loop: ^eventloop.Loop, vm: ^VM) -> Kill_Reason {
-	for eventloop.has_pending_work(loop) && !loop.backend_error && !loop.force_exit {
-		vm_cpu_enter(vm)
-		eventloop.run_next(loop)
-		vm_cpu_exit(vm)
-		if kill := vm_kill_reason(vm); kill != .None {
-			loop.force_exit = true
-			return kill
-		}
-	}
-	return .None
-}
-
-// page_killed builds the Result for a page a limit ended.
-//
-// Node:
-//   No counterpart: Node has no per-script CPU limit, so the messages are Larva's.
-// Deviates:
-//   n/a (no oracle). Status, Result.kill and the message wording are pinned by
-//   cmd/lava/page_cpu_budget_test.odin.
-@(private = "file")
-page_killed :: proc(kill: Kill_Reason) -> Result {
-	msg: string
-	switch kill {
-	case .Entry_Limit:
-		msg = "page killed: a script exceeded the execution time limit"
-	case .Cpu_Budget:
-		msg = "page killed: CPU budget exceeded"
-	case .None:
-	}
-	return Result{status = .Execution_Error, exit_code = 1, message = msg, kill = kill}
+	return page_close(&page)
 }
 
 // resolve_exit_code computes the final process exit code after the event loop

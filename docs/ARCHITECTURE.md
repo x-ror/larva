@@ -38,7 +38,9 @@ Two design decisions shape the whole system:
 ┌───────────────────────────────▼──────────────────────────────────────┐
 │  pkg/runtime  (orchestration)                                          │
 │                                                                        │
-│   runtime.odin      eval(): JSC context lifecycle, ownership, drains   │
+│   runtime.odin      eval(): one page run to completion                 │
+│   page.odin         page open/tick/close: context lifecycle, drains    │
+│   page_runner.odin  many pages (VM + loop each) on one thread          │
 │   globals.odin      global surface, Runtime_State, JS↔loop callbacks   │
 │   require.odin      CommonJS loader (cache, .js/.cjs/.mjs/.json)        │
 │   module_resolution native resolver (file/dir/node_modules/main)       │
@@ -202,7 +204,7 @@ subsystem after the loop, and it validates the `post_async` design end to end.
 
 Disciplined and consistent. A per-tick `free_all(context.temp_allocator)` at the
 single choke point in `run_once` (`loop.odin:620`), mirrored per-require
-(`require.odin:58`) and per-eval (`runtime.odin:106`), bounds scratch growth. JSC
+(`require.odin:58`) and per-eval (`eval` in `runtime.odin`), bounds scratch growth. JSC
 values held across loop turns are explicitly `JSValueProtect`/`Unprotect`'d with
 the lifecycle documented at every site. Queue buffers are bound to the loop
 allocator up front (`loop.odin:157`) so a worker thread's `post_async` cannot
