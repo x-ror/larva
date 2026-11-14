@@ -18,6 +18,10 @@ Runtime_State :: struct {
 	// VM). Carries the page's CPU limits; invoke_user_callback charges and checks them
 	// at every callback boundary.
 	vm:                ^VM,
+	// Set for a page the page runner drives: process.exit() then ends this page only
+	// (exit_code below), never the process its sibling pages share.
+	page_runner:       bool,
+	page_exit_code:    int,
 	// Allocator that owns the module_cache key strings. Captured from the caller's
 	// context at state creation and used EXPLICITLY when cloning/freeing keys, because
 	// keys are cloned inside `proc "c"` require callbacks (where context is reset to
@@ -837,6 +841,23 @@ process_exit_cb :: proc "c" (
 		}
 		code = int(n)
 	}
+	// In a runner page, exit ends the page, not the process: os.exit would take every
+	// sibling page on the thread down with it, and none of them would be reported.
+	// The page ends the way Node ends a worker (TerminateExecution): JSC's termination
+	// exception skips every catch and finally, so nothing after the call runs. The
+	// stop request ends what that exception cannot reach — later callbacks
+	// (page_stop_if_killed) and promise jobs already queued, which JSC drains as the
+	// entry returns (cut by the stop watchdog; the Deviates note on vm_request_stop).
+	// Without the private symbol the call returns and the watchdog alone stops the
+	// page, a few statements later.
+	state := get_state_from_ctx(ctx)
+	if state != nil && state.page_runner && state.vm != nil {
+		state.page_exit_code = code
+		vm_request_stop(state.vm)
+		if state.loop != nil do state.loop.force_exit = true
+		if term := jsc.termination_exception(ctx); term != nil && exception != nil do exception^ = term
+		return jsc.JSValueMakeUndefined(ctx)
+	}
 	os.exit(code)
 }
 
@@ -1072,9 +1093,10 @@ page_checkpoint :: proc(state: ^Runtime_State, exception: ^jsc.JSValueRef) -> (k
 	return true
 }
 
-// page_stop_if_killed stops the page's loop once a limit has ended it.
+// page_stop_if_killed stops the page's loop once a limit or a requested stop
+// (process.exit in a runner page) has ended it.
 page_stop_if_killed :: proc(state: ^Runtime_State) -> bool {
-	if vm_kill_reason(state.vm) == .None do return false
+	if vm_kill_reason(state.vm) == .None && !(state.vm != nil && state.vm.stop_requested) do return false
 	if state.loop != nil do state.loop.force_exit = true
 	return true
 }

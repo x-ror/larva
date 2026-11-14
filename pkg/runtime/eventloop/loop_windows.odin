@@ -206,6 +206,10 @@ fd_set_has :: proc(set: ^windows.fd_set, sock: windows.SOCKET) -> bool {
 	return false
 }
 
+// No multi-loop driver on this target yet (Linux-first): backend_fd reports false,
+// and the page runner refuses to start.
+platform_backend_fd :: proc(loop: ^Loop) -> (uintptr, bool) {return 0, false}
+
 platform_poll :: proc(loop: ^Loop, timeout_ms: int) {
 	readfds, writefds, exceptfds: windows.fd_set
 

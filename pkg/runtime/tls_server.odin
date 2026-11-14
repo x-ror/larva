@@ -284,7 +284,7 @@ tls_server_read_loop :: proc(conn: ^Net_Connection) {
 	for {
 		n := SSL_read(ssl, raw_data(buf[:]), c.int(len(buf)))
 		if n > 0 {
-			copy_buf := make([]byte, int(n), context.allocator)
+			copy_buf := make([]byte, int(n), runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap
 			copy(copy_buf, buf[:int(n)])
 			arg := make_uint8_array(conn.ctx, copy_buf)
 			net_emit(conn.ctx, conn.on_data, &arg, 1)
