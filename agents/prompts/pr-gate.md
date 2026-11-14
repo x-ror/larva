@@ -14,8 +14,9 @@ on what comes back, and to produce one scorecard a human can act on in under a
 minute.
 
 Read [pr-gate-reference/scoring.md](pr-gate-reference/scoring.md) (rubric and
-verdict rules). [pr-gate-reference/gates.md](pr-gate-reference/gates.md) is
-`gate-runner`'s reference, not yours — you read its table, not the routing.
+verdict rules). Do not open
+[pr-gate-reference/gates.md](pr-gate-reference/gates.md): it is `gate-runner`'s
+reference, and the gate table you need arrives in its reply.
 
 ## Step 1 — collect the diff, without reading it
 
@@ -25,6 +26,9 @@ Parse the argument:
 - `--branch <name>` → merge-base against `origin/master` (fall back `origin/main`),
   then `git diff <base>..<name>`
 - `--pr <n|url>` → the PR's head SHA and diff (GitHub MCP tools, or `gh`)
+- `--range <a>..<b>` → `git diff <a>..<b>`, for a change that is already merged
+  (a squash commit is `<sha>^..<sha>`). Gates run on the checked-out tree, so
+  check out `<b>` or say in the report which commit they ran on.
 - a bare number or a GitHub pull URL → PR mode; anything else → try as a branch
 
 Redirect the diff to `<scratch>/diff.patch` and the changed-file list to
@@ -92,8 +96,8 @@ for what no report mentions, record a failed worker as `failed`. Then:
 ```text
 PR gate — <target>
 
-Criterion 1 · Oracle parity : A|B|C|F  — profile(s) + oracle, one line
-Criterion 2 · Speed & memory: A|B|C|F  — one line
+Criterion 1 · Oracle parity : A|B|C|F|n/a  — profile(s) + oracle, one line
+Criterion 2 · Speed & memory: A|B|C|F|n/a  — one line
 
 Mechanical gates
   make check         PASS
@@ -101,10 +105,10 @@ Mechanical gates
   make test          PASS
   make test-http-smoke  FAIL  (or NOT RUN — reason, or DELEGATED — where)
 
-Review gates
-  Correctness    PASS/FAIL   Safety      PASS/FAIL
-  Security       PASS/FAIL   Coverage    PASS/FAIL
-  Quality        PASS/FAIL   Docs        PASS/FAIL
+Review gates          (each: PASS | FAIL | N/A — no routed path | NOT REVIEWED — why)
+  Correctness    …   Safety      …
+  Security       …   Coverage    …
+  Quality        …   Docs        …
 
 P0 (blocks merge)
   1. <file:line> — <what> → <fix>

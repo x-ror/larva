@@ -101,9 +101,13 @@ The conductor pays for every line you return and sees nothing else you did.
 - Full detail goes to `<scratch>/<your name>.md` (`scratch:` in your brief;
   write it with a shell redirect — the scratch dir is not repo source):
   evidence, quoted code, command output, P2s and nits live there, never in the
-  reply.
-- The reply is at most 40 lines, in the shape below. No preamble, no restated
-  brief, no code blocks.
+  reply. The file is written on every reply, whatever the phase or mode; a
+  reply with no file behind it is incomplete.
+- The reply is at most 40 lines of at most 200 characters each, in the shape
+  below. No preamble, no restated brief, no code blocks. A line that needs
+  more room is a pointer into the file, not a paragraph.
+- `report:` is the last line. Nothing follows it — P2s and nits appear in the
+  reply only as numbers.
 - Every claim carries `path:line`. A claim you could not tie to a concrete
   failure goes under `unverified:`, not into the findings.
 - Say what you ran and what you did not. "Not run" must never read as "passed".

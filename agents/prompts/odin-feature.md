@@ -152,7 +152,7 @@ plainly to the human, not described as done.
 - PR body: what changed, reuse verdict, gates run with results, oracle-parity
   evidence (which profile, which oracle) or the justified deviation, bench numbers
   if perf is claimed.
-- Update the docs the change triggers (`docs-auditor`'s table lists them:
+- Update the docs the change triggers (`quality-docs-auditor`'s table lists them:
   ARCHITECTURE for a base-runtime seam, `docs/LARVA.md` for a VM/profile/page/
   network decision or a roadmap stage, README for a new dependency, `make help`
   for a new target).
