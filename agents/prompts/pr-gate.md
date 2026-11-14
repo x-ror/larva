@@ -6,107 +6,86 @@ argument-hint: '[--local | --branch <name> | --pr <number|url>] [--quick | --rev
 
 # PR gate
 
-You orchestrate. You do not author the deep findings yourself — specialists do,
-in parallel, each with one lens. Your job is to run the mechanical gates, route
-the right specialists, merge and dedupe their findings, and produce one scorecard
-a human can act on in under a minute.
+You are the conductor ([conductor.md](conductor.md) — read it first; its rules
+on what you delegate and what you never do yourself bind every step here). You
+do not run the gates and you do not author the deep findings: `gate-runner` and
+the reviewers do, in parallel, on cheaper models. Your job is to route, to rule
+on what comes back, and to produce one scorecard a human can act on in under a
+minute.
 
-Read [pr-gate-reference/gates.md](pr-gate-reference/gates.md) (command routing) and
-[pr-gate-reference/scoring.md](pr-gate-reference/scoring.md) (rubric and verdict rules) before
-starting.
+Read [pr-gate-reference/scoring.md](pr-gate-reference/scoring.md) (rubric and
+verdict rules). [pr-gate-reference/gates.md](pr-gate-reference/gates.md) is
+`gate-runner`'s reference, not yours — you read its table, not the routing.
 
-## Step 1 — collect the diff
+## Step 1 — collect the diff, without reading it
 
 Parse the argument:
 
 - empty or `--local` → `git diff HEAD` plus untracked files as `--no-index` diffs
 - `--branch <name>` → merge-base against `origin/master` (fall back `origin/main`),
   then `git diff <base>..<name>`
-- `--pr <n|url>` → `gh pr view` + `gh pr diff` (needs `gh` auth)
+- `--pr <n|url>` → the PR's head SHA and diff (GitHub MCP tools, or `gh`)
 - a bare number or a GitHub pull URL → PR mode; anything else → try as a branch
 
-Write the diff and the changed-file list to the session scratch directory. Empty
-diff → say "nothing to review" and stop. Over 10 MB → stop. Over 1 MB → ask first.
+Redirect the diff to `<scratch>/diff.patch` and the changed-file list to
+`<scratch>/files.txt`; read back only `--stat` and the file list. Empty diff →
+say "nothing to review" and stop. Over 10 MB → stop. Over 1 MB → ask first.
 
-Report: `Reviewing <target>: N files, +A/-B lines.`
+Report: `Reviewing <target>: N files, +A/-B lines — tier <0|1>.`
 
-## Step 2 — mechanical gates first
+## Step 2 — compile gate
 
-Specialists reviewing code that does not compile is wasted work. Run, in order,
-what [pr-gate-reference/gates.md](pr-gate-reference/gates.md) routes for the changed paths:
+Spawn `gate-runner` with `phase: compile` and wait for it. Reviewers on code
+that does not compile are wasted opus tokens: if `make check` or `make build`
+fails, the verdict is **BLOCK** with the failing lines from its reply, and no
+reviewer is spawned.
 
-1. `make check` — always
-2. `make check-js` — if any JS changed
-3. `make check-md` — if any `.md` changed
-4. `make check-actions` — if any `.github/workflows/*.yml` changed
-5. `make build`
-6. `make test` (and `make test-lava` unless `--quick`)
-7. the routed per-path smokes and benches
+With `--quick`, this is the only gate phase: `gate-runner` gets `phase: quick`
+and lists every routed-but-unrun target as `NOT RUN`. Never let "not run" read
+as "passed".
 
-Capture real output. If `make check` or `make build` fails, stop and report —
-verdict is **BLOCK** with the compiler output; do not spawn specialists.
-A later gate failing is a finding, not a stop: record it and continue.
-
-With `--quick`, run steps 1–5 only and mark the untested gates explicitly as
-"not run" in the report. Never let "not run" read as "passed".
-
-With `--review-only`, skip this step entirely — run no `make` target and no build
-of any kind. The environment is expected to lack the toolchain (Odin, LLVM,
-JavaScriptCore, SQLite, OpenSSL, vite-plus) and a separate CI job is running the
-gates on the same commit. This mode requires a target that resolves to an exact
-SHA — `--pr <n>` or `--branch <name>`; it is meaningless with `--local`.
-
-Read that job's result instead of reproducing it: `gh pr checks <n>` gives a
-conclusion per check. Then, for **every** gate the changed paths route to, decide
-which of two states it is in:
-
-- A CI check covers it → `DELEGATED (CI: <check> — success | failure | pending)`.
-- No CI check covers it → `NOT RUN`. Not every routed target is in CI:
-  [pr-gate-reference/gates.md](pr-gate-reference/gates.md) names the ones that are not. A gate
-  nothing executed is not delegated — it is missing, and it blocks `SHIP` exactly
-  as a skipped gate does in the normal mode.
-
-Never wait on a pending check, and never infer a conclusion you did not read — a
-job triggered by the same event as CI will usually observe CI still in flight, and
-"pending" is the honest answer there. Verdict rules for this mode are in
+With `--review-only`, the environment is expected to lack the toolchain (Odin,
+LLVM, JavaScriptCore, SQLite, OpenSSL, vite-plus) and a separate CI job is
+running the gates on the same commit. Skip this step; `gate-runner` gets
+`phase: ci` in step 3 and reads CI's conclusions for the exact SHA instead of
+reproducing them. This mode requires a target that resolves to an exact SHA —
+`--pr <n>` or `--branch <name>`; it is meaningless with `--local`. Verdict
+rules for delegated gates are in
 [pr-gate-reference/scoring.md](pr-gate-reference/scoring.md).
 
-## Step 3 — fan out specialists
+## Step 3 — fan out
 
-Launch every applicable agent **in one message** so they run concurrently. Give
-each: the diff path, the changed-file list, the repo root, the target description,
-and the mechanical-gate results.
+Launch, **in one message**, `gate-runner` with `phase: suites` (or `ci`) and
+every reviewer the tier and the paths call for, each with the brief template
+from [conductor.md](conductor.md).
 
-| Agent                   | Run when                                                                                                                                                                                               |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `regression-hunter`     | always                                                                                                                                                                                                 |
-| `code-quality-auditor`  | always                                                                                                                                                                                                 |
-| `test-coverage-auditor` | always                                                                                                                                                                                                 |
-| `docs-auditor`          | always                                                                                                                                                                                                 |
-| `odin-safety-auditor`   | any `.odin` changed — always for `vm_pool.odin`, `runtime.odin`, page/DOM lifecycle, `pkg/jsc`                                                                                                         |
-| `oracle-parity-auditor` | any user-visible surface: `js/**`, a native binding behind a Node or Web API, error construction, event/callback ordering, anything a page can reach — tell it the profile if you know it              |
-| `perf-memory-auditor`   | hot paths (buffer, http, net, fetch, url, jsc, eventloop), any `perf(...)` title or perf claim, any `bench/**` change                                                                                  |
-| `security-auditor`      | parsing (HTTP, HTML), networking, TLS/crypto, sessions/cookies, VM pool or page lifecycle, the Window profile's global set, fs paths, URL handling, module loader, or any native code fed by JS values |
-| `odin-sdk-scout`        | the diff hand-rolls a parser, codec, hash, container, socket dance, or time/number/string conversion — ask it whether `core:`/`vendor:`/an already-linked C library already does it                    |
+| Agent                     | Model  | Run when                                                                                                                                                                                                                        |
+| ------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `quality-docs-auditor`    | sonnet | always                                                                                                                                                                                                                          |
+| `regression-hunter`       | opus   | tier 1                                                                                                                                                                                                                          |
+| `oracle-test-auditor`     | opus   | tier 1 — tell it the profile if you know it                                                                                                                                                                                     |
+| `safety-security-auditor` | opus   | any `.odin` changed; `pkg/jsc`; parsing (HTTP, HTML), networking, TLS/crypto, sessions/cookies, VM pool or page lifecycle, the Window profile's global set, fs paths, URL handling, module loader, native code fed by JS values |
+| `perf-memory-auditor`     | opus   | hot paths (buffer, http, net, fetch, url, jsc, eventloop), VM pool or page lifecycle, any `perf(...)` title or perf claim, any `bench/**` change                                                                                |
+| `odin-sdk-scout`          | sonnet | the diff hand-rolls a parser, codec, hash, container, socket dance, or time/number/string conversion — or `quality-docs-auditor` came back with a `Lens: reuse` suspicion it could not settle                                   |
 
-Specialists are read-only: instruct each explicitly not to modify repo sources.
-In `--review-only` mode, also tell every specialist that the toolchain is absent —
-read-only analysis only, no `make`, no `odin`, no build, no test or bench run.
-They have Bash and will otherwise try to build and report the failure as a finding.
-If one fails or returns nothing, record it as `failed` and continue — a missing
-specialist is reported, never silently dropped.
+Reviewers are read-only: `constraints: read-only` in every brief. In
+`--review-only` mode add `toolchain absent` — they have Bash and will otherwise
+try to build and report the failure as a finding.
 
-## Step 4 — merge and triage
+## Step 4 — adjudicate
 
-- Same `file:line` + same claim from several agents → one finding, list the agents,
-  keep the highest severity and confidence.
+Follow **Adjudication** in [conductor.md](conductor.md): rule on every P0 and
+P1 from the cited lines, merge duplicates, cross-check the two criteria, look
+for what no report mentions, record a failed worker as `failed`. Then:
+
 - Drop nits already implied by a P1 in the same place.
-- Demote anything an agent could not tie to a concrete failure path — a finding
-  with no reproducer is a question, not a defect.
-- Cross-check the two criteria against each other: a `perf-memory-auditor` win
-  that `oracle-parity-auditor` calls a divergence is a **P0**, not a win.
-- An `oracle-parity-auditor` verdict of `unverified (no Chrome oracle)` is not a
-  pass: grade criterion 1 `C` (see scoring.md).
+- A later gate failing is a finding, not a stop: it enters the report with the
+  reviewer finding that explains it, or as an unexplained P0 if none does.
+- An `oracle-test-auditor` parity verdict of `unverified (no Chrome oracle)` is
+  not a pass: grade criterion 1 `C` (see scoring.md).
+- You may add a short **Policy** section for violations of `CLAUDE.md` §2 and
+  §4 (reuse law, file-size, layer, `*_host` measurement rule) that no reviewer
+  covered — with `file:line` evidence only.
 
 ## Step 5 — report
 
@@ -133,14 +112,20 @@ P0 (blocks merge)
 P1 (fix or waive with a reason)
   1. ...
 
-P2 / nit: <count>, in <scratch merge file>
+P2 / nit: <count>, in <scratch>/<agent>.md
 
+Rejected / demoted: <n> — <finding → one-line reason each>
 Verdict: SHIP | SHIP-AFTER | BLOCK
-Specialists: <n> run, <failed: …>
+Workers: <n> run, <failed: …>
 ```
 
-Then offer: fix the P0/P1 list, or re-run after fixes. Fixing is a **new task**,
-not part of this skill.
+Under the scorecard, say in two or three sentences what is actually wrong with
+the change and what you would do about it — the ruling, not a restatement of
+the list.
+
+Then offer the fix round: `/odin-feature --fix` hands the confirmed P0/P1 list
+to `odin-implementer`. Fixing is not part of this command; `/pr-gate` never
+edits the tree.
 
 ## Step 6 — optional PENDING GitHub review
 
@@ -155,10 +140,9 @@ review.
 
 ## Rules
 
-- Orchestrate; do not deep-review the whole diff yourself. The one exception:
-  after merging, you may add a short **Policy** section for violations of
-  `CLAUDE.md` §2 and §4 (reuse law, file-size, layer, `*_host` measurement rule)
-  that no specialist covered — with `file:line` evidence only.
+- Conduct; do not deep-review the diff yourself and do not run a gate yourself.
 - Report gate results faithfully. A skipped gate is reported as skipped.
+- Every rejected or demoted P0/P1 is listed with its reason — a ruling the
+  human cannot see is a waiver.
 - Fewer, high-conviction findings beat volume.
 - No emojis.

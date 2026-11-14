@@ -40,16 +40,17 @@ code reads.
 
 ## Merge gates
 
-Each gate is pass / fail. Any fail with an open **P0** blocks.
+Each gate is pass / fail. Any fail with an open **P0** blocks. Six gates, four
+owners: a reviewer that owns two gates reports a verdict word for each.
 
-| Gate          | Owner agent             | Fails when                                                                                                                                                                                            |
-| ------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Correctness   | `regression-hunter`     | Introduced defect, removed behavior, broken wiring.                                                                                                                                                   |
-| Native safety | `odin-safety-auditor`   | UAF, race, GC hazard, allocator mismatch, lying stub, false probe latch, VM entered off-thread, state crossing pages in a reused VM, arena freed before wrappers.                                     |
-| Security      | `security-auditor`      | Reachable memory corruption, verification bypass, single-peer or single-page DoS, page/session isolation break, Node surface reachable from a page, pollution vector, path escape, secret disclosure. |
-| Test coverage | `test-coverage-auditor` | New behavior or bug fix with no test; test deleted or gap widened without reason; smoke not wired into CI.                                                                                            |
-| Code quality  | `code-quality-auditor`  | Duplicates an existing helper or SDK routine on a hot path; wrong layer; file past ~1k with no split; high incidental complexity with a clear delete path.                                            |
-| Documentation | `docs-auditor`          | A repo document is now false; a lifetime/probe/deviation rule shipped unexplained.                                                                                                                    |
+| Gate          | Owner agent               | Fails when                                                                                                                                                                                            |
+| ------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Correctness   | `regression-hunter`       | Introduced defect, removed behavior, broken wiring.                                                                                                                                                   |
+| Native safety | `safety-security-auditor` | UAF, race, GC hazard, allocator mismatch, lying stub, false probe latch, VM entered off-thread, state crossing pages in a reused VM, arena freed before wrappers.                                     |
+| Security      | `safety-security-auditor` | Reachable memory corruption, verification bypass, single-peer or single-page DoS, page/session isolation break, Node surface reachable from a page, pollution vector, path escape, secret disclosure. |
+| Test coverage | `oracle-test-auditor`     | New behavior or bug fix with no test; test deleted or gap widened without reason; smoke not wired into CI.                                                                                            |
+| Code quality  | `quality-docs-auditor`    | Duplicates an existing helper or SDK routine on a hot path; wrong layer; file past ~1k with no split; high incidental complexity with a clear delete path.                                            |
+| Documentation | `quality-docs-auditor`    | A repo document is now false; a lifetime/probe/deviation rule shipped unexplained.                                                                                                                    |
 
 Reuse (`odin-sdk-scout`) is not a separate gate — it feeds Code quality: a
 hand-rolled routine that `core:`/`vendor:`/an already-linked C library implements

@@ -376,19 +376,36 @@ if perf is claimed. Run `/pr-gate` before asking for review.
 
 ## 8. Agents in this repo
 
-Playbooks a human invokes as slash commands. There is no orchestration layer —
-nothing here self-starts, and every command runs only because someone typed it.
+Playbooks a human invokes as slash commands. Nothing here self-starts — every
+command runs only because someone typed it — but a command, once typed, is
+**conducted**: the session's own model (run it on the strongest available)
+decides, briefs and rules; workers pinned to cheaper models do the reading,
+the gates and the code, and answer in ≤40 lines.
+[agents/prompts/conductor.md](agents/prompts/conductor.md) is that protocol.
 
-| Command         | Role                                                             |
-| --------------- | ---------------------------------------------------------------- |
-| `/odin-feature` | Implement with TDD (reuse scout → design → red test → code)      |
-| `/pr-gate`      | Hard merge gate: tests + specialists → SHIP / SHIP-AFTER / BLOCK |
-| `/planner`      | Build task DAG from GitHub issues                                |
-| `/critic`       | Adversarial critique before pr-gate                              |
-| `/fixer`        | Fix from pr-gate findings or red gates                           |
+| Command         | Role                                                                                                      |
+| --------------- | --------------------------------------------------------------------------------------------------------- |
+| `/odin-feature` | Implement with TDD (reuse scout → design → red test → code); `--fix` closes pr-gate findings or red gates |
+| `/pr-gate`      | Hard merge gate: tests + specialists → SHIP / SHIP-AFTER / BLOCK                                          |
+| `/planner`      | Build task DAG from GitHub issues                                                                         |
+
+| Worker                    | Model  | Owns                                                       |
+| ------------------------- | ------ | ---------------------------------------------------------- |
+| `odin-implementer`        | opus   | All edits to the tree — features and fix rounds            |
+| `regression-hunter`       | opus   | Correctness gate                                           |
+| `safety-security-auditor` | opus   | Native-safety and Security gates                           |
+| `oracle-test-auditor`     | opus   | Criterion 1 (oracle parity) and the Test-coverage gate     |
+| `perf-memory-auditor`     | opus   | Criterion 2 (speed and memory)                             |
+| `quality-docs-auditor`    | sonnet | Code-quality and Documentation gates                       |
+| `odin-sdk-scout`          | sonnet | Reuse verdicts (§2)                                        |
+| `gate-runner`             | sonnet | Running the mechanical gates; the conductor never runs one |
 
 - **Playbooks:** [agents/prompts/](agents/prompts/) — the canonical text each command follows.
-- **Specialists:** [agents/specialists/](agents/specialists/) (mirrored under `.claude/agents/` for harness discovery)
+- **Specialists:** [agents/specialists/](agents/specialists/) (mirrored under `.claude/agents/` for harness discovery).
+  A specialist pins `model: opus` or `sonnet` — never `inherit`, which would bill
+  volume work at the conductor's rate — and carries the reply contract from
+  [report-contract.md](agents/prompts/conductor-reference/report-contract.md).
+  `scripts/agents-mirror.test.mjs` enforces both.
 - **Gate integrity:** `runtime/gates/integrity.mjs` is Lava's own machinery, not the
   agent system's — a PreToolUse hook blocks env/flag bypasses that turn a gate green
   without a fix, and `runtime/gates/assert-case-counts.mjs` backs four oracle runners.

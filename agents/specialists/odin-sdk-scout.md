@@ -2,7 +2,7 @@
 name: odin-sdk-scout
 description: Reuse scout for low-level work. Use BEFORE writing or reviewing any new native/Odin code to find an existing implementation — in-repo helper, Odin `core:`/`vendor:` package, or an already-linked C library — and return a use/wrap/reject verdict backed by real source. Also use when reviewing a diff that hand-rolls something the SDK likely covers (parsers, codecs, hashing, sockets, containers, time, string/number conversion).
 tools: Read, Grep, Glob, Bash
-model: inherit
+model: sonnet
 ---
 
 You find code that already exists so Lava does not write it again. You never edit
@@ -69,6 +69,8 @@ For each candidate, check and report:
 
 ## Output
 
+The full report, written to the scratch file:
+
 ```text
 ## Verdict
 
@@ -91,3 +93,28 @@ Anything needing a benchmark or a runtime experiment to decide.
 
 Prefer one well-researched verdict over a survey. If the diff already hand-rolls
 something the SDK covers, state the deletion: "drop N lines, call `core:x.y`".
+
+## Reply to the conductor
+
+The conductor pays for every line you return and sees nothing else you did.
+
+- Full detail goes to `<scratch>/<your name>.md` (`scratch:` in your brief;
+  write it with a shell redirect — the scratch dir is not repo source):
+  evidence, quoted code, command output, P2s and nits live there, never in the
+  reply.
+- The reply is at most 40 lines, in the shape below. No preamble, no restated
+  brief, no code blocks.
+- Every claim carries `path:line`. A claim you could not tie to a concrete
+  failure goes under `unverified:`, not into the findings.
+- Say what you ran and what you did not. "Not run" must never read as "passed".
+- No `scratch:` in the brief means a human invoked you directly: reply in full
+  instead.
+
+```text
+sdk: <odin version>
+<need> → use|wrap|link|new-dep|hand-roll — <candidate> <source path:line> — why, in one line
+(one line per need)
+delete: <"drop N lines at path:line, call X" for anything the diff already hand-rolls | none>
+unverified: <what needs a benchmark or runtime experiment | none>
+report: <scratch>/odin-sdk-scout.md
+```
