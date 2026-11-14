@@ -262,10 +262,12 @@ const ROUTES = [
   {
     // Predicate: mutation-manifest sources — loaded at route time
     re: null,
-    targets: ['make test-mutation'],
+    targets: ['make test-mutation CHANGED=1'],
     predicate: 'mutation-source',
   },
 ];
+
+const MUTATION_CHANGED = 'make test-mutation CHANGED=1';
 
 function mutationSources() {
   const p = join(ROOT, 'tests/mutation-manifest.json');
@@ -286,8 +288,12 @@ export function routePaths(paths) {
 
   for (const p of norm) {
     if (mut.has(p)) {
-      targets.add('make test-mutation');
-      matched.push({ path: p, targets: ['make test-mutation'], via: 'mutation-manifest' });
+      // CHANGED=1: only the entries this diff can affect. The full manifest is 130+
+      // entries and most of them rebuild bin/lava; routing all of them for an edit
+      // to one source made the gate the thing people skipped. The runner widens to
+      // every entry by itself when its own machinery changed.
+      targets.add(MUTATION_CHANGED);
+      matched.push({ path: p, targets: [MUTATION_CHANGED], via: 'mutation-manifest' });
     }
     for (const r of ROUTES) {
       if (r.predicate === 'mutation-source') continue;
