@@ -155,6 +155,20 @@ bind_host_tables :: proc() {
 	)
 }
 
+// host_native_thread_teardown frees this thread's tables, for a thread that is about
+// to end (a page dispatcher worker): they are thread_local and heap-bound, so a thread
+// that exits without this leaks them. Every context on the thread must already be
+// destroyed — destroy_runtime_state sweeps a context's entries, so nothing live can
+// still be keyed here. A later call on the same thread binds fresh tables.
+host_native_thread_teardown :: proc() {
+	if !g_host_tables_bound do return
+	delete(g_host_native_fns)
+	delete(g_host_native_cbs)
+	g_host_native_fns = nil
+	g_host_native_cbs = nil
+	g_host_tables_bound = false
+}
+
 @(private = "file")
 generic_native_host_cb :: proc "c" (global: rawptr, cf: [^]u64) -> i64 {
 	// NO `context =` here on purpose. make_js_error takes an implicit context, and

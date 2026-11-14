@@ -385,3 +385,108 @@ epoll_watch_count :: proc(epfd: linux.Fd) -> int {
 	if err != nil do return -1
 	return strings.count(string(data), "tfd:")
 }
+
+@(private = "file")
+Heap_Pair :: struct {
+	heavy, light: int,
+}
+
+@(private = "file")
+record_heap :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Result) {
+	result := result
+	(cast(^int)user_data)^ = result.heap_bytes
+	lava.result_destroy(&result)
+}
+
+// Heap sampling attributes heap to the page that grew it: one VM per page, so a page
+// holding 200k objects at close reports several MB more than a trivial page on the
+// other VM. Off by default (it walks the heap): heap_bytes stays unsampled.
+@(test)
+runner_samples_each_pages_heap :: proc(t: ^testing.T) {
+	sample :: proc(t: ^testing.T, every: int) -> Heap_Pair {
+		runner: lava.Page_Runner
+		if !lava.page_runner_init(&runner, 2, record_heap, context.allocator) {
+			testing.fail_now(t, "page_runner_init failed")
+		}
+		defer lava.page_runner_destroy(&runner)
+		runner.heap_sample_every = every
+		p: Heap_Pair
+		lava.page_runner_open(&runner, "globalThis.a = []; for (let i = 0; i < 200000; i++) a.push({ i, s: 'x' + i });", "<heavy>", {}, &p.heavy)
+		lava.page_runner_open(&runner, "1", "<light>", {}, &p.light)
+		lava.page_runner_run(&runner)
+		return p
+	}
+	on := sample(t, 1)
+	testing.expectf(t, on.light > 0 && on.heavy > on.light + 5_000_000, "heap not attributed per page: heavy %d, light %d", on.heavy, on.light)
+	off := sample(t, 0)
+	testing.expectf(t, off.heavy <= 0 && off.light <= 0, "heap sampled with sampling off: %v", off)
+}
+
+@(private = "file")
+Nth :: struct {
+	heap:   [3]int,
+	n:      int,
+}
+
+@(private = "file")
+nth_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Result) {
+	result := result
+	h := cast(^Nth)user_data
+	h.heap[h.n] = result.heap_bytes
+	h.n += 1
+	lava.result_destroy(&result)
+	if h.n < 3 do lava.page_runner_open(runner, "1", "<nth>", {}, h)
+}
+
+// Sampling every 2nd page a VM hosts: three pages in a row on the runner's one VM, and
+// only the second is sampled.
+@(test)
+runner_samples_every_nth_page_per_vm :: proc(t: ^testing.T) {
+	runner: lava.Page_Runner
+	if !lava.page_runner_init(&runner, 1, nth_done, context.allocator) {
+		testing.fail_now(t, "page_runner_init failed")
+	}
+	defer lava.page_runner_destroy(&runner)
+	runner.heap_sample_every = 2
+	h: Nth
+	lava.page_runner_open(&runner, "1", "<nth>", {}, &h)
+	lava.page_runner_run(&runner)
+	testing.expectf(t, h.n == 3 && h.heap[0] == -1 && h.heap[1] > 0 && h.heap[2] == -1, "sampled the wrong pages: %v", h.heap)
+}
+
+// page_runner_run returns once its pages are done even when the runner watches an
+// external fd: only a driver that asks (block_when_idle) waits on it with no pages.
+@(test)
+runner_run_returns_with_a_watched_fd_and_no_pages :: proc(t: ^testing.T) {
+	runner: lava.Page_Runner
+	if !lava.page_runner_init(&runner, 1, record_outcome, context.allocator) {
+		testing.fail_now(t, "page_runner_init failed")
+	}
+	defer lava.page_runner_destroy(&runner)
+	efd, err := linux.eventfd(0, {.CLOEXEC, .NONBLOCK})
+	if err != .NONE do testing.fail_now(t, "eventfd failed")
+	defer linux.close(efd)
+	testing.expect(t, lava.page_runner_watch_fd(&runner, efd), "watch_fd failed")
+	// No pages at all: the idle step is what would wait on the eventfd forever.
+	lava.page_runner_run(&runner)
+	o: Outcome
+	lava.page_runner_open(&runner, "setTimeout(() => {}, 5);", "<one>", {}, &o)
+	lava.page_runner_run(&runner)
+	testing.expect(t, o.done, "page not reported")
+}
+
+// A killed page is not heap-sampled even on a sampled slot (its heap is not a finished
+// page's, and sampling would run its leftover jobs).
+@(test)
+runner_does_not_sample_a_killed_page :: proc(t: ^testing.T) {
+	runner: lava.Page_Runner
+	if !lava.page_runner_init(&runner, 1, record_heap, context.allocator) {
+		testing.fail_now(t, "page_runner_init failed")
+	}
+	defer lava.page_runner_destroy(&runner)
+	runner.heap_sample_every = 1
+	heap := 7
+	lava.page_runner_open(&runner, "setTimeout(() => { while (true) {} }, 1);", "<killed>", {entry_limit = 0.05}, &heap)
+	lava.page_runner_run(&runner)
+	testing.expectf(t, heap == -1, "a killed page was sampled (%d)", heap)
+}

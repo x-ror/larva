@@ -66,6 +66,10 @@ VM :: struct {
 	// because JSC only honours a limit set mid-entry if one was armed when the entry
 	// began — and vm_request_stop is called mid-entry.
 	stoppable:       bool,
+	// Pages this VM has hosted, and the JS heap size the last sample saw (bytes; -1
+	// before the first sample or where sampling is unsupported). See vm_sample_heap.
+	pages_hosted:    int,
+	heap_bytes:      int,
 }
 
 // Page_Limits are the CPU limits a page runs under. Seconds; 0 = no limit.
@@ -175,6 +179,7 @@ vm_acquire :: proc(pool: ^VM_Pool) -> (^VM, VM_Pool_Error) {
 		vm := pool.vms[i]
 		if !vm.in_use {
 			vm.in_use = true
+			vm.pages_hosted += 1
 			vm.limit_hit = false
 			vm.budget_hit = false
 			vm.stop_requested = false
@@ -192,10 +197,12 @@ vm_acquire :: proc(pool: ^VM_Pool) -> (^VM, VM_Pool_Error) {
 		return nil, .Create_Failed
 	}
 	vm^ = VM {
-		group  = group,
-		pool   = pool,
-		in_use = true,
+		group      = group,
+		pool       = pool,
+		in_use     = true,
+		heap_bytes = -1,
 	}
+	vm.pages_hosted = 1
 	// Cannot grow, so cannot fail: len < capacity was checked above and vm_pool_init
 	// reserved `capacity` slots.
 	append(&pool.vms, vm)
@@ -406,6 +413,34 @@ vm_request_stop :: proc(vm: ^VM) {
 	vm.armed_limit = STOP_LIMIT
 	vm.armed_by_budget = false
 	jsc.JSContextGroupSetExecutionTimeLimit(vm.group, STOP_LIMIT, vm_watchdog_terminate, vm)
+}
+
+// vm_sample_heap reads the JS heap size of the VM `ctx` lives in and records it on
+// the VM: one page holds a VM at a time, so a sample taken as a page closes is that
+// page's heap, plus whatever earlier pages left that GC has not reclaimed yet.
+//
+// Returns:
+//   Bytes, or -1 where unsupported (only Linux binds the private API).
+//
+// Costly — it walks the heap (see JSGetMemoryUsageStatistics in pkg/jsc) — so the page
+// runner samples every Nth page per VM (Page_Runner.heap_sample_every), never by
+// default.
+vm_sample_heap :: proc(vm: ^VM, ctx: jsc.JSContextRef) -> int {
+	when ODIN_OS != .Linux {
+		return -1
+	} else {
+		if vm == nil || ctx == nil do return -1
+		stats := jsc.JSGetMemoryUsageStatistics(ctx)
+		if stats == nil do return -1
+		key := jsc.JSStringCreateWithUTF8CString("heapSize")
+		defer jsc.JSStringRelease(key)
+		v := jsc.JSObjectGetProperty(ctx, stats, key, nil)
+		if v == nil do return -1
+		n := jsc.JSValueToNumber(ctx, v, nil)
+		if n != n || n < 0 do return -1
+		vm.heap_bytes = int(n)
+		return vm.heap_bytes
+	}
 }
 
 // vm_pool_stats reports how many VMs are busy and how many the pool has ever created.

@@ -1363,8 +1363,8 @@
       "name": "runner_pages_wait_concurrently dies when the runner spins instead of waiting on the page loops",
       "why": "Without the epoll wait an idle runner busy-loops over its pages, burning a core while every page sleeps.",
       "source": "pkg/runtime/page_runner.odin",
-      "find": "\t\tif !progressed && len(runner.pages) > 0 do runner_wait(runner)\n",
-      "replace": "\n",
+      "find": "\t\trunner_wait(runner)\n\t}",
+      "replace": "\t}",
       "gate": "odin:cmd/lava:main.runner_pages_wait_concurrently",
       "expect_detail": "runner burned"
     },
@@ -1423,6 +1423,81 @@
       "replace": "if loop.platform.use_uring do return uintptr(loop.platform.wakeup_pipe[1]), loop.platform.ring.fd >= 0",
       "gate": "odin:pkg/runtime/eventloop:eventloop.backend_fd_wakes_an_outer_epoll_on_watched_io",
       "expect_detail": "did not wake the outer epoll"
+    },
+    {
+      "name": "dispatcher_spreads_pages_over_workers dies when submit stops picking the least-loaded worker",
+      "why": "Without the load comparison every page lands on the first worker and the other threads idle.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "if l := sync.atomic_load(&w.load); l < best_load {",
+      "replace": "if l := sync.atomic_load(&w.load); false {",
+      "gate": "odin:cmd/lava:main.dispatcher_spreads_pages_over_workers",
+      "expect_detail": "got no pages"
+    },
+    {
+      "name": "dispatcher_queues_past_capacity dies when a worker opens pages past its slots",
+      "why": "Opening more pages than the runner has VMs fails them for want of a VM instead of queueing them.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "for queue.len(pending) > 0 && page_runner_live(&runner) < w.capacity {",
+      "replace": "for queue.len(pending) > 0 {",
+      "gate": "odin:cmd/lava:main.dispatcher_queues_past_capacity",
+      "expect_detail": "expected tally.ok to be 12"
+    },
+    {
+      "name": "runner_samples_each_pages_heap dies when page_close stops sampling",
+      "why": "Without the sample a page's Result carries no heap figure, and per-VM heap growth goes untracked.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\tpage.result.heap_bytes = vm_sample_heap(page.vm, ctx)\n",
+      "replace": "\n",
+      "gate": "odin:cmd/lava:main.runner_samples_each_pages_heap",
+      "expect_detail": "heap not attributed per page"
+    },
+    {
+      "name": "dispatcher_runaway_page_is_killed_alone dies when a job's limits do not reach its page",
+      "why": "Dropped limits let a spinning page burn its whole run on a worker shared with other pages.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "page_runner_open(&runner, job.source, job.name, job.limits, job.user_data)",
+      "replace": "page_runner_open(&runner, job.source, job.name, {}, job.user_data)",
+      "gate": "odin:cmd/lava:main.dispatcher_runaway_page_is_killed_alone",
+      "expect_detail": "expected tally.killed to be 1",
+      "timeout_ms": 120000
+    },
+    {
+      "name": "runner_samples_every_nth_page_per_vm dies when the every-Nth gate is dropped",
+      "why": "Sampling walks the heap; sampling every page instead of every Nth costs up to 19 ms a page.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "rp.page.vm.pages_hosted % n == 0",
+      "replace": "true",
+      "gate": "odin:cmd/lava:main.runner_samples_every_nth_page_per_vm",
+      "expect_detail": "sampled the wrong pages"
+    },
+    {
+      "name": "dispatcher_cancelling_shutdown_cancels_running_and_queued dies when cancel does not stop the worker",
+      "why": "A cancelling shutdown that still waits for pages hangs on a page that never ends.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "\t\tw.cancel = cancel\n",
+      "replace": "\n",
+      "gate": "odin:cmd/lava:main.dispatcher_cancelling_shutdown_cancels_running_and_queued",
+      "expect_detail": "timed out",
+      "timeout_ms": 30000
+    },
+    {
+      "name": "runner_does_not_sample_a_killed_page dies when killed pages are sampled",
+      "why": "Sampling a killed page runs its leftover jobs in the walk's C-API exits and makes a destroy of N pages pay N heap walks.",
+      "source": "pkg/runtime/page.odin",
+      "find": "if page.sample_heap && page.state != nil && page.result.kill == .None {",
+      "replace": "if page.sample_heap && page.state != nil {",
+      "gate": "odin:cmd/lava:main.runner_does_not_sample_a_killed_page",
+      "expect_detail": "a killed page was sampled"
+    },
+    {
+      "name": "runner_run_returns_with_a_watched_fd_and_no_pages dies when an idle step waits on watched fds unasked",
+      "why": "page_runner_run would block forever on an external fd once its last page is gone.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "(block_when_idle && runner.watched > 0)",
+      "replace": "(runner.watched > 0)",
+      "gate": "odin:cmd/lava:main.runner_run_returns_with_a_watched_fd_and_no_pages",
+      "expect_detail": "timed out",
+      "timeout_ms": 30000
     }
   ]
 }

@@ -28,6 +28,12 @@ foreign jsc_lib {
 	// A context group is JSC::VM* under the C API — used by host_function.odin to
 	// pass VM& to the private JSFunction::create.
 	JSContextGetGroup :: proc(ctx: JSContextRef) -> rawptr ---
+	// Exported, but declared in WebKit's JSBasePrivate.h. Returns an object with
+	// heapSize, heapCapacity, extraMemorySize, objectCount, … for the context's VM.
+	// It walks the heap to count objects by type: 19 ms on a VM holding ~300k
+	// objects (measured on 2.52, three calls, one VM), so callers sample it.
+	// Declared on Linux only: whether the Windows/macOS builds export it is unverified.
+	JSGetMemoryUsageStatistics :: proc(ctx: JSContextRef) -> JSObjectRef ---
 
 	JSStringCreateWithUTF8CString :: proc(string: cstring) -> JSStringRef ---
 	JSStringCreateWithCharacters :: proc(chars: [^]JSChar, num_chars: c.size_t) -> JSStringRef ---

@@ -81,6 +81,19 @@ decides which traffic goes to Larva and which stays on Chrome.
      that reuses the VM. No page loop blocks on its own; when no page can
      progress the runner blocks on every page loop's descriptor at once,
      bounded by the nearest timer;
+   - **threads:** a page dispatcher (`page_dispatcher.odin`) runs N worker
+     threads, each with its own page runner, and sends a new page to the
+     least-loaded one. Only plain data crosses threads (source text in, Result
+     out). Lava's process-based workers (`workers.odin`) are not reused as the
+     supervisor: they exist to share a listening socket between processes, and a
+     process per worker would put the VM pools behind an IPC hop. A supervisor
+     process can still run one dispatcher per process to contain a crash;
+   - **heap accounting:** one page holds a VM at a time, so the VM's JS heap
+     sampled as the page closes is that page's (`vm_sample_heap`,
+     `Result.heap_bytes`). The only exported reader walks the heap — 19 ms on
+     a VM holding ~300k objects (three calls on one VM, JSC 2.52) — so the
+     runner samples every Nth page per VM, off by default.
+     `JSReportExtraMemoryCost` for DOM arena bytes waits for the DOM (stage 3);
    - Pages on one thread still share its CPU. A long synchronous script delays the
      thread's other pages up to the execution limit; threads are sized to cores.
    - every process-global and thread-local is audited for page isolation in
