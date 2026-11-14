@@ -92,8 +92,7 @@
       else if (c >= 0xd800 && c <= 0xdbff) {
         // A high surrogate is literal only when a low one follows; otherwise it is lone.
         var next = i + 1 < s.length ? StringPrototypeCharCodeAt(s, i + 1) : 0;
-        if (next >= 0xdc00 && next <= 0xdfff)
-          i++; // consume the pair
+        if (next >= 0xdc00 && next <= 0xdfff) i++; // consume the pair
         else esc = escUnit(c);
       } else if (c >= 0xdc00 && c <= 0xdfff) {
         // Reached only when no high surrogate preceded — a paired low was consumed above.
