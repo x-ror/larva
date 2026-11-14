@@ -1727,6 +1727,26 @@
         "handed to JSC from the ambient allocator",
         "odin test exited -1"
       ]
+    },
+    {
+      "name": "merge-mutation-manifest tests die when an entry both sides changed is silently taken from ours",
+      "why": "A sync would then drop Lava's change to a recorded mutation without telling anyone; a real conflict must stop the merge.",
+      "source": "scripts/merge-mutation-manifest.mjs",
+      "find": "    conflicts.push(key);\n",
+      "replace": "",
+      "gate": "node-test:scripts/merge-mutation-manifest.test.mjs",
+      "test": "an entry changed differently on both sides is a conflict",
+      "expect_detail": "an entry changed differently on both sides is a conflict"
+    },
+    {
+      "name": "merge-mutation-manifest tests die when entries only Lava added are dropped",
+      "why": "Every sync would lose the mutations Lava recorded, and nothing else would notice that a test lost its mutation gate.",
+      "source": "scripts/merge-mutation-manifest.mjs",
+      "find": "  const names = [...O.keys(), ...[...T.keys()].filter((n) => !O.has(n))];",
+      "replace": "  const names = [...O.keys()];",
+      "gate": "node-test:scripts/merge-mutation-manifest.test.mjs",
+      "test": "entries appended on both sides are both kept",
+      "expect_detail": "entries appended on both sides are both kept"
     }
   ]
 }
