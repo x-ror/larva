@@ -1398,7 +1398,7 @@
       "source": "scripts/run-mutations.mjs",
       "find": "    if (base === undefined || !acceptsTimeout(m)) return m.timeout_ms;",
       "replace": "    if (base === undefined) return m.timeout_ms;",
-      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "gate": "node-test:scripts/run-mutations.hang.test.mjs",
       "expect_detail": "an entry with timeout_ms but a non-timeout reason keeps its full bound"
     },
     {
@@ -1407,7 +1407,7 @@
       "source": "scripts/run-mutations.mjs",
       "find": "const HANG_FLOOR_MS = 5_000;",
       "replace": "const HANG_FLOOR_MS = 50;",
-      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "gate": "node-test:scripts/run-mutations.hang.test.mjs",
       "expect_detail": "a hang pin is cut at the baseline-scaled bound, not its full timeout_ms"
     }
   ]
