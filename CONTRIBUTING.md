@@ -61,6 +61,17 @@ two-oracle (Node and Chrome) wording in `CLAUDE.md` and `agents/`. In
 `tests/mutation-manifest.json` keep both sides' entries. Open the merge as a
 normal pull request so CI runs the full gate set on the result.
 
+**Merge a sync pull request with "Create a merge commit", never "Squash and
+merge".** A squash keeps the files but drops Lava as a parent, so git forgets the
+merge happened and the next sync replays every conflict already resolved. This
+happened once (#42) and was repaired by an `ours` merge that records the parent
+without changing a file.
+
+`.github/workflows/sync-lava.yml` does the merge daily and opens the pull request
+on branch `sync/lava` itself; a merge that conflicts opens an issue instead. It
+needs "Allow GitHub Actions to create and approve pull requests" enabled under
+Settings → Actions → General.
+
 Larva-only work — DOM, the HTML parser, the Window profile, pages and sessions —
 stays here. A Larva change that turns out to be useful to Lava goes upstream as a
 Lava pull request, and comes back with the next merge.
