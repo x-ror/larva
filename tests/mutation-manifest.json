@@ -21,6 +21,8 @@
     "  replace what to put there \u2014 usually the pre-fix code, or a deleted guard",
     "  gate    how to observe red; see GATE KINDS in scripts/run-mutations.mjs",
     "  expect_detail  substring the RED output must contain; '' is a visible opt-out",
+    "  test    (optional, node-test: gates only) the exact name of the ONE test that",
+    "          must kill this mutation; the gate then runs only that test",
     "  (`rebuild` is gone: it was derivable from the gate kind, and a run filtered to",
     "   only `make:` entries then skipped the restore build and left bin/lava holding",
     "   the mutated source with a clean git tree and a success message.)"
@@ -132,6 +134,7 @@
       "find": "      if (r.ok) {\n        failures++;\n        console.log('SURVIVED');",
       "replace": "      if (false) {\n        failures++;\n        console.log('SURVIVED');",
       "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "a mutation the gate does not notice is reported SURVIVED, exit 1",
       "expect_detail": "SURVIVED"
     },
     {
@@ -141,6 +144,7 @@
       "find": "      } else if (m.expect_detail && !expectDetailMatches(m.expect_detail, r.detail)) {",
       "replace": "      } else if (false) {",
       "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "red for an UNRECORDED reason is WRONG REASON, not a kill",
       "expect_detail": "WRONG REASON"
     },
     {
@@ -150,6 +154,7 @@
       "find": "    if (!r.ok) {\n      console.log('RED');\n      die(`gate \"${gate}\" is already failing before any mutation:\\n    ${r.detail}`);\n    }",
       "replace": "    if (false) {\n      die('unreachable');\n    }",
       "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "a gate that is already red is refused, and nothing is patched",
       "expect_detail": "already failing before any mutation"
     },
     {
@@ -159,6 +164,7 @@
       "find": "      failures++;\n      console.log('STALE');",
       "replace": "      console.log('STALE');",
       "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "a find that no longer matches is STALE and fails \u2014 never a skip",
       "expect_detail": "STALE"
     },
     {
@@ -1206,6 +1212,196 @@
         "handed to JSC from the ambient allocator",
         "odin test exited -1"
       ]
+    },
+    {
+      "name": "the runner's own tests die when the restore build inherits MUTATION_OPT",
+      "why": "Mutant builds run at -o:none for speed; if the final rebuild did too, a run would leave an unoptimized bin/lava on disk with a success message and every later bench would measure it.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "      build({ restore: true });",
+      "replace": "      build();",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "mutant builds get MUTATION_OPT; the restore build gets the caller\u2019s level",
+      "expect_detail": "restore build must not inherit MUTATION_OPT"
+    },
+    {
+      "name": "the runner's own tests die when --changed guesses a base instead of failing",
+      "why": "With no merge-base there is no diff; falling back to HEAD selects nothing and exits 0, which reads as a pass for a gate that ran no mutation.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "  // Not a pass: with no base there is no diff, and \"nothing changed\" would be a guess.\n  die(",
+      "replace": "  return 'HEAD';\n  die(",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "--changed with no resolvable base fails rather than selecting nothing",
+      "expect_detail": "--changed with no resolvable base fails rather than selecting nothing"
+    },
+    {
+      "name": "the runner's own tests die when a slow kill is given a hang pin's shortened bound",
+      "why": "An entry with timeout_ms and a non-timeout reason is a slow kill; cutting it at the baseline-scaled bound replaces its assertion with a timeout and reports WRONG REASON for a mutation that works.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "    if (base === undefined || !acceptsTimeout(m)) return m.timeout_ms;",
+      "replace": "    if (base === undefined) return m.timeout_ms;",
+      "gate": "node-test:scripts/run-mutations.hang.test.mjs",
+      "test": "an entry with timeout_ms but a non-timeout reason keeps its full bound",
+      "expect_detail": "an entry with timeout_ms but a non-timeout reason keeps its full bound"
+    },
+    {
+      "name": "the runner's own tests die when the hang floor drops near the baseline",
+      "why": "A bound close to the baseline times out a mutant that was about to pass, so a test that pins nothing is reported killed; the 5 s floor is what keeps the shortcut from manufacturing kills.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "const HANG_FLOOR_MS = 5_000;",
+      "replace": "const HANG_FLOOR_MS = 50;",
+      "gate": "node-test:scripts/run-mutations.hang.test.mjs",
+      "test": "a hang pin is cut at the baseline-scaled bound, not its full timeout_ms",
+      "expect_detail": "a hang pin is cut at the baseline-scaled bound, not its full timeout_ms"
+    },
+    {
+      "name": "the runner's own tests die when --changed lets git fold a rename into its new path",
+      "why": "With rename detection on, a renamed gate file or source is listed only under its new name, so an entry naming the old one is never selected and --changed exits 0 on an entry the full gate fails.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "    ...lines(git(['diff', '--name-only', '--no-renames', base])),",
+      "replace": "    ...lines(git(['diff', '--name-only', base])),",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "--changed sees a renamed gate file under its OLD name",
+      "expect_detail": "--changed sees a renamed gate file under its OLD name"
+    },
+    {
+      "name": "the runner's own tests die when a machinery change stops widening --changed to every entry",
+      "why": "A changed runner, Makefile or build script means no earlier verdict is evidence; without the widening --changed runs only the entries whose own paths moved and reports a narrow pass for a changed gate.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "const MACHINERY = ['scripts/run-mutations.mjs', 'scripts/build.sh', 'Makefile'];",
+      "replace": "const MACHINERY = [];",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "--changed runs everything when the build machinery changed",
+      "expect_detail": "--changed runs everything when the build machinery changed"
+    },
+    {
+      "name": "the runner's own tests die when --changed ignores untracked files",
+      "why": "git diff never lists a file that exists only on disk, so a new gate file not yet added would select nothing.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "    ...lines(git(['ls-files', '--others', '--exclude-standard'])),\n",
+      "replace": "",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "--changed counts an untracked file as changed",
+      "expect_detail": "--changed counts an untracked file as changed"
+    },
+    {
+      "name": "the runner's own tests die when --changed diffs base..HEAD instead of the working tree",
+      "why": "Iterating means uncommitted edits; a commit-only diff misses every one of them and selects nothing.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "'--no-renames', base])),",
+      "replace": "'--no-renames', base, 'HEAD'])),",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "--changed diffs the working tree, not just the commits",
+      "expect_detail": "--changed diffs the working tree, not just the commits"
+    },
+    {
+      "name": "the runner's own tests die when --changed stops reading an odin: gate's package test files",
+      "why": "An odin: gate names a test, not a file; without the package's *_test.odin standing in for it, editing the test an entry runs never selects that entry.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "      for (const f of changed) if (f.startsWith(pkg) && f.endsWith('_test.odin')) return true;\n",
+      "replace": "",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "--changed keeps an odin: entry when a *_test.odin in its package changed",
+      "expect_detail": "--changed keeps an odin: entry when a *_test.odin in its package changed"
+    },
+    {
+      "name": "the runner's own tests die when --changed stops selecting an entry by its source",
+      "why": "The source is the code a mutation patches; an edit to it is the most direct way an entry's verdict can change, and without this line --changed skips it.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "    if (changed.has(norm(m.source))) return true;\n",
+      "replace": "",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "--changed runs only the entries whose source the diff touches",
+      "expect_detail": "--changed runs only the entries whose source the diff touches"
+    },
+    {
+      "name": "the runner's own tests die when --changed stops selecting a new or edited manifest entry",
+      "why": "A freshly recorded mutation has never been shown to kill; skipping it because its source is untouched lets an entry that pins nothing merge unrun.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "    if (!before.has(JSON.stringify(m))) return true;\n",
+      "replace": "",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "--changed keeps an entry that is new in the manifest even if its source is untouched",
+      "expect_detail": "--changed keeps an entry that is new in the manifest even if its source is untouched"
+    },
+    {
+      "name": "the runner's own tests die when --changed stops selecting an entry by its gate file",
+      "why": "Editing the test an entry runs can make it stop pinning anything; without this line that edit selects nothing.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "if (kind === 'compat' || kind === 'node-test') return changed.has(norm(rest.join(':')));",
+      "replace": "if (kind === 'compat' || kind === 'node-test') return false;",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "--changed keeps an entry whose gate file changed",
+      "expect_detail": "--changed keeps an entry whose gate file changed"
+    },
+    {
+      "name": "the runner's own tests die when an empty --changed selection reads as a full pass",
+      "why": "With the early exit gone an empty selection falls through to 'mutation gate ok: 0/0', the full gate's sentence, for a run that checked nothing.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "  if (selected.length === 0) {\n    // Exit 0, and say exactly what that 0 means.",
+      "replace": "  if (false) {\n    // Exit 0, and say exactly what that 0 means.",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "--changed with nothing affected exits 0 and says it is not a full pass",
+      "expect_detail": "--changed with nothing affected exits 0 and says it is not a full pass"
+    },
+    {
+      "name": "the runner's own tests die when an odin: gate stops removing the previous executable",
+      "why": "gateOdin builds to a fixed path; a build that exits 0 without writing would then run the PREVIOUS entry's binary and let it answer for this mutant.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "  rmSync(out, { force: true });\n",
+      "replace": "",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "an odin: build that leaves no executable is RED, never a stale one answering",
+      "expect_detail": "an odin: build that leaves no executable is RED, never a stale one answering"
+    },
+    {
+      "name": "the runner's own tests die when a missing odin: executable is no longer read as RED",
+      "why": "Without the check the runner spawns a path that is not there and records a spawn error, so the verdict names nothing about the build that failed to produce it.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "  if (b.status !== 0 || !existsSync(out)) {",
+      "replace": "  if (b.status !== 0) {",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "an odin: build that leaves no executable is RED, never a stale one answering",
+      "expect_detail": "an odin: build that leaves no executable is RED, never a stale one answering"
+    },
+    {
+      "name": "the runner's own tests die when the hang bound stops scaling with the baseline",
+      "why": "With a factor of 1 every hang pin is cut at the floor whatever its baseline, so a gate whose healthy run is slow times out a mutant that was about to pass and reports a kill.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "const HANG_FACTOR = 20;",
+      "replace": "const HANG_FACTOR = 1;",
+      "gate": "node-test:scripts/run-mutations.hang.test.mjs",
+      "test": "a hang pin whose baseline is slow is cut at HANG_FACTOR times it, not the floor",
+      "expect_detail": "a hang pin whose baseline is slow is cut at HANG_FACTOR times it, not the floor"
+    },
+    {
+      "name": "the runner's own tests die when an odin: baseline charges the compile to the hang bound",
+      "why": "The compile dominates an odin: baseline; scaling the bound with it lets a spinning mutant run many times longer than any healthy test run before it is cut.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "    baselineMs.set(gate, r.runMs ?? Date.now() - b0);",
+      "replace": "    baselineMs.set(gate, Date.now() - b0);",
+      "gate": "node-test:scripts/run-mutations.hang.test.mjs",
+      "test": "an odin: hang bound scales with the test run, not with the compile",
+      "expect_detail": "an odin: hang bound scales with the test run, not with the compile"
+    },
+    {
+      "name": "the runner's own tests die when a named test that never ran counts as a green baseline",
+      "why": "node --test exits 0 when the name pattern matches nothing, so a typo or a renamed test would give a green baseline and then SURVIVED for a mutation no test ever observed.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "    if (test && !new RegExp(",
+      "replace": "    if (false && !new RegExp(",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "a test name that matches nothing is a red baseline, not a pass",
+      "expect_detail": "a test name that matches nothing is a red baseline, not a pass"
+    },
+    {
+      "name": "the runner's own tests die when a test name reaches node as a pattern",
+      "why": "Unescaped, a name such as `.*` matches every test, so a narrowed entry silently becomes a whole-file one and a mutation that breaks any other test counts as a kill.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "  if (test) argv.push(`--test-name-pattern=^${escapeRe(test)}$`);",
+      "replace": "  if (test) argv.push(`--test-name-pattern=${test}`);",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "a test name is a literal, not a pattern",
+      "expect_detail": "a test name is a literal, not a pattern"
     }
   ]
 }
