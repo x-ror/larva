@@ -1402,6 +1402,24 @@
       "gate": "node-test:scripts/run-mutations.test.mjs",
       "test": "a test name is a literal, not a pattern",
       "expect_detail": "a test name is a literal, not a pattern"
+    },
+    {
+      "name": "agents-mirror dies when a specialist goes back to model: inherit",
+      "why": "A worker that inherits the session model bills volume work (gates, file reading) at the conductor's rate, and nothing else would notice.",
+      "source": "agents/specialists/gate-runner.md",
+      "find": "model: sonnet",
+      "replace": "model: inherit",
+      "gate": "node-test:scripts/agents-mirror.test.mjs",
+      "expect_detail": "gate-runner.md pins model: opus or sonnet, never inherit"
+    },
+    {
+      "name": "agents-mirror dies when a specialist loses its reply contract",
+      "why": "A specialist without the contract answers the conductor in free prose of any length, which is the cost the 40-line reply exists to cap.",
+      "source": "agents/specialists/odin-sdk-scout.md",
+      "find": "## Reply to the conductor",
+      "replace": "## Reply",
+      "gate": "node-test:scripts/agents-mirror.test.mjs",
+      "expect_detail": "odin-sdk-scout.md carries the reply contract verbatim"
     }
   ]
 }
