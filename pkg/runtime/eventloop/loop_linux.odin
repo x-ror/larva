@@ -59,6 +59,14 @@ URING_MAX_RW :: int(max(i32))
 // (wakeup=1, cancel=2) have it clear too — they are matched by exact value first.
 URING_OP_DOMAIN :: u64(1) << 63
 
+// force_readiness_backend makes the loops this thread initializes skip io_uring and
+// take the epoll readiness backend — the path of a kernel without io_uring, or with it
+// disabled by sysctl. TEST-ONLY: CI's kernel always has io_uring, so without this the
+// epoll half of every multi-loop driver (backend_fd, the page runner) never runs.
+// Thread-local, so a test flipping it cannot steer a loop on another runner thread.
+@(thread_local)
+force_readiness_backend: bool
+
 Platform_Loop :: struct {
 	use_uring:    bool,
 	// Whether the proactor (RECV/SEND completion ops) is usable on this kernel. io_uring_setup
@@ -122,8 +130,7 @@ platform_init :: proc(loop: ^Loop) -> bool {
 	}
 
 	params := uring.DEFAULT_PARAMS
-	uring_err := uring.init(&loop.platform.ring, &params, 256)
-	if uring_err == nil {
+	if !force_readiness_backend && uring.init(&loop.platform.ring, &params, 256) == nil {
 		loop.platform.use_uring = true
 		// Gate the proactor on an actual RECV/SEND opcode probe (see proactor_ok): a successful
 		// ring setup does not imply these ops exist on this kernel. ALSO require FAST_POLL: without

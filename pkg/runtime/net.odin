@@ -794,7 +794,7 @@ net_recv_ring_complete :: proc(
 			if conn.tls {
 				tls_server_on_ciphertext(conn, src)
 			} else {
-				copy_buf := make([]byte, len(src), context.allocator)
+				copy_buf := make([]byte, len(src), runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap
 				copy(copy_buf, src)
 				arg = make_uint8_array(conn.ctx, copy_buf)
 			}
@@ -987,7 +987,7 @@ on_recv_complete :: proc(loop: ^eventloop.Loop, user_data: rawptr, res: i32) {
 			} else {
 				// Copy out of the reused landing buffer into a JSC-owned Uint8Array (no-copy handoff
 				// frees copy_buf on GC). The landing buffer must NOT be handed to JSC — it is reused.
-				copy_buf := make([]byte, n, context.allocator)
+				copy_buf := make([]byte, n, runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap
 				copy(copy_buf, conn.recv_buf[:n])
 				arg := make_uint8_array(conn.ctx, copy_buf)
 				net_emit(conn.ctx, conn.on_data, &arg, 1)
@@ -1353,7 +1353,7 @@ conn_read_cb :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 		} else {
 			// Copy out of the transient stack buffer into a JSC-owned Uint8Array (no-copy
 			// handoff frees copy_buf on GC), mirroring fetch_deliver_chunk.
-			copy_buf := make([]byte, n, context.allocator)
+			copy_buf := make([]byte, n, runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap
 			copy(copy_buf, buf[:n])
 			arg := make_uint8_array(conn.ctx, copy_buf)
 			net_emit(conn.ctx, conn.on_data, &arg, 1)

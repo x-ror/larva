@@ -12,6 +12,7 @@ import "core:sys/posix"
 import "core:testing"
 import "core:time"
 import lava "lava:pkg/runtime"
+import eventloop "lava:pkg/runtime/eventloop"
 
 // LIMITS is what a page under test runs with when its limits are not the subject: the
 // runner refuses a page without a CPU budget, and 30 s is far above anything a
@@ -316,6 +317,23 @@ runner_second_page_in_a_reused_vm_sees_nothing_of_a_killed_first :: proc(t: ^tes
 // accept and the reply can only reach a page through the runner's epoll set.
 @(test)
 runner_wakes_on_io_without_timers :: proc(t: ^testing.T) {
+	run_io_wake(t, readiness = false)
+}
+
+// The same through the epoll readiness backend: what a page loop gets on a kernel
+// without io_uring (or with it disabled by sysctl), where backend_fd hands the runner
+// an epoll fd instead of the ring. CI's kernel always has io_uring, so without the
+// switch this path never runs. The watched fds must really be epoll instances, or
+// the case silently re-tests io_uring.
+@(test)
+runner_wakes_on_io_without_timers_on_the_readiness_backend :: proc(t: ^testing.T) {
+	eventloop.force_readiness_backend = true
+	defer eventloop.force_readiness_backend = false
+	run_io_wake(t, readiness = true)
+}
+
+@(private = "file")
+run_io_wake :: proc(t: ^testing.T, readiness: bool) {
 	runner: lava.Page_Runner
 	if !lava.page_runner_init(&runner, 2, record_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
@@ -340,6 +358,10 @@ runner_wakes_on_io_without_timers :: proc(t: ^testing.T) {
 	// registration can still pass the timing half: JSC's signal thread interrupts
 	// epoll_wait often enough to stand in for the wake.)
 	testing.expectf(t, epoll_watch_count(runner.epfd) == 2, "page loops not in the runner's epoll set (%d of 2)", epoll_watch_count(runner.epfd))
+	want_kind := readiness ? "anon_inode:[eventpoll]" : "anon_inode:[io_uring]"
+	for kind in epoll_watched_kinds(runner.epfd) {
+		testing.expectf(t, kind == want_kind, "page loop backend is %q, want %q", kind, want_kind)
+	}
 	lava.page_runner_run(&runner)
 	testing.expectf(t, so.done && so.status == .Ok && so.exit == 5, "server page: %v", so)
 	testing.expectf(t, co.done && co.status == .Ok && co.exit == 5, "client page: %v", co)
@@ -386,6 +408,24 @@ runner_destroy_reports_live_pages_cancelled :: proc(t: ^testing.T) {
 	testing.expect(t, o.done, "a live page was not reported on destroy")
 	testing.expect_value(t, o.kill, lava.Kill_Reason.Cancelled)
 	testing.expect_value(t, o.status, lava.Status.Execution_Error)
+}
+
+// epoll_watched_kinds reads what each fd an epoll instance watches is, from the
+// "tfd:" lines of its fdinfo and each fd's /proc/self/fd link.
+@(private = "file")
+epoll_watched_kinds :: proc(epfd: linux.Fd) -> []string {
+	data, err := os.read_entire_file(fmt.tprintf("/proc/self/fdinfo/%d", int(epfd)), context.temp_allocator)
+	if err != nil do return nil
+	kinds := make([dynamic]string, context.temp_allocator)
+	for line in strings.split_lines(string(data), context.temp_allocator) {
+		rest := strings.trim_space(line)
+		if !strings.has_prefix(rest, "tfd:") do continue
+		fields := strings.fields(strings.trim_space(rest[4:]), context.temp_allocator)
+		if len(fields) == 0 do continue
+		target, lerr := os.read_link(fmt.tprintf("/proc/self/fd/%s", fields[0]), context.temp_allocator)
+		append(&kinds, lerr == nil ? target : "?")
+	}
+	return kinds[:]
 }
 
 // epoll_watch_count reads how many fds an epoll instance watches, from the "tfd:"

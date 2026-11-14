@@ -1458,6 +1458,42 @@
       "replace": "\t\t\tvm.budget_hit = false\n",
       "gate": "odin:cmd/lava:main.runner_vm_reused_after_process_exit_runs_the_next_page",
       "expect_detail": "second page"
+    },
+    {
+      "name": "runner_wakes_on_io_without_timers_on_the_readiness_backend dies when the readiness switch is ignored",
+      "why": "Without the switch the case re-tests io_uring and the epoll half of backend_fd and the runner never runs in CI.",
+      "source": "pkg/runtime/eventloop/loop_linux.odin",
+      "find": "if !force_readiness_backend && uring.init(",
+      "replace": "if uring.init(",
+      "gate": "odin:cmd/lava:main.runner_wakes_on_io_without_timers_on_the_readiness_backend",
+      "expect_detail": "page loop backend is"
+    },
+    {
+      "name": "runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator dies when net's read copy goes back to context.allocator",
+      "why": "jsc_buffer_deallocator frees through the heap; a read copy made under the runner's allocator is a bad free when JSC collects it (glibc abort at VM teardown).",
+      "source": "pkg/runtime/net.odin",
+      "find": "copy_buf := make([]byte, n, runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap\n\t\t\tcopy(copy_buf, buf[:n])",
+      "replace": "copy_buf := make([]byte, n, context.allocator)\n\t\t\tcopy(copy_buf, buf[:n])",
+      "gate": "odin:cmd/lava:main.runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator",
+      "expect_detail": "odin test exited"
+    },
+    {
+      "name": "runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator dies when fetch's chunk copy goes back to context.allocator",
+      "why": "Same pairing as net's read copy: fetch_deliver_chunk runs in a loop callback under the runner's allocator.",
+      "source": "pkg/runtime/fetch.odin",
+      "find": "copy_buf := make([]byte, len(bytes), runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap",
+      "replace": "copy_buf := make([]byte, len(bytes), context.allocator)",
+      "gate": "odin:cmd/lava:main.runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator",
+      "expect_detail": "odin test exited"
+    },
+    {
+      "name": "runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator dies when net's landing-buffer copy goes back to context.allocator",
+      "why": "The io_uring receive path copies out of the reused landing buffer under the runner's allocator too.",
+      "source": "pkg/runtime/net.odin",
+      "find": "copy_buf := make([]byte, n, runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap\n\t\t\t\tcopy(copy_buf, conn.recv_buf[:n])",
+      "replace": "copy_buf := make([]byte, n, context.allocator)\n\t\t\t\tcopy(copy_buf, conn.recv_buf[:n])",
+      "gate": "odin:cmd/lava:main.runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator",
+      "expect_detail": "odin test exited"
     }
   ]
 }
