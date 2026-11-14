@@ -25,7 +25,7 @@ endif
 SOURCE ?= console.log('hello from Lava')
 FILE ?=
 
-.PHONY: test-stdio help bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-sqlite-odin test-sqlite-node test-sqlite-lava test-fs-node test-fs-lava test-eventloop-node test-eventloop-lava test-fetch-smoke test-net-smoke test-http-smoke test-https-smoke test-multicore-smoke test-zerocopy-smoke bench bench-gate bench-http fmt clean
+.PHONY: test-stdio help bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-sqlite-odin test-sqlite-node test-sqlite-lava test-fs-node test-fs-lava test-eventloop-node test-eventloop-lava test-fetch-smoke test-net-smoke test-http-smoke test-https-smoke test-multicore-smoke test-zerocopy-smoke bench bench-gate bench-http bench-pages fmt clean
 
 help:
 	@printf '%s\n' 'Lava commands'
@@ -83,6 +83,7 @@ help:
 	@printf '%s\n' '  make bench              node-vs-Lava ratio table (report-only)'
 	@printf '%s\n' '  make bench-gate         Fail if any ratio exceeds bench/thresholds.json'
 	@printf '%s\n' '  make bench-http         HTTP throughput/latency report (not in CI)'
+	@printf '%s\n' '  make bench-pages        Pages per thread: start-up, RSS, pages/s (not in CI)'
 	@printf '%s\n' '  make api-surface        Buffer/Crypto surface diff vs Node (report-only)'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Env knobs (oracle runners):'
@@ -326,6 +327,12 @@ bench-gate: build
 # connection for Lava vs Node vs Bun. Report-only; binds local ports.
 bench-http: build
 	LAVA_BIN="$(LAVA)" $${NODE_BIN:-node} bench/http/run-http-bench.mjs
+
+# Pages per thread (#4): N = 1/10/50/100 concurrent pages on one thread's page runner —
+# cold vs warm VM start-up, RSS per live page and per idle pooled VM, pages/s. Medians
+# of LAUNCHES (default 5) processes per N. Report-only; needs native-deps, not lava.
+bench-pages: native-deps
+	./bench/pages/run.sh
 
 # test-lava runs every oracle suite the platform supports through one entry point
 # (scripts/run-oracles.sh) — the same script the Windows CI job runs against
