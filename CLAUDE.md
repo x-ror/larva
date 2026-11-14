@@ -64,7 +64,11 @@ this order and stop at the first real fit:
 4. **C libraries already linked** — JavaScriptCore, OpenSSL, SQLite, libc/POSIX,
    `picohttpparser`. Extending an existing link costs nothing.
 5. **A new C dependency** — allowed, but must justify: license, Linux packaging
-   story, CI provisioning, binary-size impact, and why 1–4 do not work.
+   story, CI provisioning, binary-size impact, and why 1–4 do not work. The
+   licence must permit linking from both the AGPL core and the commercially
+   licensed extension modules ([docs/LARVA.md](docs/LARVA.md) decision 6):
+   permissive or LGPL (linked dynamically) qualifies, GPL-only and AGPL-only
+   third-party code does not. Add the dependency to `NOTICE` in the same PR.
 6. **Hand-rolled** — last resort. Requires a written reason in the file: measured
    perf, ABI mismatch, allocator control, or a Node semantic the SDK cannot express.
 

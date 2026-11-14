@@ -1,5 +1,6 @@
 {
   "private": true,
+  "license": "AGPL-3.0-only",
   "scripts": {
     "js:check": "vp fmt 'pkg/runtime/js/**/*.js' 'tests/**/*.js' 'tests/**/*.mjs' 'tests/**/*.cjs' 'scripts/**/*.{js,mjs}' 'bench/**/*.js' 'bench/**/*.mjs' 'runtime/**/*.mjs' --check && vp lint pkg/runtime/js tests scripts bench runtime && bun run js:deadcode && bun run js:scripttests && bun run js:primordials && bun run js:globalreplace",
     "js:deadcode": "bun run scripts/check-orphan-js.mjs",
