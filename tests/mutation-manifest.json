@@ -164,7 +164,7 @@
       "find": "      failures++;\n      console.log('STALE');",
       "replace": "      console.log('STALE');",
       "gate": "node-test:scripts/run-mutations.test.mjs",
-      "test": "a find that no longer matches is STALE and fails \u2014 never a skip",
+      "test": "a find that no longer matches is STALE and fails — never a skip",
       "expect_detail": "STALE"
     },
     {
@@ -1523,7 +1523,7 @@
       "find": "      build({ restore: true });",
       "replace": "      build();",
       "gate": "node-test:scripts/run-mutations.test.mjs",
-      "test": "mutant builds get MUTATION_OPT; the restore build gets the caller\u2019s level",
+      "test": "mutant builds get MUTATION_OPT; the restore build gets the caller’s level",
       "expect_detail": "restore build must not inherit MUTATION_OPT"
     },
     {
@@ -1727,6 +1727,46 @@
         "handed to JSC from the ambient allocator",
         "odin test exited -1"
       ]
+    },
+    {
+      "name": "merge-mutation-manifest tests die when an entry both sides changed is silently taken from ours",
+      "why": "A sync would then drop Lava's change to a recorded mutation without telling anyone; a real conflict must stop the merge.",
+      "source": "scripts/merge-mutation-manifest.mjs",
+      "find": "    conflicts.push(key);\n",
+      "replace": "",
+      "gate": "node-test:scripts/merge-mutation-manifest.test.mjs",
+      "test": "an entry changed differently on both sides is a conflict",
+      "expect_detail": "an entry changed differently on both sides is a conflict"
+    },
+    {
+      "name": "merge-mutation-manifest tests die when entries only Lava added are dropped",
+      "why": "Every sync would lose the mutations Lava recorded, and nothing else would notice that a test lost its mutation gate.",
+      "source": "scripts/merge-mutation-manifest.mjs",
+      "find": "  const names = [...O.keys(), ...[...T.keys()].filter((n) => !O.has(n))];",
+      "replace": "  const names = [...O.keys()];",
+      "gate": "node-test:scripts/merge-mutation-manifest.test.mjs",
+      "test": "entries appended on both sides are both kept",
+      "expect_detail": "entries appended on both sides are both kept"
+    },
+    {
+      "name": "ci-scope tests die when an empty change list narrows instead of running every gate",
+      "why": "[].every() is true, so without the guard a PR whose diff could not be read is classified docs and skips the build and every test.",
+      "source": "scripts/ci-scope.mjs",
+      "find": "  if (paths.length === 0) return 'code';\n",
+      "replace": "",
+      "gate": "node-test:scripts/ci-scope.test.mjs",
+      "test": "no paths is code, never a skip",
+      "expect_detail": "no paths is code, never a skip"
+    },
+    {
+      "name": "ci-scope tests die when a shell script under scripts/ counts as tooling",
+      "why": "build.sh and the oracle/smoke runners decide what the code gates see; classing them as tooling would let a PR that breaks the build skip it.",
+      "source": "scripts/ci-scope.mjs",
+      "find": "/^scripts\\/.*\\.mjs$/",
+      "replace": "/^scripts\\//",
+      "gate": "node-test:scripts/ci-scope.test.mjs",
+      "test": "a shell script under scripts/ is code, not tooling",
+      "expect_detail": "a shell script under scripts/ is code, not tooling"
     }
   ]
 }

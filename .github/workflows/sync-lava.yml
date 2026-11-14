@@ -54,6 +54,11 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # Both repositories append to tests/mutation-manifest.json, so a text merge
+          # conflicts on almost every sync; .gitattributes routes it to a driver
+          # that merges entries by name and still fails on a real conflict.
+          git config merge.mutation-manifest.name 'mutation manifest, merged by entry name'
+          git config merge.mutation-manifest.driver 'node scripts/merge-mutation-manifest.mjs %O %A %B'
           git remote add lava "$UPSTREAM_URL"
           git fetch --no-tags lava master
 
