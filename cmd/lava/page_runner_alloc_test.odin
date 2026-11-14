@@ -3,6 +3,7 @@
 package main
 
 import "core:fmt"
+import "core:mem"
 import "core:mem/virtual"
 import "core:testing"
 import "core:time"
@@ -15,10 +16,14 @@ import eventloop "lava:pkg/runtime/eventloop"
 // from context.allocator: the runner installs ITS allocator for everything a tick
 // does, and loop callbacks (net, fetch, TLS reads) allocate under it (CLAUDE.md §4).
 //
-// Run under an arena, a heap free of any arena byte is a glibc abort ("free():
-// invalid pointer"), whatever the heap's layout happens to be — a tracking allocator
-// over the heap would hand out heap pointers and let the mismatch through. That is
-// how this surfaced: the readiness-backend runner test aborted in vm_pool_destroy,
+// The runner runs on a Poisoned_Arena: the heap's free reads the word just before
+// the block as the pointer to release (heap_allocator.odin, aligned_free), and this
+// allocator puts a poison address there, so a heap free of any of its bytes is a
+// glibc abort ("free(): invalid pointer") every time. A plain arena is not enough —
+// its memory is zeroed, the word reads as nil, and free(nil) passes silently (the
+// first version of this test survived its own mutations that way); a tracking
+// allocator over the heap hands out real heap blocks and lets the mismatch through.
+// This surfaced as the readiness-backend runner test aborting in vm_pool_destroy,
 // freeing a net read buffer. Pages: an http server and a fetch client (fetch's chunk
 // copy), and a net server and client (net's read copy), on each backend.
 @(test)
@@ -50,12 +55,12 @@ alloc_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Re
 
 @(private = "file")
 run_alloc_pages :: proc(t: ^testing.T, readiness: bool) {
-	arena: virtual.Arena
-	if virtual.arena_init_growing(&arena) != nil {
+	poisoned: Poisoned_Arena
+	if virtual.arena_init_growing(&poisoned.arena) != nil {
 		testing.fail_now(t, "arena_init_growing failed")
 	}
-	defer virtual.arena_destroy(&arena)
-	alloc := virtual.arena_allocator(&arena)
+	defer virtual.arena_destroy(&poisoned.arena)
+	alloc := mem.Allocator{poisoned_arena_proc, &poisoned}
 
 	base := 20000 + int(time.tick_now()._nsec % 20000)
 	// Heap, not tprintf: a page's require() resets the temp arena.
@@ -87,4 +92,48 @@ run_alloc_pages :: proc(t: ^testing.T, readiness: bool) {
 	for o, i in outcomes {
 		testing.expectf(t, o.done && o.status == .Ok && o.exit == 5, "readiness=%v page %d: %v", readiness, i, o)
 	}
+}
+
+// Poisoned_Arena hands out arena memory with POISON_FREE_PTR in the word before every
+// block. Frees are no-ops (it is an arena); a resize copies into a fresh block.
+@(private = "file")
+Poisoned_Arena :: struct {
+	arena: virtual.Arena,
+}
+
+// An address glibc's free() rejects outright: not 16-byte aligned.
+@(private = "file")
+POISON_FREE_PTR :: uintptr(0x11)
+
+@(private = "file")
+poisoned_arena_proc :: proc(
+	data: rawptr,
+	mode: mem.Allocator_Mode,
+	size, alignment: int,
+	old_memory: rawptr,
+	old_size: int,
+	loc := #caller_location,
+) -> (
+	[]byte,
+	mem.Allocator_Error,
+) {
+	p := cast(^Poisoned_Arena)data
+	backing := virtual.arena_allocator(&p.arena)
+	switch mode {
+	case .Alloc, .Alloc_Non_Zeroed, .Resize, .Resize_Non_Zeroed:
+		align := max(alignment, 16)
+		raw, err := mem.alloc_bytes(size + align, align, backing, loc)
+		if err != nil do return nil, err
+		block := raw[align:][:size]
+		(cast(^uintptr)(uintptr(raw_data(block)) - size_of(uintptr)))^ = POISON_FREE_PTR
+		if (mode == .Resize || mode == .Resize_Non_Zeroed) && old_memory != nil {
+			mem.copy(raw_data(block), old_memory, min(old_size, size))
+		}
+		return block, nil
+	case .Free, .Free_All:
+		return nil, nil
+	case .Query_Features, .Query_Info:
+		return nil, .Mode_Not_Implemented
+	}
+	return nil, .Mode_Not_Implemented
 }
