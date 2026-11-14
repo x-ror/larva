@@ -204,6 +204,10 @@ vm_watchdog_cut_job_chain_does_not_outlive_the_next_api_exits :: proc(t: ^testin
 	read_n(ctx1)
 	read_n(ctx1)
 	settled := read_n(ctx1)
+	// The next page gets this VM through vm_release, which clears the watchdog — and
+	// with it the 1 ms floor a kill latches (vm_watchdog_terminate). Model that, or the
+	// stand-in "next page" below is cut at 1 ms for the first page's kill.
+	lava.vm_set_entry_limit(vm, 0)
 	ctx2 := lava.vm_create_context(vm, nil)
 	defer jsc.JSGlobalContextRelease(ctx2)
 	testing.expect(t, eval_source(ctx2, "var s = Date.now(); while (Date.now() - s < 20) {}"), "second context failed")
