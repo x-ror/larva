@@ -21,26 +21,50 @@ jobs:
     name: Linux (full build + tests)
     runs-on: ubuntu-latest
     steps:
+      # Full history: the scope step diffs against the PR base, and the changed-only
+      # mutation gate takes its merge-base with origin/master.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Which step groups this run needs (scripts/ci-scope.mjs): `docs` runs only
+      # the lints, `tooling` adds the JS checks and the changed-only mutation gate,
+      # `code` runs everything with the changed-only mutation gate, and `full`
+      # (push to master, manual runs) runs everything including the whole mutation
+      # manifest. Master's full run is the safety net for whatever a PR skipped.
+      - name: Scope
+        id: scope
+        run: node scripts/ci-scope.mjs ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }} >> "$GITHUB_OUTPUT"
 
       - name: Install JavaScriptCoreGTK (6.0), SQLite and OpenSSL
+        if: steps.scope.outputs.scope != 'docs'
         run: |
           sudo apt-get update
           sudo apt-get install -y libjavascriptcoregtk-6.0-dev libsqlite3-dev libssl-dev pkg-config
 
-      - uses: voidzero-dev/setup-vp@v1
+      - uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: true
-          run-install: true
+
+      # Bun runs the JS gates (`bun fmt`, `bun run js:*`) and installs the dev
+      # dependencies. The version comes from package.json's packageManager so CI
+      # formats with the same Bun as `make check-js` does locally.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install JS dev dependencies
+        run: bun install --frozen-lockfile
 
       - name: Setup Odin
+        if: steps.scope.outputs.scope != 'docs'
         uses: laytan/setup-odin@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           llvm-version: '18'
 
       - name: Type-check
+        if: steps.scope.outputs.scope == 'code' || steps.scope.outputs.scope == 'full'
         run: make check
 
       # `make fmt` once exited non-zero for every caller (a strip-semicolon
@@ -49,9 +73,11 @@ jobs:
       # already formatted: fmt rewrites in place, so any diff is a formatting
       # violation (or a fmt regression).
       - name: Format (Odin)
+        if: steps.scope.outputs.scope == 'code' || steps.scope.outputs.scope == 'full'
         run: make fmt && git diff --exit-code
 
       - name: JavaScript lint and format
+        if: steps.scope.outputs.scope != 'docs'
         run: make check-js
 
       - name: Markdown lint
@@ -61,9 +87,11 @@ jobs:
         run: make check-actions
 
       - name: Build
+        if: steps.scope.outputs.scope == 'code' || steps.scope.outputs.scope == 'full'
         run: make build
 
       - name: Test
+        if: steps.scope.outputs.scope == 'code' || steps.scope.outputs.scope == 'full'
         run: make test
 
       # Differential property tests: fast-check generates the corpus and both
@@ -72,6 +100,7 @@ jobs:
       # 5000, and at that size it found a real utf-16le divergence the hand-picked
       # oracle cases missed.
       - name: Test (differential property suite)
+        if: steps.scope.outputs.scope == 'code' || steps.scope.outputs.scope == 'full'
         run: make test-property
 
       # Runs AFTER build, deliberately: it spawns bin/lava through a parent-held
@@ -80,6 +109,7 @@ jobs:
       # first, which put it in the buildless check-js step and made it fail on a fresh
       # checkout for want of a binary.
       - name: Test (stdio writer)
+        if: steps.scope.outputs.scope == 'code' || steps.scope.outputs.scope == 'full'
         run: make test-stdio
 
       # MUTATION GATE. Breaks the code each recorded test claims to pin and requires
@@ -91,9 +121,18 @@ jobs:
       # which counts as progress by itself, so the no-progress tick under test never
       # happened. Rebuilds bin/lava per embedded-JS mutation, hence its own step.
       - name: Test (mutation gate)
+        if: steps.scope.outputs.scope == 'full'
         run: make test-mutation
 
+      # A pull request runs only the recorded mutations its diff can affect; the
+      # runner widens to the whole manifest by itself when its own machinery
+      # changed. The full manifest runs on every push to master (step above).
+      - name: Test (mutation gate, changed entries)
+        if: steps.scope.outputs.scope == 'code' || steps.scope.outputs.scope == 'tooling'
+        run: make test-mutation CHANGED=1
+
       - name: Test (Lava behavior)
+        if: steps.scope.outputs.scope == 'code' || steps.scope.outputs.scope == 'full'
         run: make test-lava
 
       # The same oracle suites with LAVA_HOSTFN_DISABLE=1, which forces every native
@@ -102,6 +141,7 @@ jobs:
       # were disabled, and it is the path a JSC upgrade renaming the dlsym'd mangled
       # symbol drops the whole runtime onto.
       - name: Test (Lava behavior, C-API fallback)
+        if: steps.scope.outputs.scope == 'code' || steps.scope.outputs.scope == 'full'
         run: make test-lava-nohostfn
 
       # The Odin runner gives each test its own thread by default; on one thread the
@@ -109,40 +149,47 @@ jobs:
       # context addresses. That sharing is the shape of two already-fixed defects, and
       # nothing else in CI produces it. ~0.25s.
       - name: Test (Odin, single runner thread)
+        if: steps.scope.outputs.scope == 'code' || steps.scope.outputs.scope == 'full'
         run: make test-odin-serial
 
       # Real socket transport: start a Node origin and require lava's fetch output
       # to match Node's, over http://, https:// (TLS), and IPv6 loopback. Excluded
       # from `make test` because it binds a local port; runs here as its own gate.
       - name: Fetch transport smoke
+        if: steps.scope.outputs.scope == 'code' || steps.scope.outputs.scope == 'full'
         run: make test-fetch-smoke
 
       # node:net TCP server: run the echo-server fixture under Node and under Lava,
       # hit each with the same Node client, and require identical client output
       # (server parity). Binds a local port, so it is its own gate like fetch smoke.
       - name: Net server smoke
+        if: steps.scope.outputs.scope == 'code' || steps.scope.outputs.scope == 'full'
         run: make test-net-smoke
 
       # node:http server: run the echo HTTP server fixture under Node and under Lava,
       # hit each with the same Node http client, and require identical deterministic
       # response fields (server parity). Binds a local port — its own gate.
       - name: HTTP server smoke
+        if: steps.scope.outputs.scope == 'code' || steps.scope.outputs.scope == 'full'
         run: make test-http-smoke
 
       # node:https server: a self-signed cert is generated, the Lava HTTPS server is hit by
       # Lava's own TLS client (fetch) over both backends (proactor + readiness), and the
       # synchronous cert/option error cases are asserted. Binds a local port — its own gate.
       - name: HTTPS server smoke
+        if: steps.scope.outputs.scope == 'code' || steps.scope.outputs.scope == 'full'
         run: make test-https-smoke
 
       # Multi-core workers (Slice 3a): N workers share a port via SO_REUSEPORT, load distributes,
       # listen(0) is rejected, SIGTERM drains gracefully. Binds a local port — its own gate.
       - name: Multi-core workers smoke
+        if: steps.scope.outputs.scope == 'code' || steps.scope.outputs.scope == 'full'
         run: make test-multicore-smoke
 
       # MSG_ZEROCOPY (Slice 3b): a large body served via SEND_ZC must arrive byte-exact (the two-CQE
       # buffer-lifetime guard against a kernel-side UAF). Binds a local port — its own gate.
       - name: Zerocopy send smoke
+        if: steps.scope.outputs.scope == 'code' || steps.scope.outputs.scope == 'full'
         run: make test-zerocopy-smoke
 
       # Benchmarks: print the node-vs-Lava ratio table in the job log. Report-only for
@@ -150,4 +197,5 @@ jobs:
       # starters — once the ratios here are observed and the caps tightened, flip this
       # to `make bench-gate` to enforce regressions. See bench/README.md.
       - name: Benchmarks (report-only)
+        if: steps.scope.outputs.scope == 'code' || steps.scope.outputs.scope == 'full'
         run: make bench

@@ -49,8 +49,9 @@ export const RULES = [
   },
   {
     id: 'mutation-override',
-    reason: 'MUTATION_MANIFEST/MUTATION_ROOT/--manifest/--root/--filter divert the mutation gate',
-    re: /\bMUTATION_(?:MANIFEST|ROOT)\s*=|(?:run-mutations\.mjs|test-mutation)[\s\S]{0,120}(?:--manifest|--root|--filter)|\bFILTER\s*=/,
+    reason:
+      'MUTATION_MANIFEST/MUTATION_ROOT/MUTATION_BASE/--manifest/--root/--filter divert the mutation gate',
+    re: /\bMUTATION_(?:MANIFEST|ROOT|BASE)\s*=|(?:run-mutations\.mjs|test-mutation)[\s\S]{0,120}(?:--manifest|--root|--filter)|\bFILTER\s*=/,
   },
   {
     id: 'property-runs',

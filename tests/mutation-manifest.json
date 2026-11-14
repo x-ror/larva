@@ -21,6 +21,8 @@
     "  replace what to put there \u2014 usually the pre-fix code, or a deleted guard",
     "  gate    how to observe red; see GATE KINDS in scripts/run-mutations.mjs",
     "  expect_detail  substring the RED output must contain; '' is a visible opt-out",
+    "  test    (optional, node-test: gates only) the exact name of the ONE test that",
+    "          must kill this mutation; the gate then runs only that test",
     "  (`rebuild` is gone: it was derivable from the gate kind, and a run filtered to",
     "   only `make:` entries then skipped the restore build and left bin/lava holding",
     "   the mutated source with a clean git tree and a success message.)"
@@ -132,6 +134,7 @@
       "find": "      if (r.ok) {\n        failures++;\n        console.log('SURVIVED');",
       "replace": "      if (false) {\n        failures++;\n        console.log('SURVIVED');",
       "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "a mutation the gate does not notice is reported SURVIVED, exit 1",
       "expect_detail": "SURVIVED"
     },
     {
@@ -141,6 +144,7 @@
       "find": "      } else if (m.expect_detail && !expectDetailMatches(m.expect_detail, r.detail)) {",
       "replace": "      } else if (false) {",
       "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "red for an UNRECORDED reason is WRONG REASON, not a kill",
       "expect_detail": "WRONG REASON"
     },
     {
@@ -150,6 +154,7 @@
       "find": "    if (!r.ok) {\n      console.log('RED');\n      die(`gate \"${gate}\" is already failing before any mutation:\\n    ${r.detail}`);\n    }",
       "replace": "    if (false) {\n      die('unreachable');\n    }",
       "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "a gate that is already red is refused, and nothing is patched",
       "expect_detail": "already failing before any mutation"
     },
     {
@@ -159,6 +164,7 @@
       "find": "      failures++;\n      console.log('STALE');",
       "replace": "      console.log('STALE');",
       "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "a find that no longer matches is STALE and fails \u2014 never a skip",
       "expect_detail": "STALE"
     },
     {
@@ -801,8 +807,8 @@
       "name": "57-format-single-arg dies when a lone surrogate is not escaped",
       "why": "node escapes an unpaired surrogate as \\\\udXXX; Lava used to hand it to the string conversion, which replaced it with U+FFFD — the value came back LOSSY, not merely rendered differently.",
       "source": "pkg/runtime/js/internal/util.js",
-      "find": "        if (next >= 0xdc00 && next <= 0xdfff)\n          i++; // consume the pair\n        else esc = escUnit(c);",
-      "replace": "        if (next >= 0xdc00 && next <= 0xdfff) i++;",
+      "find": "        if (next >= 0xdc00 && next <= 0xdfff) {\n          i++; // consume the pair\n        } else {\n          esc = escUnit(c);\n        }",
+      "replace": "        if (next >= 0xdc00 && next <= 0xdfff) {\n          i++; // consume the pair\n        }",
       "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
       "expect_detail": [
         "\\\\ud800"
@@ -1139,6 +1145,301 @@
       "replace": "if (slash === -1) throw mimeError('type', str, -1);",
       "gate": "compat:tests/node-compat/cases/46-util-mimetype.js",
       "expect_detail": "\"garbage\" is invalid"
+    },
+    {
+      "name": "timer_binding_frees_through_its_own_allocator dies when the JS_Callback is new()'d from the ambient allocator",
+      "why": "The binding is made inside a proc \"c\" native, whose ambient allocator is the heap, and freed through the captured state allocator; an ambient new() is the original defect (heap memory handed to the embedder's allocator).",
+      "source": "pkg/runtime/globals.odin",
+      "find": "cb := new(JS_Callback, allocator)",
+      "replace": "cb := new(JS_Callback)",
+      "gate": "odin:cmd/lava:main.timer_binding_frees_through_its_own_allocator",
+      "expect_detail": "freed into the wrong allocator"
+    },
+    {
+      "name": "timer_binding_frees_through_its_own_allocator dies when forwarded timer args are made from the ambient allocator",
+      "why": "Same defect for the args slice of setTimeout(fn, delay, ...args): made under the proc \"c\" heap context, freed through the binding's allocator.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "args, err := make([]jsc.JSValueRef, n, allocator)",
+      "replace": "args, err := make([]jsc.JSValueRef, n)",
+      "gate": "odin:cmd/lava:main.timer_binding_frees_through_its_own_allocator",
+      "expect_detail": "freed into the wrong allocator"
+    },
+    {
+      "name": "timer_binding_frees_through_its_own_allocator dies when a cleared binding is never freed",
+      "why": "Bindings go through the owning state allocator, not a hard-coded heap, so a dispose path that stops freeing is visible to a tracking allocator as a live allocation instead of vanishing into malloc.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tif cb == nil do return\n\tfree_js_callback(cb)\n}",
+      "replace": "\tif cb == nil do return\n}",
+      "gate": "odin:cmd/lava:main.timer_binding_frees_through_its_own_allocator",
+      "expect_detail": "timer bindings leaked"
+    },
+    {
+      "name": "timer_binding_frees_through_its_own_allocator dies when free_js_callback frees the binding into the ambient allocator",
+      "why": "clearTimeout/clearImmediate dispose synchronously inside the proc \"c\" clear_timer_cb, whose ambient allocator is the heap; an ambient free there hands tracked memory to malloc, which crashes (SIGABRT \"free(): invalid pointer\" or SIGSEGV, depending on the allocator state). The Odin runner either catches the signal and names it (\"Signal caught:\", which gateOdin surfaces) or the process dies and capture maps the null status to -1; both are recorded.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tfree(cb, allocator)\n",
+      "replace": "\tfree(cb)\n",
+      "gate": "odin:cmd/lava:main.timer_binding_frees_through_its_own_allocator",
+      "expect_detail": ["Signal caught:", "odin test exited -1"]
+    },
+    {
+      "name": "timer_binding_frees_through_its_own_allocator dies when free_js_callback deletes the args into the ambient allocator",
+      "why": "Same synchronous clear path for the forwarded-args slice (clearTimeout(setTimeout(fn, d, x))); same crash, recorded the same two ways.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tdelete(cb.args, allocator)\n",
+      "replace": "\tdelete(cb.args)\n",
+      "gate": "odin:cmd/lava:main.timer_binding_frees_through_its_own_allocator",
+      "expect_detail": ["Signal caught:", "odin test exited -1"]
+    },
+    {
+      "name": "timer_binding_frees_through_its_own_allocator dies when setTimeout makes bindings from the heap instead of the state allocator",
+      "why": "A hard-coded heap pairs alloc and free just as well, so only the routing count can see it; it is what keeps a leaked binding visible to the embedder's allocator.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "loop, alloc := state.loop, state.allocator\n\n\tfn := callback_arg(ctx, arguments[0])\n\tif fn == nil do return jsc.JSValueMakeUndefined(ctx)\n\n\tdelay := 0.0",
+      "replace": "loop, alloc := state.loop, context.allocator\n\n\tfn := callback_arg(ctx, arguments[0])\n\tif fn == nil do return jsc.JSValueMakeUndefined(ctx)\n\n\tdelay := 0.0",
+      "gate": "odin:cmd/lava:main.timer_binding_frees_through_its_own_allocator",
+      "expect_detail": "made through the state allocator"
+    },
+    {
+      "name": "nocopy_net_bytes_never_use_the_ambient_allocator dies when conn_read_cb copies received bytes from the ambient allocator",
+      "why": "conn_read_cb (readiness backend) runs under the loop's context, i.e. the embedder's allocator, while jsc_buffer_deallocator frees the NoCopy Uint8Array's bytes into the heap; an ambient copy is the original defect.",
+      "source": "pkg/runtime/net.odin",
+      "find": "\t\t\tcopy_buf := make([]byte, n, runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap\n\t\t\tcopy(copy_buf, buf[:n])",
+      "replace": "\t\t\tcopy_buf := make([]byte, n, context.allocator)\n\t\t\tcopy(copy_buf, buf[:n])",
+      "gate": "odin:cmd/lava:main.nocopy_net_bytes_never_use_the_ambient_allocator",
+      "expect_detail": [
+        "Signal caught:",
+        "handed to JSC from the ambient allocator",
+        "odin test exited -1"
+      ]
+    },
+    {
+      "name": "the runner's own tests die when the restore build inherits MUTATION_OPT",
+      "why": "Mutant builds run at -o:none for speed; if the final rebuild did too, a run would leave an unoptimized bin/lava on disk with a success message and every later bench would measure it.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "      build({ restore: true });",
+      "replace": "      build();",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "mutant builds get MUTATION_OPT; the restore build gets the caller\u2019s level",
+      "expect_detail": "restore build must not inherit MUTATION_OPT"
+    },
+    {
+      "name": "the runner's own tests die when --changed guesses a base instead of failing",
+      "why": "With no merge-base there is no diff; falling back to HEAD selects nothing and exits 0, which reads as a pass for a gate that ran no mutation.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "  // Not a pass: with no base there is no diff, and \"nothing changed\" would be a guess.\n  die(",
+      "replace": "  return 'HEAD';\n  die(",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "--changed with no resolvable base fails rather than selecting nothing",
+      "expect_detail": "--changed with no resolvable base fails rather than selecting nothing"
+    },
+    {
+      "name": "the runner's own tests die when a slow kill is given a hang pin's shortened bound",
+      "why": "An entry with timeout_ms and a non-timeout reason is a slow kill; cutting it at the baseline-scaled bound replaces its assertion with a timeout and reports WRONG REASON for a mutation that works.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "    if (base === undefined || !acceptsTimeout(m)) return m.timeout_ms;",
+      "replace": "    if (base === undefined) return m.timeout_ms;",
+      "gate": "node-test:scripts/run-mutations.hang.test.mjs",
+      "test": "an entry with timeout_ms but a non-timeout reason keeps its full bound",
+      "expect_detail": "an entry with timeout_ms but a non-timeout reason keeps its full bound"
+    },
+    {
+      "name": "the runner's own tests die when the hang floor drops near the baseline",
+      "why": "A bound close to the baseline times out a mutant that was about to pass, so a test that pins nothing is reported killed; the 5 s floor is what keeps the shortcut from manufacturing kills.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "const HANG_FLOOR_MS = 5_000;",
+      "replace": "const HANG_FLOOR_MS = 50;",
+      "gate": "node-test:scripts/run-mutations.hang.test.mjs",
+      "test": "a hang pin is cut at the baseline-scaled bound, not its full timeout_ms",
+      "expect_detail": "a hang pin is cut at the baseline-scaled bound, not its full timeout_ms"
+    },
+    {
+      "name": "the runner's own tests die when --changed lets git fold a rename into its new path",
+      "why": "With rename detection on, a renamed gate file or source is listed only under its new name, so an entry naming the old one is never selected and --changed exits 0 on an entry the full gate fails.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "    ...lines(git(['diff', '--name-only', '--no-renames', base])),",
+      "replace": "    ...lines(git(['diff', '--name-only', base])),",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "--changed sees a renamed gate file under its OLD name",
+      "expect_detail": "--changed sees a renamed gate file under its OLD name"
+    },
+    {
+      "name": "the runner's own tests die when a machinery change stops widening --changed to every entry",
+      "why": "A changed runner, Makefile or build script means no earlier verdict is evidence; without the widening --changed runs only the entries whose own paths moved and reports a narrow pass for a changed gate.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "const MACHINERY = ['scripts/run-mutations.mjs', 'scripts/build.sh', 'Makefile'];",
+      "replace": "const MACHINERY = [];",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "--changed runs everything when the build machinery changed",
+      "expect_detail": "--changed runs everything when the build machinery changed"
+    },
+    {
+      "name": "the runner's own tests die when --changed ignores untracked files",
+      "why": "git diff never lists a file that exists only on disk, so a new gate file not yet added would select nothing.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "    ...lines(git(['ls-files', '--others', '--exclude-standard'])),\n",
+      "replace": "",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "--changed counts an untracked file as changed",
+      "expect_detail": "--changed counts an untracked file as changed"
+    },
+    {
+      "name": "the runner's own tests die when --changed diffs base..HEAD instead of the working tree",
+      "why": "Iterating means uncommitted edits; a commit-only diff misses every one of them and selects nothing.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "'--no-renames', base])),",
+      "replace": "'--no-renames', base, 'HEAD'])),",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "--changed diffs the working tree, not just the commits",
+      "expect_detail": "--changed diffs the working tree, not just the commits"
+    },
+    {
+      "name": "the runner's own tests die when --changed stops reading an odin: gate's package test files",
+      "why": "An odin: gate names a test, not a file; without the package's *_test.odin standing in for it, editing the test an entry runs never selects that entry.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "      for (const f of changed) if (f.startsWith(pkg) && f.endsWith('_test.odin')) return true;\n",
+      "replace": "",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "--changed keeps an odin: entry when a *_test.odin in its package changed",
+      "expect_detail": "--changed keeps an odin: entry when a *_test.odin in its package changed"
+    },
+    {
+      "name": "the runner's own tests die when --changed stops selecting an entry by its source",
+      "why": "The source is the code a mutation patches; an edit to it is the most direct way an entry's verdict can change, and without this line --changed skips it.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "    if (changed.has(norm(m.source))) return true;\n",
+      "replace": "",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "--changed runs only the entries whose source the diff touches",
+      "expect_detail": "--changed runs only the entries whose source the diff touches"
+    },
+    {
+      "name": "the runner's own tests die when --changed stops selecting a new or edited manifest entry",
+      "why": "A freshly recorded mutation has never been shown to kill; skipping it because its source is untouched lets an entry that pins nothing merge unrun.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "    if (!before.has(JSON.stringify(m))) return true;\n",
+      "replace": "",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "--changed keeps an entry that is new in the manifest even if its source is untouched",
+      "expect_detail": "--changed keeps an entry that is new in the manifest even if its source is untouched"
+    },
+    {
+      "name": "the runner's own tests die when --changed stops selecting an entry by its gate file",
+      "why": "Editing the test an entry runs can make it stop pinning anything; without this line that edit selects nothing.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "if (kind === 'compat' || kind === 'node-test') return changed.has(norm(rest.join(':')));",
+      "replace": "if (kind === 'compat' || kind === 'node-test') return false;",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "--changed keeps an entry whose gate file changed",
+      "expect_detail": "--changed keeps an entry whose gate file changed"
+    },
+    {
+      "name": "the runner's own tests die when an empty --changed selection reads as a full pass",
+      "why": "With the early exit gone an empty selection falls through to 'mutation gate ok: 0/0', the full gate's sentence, for a run that checked nothing.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "  if (selected.length === 0) {\n    // Exit 0, and say exactly what that 0 means.",
+      "replace": "  if (false) {\n    // Exit 0, and say exactly what that 0 means.",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "--changed with nothing affected exits 0 and says it is not a full pass",
+      "expect_detail": "--changed with nothing affected exits 0 and says it is not a full pass"
+    },
+    {
+      "name": "the runner's own tests die when an odin: gate stops removing the previous executable",
+      "why": "gateOdin builds to a fixed path; a build that exits 0 without writing would then run the PREVIOUS entry's binary and let it answer for this mutant.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "  rmSync(out, { force: true });\n",
+      "replace": "",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "an odin: build that leaves no executable is RED, never a stale one answering",
+      "expect_detail": "an odin: build that leaves no executable is RED, never a stale one answering"
+    },
+    {
+      "name": "the runner's own tests die when a missing odin: executable is no longer read as RED",
+      "why": "Without the check the runner spawns a path that is not there and records a spawn error, so the verdict names nothing about the build that failed to produce it.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "  if (b.status !== 0 || !existsSync(out)) {",
+      "replace": "  if (b.status !== 0) {",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "an odin: build that leaves no executable is RED, never a stale one answering",
+      "expect_detail": "an odin: build that leaves no executable is RED, never a stale one answering"
+    },
+    {
+      "name": "the runner's own tests die when the hang bound stops scaling with the baseline",
+      "why": "With a factor of 1 every hang pin is cut at the floor whatever its baseline, so a gate whose healthy run is slow times out a mutant that was about to pass and reports a kill.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "const HANG_FACTOR = 20;",
+      "replace": "const HANG_FACTOR = 1;",
+      "gate": "node-test:scripts/run-mutations.hang.test.mjs",
+      "test": "a hang pin whose baseline is slow is cut at HANG_FACTOR times it, not the floor",
+      "expect_detail": "a hang pin whose baseline is slow is cut at HANG_FACTOR times it, not the floor"
+    },
+    {
+      "name": "the runner's own tests die when an odin: baseline charges the compile to the hang bound",
+      "why": "The compile dominates an odin: baseline; scaling the bound with it lets a spinning mutant run many times longer than any healthy test run before it is cut.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "    baselineMs.set(gate, r.runMs ?? Date.now() - b0);",
+      "replace": "    baselineMs.set(gate, Date.now() - b0);",
+      "gate": "node-test:scripts/run-mutations.hang.test.mjs",
+      "test": "an odin: hang bound scales with the test run, not with the compile",
+      "expect_detail": "an odin: hang bound scales with the test run, not with the compile"
+    },
+    {
+      "name": "the runner's own tests die when a named test that never ran counts as a green baseline",
+      "why": "node --test exits 0 when the name pattern matches nothing, so a typo or a renamed test would give a green baseline and then SURVIVED for a mutation no test ever observed.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "    if (test && !new RegExp(",
+      "replace": "    if (false && !new RegExp(",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "a test name that matches nothing is a red baseline, not a pass",
+      "expect_detail": "a test name that matches nothing is a red baseline, not a pass"
+    },
+    {
+      "name": "the runner's own tests die when a test name reaches node as a pattern",
+      "why": "Unescaped, a name such as `.*` matches every test, so a narrowed entry silently becomes a whole-file one and a mutation that breaks any other test counts as a kill.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "  if (test) argv.push(`--test-name-pattern=^${escapeRe(test)}$`);",
+      "replace": "  if (test) argv.push(`--test-name-pattern=${test}`);",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "a test name is a literal, not a pattern",
+      "expect_detail": "a test name is a literal, not a pattern"
+    },
+    {
+      "name": "agents-mirror dies when a specialist goes back to model: inherit",
+      "why": "A worker that inherits the session model bills volume work (gates, file reading) at the conductor's rate, and nothing else would notice.",
+      "source": "agents/specialists/gate-runner.md",
+      "find": "model: sonnet",
+      "replace": "model: inherit",
+      "gate": "node-test:scripts/agents-mirror.test.mjs",
+      "expect_detail": "gate-runner.md pins model: opus or sonnet, never inherit"
+    },
+    {
+      "name": "agents-mirror dies when a specialist loses its reply contract",
+      "why": "A specialist without the contract answers the conductor in free prose of any length, which is the cost the 40-line reply exists to cap.",
+      "source": "agents/specialists/odin-sdk-scout.md",
+      "find": "## Reply to the conductor",
+      "replace": "## Reply",
+      "gate": "node-test:scripts/agents-mirror.test.mjs",
+      "expect_detail": "odin-sdk-scout.md carries the reply contract verbatim"
+    },
+    {
+      "name": "ci-scope tests die when an empty change list narrows instead of running every gate",
+      "why": "[].every() is true, so without the guard a PR whose diff could not be read is classified docs and skips the build and every test.",
+      "source": "scripts/ci-scope.mjs",
+      "find": "  if (paths.length === 0) return 'code';\n",
+      "replace": "",
+      "gate": "node-test:scripts/ci-scope.test.mjs",
+      "test": "no paths is code, never a skip",
+      "expect_detail": "no paths is code, never a skip"
+    },
+    {
+      "name": "ci-scope tests die when a shell script under scripts/ counts as tooling",
+      "why": "build.sh and the oracle/smoke runners decide what the code gates see; classing them as tooling would let a PR that breaks the build skip it.",
+      "source": "scripts/ci-scope.mjs",
+      "find": "/^scripts\\/.*\\.mjs$/",
+      "replace": "/^scripts\\//",
+      "gate": "node-test:scripts/ci-scope.test.mjs",
+      "test": "a shell script under scripts/ is code, not tooling",
+      "expect_detail": "a shell script under scripts/ is code, not tooling"
     }
   ]
 }

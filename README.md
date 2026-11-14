@@ -1,5 +1,7 @@
 # Lava
 
+[![CI](https://github.com/x-ror/lava/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/x-ror/lava/actions/workflows/ci.yml)
+
 Lava is an experimental Bun-inspired JavaScript runtime and toolkit written in
 Odin. The runtime target is JavaScriptCore (JSC).
 
@@ -31,7 +33,7 @@ cache. `scripts/build-sqlite-windows.sh` then compiles SQLite into
 `build/sqlite3.lib`; WebKit is linked from `.deps/webkit/bun-webkit/lib`.
 
 Node 24+ and Bun are needed for the JavaScript gates — run `bun install` once.
-They are dev-only (`vite-plus`, `markdownlint-cli2`, `acorn`/`acorn-walk` for the
+They are dev-only (`markdownlint-cli2`, `acorn`/`acorn-walk` for the
 prototype-pollution ratchet, `fast-check` for `make test-property`); `bin/lava`
 links none of them. `make check-js` is an always-gate and now fails without them.
 

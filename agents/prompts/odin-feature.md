@@ -1,7 +1,7 @@
 ---
 name: odin-feature
 description: Implementation pipeline for Lava runtime work — reuse scout over the Odin SDK and linked C libraries, Node-parity design, layered implementation, tests, and gates. Use when asked to add or change a Node API, a native primitive, an event-loop or I/O capability, or any performance work in `pkg/runtime`, `pkg/jsc`, or `pkg/runtime/js`.
-argument-hint: '<what to build> [--no-scout] [--design-only]'
+argument-hint: '<what to build> [--no-scout] [--design-only] | --fix [findings file]'
 ---
 
 # Feature pipeline
@@ -10,30 +10,41 @@ Five phases. Do not skip phase 1 — writing low-level code that the Odin SDK or
 already-linked C library already implements is the failure mode this pipeline
 exists to prevent.
 
+You are the conductor ([conductor.md](conductor.md) — read it first). You own
+phase 2 and the rulings in phase 5; everything that costs volume — the Node
+probe, the SDK sweep, the code, the gates — is a worker's, on a cheaper model.
+The phases below say who.
+
 Read `CLAUDE.md` first. Reuse index:
 [odin-feature-reference/odin-sdk-map.md](odin-feature-reference/odin-sdk-map.md). Gate routing:
 [pr-gate-reference/gates.md](pr-gate-reference/gates.md).
 
-## Phase 1 — Node contract + reuse scout (parallel)
+## Phase 1 — Node contract + reuse scout (workers, parallel)
 
 Launch both in one message:
 
-**(a) The Node contract.** Determine exactly what Node does for the target API —
-run `node` for real, and consult `reference/node-doc-api` and
-`reference/node-compat.json` in-repo. Capture: exported shape, argument coercion
+**(a) The Node contract** — a `general-purpose` worker with `model: sonnet`:
+this is running probes and tabulating output, not judgement. It writes the
+probe script and the raw Node output to the scratch dir and replies with the
+contract as a table (one row per case: input → result or thrown
+`name`/`code`/`message`), nothing else. Its task: determine exactly what Node
+does for the target API — run `node` for real, and consult
+`reference/node-doc-api` and `reference/node-compat.json` in-repo. Capture:
+exported shape, argument coercion
 _order_, defaults, return types, thrown `code`/`name`/`message`, event and
 callback ordering, and the edge cases (empty, `NaN`, `-0`, out-of-range,
 `undefined` vs missing, detached buffers, lone surrogates). This is the spec you
 implement against — not your memory of the docs.
 
-**(b) `odin-sdk-scout`.** Ask for a use/wrap/reject verdict per capability the
+**(b) `odin-sdk-scout`** (sonnet). Ask for a use/wrap/reject verdict per capability the
 feature needs, searching in-repo → `core:` → `vendor:` → already-linked C → new
 dependency → hand-roll. Skip only with `--no-scout`, and only for a change that
 writes no new low-level logic.
 
-## Phase 2 — design
+## Phase 2 — design (conductor)
 
-Write a short design (not a document — a message) covering:
+This is the phase the conductor exists for: two short worker replies in, one
+decision out. Write a short design (not a document — a message) covering:
 
 - **Seam**: what is native (`pkg/runtime/*.odin`), what is embedded JS
   (`js/internal/*.js`), what crosses the `native` bindings argument, and why. Hot
@@ -51,7 +62,8 @@ Write a short design (not a document — a message) covering:
 - **Tests**: which oracle cases, which Odin tests, which smoke.
 - **Gates**: the commands the touched paths require.
 
-Then land the contract where it survives the session: the phase-1(a) findings go
+Then the contract must land where it survives the session — the design message
+tells `odin-implementer` to write it first: the phase-1(a) findings go
 into the **implementation file** as a contract comment (`CLAUDE.md` §4 for Odin,
 §5 for JS) — params, returns, the `Node:` line with how it was verified, and
 `Deviates:` with the test that pins it. A contract that exists only in this
@@ -60,7 +72,14 @@ message is gone by the next one, and the next reader re-derives it wrong.
 Stop here with `--design-only`. Otherwise, for anything non-trivial, put the
 design in front of the user before implementing.
 
-## Phase 3 — red tests, then implement
+## Phase 3 — red tests, then implement (`odin-implementer`, opus)
+
+Brief `odin-implementer` with `design:` set to the phase-2 message and
+`tests: write-first`. Pieces that touch disjoint files may go to parallel
+instances in one message; pieces that share a file go to one. The conductor
+edits the tree itself only for a change it can state as an exact edit of a few
+lines — anything it would have to read a file to write is the implementer's.
+What follows is what the implementer is held to, and what its reply must show.
 
 **Tests first, and watch them fail.** Write the oracle cases and Odin tests
 against the phase-2 contract before the code exists, run them, and confirm each
@@ -69,9 +88,7 @@ feature is measuring nothing, and that is exactly how two tests in #320 shipped
 asserting less than their comments claimed. This red phase is the mutation check
 (`CLAUDE.md` §6) paid up front; a test added after the code owes it separately.
 
-Then implement. Use `odin-implementer` for scoped, independent pieces, or
-implement directly for a small change. Either way the conventions in `CLAUDE.md`
-§4–5 are binding: allocator capture, JSC protect/release pairing, `-> bool` for
+Then implement. The conventions in `CLAUDE.md` §4–5 are binding: allocator capture, JSC protect/release pairing, `-> bool` for
 C `_Bool`, primordials in JS, coded errors, `when ODIN_OS` honesty, contract
 comments on user-visible surfaces, prose that explains why.
 
@@ -89,25 +106,48 @@ Two traps worth naming, both real:
   caller-installed tracking allocator, and the runner does not fail on leaks
   anyway (`ODIN_TEST_FAIL_ON_BAD_MEMORY` defaults false).
 
-## Phase 4 — verify
+## Phase 4 — verify (`gate-runner`, sonnet)
 
-1. `make fmt` (Odin), `make check`, `make check-js`, `make build`.
-2. The routed suites and smokes from
-   [pr-gate-reference/gates.md](pr-gate-reference/gates.md) — networking
-   smokes run on **both** backends.
-3. Node-vs-Lava diff on your own probe script for every surface you touched.
-4. `make bench` if the change touches a hot path, and always for a `perf(...)`
-   change. Record the numbers; a perf claim without them does not pass the gate.
+The implementer ran `make fmt` and the gates its own paths map to; its reply
+lists them. Independent confirmation is `gate-runner`'s, never the conductor's:
 
-Report actual output. A failing gate you cannot fix is stated plainly, not
-described as done.
+1. `phase: compile`, then `phase: suites` — the routed suites and smokes,
+   networking smokes on **both** backends.
+2. The phase-1(a) probe script re-run under `bin/lava` and diffed against the
+   recorded Node output, for every surface touched — name it in the brief as
+   an extra target.
+3. `make bench` if the change touches a hot path, and always for a `perf(...)`
+   change. A perf claim without the numbers does not pass the gate.
+
+A red gate goes back to the same implementer instance (fix rounds,
+[conductor.md](conductor.md)). A failing gate nobody could fix is stated
+plainly to the human, not described as done.
 
 ## Phase 5 — hand off
 
 - Commit message: `type(scope): imperative summary`.
 - PR body: what changed, reuse verdict, gates run with results, Node-parity
   evidence or the justified deviation, bench numbers if perf is claimed.
-- Update the docs the change triggers (`docs-auditor`'s table lists them:
+- Update the docs the change triggers (`quality-docs-auditor`'s table lists them:
   ARCHITECTURE for a new seam, ROADMAP for a completed item, README for a new
   dependency, `make help` for a new target).
-- Run `/pr-gate` before requesting review.
+- Run `/pr-gate` before requesting review. Its confirmed P0/P1 list comes back
+  here as a fix round.
+
+## `--fix` — close findings
+
+With `--fix`, skip phases 1–3. The input is a findings list (the file named, or
+the last `/pr-gate` scorecard in this session) and/or a red gate log.
+
+1. Brief `odin-implementer` in fix mode: `design:` is the confirmed P0/P1 list,
+   one line each (`id severity path:line what → fix`). Reuse the instance that
+   wrote the code when there is one.
+2. Rule on anything it returns as `disputed:` — read the cited lines, then
+   either withdraw the finding (say so to the human) or send it back.
+3. `gate-runner` with `phase: rerun` on the gates that were red, plus
+   `compile`.
+4. Re-check only with the reviewers whose findings were open, `focus:` set to
+   those findings.
+
+Two rounds at most; what is still open after that is `NEEDS_HUMAN`. No scope
+beyond the findings, no P1 waived.
