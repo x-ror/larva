@@ -1177,13 +1177,31 @@
       "expect_detail": "a connection's socket was never closed"
     },
     {
-      "name": "timer_binding_frees_through_its_own_allocator dies when free_js_callback frees into the ambient allocator",
-      "why": "The binding is allocated inside a proc \"c\" native (heap) and freed by the loop under the embedder's context; an ambient free hands heap memory to whatever allocator the embedder installed.",
+      "name": "timer_binding_frees_through_its_own_allocator dies when the JS_Callback is new()'d from the ambient allocator",
+      "why": "The binding is made inside a proc \"c\" native, whose ambient allocator is the heap, and freed through the captured state allocator; an ambient new() is the original defect (heap memory handed to the embedder's allocator).",
       "source": "pkg/runtime/globals.odin",
-      "find": "\tfree(cb, timer_binding_allocator())",
-      "replace": "\tfree(cb)",
+      "find": "cb := new(JS_Callback, allocator)",
+      "replace": "cb := new(JS_Callback)",
       "gate": "odin:cmd/lava:main.timer_binding_frees_through_its_own_allocator",
       "expect_detail": "freed into the wrong allocator"
+    },
+    {
+      "name": "timer_binding_frees_through_its_own_allocator dies when forwarded timer args are made from the ambient allocator",
+      "why": "Same defect for the args slice of setTimeout(fn, delay, ...args): made under the proc \"c\" heap context, freed through the binding's allocator.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "args, err := make([]jsc.JSValueRef, n, allocator)",
+      "replace": "args, err := make([]jsc.JSValueRef, n)",
+      "gate": "odin:cmd/lava:main.timer_binding_frees_through_its_own_allocator",
+      "expect_detail": "freed into the wrong allocator"
+    },
+    {
+      "name": "timer_binding_frees_through_its_own_allocator dies when a cleared binding is never freed",
+      "why": "Bindings go through the owning state allocator, not a hard-coded heap, so a dispose path that stops freeing is visible to a tracking allocator as a live allocation instead of vanishing into malloc.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tif cb == nil do return\n\tfree_js_callback(cb)\n}",
+      "replace": "\tif cb == nil do return\n}",
+      "gate": "odin:cmd/lava:main.timer_binding_frees_through_its_own_allocator",
+      "expect_detail": "timer bindings leaked"
     }
   ]
 }

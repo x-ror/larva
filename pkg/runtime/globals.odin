@@ -102,6 +102,11 @@ JS_Callback :: struct {
 	// Owned + GC-protected by this binding; nil when there are none.
 	args:      []jsc.JSValueRef,
 	repeating: bool,
+	// allocator made this binding and its args slice, and is the only one that may
+	// free them. Captured at creation from the owning Runtime_State (see
+	// timer_binding_allocator), not re-read at free: js_callback_dispose can run at
+	// loop teardown, after destroy_runtime_state has freed the state.
+	allocator: runtime.Allocator,
 }
 
 when ODIN_OS == .Darwin {
@@ -330,11 +335,13 @@ make_js_callback :: proc(
 	ctx: jsc.JSContextRef,
 	fn: jsc.JSObjectRef,
 	repeating: bool,
-	args: []jsc.JSValueRef = nil,
+	args: []jsc.JSValueRef,
+	allocator: runtime.Allocator,
 ) -> ^JS_Callback {
 	jsc.JSValueProtect(ctx, cast(jsc.JSValueRef)fn)
-	cb := new(JS_Callback, timer_binding_allocator())
+	cb := new(JS_Callback, allocator)
 	cb.ctx = ctx
+	cb.allocator = allocator
 	cb.func = fn
 	cb.args = args
 	cb.repeating = repeating
@@ -345,15 +352,17 @@ make_js_callback :: proc(
 // argument at or after `start` (index 2 for setTimeout/setInterval, 1 for
 // setImmediate). The returned slice is owned by the JS_Callback and released by
 // free_js_callback. Returns nil when there are none (or on allocation failure).
+// `allocator` must be the one the owning JS_Callback is made with.
 capture_timer_args :: proc(
 	ctx: jsc.JSContextRef,
 	argument_count: c.size_t,
 	arguments: [^]jsc.JSValueRef,
 	start: int,
+	allocator: runtime.Allocator,
 ) -> []jsc.JSValueRef {
 	n := int(argument_count) - start
 	if n <= 0 do return nil
-	args, err := make([]jsc.JSValueRef, n, timer_binding_allocator())
+	args, err := make([]jsc.JSValueRef, n, allocator)
 	if err != nil do return nil
 	for i in 0 ..< n {
 		v := arguments[start + i]
@@ -376,17 +385,23 @@ free_js_callback :: proc(cb: ^JS_Callback, release_roots := true) {
 			jsc.JSValueUnprotect(cb.ctx, arg)
 		}
 	}
-	delete(cb.args, timer_binding_allocator())
-	free(cb, timer_binding_allocator())
+	allocator := cb.allocator
+	delete(cb.args, allocator)
+	free(cb, allocator)
 }
 
-// timer_binding_allocator owns every JS_Callback and its forwarded-args slice. They
-// are made inside a `proc "c"` native (context reset to runtime.default_context) and
-// freed by the loop under whatever context the embedder runs it with, so both sides
-// name the heap explicitly instead of trusting the ambient allocator (CLAUDE.md §4).
+// timer_binding_allocator picks the allocator a new JS_Callback (and its args slice)
+// is made with: the owning Runtime_State's, the same capture dns.odin uses for its
+// requests (CLAUDE.md §4). The binding is made inside a `proc "c"` native, where the
+// ambient allocator is runtime.default_context()'s heap, and freed by the loop under
+// whatever context the embedder runs it with — so neither side may trust the ambient
+// allocator, and the binding carries its own. Using the state's rather than a
+// hard-coded heap keeps bindings visible to the embedder's allocator, so a leaked
+// binding shows up in a tracking test instead of vanishing into malloc.
 // Pinned by cmd/lava/timer_binding_alloc_test.odin.
-timer_binding_allocator :: #force_inline proc() -> runtime.Allocator {
-	return runtime.default_allocator()
+timer_binding_allocator :: proc(ctx: jsc.JSContextRef) -> runtime.Allocator {
+	if state := get_state_from_ctx(ctx); state != nil do return state.allocator
+	return context.allocator
 }
 
 // should_release_fired_callback_roots keeps normal callback GC-root cleanup on
@@ -555,7 +570,8 @@ set_timeout_cb :: proc "c" (
 	if argument_count >= 2 do delay = jsc.JSValueToNumber(ctx, arguments[1], nil)
 
 	// Trailing args (setTimeout(fn, delay, ...args)) are forwarded on fire.
-	cb := make_js_callback(ctx, fn, false, capture_timer_args(ctx, argument_count, arguments, 2))
+	alloc := timer_binding_allocator(ctx)
+	cb := make_js_callback(ctx, fn, false, capture_timer_args(ctx, argument_count, arguments, 2, alloc), alloc)
 	id := eventloop.set_timeout(
 		loop,
 		js_callback_trampoline,
@@ -585,7 +601,8 @@ set_interval_cb :: proc "c" (
 	if argument_count >= 2 do interval = jsc.JSValueToNumber(ctx, arguments[1], nil)
 
 	// Trailing args (setInterval(fn, delay, ...args)) are forwarded on every fire.
-	cb := make_js_callback(ctx, fn, true, capture_timer_args(ctx, argument_count, arguments, 2))
+	alloc := timer_binding_allocator(ctx)
+	cb := make_js_callback(ctx, fn, true, capture_timer_args(ctx, argument_count, arguments, 2, alloc), alloc)
 	id := eventloop.set_interval(
 		loop,
 		js_callback_trampoline,
@@ -612,7 +629,8 @@ set_immediate_cb :: proc "c" (
 	if fn == nil do return jsc.JSValueMakeUndefined(ctx)
 
 	// Trailing args (setImmediate(fn, ...args)) are forwarded on fire.
-	cb := make_js_callback(ctx, fn, false, capture_timer_args(ctx, argument_count, arguments, 1))
+	alloc := timer_binding_allocator(ctx)
+	cb := make_js_callback(ctx, fn, false, capture_timer_args(ctx, argument_count, arguments, 1, alloc), alloc)
 	id := eventloop.set_immediate(loop, js_callback_trampoline, cb, js_callback_dispose)
 	return jsc.JSValueMakeNumber(ctx, f64(id))
 }
