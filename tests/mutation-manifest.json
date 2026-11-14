@@ -1714,6 +1714,19 @@
       "gate": "node-test:scripts/run-mutations.test.mjs",
       "test": "a test name is a literal, not a pattern",
       "expect_detail": "a test name is a literal, not a pattern"
+    },
+    {
+      "name": "nocopy_net_bytes_never_use_the_ambient_allocator dies when conn_read_cb copies received bytes from the ambient allocator",
+      "why": "conn_read_cb (readiness backend) runs under the loop's context, i.e. the embedder's allocator, while jsc_buffer_deallocator frees the NoCopy Uint8Array's bytes into the heap; an ambient copy is the original defect.",
+      "source": "pkg/runtime/net.odin",
+      "find": "\t\t\tcopy_buf := make([]byte, n, runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap\n\t\t\tcopy(copy_buf, buf[:n])",
+      "replace": "\t\t\tcopy_buf := make([]byte, n, context.allocator)\n\t\t\tcopy(copy_buf, buf[:n])",
+      "gate": "odin:cmd/lava:main.nocopy_net_bytes_never_use_the_ambient_allocator",
+      "expect_detail": [
+        "Signal caught:",
+        "handed to JSC from the ambient allocator",
+        "odin test exited -1"
+      ]
     }
   ]
 }
