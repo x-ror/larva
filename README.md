@@ -1,5 +1,7 @@
 # Larva
 
+[![CI](https://github.com/x-ror/larva/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/x-ror/larva/actions/workflows/ci.yml)
+
 Larva is a lightweight headless browser engine (HTML + DOM + JavaScriptCore,
 no rendering) built on the Lava runtime. See [`docs/LARVA.md`](docs/LARVA.md)
 for the goals, architecture decisions and roadmap.
