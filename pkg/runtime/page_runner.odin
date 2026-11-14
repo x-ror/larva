@@ -10,14 +10,23 @@ import eventloop "lava:pkg/runtime/eventloop"
 // and its own event loop (page.odin says why a loop per page). The runner gives
 // every live page one tick per round; when a whole round makes no progress it blocks
 // on all the pages' loop descriptors at once, bounded by the nearest timer. So no
-// page's loop ever blocks on its own (never_block), and a page that is waiting costs
-// nothing.
+// page's loop ever blocks on its own (never_block), and a waiting page costs no CPU —
+// except one whose loop has no descriptor to wait on, which is polled every 1 ms
+// (runner_wait).
 //
-// What one page cannot do to the others on the thread: run past its CPU limits (a
+// What one page cannot do to the others on the thread: run past its CPU budget (a
 // kill ends that page only — its loop is force-exited and closed, the rest keep
-// ticking), or leave anything behind (closing a page destroys its loop and returns
-// its VM). What it can do: delay them for up to its entry limit, since they share
-// the thread's CPU. Threads are sized to cores.
+// ticking), or leave its loop or VM behind (closing a page destroys its loop and
+// returns its VM).
+//
+// What it can do, all listed in docs/LARVA.md decision 2 as open work:
+//   - delay its siblings by up to its budget, not its entry limit: one page_tick
+//     fires every timer already due, and the thread's CPU is shared;
+//   - hold the whole thread in page_close, which joins its loop's worker pool: a
+//     fetch DNS lookup until the resolver times out (Window profile too), an fs read
+//     on a pipe without bound;
+//   - under the Node profile, reach the process-wide fd table (leak to EMFILE, close
+//     a sibling's descriptor). The runner is not a security boundary there.
 //
 // Thread-confined: a runner and its pages are only ever touched by the thread that
 // called page_runner_init.

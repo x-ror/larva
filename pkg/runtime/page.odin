@@ -136,7 +136,6 @@ page_open :: proc(
 		vm_set_entry_limit(vm, limits.entry_limit)
 		vm_set_cpu_budget(vm, limits.cpu_budget)
 	}
-	if runner_page do vm_enable_stop(vm)
 
 	state := new_runtime_state(loop)
 	state.vm = vm
@@ -298,11 +297,12 @@ page_tick :: proc(page: ^Page) -> (alive: bool, did_work: bool) {
 // page down. Safe on a page whose page_open failed at any point.
 //
 // Teardown order is eval's, and each step needs the ones after it still alive:
-//   1. stop active fetches and join the fetch resolver workers, close net handles,
-//      then destroy the loop — its dispose hooks unprotect callbacks, so the context
-//      must be alive; node:dns lookups run on the loop's worker pool, which
+//   1. settle active fetches, close net handles, then destroy the loop — its dispose
+//      hooks unprotect callbacks, so the context must be alive. fs, node:dns and
+//      fetch's DNS lookups all run on the loop's worker pool, which
 //      eventloop.destroy -> pool_shutdown joins, so no background thread can post
-//      into a destroyed loop/context;
+//      into a destroyed loop/context — and so this call waits for blocking work
+//      still in flight (docs/LARVA.md decision 2, known limits);
 //   2. destroy_runtime_state — JSValueUnprotect on cached modules needs the context;
 //   3. release the context;
 //   4. return the VM to its pool, only after its context is gone: a pooled VM never

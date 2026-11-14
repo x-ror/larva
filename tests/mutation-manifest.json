@@ -1379,16 +1379,6 @@
       "timeout_ms": 600000
     },
     {
-      "name": "runner_process_exit_ends_only_its_page dies when a runner page's watchdog is not kept armed",
-      "why": "JSC ignores a limit set mid-entry unless one was armed at entry, so process.exit could not stop the code after it and the page would spin forever.",
-      "source": "pkg/runtime/page.odin",
-      "find": "\tif runner_page do vm_enable_stop(vm)\n",
-      "replace": "\n",
-      "gate": "odin:cmd/lava:main.runner_process_exit_ends_only_its_page",
-      "expect_detail": "timed out",
-      "timeout_ms": 30000
-    },
-    {
       "name": "runner_destroy_reports_live_pages_cancelled dies when destroy reports a cut-off page as finished",
       "why": "Without the cancel, a page cut off by destroy reads as a page that ran to completion, and its exitCode getter runs during destroy.",
       "source": "pkg/runtime/page_runner.odin",
@@ -1440,7 +1430,7 @@
       "find": "if !(limits.cpu_budget > 0) {",
       "replace": "if limits.cpu_budget <= 0 {",
       "gate": "odin:cmd/lava:main.runner_refuses_a_page_without_a_cpu_budget",
-      "expect_detail": "limits"
+      "expect_detail": "page_runner_live"
     },
     {
       "name": "runner_refuses_a_page_without_a_cpu_budget dies when the refusal is dropped",
@@ -1449,7 +1439,7 @@
       "find": "\tif !(limits.cpu_budget > 0) {\n\t\tappend(",
       "replace": "\tif false {\n\t\tappend(",
       "gate": "odin:cmd/lava:main.runner_refuses_a_page_without_a_cpu_budget",
-      "expect_detail": "limits"
+      "expect_detail": "page_runner_live"
     },
     {
       "name": "runner_process_exit_bounds_promise_jobs_queued_before_it dies when a requested stop no longer arms the watchdog",
@@ -1458,14 +1448,14 @@
       "find": "\tjsc.JSContextGroupSetExecutionTimeLimit(vm.group, STOP_LIMIT, vm_watchdog_terminate, vm)\n",
       "replace": "",
       "gate": "odin:cmd/lava:main.runner_process_exit_bounds_promise_jobs_queued_before_it",
-      "expect_detail": "page:"
+      "expect_detail": "drained promise job"
     },
     {
-      "name": "runner_vm_reused_after_process_exit_runs_the_next_page dies when releasing a VM leaves the stop's watchdog armed",
-      "why": "process.exit arms a 0.1 ms watchdog on the VM; left armed, it cuts the next page's first entry and that page dies as an entry-limit kill. (stop_requested itself is reset on both release and acquire, so dropping either reset alone is not observable.)",
+      "name": "runner_vm_reused_after_process_exit_runs_the_next_page dies when acquiring a VM keeps the last holder's stop request",
+      "why": "A stop left set on a pooled VM ends the next page that takes it at its first check, with exit code 0, before its timer runs.",
       "source": "pkg/runtime/vm_pool.odin",
-      "find": "\tif vm.armed_limit > 0 do jsc.JSContextGroupClearExecutionTimeLimit(vm.group)\n\tvm.entry_limit = 0\n",
-      "replace": "\tvm.entry_limit = 0\n",
+      "find": "\t\t\tvm.budget_hit = false\n\t\t\tvm.stop_requested = false\n",
+      "replace": "\t\t\tvm.budget_hit = false\n",
       "gate": "odin:cmd/lava:main.runner_vm_reused_after_process_exit_runs_the_next_page",
       "expect_detail": "second page"
     }

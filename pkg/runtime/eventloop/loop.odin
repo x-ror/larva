@@ -239,11 +239,12 @@ sync_real_clock :: proc(loop: ^Loop) {
 // clear_timeout, and a fired one-shot freed its own binding, so neither is
 // double-released here.
 //
-// PRECONDITION: every off-loop producer that may call post_async (e.g. fetch's DNS
-// workers) must already be joined. destroy touches async_queue WITHOUT the mutex on
-// the assumption it is the sole surviving accessor; a still-running worker would
-// race the read here and could post into freed memory. The lava runtime enforces
-// this by calling fetch_shutdown_active (which joins the workers) before destroy.
+// PRECONDITION: every off-loop producer that may call post_async must be stopped by
+// the time the queues are torn down. destroy touches async_queue WITHOUT the mutex on
+// the assumption it is the sole surviving accessor. The loop's own worker pool — fs,
+// node:dns and fetch's DNS all run on it (fetch_dns.odin) — is joined below by
+// pool_shutdown, which therefore blocks until each in-flight job returns: a DNS
+// lookup until the resolver times out, a read on a pipe without bound.
 destroy :: proc(loop: ^Loop) {
 	// Mark destroyed under the shutdown mutex BEFORE freeing any platform state, so a concurrent
 	// request_shutdown (worker supervisor, another thread) either ran fully before this — having

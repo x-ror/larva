@@ -475,8 +475,9 @@ runner_process_exit_runs_no_code_after_it :: proc(t: ^testing.T) {
 // entry that called it returns, since JSC drains its job queue at every C-API exit and
 // nothing public stops that; Node runs none. They are cut by the stop watchdog (a
 // 0.1 ms CPU limit, vm_request_stop), so an endless one ends the page with the code it
-// asked for — neither hangs the thread nor reads as a kill. With a 5 s budget a
-// missing cut would end this page as a .Cpu_Budget kill instead.
+// asked for — neither hangs the thread nor reads as a kill. Without the cut the job
+// runs on until the 5 s budget's watchdog fires, which a stopped page also reads as
+// its stop: same Result, so the bound is on time.
 @(test)
 runner_process_exit_bounds_promise_jobs_queued_before_it :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
@@ -485,9 +486,12 @@ runner_process_exit_bounds_promise_jobs_queued_before_it :: proc(t: ^testing.T) 
 	}
 	defer lava.page_runner_destroy(&runner)
 	o: Outcome
+	start := time.tick_now()
 	lava.page_runner_open(&runner, "Promise.resolve().then(() => { while (true) {} }); process.exit(4);", "<exit-drain>", {cpu_budget = 5}, &o)
 	lava.page_runner_run(&runner)
+	elapsed := time.duration_seconds(time.tick_since(start))
 	testing.expectf(t, o.done && o.status == .Ok && o.kill == .None && o.exit == 4, "page: %v", o)
+	testing.expectf(t, elapsed < 1, "a drained promise job ran %.2fs past process.exit()", elapsed)
 }
 
 @(private = "file")

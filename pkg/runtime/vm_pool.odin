@@ -62,10 +62,6 @@ VM :: struct {
 	// The watchdog is armed at a token limit so the running script stops at its next
 	// trap, and a fire in this state is neither kind of kill.
 	stop_requested:  bool,
-	// vm_enable_stop: keep the watchdog armed (at BACKSTOP_LIMIT when no limit applies),
-	// because JSC only honours a limit set mid-entry if one was armed when the entry
-	// began — and vm_request_stop is called mid-entry.
-	stoppable:       bool,
 }
 
 // Page_Limits are the CPU limits a page runs under. Seconds; 0 = no limit.
@@ -214,8 +210,6 @@ vm_release :: proc(vm: ^VM) {
 	vm.cpu_budget_ns = 0
 	vm.cpu_used_ns = 0
 	vm.cpu_depth = 0
-	vm.stop_requested = false
-	vm.stoppable = false
 	vm.in_use = false
 	// Move it to the end, so the backward scan in vm_acquire finds the most recently
 	// released VM first. O(capacity), on a list of a few entries.
@@ -317,7 +311,6 @@ vm_arm_watchdog :: proc(vm: ^VM) {
 			by_budget = true
 		}
 	}
-	if want <= 0 && vm.stoppable do want = BACKSTOP_LIMIT
 	if want <= 0 {
 		if vm.armed_limit > 0 do jsc.JSContextGroupClearExecutionTimeLimit(vm.group)
 		vm.armed_limit = 0
@@ -375,29 +368,16 @@ vm_arm_kill_floor :: proc(vm: ^VM) {
 @(private = "file")
 KILL_FLOOR :: 0.001
 
-// BACKSTOP_LIMIT is the watchdog limit of a stoppable VM with no CPU limit of its own:
-// a CPU-seconds limit no entry reaches, there only so that a mid-entry
-// vm_request_stop takes effect.
-BACKSTOP_LIMIT :: 1e6
-
-// vm_enable_stop lets vm_request_stop end the holder mid-entry, by keeping the
-// watchdog armed for every entry. Costs JSC's watchdog timer start per entry, so only
-// holders that can call vm_request_stop (runner pages) ask for it.
-//
-// Measured, not read off the docs: with no limit armed when an entry began, a limit
-// set during it never fired (a `process.exit(); while (true) {}` page hung); with one
-// armed, re-arming mid-entry stopped it (cmd/lava/page_runner_test.odin,
-// runner_process_exit_ends_only_its_page).
-vm_enable_stop :: proc(vm: ^VM) {
-	if vm == nil do return
-	vm.stoppable = true
-	vm_arm_watchdog(vm)
-}
-
 // vm_request_stop ends the VM's current holder from inside one of its natives: every
 // later callback is skipped (page_stop_if_killed), and whatever JS still runs stops
 // at its next VM trap (the watchdog, armed at a token limit). Not a kill:
-// vm_kill_reason stays .None. Cleared on release.
+// vm_kill_reason stays .None. Cleared when the VM is next acquired.
+//
+// The token limit only takes if a limit was already armed when the current entry
+// began: measured, with none armed a limit set mid-entry never fired (a
+// `process.exit(); while (true) {}` page hung). Runner pages always carry a CPU
+// budget (page_runner_open refuses one without), which keeps the watchdog armed for
+// every entry, so no extra arming is needed for this.
 //
 // Node:
 //   process.exit() in a worker runs no more JS at all (TerminateExecution). The

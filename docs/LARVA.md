@@ -37,8 +37,8 @@ decides which traffic goes to Larva and which stays on Chrome.
    one `JSC::VM`: one GC heap, one lock, one microtask queue that JSC drains at
    every exit from the C API. Pages therefore never share a VM — sharing one
    would let page A run page B's promise jobs and would make per-page heap size
-   unmeasurable. Each worker thread owns an event loop and drives many pages,
-   each in its own VM. VMs come from a per-thread pool and are reused
+   unmeasurable. Each worker thread drives many pages,
+   each in its own VM with its own event loop (below). VMs come from a per-thread pool and are reused
    sequentially, one page at a time:
    - a VM is only ever entered by its owning thread;
    - **same-origin iframes** live in their page's VM, as extra globals created
@@ -77,8 +77,23 @@ decides which traffic goes to Larva and which stays on Chrome.
      that reuses the VM. No page loop blocks on its own; when no page can
      progress the runner blocks on every page loop's descriptor at once,
      bounded by the nearest timer;
-   - Pages on one thread still share its CPU. A long synchronous script delays the
-     thread's other pages up to the execution limit; threads are sized to cores.
+   - Pages on one thread still share its CPU; threads are sized to cores. A runner
+     page must carry a CPU budget (`page_runner_open` refuses one without), and a
+     page that spins is killed alone. Until then it delays its siblings by up to its
+     **budget**, not its entry limit: one tick fires every timer already due, so a
+     page that queues many timers holds the thread for all of them. Slicing a tick
+     is open work.
+   - Known limits of the runner, open as issues:
+     - `page_close` joins the page loop's worker pool on the runner thread, so
+       blocking work still in flight there holds every sibling on the thread, with
+       no CPU limit to cut it: a `fetch` DNS lookup until the resolver times out —
+       reachable from the Window profile too — and an `fs` read on a pipe or FIFO
+       without bound. Must be fixed before the multi-thread dispatcher ships.
+     - The process fd table is shared. Under the Node profile a page can leak
+       descriptors to `EMFILE` or `closeSync` a sibling's; the runner is not a
+       security boundary there. The Window profile has no `fs`, which is what
+       isolates descriptors between untrusted pages.
+     - Each page loop starts its own 4-thread worker pool on first use.
    - every process-global and thread-local is audited for page isolation in
      [GLOBAL-STATE.md](GLOBAL-STATE.md); a new one is added there in the same PR.
 3. **Network stack with client profiles; network state belongs to the session.**
