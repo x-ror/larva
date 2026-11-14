@@ -801,7 +801,7 @@
       "name": "57-format-single-arg dies when a lone surrogate is not escaped",
       "why": "node escapes an unpaired surrogate as \\\\udXXX; Lava used to hand it to the string conversion, which replaced it with U+FFFD — the value came back LOSSY, not merely rendered differently.",
       "source": "pkg/runtime/js/internal/util.js",
-      "find": "        if (next >= 0xdc00 && next <= 0xdfff)\n          i++; // consume the pair\n        else esc = escUnit(c);",
+      "find": "        if (next >= 0xdc00 && next <= 0xdfff) i++; // consume the pair\n        else esc = escUnit(c);",
       "replace": "        if (next >= 0xdc00 && next <= 0xdfff) i++;",
       "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
       "expect_detail": [
