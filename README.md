@@ -1,5 +1,7 @@
 # Lava
 
+[![CI](https://github.com/x-ror/lava/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/x-ror/lava/actions/workflows/ci.yml)
+
 Lava is an experimental Bun-inspired JavaScript runtime and toolkit written in
 Odin. The runtime target is JavaScriptCore (JSC).
 
