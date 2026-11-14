@@ -1469,11 +1469,11 @@
       "expect_detail": "page loop backend is"
     },
     {
-      "name": "runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator dies when net's read copy goes back to context.allocator",
+      "name": "runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator dies when net's readiness read copy goes back to context.allocator",
       "why": "jsc_buffer_deallocator frees through the heap; a read copy made under the runner's allocator is a bad free when JSC collects it (glibc abort at VM teardown).",
       "source": "pkg/runtime/net.odin",
-      "find": "copy_buf := make([]byte, len(src), runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap",
-      "replace": "copy_buf := make([]byte, len(src), context.allocator)",
+      "find": "copy_buf := make([]byte, n, runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap\n\t\t\tcopy(copy_buf, buf[:n])",
+      "replace": "copy_buf := make([]byte, n, context.allocator)\n\t\t\tcopy(copy_buf, buf[:n])",
       "gate": "odin:cmd/lava:main.runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator",
       "expect_detail": "odin test exited"
     },
