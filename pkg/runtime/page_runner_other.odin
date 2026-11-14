@@ -20,12 +20,9 @@ page_runner_init :: proc(runner: ^Page_Runner, capacity: int, on_done: Page_Done
 
 page_runner_destroy :: proc(runner: ^Page_Runner) {}
 
-// Reports the page as not run, so the exactly-once on_done contract still holds.
-page_runner_open :: proc(runner: ^Page_Runner, source: string, source_name: string, limits: Page_Limits = {}, user_data: rawptr = nil) {
-	if runner.on_done != nil {
-		runner.on_done(runner, user_data, vm_pool_unavailable("page runner is not supported on this platform"))
-	}
-}
+// page_runner_init returned false, so the runner is unusable: a page opened on it is
+// neither run nor reported (on_done was never kept). Linux-first, as above.
+page_runner_open :: proc(runner: ^Page_Runner, source: string, source_name: string, limits: Page_Limits, user_data: rawptr = nil) {}
 
 page_runner_live :: proc(runner: ^Page_Runner) -> int {return 0}
 

@@ -2,7 +2,7 @@
   "$comment": [
     "Every entry names a test and the ONE-LINE change to production source that must",
     "make it go red. `make test-mutation` applies each change, runs the named gate,",
-    "and fails if the gate still passes \u2014 because a test that survives the deletion of",
+    "and fails if the gate still passes — because a test that survives the deletion of",
     "the code it claims to pin is asserting something else.",
     "",
     "This exists because three tests landed in #321 that passed for the wrong reason,",
@@ -18,7 +18,7 @@
     "  why     one sentence: the defect this catches if the mutation survives",
     "  source  production file to patch (never a test file)",
     "  find    exact string to replace; must appear EXACTLY once (the runner checks)",
-    "  replace what to put there \u2014 usually the pre-fix code, or a deleted guard",
+    "  replace what to put there — usually the pre-fix code, or a deleted guard",
     "  gate    how to observe red; see GATE KINDS in scripts/run-mutations.mjs",
     "  expect_detail  substring the RED output must contain; '' is a visible opt-out",
     "  (`rebuild` is gone: it was derivable from the gate kind, and a run filtered to",
@@ -1423,6 +1423,51 @@
       "replace": "if loop.platform.use_uring do return uintptr(loop.platform.wakeup_pipe[1]), loop.platform.ring.fd >= 0",
       "gate": "odin:pkg/runtime/eventloop:eventloop.backend_fd_wakes_an_outer_epoll_on_watched_io",
       "expect_detail": "did not wake the outer epoll"
+    },
+    {
+      "name": "runner_process_exit_runs_no_code_after_it dies when process.exit() in a runner page stops raising JSC's termination exception",
+      "why": "Node runs nothing after process.exit() in a worker; without the uncatchable exception the next statement, catch and finally run until the stop watchdog's trap.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\t\tif term := jsc.termination_exception(ctx); term != nil && exception != nil do exception^ = term\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.runner_process_exit_runs_no_code_after_it",
+      "expect_detail": "ran code after process.exit()"
+    },
+    {
+      "name": "runner_refuses_a_page_without_a_cpu_budget dies when a NaN budget slips past the refusal",
+      "why": "vm_set_cpu_budget reads NaN as no budget; a `<= 0` check lets it through and the page runs unbounded.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "if !(limits.cpu_budget > 0) {",
+      "replace": "if limits.cpu_budget <= 0 {",
+      "gate": "odin:cmd/lava:main.runner_refuses_a_page_without_a_cpu_budget",
+      "expect_detail": "limits"
+    },
+    {
+      "name": "runner_refuses_a_page_without_a_cpu_budget dies when the refusal is dropped",
+      "why": "Without it, 'a page that spins is killed alone' holds only for callers who passed a budget.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\tif !(limits.cpu_budget > 0) {\n\t\tappend(",
+      "replace": "\tif false {\n\t\tappend(",
+      "gate": "odin:cmd/lava:main.runner_refuses_a_page_without_a_cpu_budget",
+      "expect_detail": "limits"
+    },
+    {
+      "name": "runner_process_exit_bounds_promise_jobs_queued_before_it dies when a requested stop no longer arms the watchdog",
+      "why": "The drained promise jobs are bounded only by the stop's token limit; without it an endless job runs to the page's budget and the exit reads as a kill.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tjsc.JSContextGroupSetExecutionTimeLimit(vm.group, STOP_LIMIT, vm_watchdog_terminate, vm)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.runner_process_exit_bounds_promise_jobs_queued_before_it",
+      "expect_detail": "page:"
+    },
+    {
+      "name": "runner_vm_reused_after_process_exit_runs_the_next_page dies when releasing a VM leaves the stop's watchdog armed",
+      "why": "process.exit arms a 0.1 ms watchdog on the VM; left armed, it cuts the next page's first entry and that page dies as an entry-limit kill. (stop_requested itself is reset on both release and acquire, so dropping either reset alone is not observable.)",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tif vm.armed_limit > 0 do jsc.JSContextGroupClearExecutionTimeLimit(vm.group)\n\tvm.entry_limit = 0\n",
+      "replace": "\tvm.entry_limit = 0\n",
+      "gate": "odin:cmd/lava:main.runner_vm_reused_after_process_exit_runs_the_next_page",
+      "expect_detail": "second page"
     }
   ]
 }

@@ -109,22 +109,38 @@ page_runner_destroy :: proc(runner: ^Page_Runner) {
 
 // page_runner_open starts a page: its runtime install and top-level script run now,
 // and its loop joins the runner. A page that finishes during the open — a throw, a
-// kill, a full pool — is reported to on_done from the next page_runner_run; one with
-// nothing scheduled is reported on its first tick. The temp arena does not survive
-// this call — the page's require() calls reset it (native_require_cb), and the open
-// resets it once more at the end so a chain of opens cannot grow it — so `source`
-// and anything else the caller still needs must not live in it.
+// kill, a full pool, a refusal — is reported to on_done from the next
+// page_runner_run; one with nothing scheduled is reported on its first tick. The temp
+// arena does not survive this call — the page's require() calls reset it
+// (native_require_cb), and the open resets it once more at the end so a chain of
+// opens cannot grow it — so `source` and anything else the caller still needs must
+// not live in it.
+//
+// Params:
+//   limits  Must carry a CPU budget (cpu_budget > 0); there is no default, so a
+//           caller that forgets the argument does not compile. A page without one is
+//           refused with .Invalid_Input before it takes a loop or a VM. The budget,
+//           not the entry limit, is what bounds a page's whole life — an endless
+//           chain of short callbacks never trips an entry limit — and so what makes
+//           "a page that spins is killed alone" hold for every caller. Negative and
+//           NaN read as "no budget" to vm_set_cpu_budget, and are refused alike.
+//           Pinned by runner_refuses_a_page_without_a_cpu_budget.
 page_runner_open :: proc(
 	runner: ^Page_Runner,
 	source: string,
 	source_name: string,
-	limits: Page_Limits = {},
+	limits: Page_Limits,
 	user_data: rawptr = nil,
 ) {
 	context.allocator = runner.allocator
 	defer free_all(context.temp_allocator)
 	if runner.closing {
 		append(&runner.done, Done_Page{user_data, page_killed_result(.Cancelled)})
+		return
+	}
+	// `!(x > 0)`, not `x <= 0`: NaN compares false both ways.
+	if !(limits.cpu_budget > 0) {
+		append(&runner.done, Done_Page{user_data, Result{status = .Invalid_Input, exit_code = 2, message = "page runner: a page needs a CPU budget (Page_Limits.cpu_budget > 0)"}})
 		return
 	}
 	rp := new(Runner_Page, runner.allocator)

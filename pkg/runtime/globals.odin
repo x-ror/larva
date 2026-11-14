@@ -843,11 +843,19 @@ process_exit_cb :: proc "c" (
 	}
 	// In a runner page, exit ends the page, not the process: os.exit would take every
 	// sibling page on the thread down with it, and none of them would be reported.
+	// The page ends the way Node ends a worker (TerminateExecution): JSC's termination
+	// exception skips every catch and finally, so nothing after the call runs. The
+	// stop request ends what that exception cannot reach — later callbacks
+	// (page_stop_if_killed) and promise jobs already queued, which JSC drains as the
+	// entry returns (cut by the stop watchdog; the Deviates note on vm_request_stop).
+	// Without the private symbol the call returns and the watchdog alone stops the
+	// page, a few statements later.
 	state := get_state_from_ctx(ctx)
 	if state != nil && state.page_runner && state.vm != nil {
 		state.page_exit_code = code
 		vm_request_stop(state.vm)
 		if state.loop != nil do state.loop.force_exit = true
+		if term := jsc.termination_exception(ctx); term != nil && exception != nil do exception^ = term
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 	os.exit(code)

@@ -394,10 +394,19 @@ vm_enable_stop :: proc(vm: ^VM) {
 	vm_arm_watchdog(vm)
 }
 
-// vm_request_stop ends the VM's current holder from inside one of its natives: the
-// script that called it stops at its next VM trap (the watchdog, armed at a token
-// limit), and every later callback is skipped (page_stop_if_killed). Not a kill:
+// vm_request_stop ends the VM's current holder from inside one of its natives: every
+// later callback is skipped (page_stop_if_killed), and whatever JS still runs stops
+// at its next VM trap (the watchdog, armed at a token limit). Not a kill:
 // vm_kill_reason stays .None. Cleared on release.
+//
+// Node:
+//   process.exit() in a worker runs no more JS at all (TerminateExecution). The
+//   calling script gets the same from JSC's termination exception (process_exit_cb).
+// Deviates:
+//   Promise jobs queued before the call still start when the entry returns — JSC
+//   drains its job queue at every C-API exit, and nothing public skips that — and run
+//   until the token limit's trap: bounded, not prevented. Pinned by
+//   cmd/lava/page_runner_test.odin, runner_process_exit_bounds_promise_jobs_queued_before_it.
 vm_request_stop :: proc(vm: ^VM) {
 	if vm == nil do return
 	vm.stop_requested = true
