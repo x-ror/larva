@@ -1,9 +1,0 @@
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "ignorePatterns": ["bin/**", "build/**", "node_modules/**", "reports/**", "tests/vendor/**"],
-  "rules": {
-    "no-unused-expressions": "off",
-    "no-sparse-arrays": "off",
-    "unicorn/no-thenable": "off"
-  }
-}

@@ -1,7 +1,8 @@
 # `bun fmt` (make check-js / fix-js). Replaces vite-plus's `vp fmt` (oxfmt); the
 # style is the one the tree was already formatted in: oxfmt's 100-column width,
-# semicolons, single quotes. Lint is `oxlint` with .oxlintrc.json — `bun lint` is
-# documented but not in the stable Bun this repo pins (1.4.4).
+# semicolons, single quotes. There is no separate linter: `bun fmt --check` is the
+# style gate, and the correctness checks are the repo's own (primordials ratchet,
+# orphan-JS, global-replace) plus the oracle suites.
 [fmt]
 printWidth = 100
 semi = true
