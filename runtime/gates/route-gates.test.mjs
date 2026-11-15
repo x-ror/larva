@@ -25,6 +25,7 @@ test('buffer path routes bun-buffer + api-surface (non-CI)', () => {
 test('bench path routes bench-gate', () => {
   const r = routePaths(['bench/micro/url.js']);
   assert.ok(r.targets.includes('make bench-gate'));
+  assert.ok(!r.nonCi.includes('make bench-gate'));
 });
 
 test('invalid **.js style is not required — **/* works', () => {

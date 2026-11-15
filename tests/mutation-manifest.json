@@ -1044,6 +1044,36 @@
       "expect_detail": "GATE INTEGRITY"
     },
     {
+      "name": "compare.sh dies when the Node 24 oracle version check is gutted",
+      "why": "Oracle expectations drift between Node majors (#185: node:sqlite coercion differs in both Node 22 and Node 26 against Node 24); a non-24 oracle must not run.",
+      "source": "scripts/lib/compare.sh",
+      "find": "\tif [ \"$_got\" != \"$_want\" ]; then",
+      "replace": "\tif false; then",
+      "gate": "node-test:runtime/gates/compare-integrity.test.mjs",
+      "test": "compare.sh refuses a non-Node-24 NODE_BIN (#185)",
+      "expect_detail": "Expected values to be strictly equal"
+    },
+    {
+      "name": "compare.sh dies when compare_case ignores a node per-case timeout",
+      "why": "A case that hangs both Node and Lava exits 124 on both sides with empty output, which compare_case would pass as 124 == 124 without the explicit timeout check (#399).",
+      "source": "scripts/lib/compare.sh",
+      "find": "\tif [ \"$node_status\" -eq 124 ]; then\n\t\tset -e\n\t\tprintf 'timeout (%ss) running node for %s\\n' \"$CASE_TIMEOUT_SEC\" \"${case_file#$ROOT_DIR/}\" >&2\n\t\treturn 124\n\tfi",
+      "replace": "\tif false; then\n\t\treturn 124\n\tfi",
+      "gate": "node-test:runtime/gates/compare-integrity.test.mjs",
+      "test": "compare_case fails when both node and lava time out instead of matching 124==124 (#399)",
+      "expect_detail": "compare_case fails when both node and lava time out instead of matching 124==124 (#399)"
+    },
+    {
+      "name": "compare.sh dies when compare_case ignores a lava per-case timeout",
+      "why": "When Lava hangs on a case that Node finishes, compare_case must report a lava timeout naming the case rather than a generic exit mismatch (#399).",
+      "source": "scripts/lib/compare.sh",
+      "find": "\tif [ \"$lava_status\" -eq 124 ]; then\n\t\tprintf 'timeout (%ss) running lava for %s\\n' \"$CASE_TIMEOUT_SEC\" \"${case_file#$ROOT_DIR/}\" >&2\n\t\treturn 124\n\tfi",
+      "replace": "\tif false; then\n\t\treturn 124\n\tfi",
+      "gate": "node-test:runtime/gates/compare-integrity.test.mjs",
+      "test": "compare_case fails with lava timeout message when only lava hangs (#399)",
+      "expect_detail": "compare_case fails with lava timeout message when only lava hangs (#399)"
+    },
+    {
       "name": "assert-case-counts dies when the min floor branch is disabled",
       "why": "Silent case deletion must fail the count; if (false) makes every suite green at any size.",
       "source": "runtime/gates/assert-case-counts.mjs",
@@ -1672,6 +1702,16 @@
       "expect_detail": [
         "<Buffer ... 1 more byte>"
       ]
+    },
+    {
+      "name": "run-gates dies when a failing gate no longer sets a non-zero exit code",
+      "why": "make gates exists so a red gate cannot be hidden by a pipe's exit status (#360); returning status 0 on failure defeats the runner.",
+      "source": "scripts/run-gates.mjs",
+      "find": "  const status = failed ? failed.status : 0;",
+      "replace": "  const status = 0;",
+      "gate": "node-test:scripts/run-gates.test.mjs",
+      "test": "stops at the first failing target and exits non-zero",
+      "expect_detail": "stops at the first failing target and exits non-zero"
     }
   ]
 }

@@ -38,15 +38,15 @@ so the harness itself can be smoke-tested anywhere Node is present.
 
 ## The gate, and calibrating it
 
-`thresholds.json` ships with **generous starter caps**: they catch only catastrophic
-regressions and are not meant to flake. CI currently runs `make bench` (report-only) so
-the ratio table shows in the job log without ever failing the build.
+CI runs `make bench-gate` on Linux (`ubuntu-latest`) and fails the build when any
+benchmark's median-of-3 `lava/node` ratio exceeds its cap in `thresholds.json`.
+`make bench` runs a single launch per side as a local report-only view (never fails).
 
-To turn the gate on:
+When adding or tuning benchmarks:
 
-1. Run `make bench` (locally or read a CI run's table) to observe Lava's real ratios.
-2. Tighten each cap in `thresholds.json` toward its observed ratio, leaving headroom for
-   CI noise (a cap of ~1.5–2× the observed ratio is a reasonable start).
-3. Flip the CI step from `make bench` to `make bench-gate` (`.github/workflows/ci.yml`).
+1. Run `make bench` / `make bench-gate` (or read a CI run's table) to observe Lava's real ratios.
+2. Adjust caps in `thresholds.json` with headroom for CI noise and document the
+   measurement method, commit, and hardware/CI context in the comment keys.
 
-A benchmark with no entry in `thresholds.json` is always report-only.
+A benchmark with no entry in `thresholds.json` (and not listed in `report_only`)
+fails `make bench-gate` so new benchmarks cannot land unmonitored.
