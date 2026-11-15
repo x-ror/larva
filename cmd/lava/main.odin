@@ -55,9 +55,11 @@ eval_command :: proc(args: []string) {
 	loop := eventloop.init(real_time = true)
 	// eval tears the loop down before its JS context is released (it owns both); see
 	// the destroy call there. Calling destroy here instead would run the handles'
-	// dispose hooks against an already-freed context.
-	result := lava_runtime.eval(args[0], "<eval>", &loop, true)
-	print_result(result)
+	// dispose hooks against an already-freed context. print_result is eval's report
+	// hook rather than a call after it returns: the teardown joins the loop's pool
+	// workers, and a worker blocked without bound would otherwise hold back the report
+	// of a top-level throw (see lava_runtime.Result_Hook).
+	result := lava_runtime.eval(args[0], "<eval>", &loop, true, report = print_result)
 	exit_code := result.exit_code
 	lava_runtime.result_destroy(&result)
 	os.exit(exit_code)
@@ -85,9 +87,8 @@ run_command :: proc(args: []string) {
 	// args is [scriptPath, ...userArgs]; everything after the script is forwarded to
 	// process.argv.slice(2) (Node parity).
 	// run_file forwards to eval, which tears the loop down before releasing its JS
-	// context (see eval_command).
-	result := lava_runtime.run_file(args[0], &loop, args[1:])
-	print_result(result)
+	// context and reports through print_result before that teardown (see eval_command).
+	result := lava_runtime.run_file(args[0], &loop, args[1:], report = print_result)
 	exit_code := result.exit_code
 	lava_runtime.result_destroy(&result)
 	os.exit(exit_code)
@@ -100,7 +101,11 @@ run_command :: proc(args: []string) {
 // before this change: `lava eval "'x'.repeat(300000)"` delivered 65536 bytes where node -p
 // delivered 300001. The async report already went through process_write and was fine,
 // which is what made the two error paths disagree on the same input.
-print_result :: proc(result: lava_runtime.Result) {
+//
+// It is eval's report hook (lava_runtime.Result_Hook), so it runs inside eval with the
+// loop and JS context still alive: it writes through process_write and touches nothing
+// else.
+print_result :: proc(result: lava_runtime.Result, user_data: rawptr) {
 	if lava_runtime.is_success(result) {
 		if len(result.message) > 0 {
 			lava_runtime.process_write(os.stdout, result.message, "\n")
