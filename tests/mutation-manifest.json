@@ -1498,13 +1498,13 @@
       "expect_detail": "close_begin did not report the blocked worker"
     },
     {
-      "name": "close_begin_cancels_a_running_job_without_waiting_for_it dies when close_begin disposes a job a worker is running",
-      "why": "Disposing a running job frees the user_data its worker is still inside `work` on, and the worker then posts a completion for a freed job; close_begin reports busy only for a job it sees running, so that is the first assertion to fail (the dispose count follows) — Lava's port of larva#49's runner_second_page_in_a_reused_vm_gets_no_callback_from_the_first_pages_job entry, which a page runner gates.",
+      "name": "close_begin_never_disposes_a_job_its_worker_is_running dies when close_begin disposes a job a worker is running",
+      "why": "Disposing a running job frees the Pool_Job its worker reads job.loop from to post its completion, and the user_data it is still inside `work` on — Lava's port of larva#49's runner_second_page_in_a_reused_vm_gets_no_callback_from_the_first_pages_job entry, which a page runner gates. The gate test fails before it releases the worker. Gated by close_begin_cancels_a_running_job_without_waiting_for_it, which releases it, the worker's use-after-free faulted locally but hung CI (ubuntu, 4 cores) until the 120 s gate timeout (PR #388, shard 3/3).",
       "source": "pkg/runtime/eventloop/threadpool.odin",
       "find": "\t\tif job.running {\n",
       "replace": "\t\tif false {\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.close_begin_cancels_a_running_job_without_waiting_for_it",
-      "expect_detail": "close_begin did not report the blocked worker"
+      "gate": "odin:pkg/runtime/eventloop:eventloop.close_begin_never_disposes_a_job_its_worker_is_running",
+      "expect_detail": "close_begin disposed a job its worker is still running"
     },
     {
       "name": "close_detach_leaves_the_loop_to_its_last_worker dies when close_begin closes the wakeup pipe",
