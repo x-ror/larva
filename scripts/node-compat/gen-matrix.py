@@ -31,7 +31,7 @@ PROBED_NODE = "24.22.1"
 # status: full | partial | missing | na  (page -> (status, implemented, gaps))
 MODULES = {
     "assert": ("full", "node:assert + assert/strict, AssertionError, partialDeepStrictEqual", "Assert class, CallTracker; deepStrictEqual divergences (#103)"),
-    "buffer": ("full", "Buffer/Blob/File/SlowBuffer/isAscii/isUtf8/transcode/resolveObjectURL; module-level atob/btoa (+ global URL.createObjectURL/revokeObjectURL)", "atob/btoa are not installed as globals (#86); exports a lava-only describeType"),
+    "buffer": ("full", "Buffer/Blob/File/isAscii/isUtf8/transcode/resolveObjectURL; module-level atob/btoa (+ global URL.createObjectURL/revokeObjectURL)", "atob/btoa are not installed as globals (#86); exports a lava-only describeType"),
     "events": ("full", "EventEmitter, once, on, getEventListeners, getMaxListeners, setMaxListeners, listenerCount, addAbortListener, defaultMaxListeners", "EventEmitterAsyncResource/errorMonitor/captureRejections; no EventTarget/CustomEvent globals; meta-events (#105)"),
     "intl": ("full", "engine (JavaScriptCore) Intl", "engine-provided, not lava code"),
     "path": ("full", "posix+win32 full surface", ""),
