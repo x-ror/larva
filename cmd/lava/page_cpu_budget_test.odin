@@ -119,11 +119,12 @@ thread_cpu_cb :: proc "c" (
 // floor, so if release leaves it armed, JSC terminates the next entry once that entry
 // has used 1 ms of thread CPU (and the watchdog timer has run since). This page used
 // to spin 150 ms of wall time, and on a loaded runner that bought it too little CPU:
-// with 64 busy loops sharing its one core (`taskset -c 0`) the entry got 3.3-3.6 ms of
-// CPU and the still-armed watchdog missed it in 2 of 14 runs, so the mutation that
-// drops the clear survived (as it once did in CI). Spinning to 100 ms of thread CPU —
-// 100x the floor whatever the load — gives that watchdog every chance to fire, and
-// costs the passing run about what the 150 ms wall spin did.
+// with 64 busy loops pinned to its one core (`taskset -c 0`) the entry got 3.3-3.6 ms
+// of CPU (14 instrumented runs) and the mutation that drops the clear survived 5 of
+// 40 runs, as it once did in CI (mutation shard 3/3 on x-ror/larva#53). Spinning to
+// 100 ms of thread CPU — 100x the floor whatever the load — killed that mutation in
+// 40 of 40 runs under the same load and passed 8 of 8 unmutated. The passing run
+// costs no more: 208 ms against 260 ms for the whole test, one unloaded run each.
 @(test)
 cpu_budget_is_cleared_on_release :: proc(t: ^testing.T) {
 	pool: lava.VM_Pool
