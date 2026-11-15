@@ -61,22 +61,30 @@ launch, so a "cold" VM really has run nothing):
 | --- | --- |
 | `cold_ms` | mean `page_runner_open` of the first N pages, each on a fresh VM: Node-profile runtime install plus a one-timer script |
 | `warm_ms` | the same for the next N pages on the same VMs (JSC CodeCache warm) |
-| `live_kb_page` | RSS growth with N pages just opened, per page |
-| `idle_kb_vm` | RSS growth after 1000 pages of churn, per pooled VM: what an idle VM keeps |
-| `pages_per_s` | sustained, N pages in flight, 1000 pages in all |
+| `rss_growth_kb_per_live_page` | whole-process VmRSS growth with N pages just opened, divided by N; includes JSC's one-time process init |
+| `rss_growth_kb_per_vm` | whole-process VmRSS growth after `TOTAL` pages of churn, divided by VMs created (see below) |
+| `pages_per_s` | sustained, N pages in flight, `TOTAL` pages in all |
+| `*_failed` | pages of each round that did not finish `.Ok`; any makes the launch exit 1 |
 
-Report-only; not in CI. A run on the dev container (2026-11-13, 4 cores, one thread
-used), medians of 5 launches per N:
+`rss_growth_kb_per_vm` is an upper bound, not the steady-state cost of an idle pooled
+VM: it lumps together JSC's process init, each VM's heap as left uncollected
+(`vm_release` runs no GC) and malloc's high-water mark, and with `TOTAL` fixed a
+per-VM cost cannot be told from a per-page-run one. At N = 1 both RSS columns are
+dominated by the one-off process init.
 
-| N | cold_ms | warm_ms | live_kb_page | idle_kb_vm | pages_per_s |
+Report-only; CI runs only `make test-bench-pages-smoke`, which checks that the bench
+runs and fails on a refused page, not its numbers. Measured at commit `aee73e1` on 4
+cores, Intel Xeon @ 2.10GHz (CI-class Ubuntu runner), one thread used: `make
+bench-pages` (`-o:speed`), every page with `cpu_budget` = 30 s of thread CPU
+(`BENCH_LIMITS`), `TOTAL` = 1000 pages per launch, medians of 5 launches per N,
+interleaved (each round runs N = 1, 10, 50, 100 once):
+
+| N | cold_ms | warm_ms | rss_growth_kb_per_live_page | rss_growth_kb_per_vm | pages_per_s |
 | --- | --- | --- | --- | --- | --- |
-| 1 | 21.48 | 7.79 | 23220 | 57964 | 162 |
-| 10 | 19.82 | 6.93 | 6222 | 26066 | 164 |
-| 50 | 19.08 | 6.70 | 4661 | 18992 | 166 |
-| 100 | 18.81 | 7.00 | 4466 | 18348 | 161 |
+| 1 | 28.95 | 9.88 | 23808 | 59216 | 111 |
+| 10 | 23.49 | 10.6 | 6233 | 26254 | 109 |
+| 50 | 23.93 | 10.17 | 4659 | 19701 | 113 |
+| 100 | 24.44 | 10.94 | 4463 | 18688 | 107 |
 
-Read: a page's start-up is dominated by the runtime install — ~19 ms on a cold VM,
-~7 ms warm — so throughput is CPU-bound at ~160 pages/s per thread whatever N is. An
-idle pooled VM keeps ~18 MB after churn (N=1's figure carries the process's one-time
-JSC start-up), against ~4.5 MB for a page that has just opened, so a pool sized for
-peak concurrency holds that much per slot between pages.
+Read: a page's start-up is dominated by the runtime install, cold or warm, so
+throughput is CPU-bound and flat in N on one thread.
