@@ -158,9 +158,10 @@ bind_host_tables :: proc() {
 }
 
 // g_host_tables_live counts the threads whose host-native tables are bound and not
-// yet torn down. Process-wide, but a diagnostic only — no page reads it, and it gates
+// yet torn down. Process-wide, but a diagnostic only — no JS reads it, and it gates
 // nothing; host_native_tables_live exposes it so a test can see that a thread which
-// ends (a dispatcher worker) gave its tables back. docs/GLOBAL-STATE.md lists it.
+// ends (a worker thread, or a page-dispatcher worker) gave its tables back.
+// docs/GLOBAL-STATE.md lists it.
 @(private = "file")
 g_host_tables_live: int
 
@@ -170,8 +171,9 @@ g_host_tables_live: int
 // binds fresh tables.
 //
 // Why it exists: the tables are thread_local and bound to the heap (bind_host_tables),
-// and nothing else ever deletes them, so every thread that ran a page and ended leaked
-// both backings — once per dispatcher worker per dispatcher lifetime. Pinned by
+// and nothing else ever deletes them, so every thread that ran JS and ended leaked
+// both backings — once per worker thread per lifetime. Pinned by
+// workers_give_back_their_host_tables (pkg/runtime/workers_test.odin) and
 // dispatcher_workers_give_back_their_host_tables.
 host_native_thread_teardown :: proc() {
 	if !g_host_tables_bound do return
