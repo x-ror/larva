@@ -52,10 +52,14 @@ eval_dns_lookup_uses_consistent_allocator :: proc(t: ^testing.T) {
 // runtime allocator instead; the contract is pinned here, where it is observable:
 // neither allocating proc may route a single allocation through eval's allocator.
 //
-// LAVA-ONLY: an allocator choice has no Node-visible effect. The lookups run without
-// network — an IP literal for node:dns, and `localhost` (from /etc/hosts) for fetch,
-// which always resolves a hostname on the pool; the fetch then fails to connect to
-// port 1, which is all it needs to settle.
+// LAVA-ONLY: an allocator choice has no Node-visible effect. Neither lookup reads
+// net.dns_configuration, which pool_cancel_hooks_test swaps process-wide: node:dns gets
+// an IP literal (core:net returns it before any DNS), and fetch, which sends every
+// non-literal host through fetch_dns_submit, gets one with an underscore —
+// core:net's validate_hostname (core/net/dns.odin:603) rejects it before
+// _get_dns_records_os loads resolv.conf (core/net/dns_unix.odin:37), so the fetch
+// rejects without touching the network. The submit's allocations are all this test
+// needs.
 
 @(private = "file")
 Watched_Allocator :: struct {
@@ -99,7 +103,7 @@ eval_dns_workers_own_their_requests_on_the_heap :: proc(t: ^testing.T) {
 
 	loop := eventloop.init()
 	src := `require('node:dns').lookup('127.0.0.1', () => {});
-fetch('http://localhost:1/').then(() => {}, () => {});`
+fetch('http://lava_heap.invalid:1/').then(() => {}, () => {});`
 	result := lava.eval(src, "<dns-heap-test>", &loop, false)
 	lava.result_destroy(&result)
 

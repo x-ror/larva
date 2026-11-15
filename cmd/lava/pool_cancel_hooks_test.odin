@@ -174,15 +174,19 @@ fs_write_file_cancel_releases_the_callback_of_a_blocked_write :: proc(t: ^testin
 }
 
 // core:net reads its nameservers from net.dns_configuration.resolv_conf on every
-// lookup, so a file naming a loopback address with nothing on port 53 makes a lookup
-// wait out core:net's receive timeout — no resolver hook needed. The setting is
-// process-wide; only names absent from /etc/hosts reach it, and no other test
-// resolves one (dns_alloc_test uses an IP literal and `localhost`).
+// lookup of a valid non-literal hostname — /etc/hosts included, since the file is
+// loaded before the hosts table is consulted (core/net/dns_unix.odin:37) — so a stub
+// naming a loopback address with nothing on port 53 makes a lookup wait out core:net's
+// receive timeout, with no resolver hook. The setting is process-wide: no other test
+// in this package may resolve a hostname (dns_alloc_test resolves only an IP literal
+// and an invalid name, both rejected before resolv.conf is read), and the stub's path
+// lives in static storage, so a lookup that loaded the pointer just before the
+// restore still reads a valid string, never freed memory.
 @(test)
 dns_lookup_cancel_releases_the_callback_of_a_hanging_lookup :: proc(t: ^testing.T) {
-	conf := fmt.aprintf("/tmp/lava-cancel-%d-resolv.conf", os.get_pid())
+	@(static) conf_buf: [64]u8
+	conf := fmt.bprintf(conf_buf[:], "/tmp/lava-cancel-%d-resolv.conf", os.get_pid())
 	if err := os.write_entire_file(conf, transmute([]u8)string("nameserver 127.77.0.1\n")); err != nil {
-		delete(conf)
 		testing.fail_now(t, "could not write the stub resolv.conf")
 	}
 	saved := net.dns_configuration.resolv_conf
@@ -190,7 +194,6 @@ dns_lookup_cancel_releases_the_callback_of_a_hanging_lookup :: proc(t: ^testing.
 	defer {
 		net.dns_configuration.resolv_conf = saved
 		os.remove(conf)
-		delete(conf)
 	}
 	w := Watch {
 		field = offset_of(lava.Dns_Lookup_Request, callback),
