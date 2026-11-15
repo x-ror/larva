@@ -43,8 +43,8 @@ disagree with this file, they win — fix this file.
 `make check-js` whenever any `.js`/`.mjs`/`.cjs` under `pkg/runtime/js`, `tests`,
 `scripts`, or `bench` changed — it runs format, lint, orphan-JS detection, and the
 primordials ratchet.
-`make check-md` whenever any `.md` changed — markdownlint over the repo's own docs
-(config and the rationale for its two disabled rules: `.markdownlint-cli2.jsonc`).
+`make check-md` whenever any `.md` changed — `bun fmt --check` plus markdownlint over the
+repo's own docs (lint config and the rationale for its two disabled rules: `.markdownlint-cli2.jsonc`).
 `make check-actions` whenever any `.github/workflows/*.yml` changed — actionlint
 catches what a YAML parse cannot: a context used where it is not available, a bad
 `needs`, shellcheck errors inside `run:`.

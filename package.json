@@ -7,8 +7,8 @@
     "js:primordials": "bun run scripts/check-primordials.mjs",
     "js:globalreplace": "bun run scripts/check-global-replace.mjs",
     "actions:check": "bun run scripts/check-actions.mjs",
-    "md:check": "markdownlint-cli2",
-    "md:fix": "markdownlint-cli2 --fix",
+    "md:check": "bun fmt --check '**/*.md' && markdownlint-cli2",
+    "md:fix": "bun fmt '**/*.md' && markdownlint-cli2 --fix",
     "js:scripttests": "node --test 'scripts/**/*.test.mjs' 'runtime/**/*.test.mjs'"
   },
   "devDependencies": {
@@ -16,7 +16,7 @@
     "acorn-walk": "^8.3.5",
     "actionlint": "^2.0.6",
     "fast-check": "^4.9.0",
-    "markdownlint-cli2": "^0.23.2"
+    "markdownlint-cli2": "^0.24.1"
   },
   "packageManager": "bun@1.4.4"
 }
