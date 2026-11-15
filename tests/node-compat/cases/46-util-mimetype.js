@@ -106,11 +106,18 @@ const FF = String.fromCharCode(0x0c);
 assert.throws(() => new MIMEType(FF + 'text/plain'), { code: 'ERR_INVALID_MIME_SYNTAX' });
 assert.equal(new MIMEType('\ttext/plain').toString(), 'text/plain'); // tab IS whitespace
 
-// a parameter after a quoted value survives across whitespace/';' (Node resumes parsing)
-assert.equal(new MIMEType('text/x; a="b" c=d').toString(), 'text/x;a=b;c=d');
+// after a quoted value everything up to the next ';' is discarded (WHATWG mimesniff,
+// node 26; node 24 resumed one char past the quote and kept `c=d` in the first case)
+assert.equal(new MIMEType('text/x; a="b" c=d').toString(), 'text/x;a=b');
 assert.equal(new MIMEType('text/x; a="b"xyz;c=d').toString(), 'text/x;a=b;c=d');
-// trailing whitespace inside a (here unterminated) quoted value is preserved
-assert.equal(new MIMEType('text/x;a="b\t').params.get('a'), 'b\t');
+assert.equal(new MIMEType('text/x; a="b" ;c=d').toString(), 'text/x;a=b;c=d');
+assert.equal(new MIMEType('text/x; a="b"x=y;c=d').toString(), 'text/x;a=b;c=d');
+// the whole input is trimmed at both ends first (WHATWG step 1, node 26), so trailing
+// whitespace of an unterminated quoted value goes too; node 24 kept it. Whitespace
+// inside the value, or before a closing quote, survives.
+assert.equal(new MIMEType('text/x;a="b\t').params.get('a'), 'b');
+assert.equal(new MIMEType('text/x;a="b c  ').params.get('a'), 'b c');
+assert.equal(new MIMEType('text/x;a="b\t"').params.get('a'), 'b\t');
 
 // MIMEParams#set returns undefined (like URLSearchParams#set)
 assert.equal(new MIMEType('text/x').params.set('a', 'b'), undefined);

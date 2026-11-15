@@ -77,12 +77,16 @@
   }
 
   function parse(str) {
-    // Only leading whitespace is trimmed from the whole input; trailing whitespace is
-    // removed per-component (subtype, unquoted value) so it cannot eat characters inside a
-    // quoted value (e.g. an unterminated `a="b\t` keeps the tab). Errors quote the input
-    // as given, leading whitespace included, as node does.
+    // The whole input is trimmed at both ends first (WHATWG mimesniff step 1), so an
+    // unterminated `a="b\t` loses the tab — node 26 does this; node 24 trimmed only the
+    // leading end and kept it. Subtype and unquoted values are still trimmed per
+    // component, since whitespace before a ';' is not at the end of the input. Errors
+    // quote the input as given, as node does.
     var input = str;
     str = str.replace(LEADING_HTTP_WS, '');
+    var end = str.length;
+    while (end > 0 && isHTTPWhitespace(str[end - 1])) end--;
+    str = StringPrototypeSlice(str, 0, end);
     var slash = str.indexOf('/');
     if (slash === -1) throw mimeError('type', input, -1);
     var type = str.slice(0, slash);
@@ -141,15 +145,16 @@
           position++;
         }
         value = buf;
-        // Do not skip the rest of the line to the next ';' here: Node resumes the loop
-        // right after the closing quote (the single advance below steps past the next
-        // char), so parameters that follow a quoted value across whitespace/';' survive.
+        // Everything after the closing quote up to the next ';' is discarded (WHATWG
+        // mimesniff, node 26): `a="b" c=d` keeps only a. node 24 resumed one char past
+        // the quote and kept c=d.
+        while (position < len && str[position] !== ';') position++;
       } else {
         var valStart = position;
         while (position < len && str[position] !== ';') position++;
         value = str.slice(valStart, position).replace(TRAILING_HTTP_WS, '');
       }
-      if (position < len) position++; // step past the ';' (or the char after a closing quote)
+      if (position < len) position++; // step past the ';'
 
       // Keep only well-formed, non-duplicate parameters (first wins). An empty value is
       // dropped only when it was unquoted; a quoted "" is a valid empty value, matching

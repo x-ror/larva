@@ -46,3 +46,5 @@ assert.equal(Buffer.copyBytesFrom(new Uint16Array([0x1234])).toString('hex'), '3
 assert.equal(require('node:buffer').atob('Zm9v'), 'foo');
 assert.equal(require('node:buffer').btoa('foo'), 'Zm9v');
 assert.equal(require('node:buffer').isAscii(Buffer.from('abc')), true);
+// Node 26 removed SlowBuffer (DEP0030 end-of-life): the export is gone, not deprecated.
+assert.equal('SlowBuffer' in require('node:buffer'), false, 'node:buffer has no SlowBuffer');

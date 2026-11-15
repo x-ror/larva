@@ -44,7 +44,7 @@
     {
       "page": "buffer",
       "status": "full",
-      "implemented": "Buffer/Blob/File/SlowBuffer/isAscii/isUtf8/transcode/resolveObjectURL; module-level atob/btoa (+ global URL.createObjectURL/revokeObjectURL)",
+      "implemented": "Buffer/Blob/File/isAscii/isUtf8/transcode/resolveObjectURL; module-level atob/btoa (+ global URL.createObjectURL/revokeObjectURL)",
       "gaps": "atob/btoa are not installed as globals (#86); exports a lava-only describeType"
     },
     {

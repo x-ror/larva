@@ -29,7 +29,9 @@ const BIG = Buffer.poolSize + 4096; // comfortably above the pool, and != poolSi
   let sawShared = false;
   let prev = Buffer.allocUnsafe(8);
   assert.equal(prev.byteOffset % 8, 0, 'pooled byteOffset is 8-aligned');
-  assert.equal(prev.buffer.byteLength, Buffer.poolSize, 'pooled buffer backs onto the pool');
+  // Node 26 backs the pool with poolSize + 64 bytes (65600 for 65536), so only
+  // "at least poolSize" is a guarantee both runtimes share.
+  assert.ok(prev.buffer.byteLength >= Buffer.poolSize, 'pooled buffer backs onto the pool');
   for (let i = 0; i < 16; i++) {
     const cur = Buffer.allocUnsafe(8);
     assert.equal(cur.length, 8);
@@ -91,7 +93,7 @@ const BIG = Buffer.poolSize + 4096; // comfortably above the pool, and != poolSi
   assert.notEqual(z.buffer, pooled.buffer, 'alloc() does not draw from the unsafe pool');
 }
 
-// --- allocUnsafeSlow / SlowBuffer are unpooled -----------------------------
+// --- allocUnsafeSlow is unpooled -------------------------------------------
 {
   const slow = Buffer.allocUnsafeSlow(8);
   assert.equal(slow.byteOffset, 0);
@@ -108,7 +110,7 @@ const BIG = Buffer.poolSize + 4096; // comfortably above the pool, and != poolSi
     assert.equal(cur.toString(), 'cd', 'pooled from(string) holds its own bytes');
     if (cur.buffer === prev.buffer) {
       sawShared = true;
-      assert.equal(cur.buffer.byteLength, Buffer.poolSize);
+      assert.ok(cur.buffer.byteLength >= Buffer.poolSize);
     }
     prev = cur;
   }
@@ -180,7 +182,7 @@ const BIG = Buffer.poolSize + 4096; // comfortably above the pool, and != poolSi
   let buf = Buffer.allocUnsafe(8);
   for (let i = 0; i < 16 && buf.byteOffset === 0; i++) buf = Buffer.allocUnsafe(8);
   assert.ok(buf.byteOffset > 0, 'have a pooled buffer at a non-zero offset to test');
-  assert.equal(buf.buffer.byteLength, Buffer.poolSize, 'and it is pool-backed');
+  assert.ok(buf.buffer.byteLength >= Buffer.poolSize, 'and it is pool-backed');
 
   const pattern = [0xde, 0xad, 0xbe, 0xef, 0x01, 0x02, 0x03, 0x04];
   for (let i = 0; i < 8; i++) buf[i] = pattern[i];
@@ -204,7 +206,7 @@ const BIG = Buffer.poolSize + 4096; // comfortably above the pool, and != poolSi
 {
   const small = Buffer.concat([Buffer.from([1, 2]), Buffer.from([3, 4])]);
   assert.deepEqual([...small], [1, 2, 3, 4], 'concat copies the inputs');
-  assert.equal(small.buffer.byteLength, Buffer.poolSize, 'small concat result is pooled');
+  assert.ok(small.buffer.byteLength >= Buffer.poolSize, 'small concat result is pooled');
 
   // An explicit totalLength larger than the data zero-fills the remainder.
   const padded = Buffer.concat([Buffer.from([0xaa, 0xbb])], 6);

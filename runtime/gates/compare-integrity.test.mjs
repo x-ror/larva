@@ -1,33 +1,38 @@
-// Pins scripts/lib/compare.sh gate integrity, Node major match (#185), and per-case timeouts (#399).
+// Pins scripts/lib/compare.sh gate integrity, the Node major floor from .nvmrc (#185), and
+// per-case timeouts (#399).
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const SCRATCH = mkdtempSync(join(tmpdir(), 'lava-compare-test-'));
-const BIN24_DIR = join(SCRATCH, 'bin24');
-mkdirSync(BIN24_DIR);
+// The floor is read, not hard-coded, so bumping .nvmrc does not touch this file.
+const PIN = Number(readFileSync(join(ROOT, '.nvmrc'), 'utf8').split('.')[0]);
+const PIN_BIN_DIR = join(SCRATCH, 'binpin');
+mkdirSync(PIN_BIN_DIR);
 
-const NODE24 = join(BIN24_DIR, 'node');
-const NODE22 = join(SCRATCH, 'node22');
-const NODE26 = join(SCRATCH, 'node26');
+const NODE_PIN = join(PIN_BIN_DIR, 'node');
+const NODE_OLD = join(SCRATCH, 'node-old');
+const NODE_NEW = join(SCRATCH, 'node-new');
+const NODE_JUNK = join(SCRATCH, 'node-junk');
+const BAD_PIN_ROOT = join(SCRATCH, 'bad-pin-root');
 const FAKE_LAVA = join(SCRATCH, 'fake-lava');
 const HANG_CASE = join(SCRATCH, 'hang.js');
 const OK_CASE = join(SCRATCH, 'ok.js');
 
 writeFileSync(
-  NODE24,
+  NODE_PIN,
   `#!/usr/bin/env sh
 if [ "\${1:-}" = "-p" ]; then
-  echo 24
+  echo ${PIN}
   exit 0
 fi
 if [ "\${1:-}" = "--version" ]; then
-  echo v24.22.2
+  echo v${PIN}.0.0
   exit 0
 fi
 exec "${process.execPath}" "$@"
@@ -36,20 +41,34 @@ exec "${process.execPath}" "$@"
 );
 
 writeFileSync(
-  NODE22,
+  NODE_OLD,
   `#!/usr/bin/env sh
-[ "\${1:-}" = "-p" ] && echo 22 || echo v22.22.2
+[ "\${1:-}" = "-p" ] && echo ${PIN - 2} || echo v${PIN - 2}.22.2
 `,
   { mode: 0o755 },
 );
 
 writeFileSync(
-  NODE26,
+  NODE_NEW,
   `#!/usr/bin/env sh
-[ "\${1:-}" = "-p" ] && echo 26 || echo v26.13.0
+[ "\${1:-}" = "-p" ] && echo ${PIN + 2} || echo v${PIN + 2}.1.0
 `,
   { mode: 0o755 },
 );
+
+// A NODE_BIN whose `-p` prints no integer: `[ x -lt N ]` errors, `if` reads the
+// error as false, and the floor check used to pass it.
+writeFileSync(
+  NODE_JUNK,
+  `#!/usr/bin/env sh
+[ "\${1:-}" = "-p" ] && echo banana || echo vbanana
+`,
+  { mode: 0o755 },
+);
+
+// A pin with no digits (`lts/*`) must refuse rather than compare against "".
+mkdirSync(BAD_PIN_ROOT);
+writeFileSync(join(BAD_PIN_ROOT, '.nvmrc'), 'lts/*\n');
 
 writeFileSync(
   FAKE_LAVA,
@@ -71,11 +90,11 @@ after(() => {
   rmSync(SCRATCH, { recursive: true, force: true });
 });
 
-function sourceCompare(env, body = ':') {
-  const pathEnv = `${BIN24_DIR}:${process.env.PATH || ''}`;
+function sourceCompare(env, body = ':', root = ROOT) {
+  const pathEnv = `${PIN_BIN_DIR}:${process.env.PATH || ''}`;
   return spawnSync(
     'sh',
-    ['-c', `ROOT_DIR="${ROOT}" TMP_DIR="${SCRATCH}" . "${ROOT}/scripts/lib/compare.sh"\n${body}`],
+    ['-c', `ROOT_DIR="${root}" TMP_DIR="${SCRATCH}" . "${ROOT}/scripts/lib/compare.sh"\n${body}`],
     {
       cwd: ROOT,
       encoding: 'utf8',
@@ -109,33 +128,51 @@ test('compare.sh allows NODE_BIN=node under RUN_LAVA=1', () => {
 });
 
 test('compare.sh is a no-op integrity-wise when RUN_LAVA=0', () => {
-  // Same path for both would be refused under RUN_LAVA=1; use the fake Node 24
-  // binary so the major check passes while keeping NODE_BIN === LAVA_BIN.
+  // Same path for both would be refused under RUN_LAVA=1; use the fake pinned
+  // Node so the major check passes while keeping NODE_BIN === LAVA_BIN.
   const r = sourceCompare({
-    NODE_BIN: NODE24,
-    LAVA_BIN: NODE24,
+    NODE_BIN: NODE_PIN,
+    LAVA_BIN: NODE_PIN,
     RUN_LAVA: '0',
   });
   assert.equal(r.status, 0, r.stderr || r.stdout);
 });
 
-test('compare.sh refuses a non-Node-24 NODE_BIN (#185)', () => {
-  for (const [bin, ver] of [
-    [NODE22, 'v22.22.2'],
-    [NODE26, 'v26.13.0'],
-  ]) {
-    const r = sourceCompare({ NODE_BIN: bin, LAVA_BIN: FAKE_LAVA, RUN_LAVA: '1' });
-    assert.equal(r.status, 2, r.stderr || r.stdout);
-    assert.match(
-      r.stderr || '',
-      new RegExp(`oracle requires node 24 \\(\\.nvmrc\\), found ${ver.replace(/\./g, '\\.')}`),
-    );
-  }
+test('compare.sh refuses a NODE_BIN older than the .nvmrc major (#185)', () => {
+  const r = sourceCompare({ NODE_BIN: NODE_OLD, LAVA_BIN: FAKE_LAVA, RUN_LAVA: '1' });
+  assert.equal(r.status, 2, r.stderr || r.stdout);
+  assert.match(
+    r.stderr || '',
+    new RegExp(`oracle requires node >= ${PIN} \\(\\.nvmrc\\), found v${PIN - 2}\\.22\\.2`),
+  );
+});
+
+test('compare.sh refuses a NODE_BIN whose major is not an integer (#185)', () => {
+  const r = sourceCompare({ NODE_BIN: NODE_JUNK, LAVA_BIN: FAKE_LAVA, RUN_LAVA: '1' });
+  assert.equal(r.status, 2, r.stderr || r.stdout);
+  assert.match(r.stderr || '', new RegExp(`oracle requires node >= ${PIN} \\(\\.nvmrc\\)`));
+});
+
+test('compare.sh refuses when .nvmrc carries no numeric major (#185)', () => {
+  const r = sourceCompare(
+    { NODE_BIN: NODE_PIN, LAVA_BIN: FAKE_LAVA, RUN_LAVA: '1' },
+    ':',
+    BAD_PIN_ROOT,
+  );
+  assert.equal(r.status, 2, r.stderr || r.stdout);
+  assert.match(r.stderr || '', /\.nvmrc has no numeric Node major/);
+});
+
+test('compare.sh accepts a NODE_BIN newer than the .nvmrc major', () => {
+  // The pin is a floor: the product tracks Node forward (26 now, 28 later), so a
+  // newer oracle is allowed to run and any drift shows up as a case diff.
+  const r = sourceCompare({ NODE_BIN: NODE_NEW, LAVA_BIN: FAKE_LAVA, RUN_LAVA: '1' });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
 });
 
 test('run_node_case fails with timeout message when a case exceeds CASE_TIMEOUT_SEC (#399)', () => {
   const r = sourceCompare(
-    { NODE_BIN: NODE24, LAVA_BIN: FAKE_LAVA, RUN_LAVA: '0', CASE_TIMEOUT_SEC: '1' },
+    { NODE_BIN: NODE_PIN, LAVA_BIN: FAKE_LAVA, RUN_LAVA: '0', CASE_TIMEOUT_SEC: '1' },
     `run_case "${HANG_CASE}"`,
   );
   assert.equal(r.status, 124, r.stderr || r.stdout);
@@ -144,7 +181,7 @@ test('run_node_case fails with timeout message when a case exceeds CASE_TIMEOUT_
 
 test('compare_case fails when both node and lava time out instead of matching 124==124 (#399)', () => {
   const r = sourceCompare(
-    { NODE_BIN: NODE24, LAVA_BIN: FAKE_LAVA, RUN_LAVA: '1', CASE_TIMEOUT_SEC: '1' },
+    { NODE_BIN: NODE_PIN, LAVA_BIN: FAKE_LAVA, RUN_LAVA: '1', CASE_TIMEOUT_SEC: '1' },
     `run_case "${HANG_CASE}"`,
   );
   assert.equal(r.status, 124, r.stderr || r.stdout);
@@ -154,7 +191,7 @@ test('compare_case fails when both node and lava time out instead of matching 12
 test('compare_case fails with lava timeout message when only lava hangs (#399)', () => {
   const r = sourceCompare(
     {
-      NODE_BIN: NODE24,
+      NODE_BIN: NODE_PIN,
       LAVA_BIN: FAKE_LAVA,
       RUN_LAVA: '1',
       CASE_TIMEOUT_SEC: '1',

@@ -1,6 +1,6 @@
 # Lava roadmap
 
-Status of the Node.js port. Baseline target: Node 24 on JavaScriptCore, with a
+Status of the Node.js port. Baseline target: Node 26+ on JavaScriptCore, with a
 native event loop (kqueue / io_uring+epoll / IOCP).
 
 ## Done
@@ -796,8 +796,8 @@ the index, the issue is the detail. Ordered by what it unblocks.
       to be exercised and most expensive to get wrong. One env-gated seam
       (`LAVA_HOSTFN_DISABLE` is the precedent) unlocks all three.
 - [x] Pin a specific Odin release in CI (`dev-2026-11a` with `llvm-version: '18'`,
-      [#35](https://github.com/x-ror/lava/issues/35)), and pin Node `24.22.2` in
-      `.nvmrc` + `scripts/lib/compare.sh` (#185).
+      [#35](https://github.com/x-ror/lava/issues/35)), and pin Node `26.13.0` in
+      `.nvmrc` as a major floor checked by `scripts/lib/compare.sh` (#185).
 - [x] Update `actions/checkout` (`v7`) / `actions/setup-node` (`v7` with
       `node-version-file: .nvmrc`) past the Node 20 deprecation warning
       ([#35](https://github.com/x-ror/lava/issues/35)).

@@ -1045,13 +1045,33 @@
     },
     {
       "name": "compare.sh dies when the Node 24 oracle version check is gutted",
-      "why": "Oracle expectations drift between Node majors (#185: node:sqlite coercion differs in both Node 22 and Node 26 against Node 24); a non-24 oracle must not run.",
+      "why": "Oracle expectations drift between Node majors (#185: node:sqlite binds undefined as NULL from 26); an oracle older than .nvmrc must not run.",
       "source": "scripts/lib/compare.sh",
-      "find": "\tif [ \"$_got\" != \"$_want\" ]; then",
+      "find": "\tif [ \"$_got\" -lt \"$_want\" ]; then",
       "replace": "\tif false; then",
       "gate": "node-test:runtime/gates/compare-integrity.test.mjs",
-      "test": "compare.sh refuses a non-Node-24 NODE_BIN (#185)",
+      "test": "compare.sh refuses a NODE_BIN older than the .nvmrc major (#185)",
       "expect_detail": "Expected values to be strictly equal"
+    },
+    {
+      "name": "compare.sh dies when a non-numeric oracle major is not coerced to 0",
+      "why": "`[ banana -lt 26 ]` errors and `if` reads the error as false, so a NODE_BIN printing no integer major passed the floor.",
+      "source": "scripts/lib/compare.sh",
+      "find": "\tcase \"$_got\" in\n\t'' | *[!0-9]*) _got=0 ;;\n\tesac",
+      "replace": "\t:",
+      "gate": "node-test:runtime/gates/compare-integrity.test.mjs",
+      "test": "compare.sh refuses a NODE_BIN whose major is not an integer (#185)",
+      "expect_detail": "compare.sh refuses a NODE_BIN whose major is not an integer (#185)"
+    },
+    {
+      "name": "compare.sh dies when an .nvmrc with no numeric major is not refused",
+      "why": "An empty or `lts/*` pin leaves the floor empty, `[ N -lt '' ]` errors to false, and every oracle passes.",
+      "source": "scripts/lib/compare.sh",
+      "find": "\tif [ -z \"$_want\" ]; then",
+      "replace": "\tif false; then",
+      "gate": "node-test:runtime/gates/compare-integrity.test.mjs",
+      "test": "compare.sh refuses when .nvmrc carries no numeric major (#185)",
+      "expect_detail": "compare.sh refuses when .nvmrc carries no numeric major (#185)"
     },
     {
       "name": "compare.sh dies when compare_case ignores a node per-case timeout",
@@ -1660,6 +1680,15 @@
       ]
     },
     {
+      "name": "03-buffer dies when node:buffer exports SlowBuffer again",
+      "why": "Node 26 removed SlowBuffer (DEP0030 end-of-life); `'SlowBuffer' in require('buffer')` is false there.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "    Buffer: Buffer,\n    Blob: Blob,",
+      "replace": "    Buffer: Buffer,\n    SlowBuffer: Buffer,\n    Blob: Blob,",
+      "gate": "compat:tests/node-compat/cases/03-buffer.js",
+      "expect_detail": "node:buffer has no SlowBuffer"
+    },
+    {
       "name": "70-buffer-size-inspect-parity dies when checkBounds splices a bare type name",
       "why": "every fixed-width read/write reports its offset type error here; node says `must be of type number`.",
       "source": "pkg/runtime/js/internal/buffer.js",
@@ -1712,6 +1741,52 @@
       "gate": "node-test:scripts/run-gates.test.mjs",
       "test": "stops at the first failing target and exits non-zero",
       "expect_detail": "stops at the first failing target and exits non-zero"
+    },
+    {
+      "name": "46-util-mimetype dies when a quoted value stops skipping to the next ';'",
+      "why": "node 26 follows WHATWG and discards text after a closing quote up to ';'; resuming parsing there keeps a parameter node drops (`a=\"b\" c=d` gains c=d).",
+      "source": "pkg/runtime/js/internal/mime.js",
+      "find": "        while (position < len && str[position] !== ';') position++;\n      } else {",
+      "replace": "      } else {",
+      "gate": "compat:tests/node-compat/cases/46-util-mimetype.js",
+      "expect_detail": "'text/x;a=b;c=d' strictEqual 'text/x;a=b'"
+    },
+    {
+      "name": "46-util-mimetype dies when the input is no longer trimmed at the trailing end",
+      "why": "node 26 trims the whole input at both ends first (WHATWG step 1), so an unterminated quoted value loses trailing whitespace.",
+      "source": "pkg/runtime/js/internal/mime.js",
+      "find": "    while (end > 0 && isHTTPWhitespace(str[end - 1])) end--;",
+      "replace": "",
+      "gate": "compat:tests/node-compat/cases/46-util-mimetype.js",
+      "expect_detail": "'b\\t' strictEqual 'b'"
+    },
+    {
+      "name": "44-util-parseenv dies when the result goes back to a plain object",
+      "why": "node 26 returns a null-prototype object that keeps `__proto__` as an own key; a plain object swallows the key into the setter and has Object.prototype.",
+      "source": "pkg/runtime/js/internal/parse_env.js",
+      "find": "    var result = { __proto__: null };",
+      "replace": "    var result = {};",
+      "gate": "compat:tests/node-compat/cases/44-util-parseenv.js",
+      "expect_detail": "{} strictEqual null"
+    },
+    {
+      "name": "05-coercion dies when undefined is no longer bound as NULL",
+      "why": "node 26 binds undefined as SQL NULL; node 24 threw ERR_INVALID_ARG_TYPE. Dropping the branch falls through to the unbindable throw.",
+      "source": "pkg/runtime/js/internal/sqlite.js",
+      "find": "    if (value === undefined) {\n      native.bind(stmtId, index, null); // primordials-ok: method\n    } else if (value === null",
+      "replace": "    if (value === null",
+      "gate": "compat:tests/std/sqlite/cases/05-coercion.js",
+      "expect_detail": "Provided value cannot be bound to SQLite parameter 1."
+    },
+    {
+      "name": "04-bigint dies when run()'s lastInsertRowid goes back to a lossy number",
+      "why": "node 26 throws ERR_OUT_OF_RANGE for an unsafe rowid after the insert; node 24 returned a lossy number.",
+      "source": "pkg/runtime/sqlite.odin",
+      "find": "\treturn sqlite_int_value(ctx, sqlite.last_insert_rowid(db), read_big_ints, exception)",
+      "replace": "\trowid := sqlite.last_insert_rowid(db)\n\tif read_big_ints do return sqlite_make_bigint(ctx, rowid)\n\treturn jsc.JSValueMakeNumber(ctx, f64(rowid))",
+      "gate": "compat:tests/std/sqlite/cases/04-bigint.js",
+      "expect_detail": "unsafe rowid: RangeError",
+      "rebuild": true
     }
   ]
 }

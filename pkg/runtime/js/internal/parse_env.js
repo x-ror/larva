@@ -4,8 +4,9 @@
 // `\n` -> newline expansion (every other backslash, incl. one before the closing quote, is
 // literal; single/backtick are fully literal), an *unterminated* quote falling back to a
 // line literal that keeps the opening quote and ignores inline `#`, inline `#` comments on
-// unquoted values, and last-wins on duplicate keys. The `__proto__` key is dropped and the
-// result keys come out byte-sorted (Node stores them in a std::map). Pure JS via
+// unquoted values, and last-wins on duplicate keys. The result is a null-prototype object
+// (node 26), so a `__proto__` key is an ordinary own property, and its keys come out
+// byte-sorted (Node stores them in a std::map). Pure JS via
 // primordials; backs require('node:util').parseEnv. Hidden from the public resolver like
 // parse_args.
 (function (require, module) {
@@ -190,16 +191,17 @@
         while (i < len && StringPrototypeCharCodeAt(content, i) !== LF) i++;
       }
 
-      // Node drops a literal `__proto__` key rather than letting it touch the prototype.
-      if (key.length > 0 && key !== '__proto__') tmp[key] = value;
+      // `tmp` has no prototype, so `__proto__` here is a plain key, not the setter.
+      if (key.length > 0) tmp[key] = value;
     }
 
-    // Node returns the keys in std::map (byte-sorted) order in a plain object (its proto
-    // is Object.prototype). Rebuild to match; the `__proto__` key was already dropped
-    // above, so assigning onto a plain object cannot pollute the prototype.
+    // Node returns the keys in std::map (byte-sorted) order. From node 26 the object has
+    // a null prototype and keeps `__proto__` as an own data property; node 24 returned a
+    // plain object and dropped the key. Null prototype on `result` too, so the
+    // `__proto__` assignment below defines a property instead of calling the setter.
     var keys = ObjectKeys(tmp);
     ArrayPrototypeSort(keys, byteCompare);
-    var result = {};
+    var result = { __proto__: null };
     for (var k = 0; k < keys.length; k++) result[keys[k]] = tmp[keys[k]];
     return result;
   }
