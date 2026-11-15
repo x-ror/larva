@@ -62,7 +62,8 @@ URING_OP_DOMAIN :: u64(1) << 63
 // force_readiness_backend makes the loops this thread initializes skip io_uring and
 // take the epoll readiness backend — the path of a kernel without io_uring, or with it
 // disabled by sysctl. TEST-ONLY: CI's kernel always has io_uring, so without this the
-// epoll half of every multi-loop driver (backend_fd, the page runner) never runs.
+// readiness-only paths (net's conn_read_cb) and the epoll half of every multi-loop
+// driver (backend_fd, the page runner) never run under test.
 // Thread-local, so a test flipping it cannot steer a loop on another runner thread.
 @(thread_local)
 force_readiness_backend: bool

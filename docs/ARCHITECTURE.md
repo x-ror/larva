@@ -193,8 +193,8 @@ native codec at every size. Removed rather than left as folklore steering review
 
 `fetch_transport.odin` is a platform-agnostic connect→[TLS]→write→read state
 machine; each platform supplies only narrow socket primitives, and TLS is a
-swappable backend (OpenSSL, or a rejecting stub). DNS resolves off-loop on a
-bounded 4-worker pool. Streaming request _and_ response bodies are real
+swappable backend (OpenSSL, or a rejecting stub). DNS — `fetch`'s and `node:dns`'s
+— resolves off-loop on the loop's own 4-worker pool (`threadpool.odin`). Streaming request _and_ response bodies are real
 incremental `ReadableStream`s with backpressure. This is the second-strongest
 subsystem after the loop, and it validates the `post_async` design end to end.
 
@@ -221,16 +221,20 @@ tracking allocator). The fix is _localized_ — each request/job captures the ow
 `Runtime_State.allocator` at creation and clones **and** frees through it, so the
 alloc/free pair stays matched no matter which context is active at either end. This is
 applied to `module_cache` keys, `fetch` (`Fetch_Request` method/url/host/path +
-`request_bytes` + the struct), `dns` (`Dns_Lookup_Request.hostname` + the struct), and
-the fetch DNS pool (`DNS_Job.host` + the struct), timer bindings (`JS_Callback` + its
+`request_bytes` + the struct), timer bindings (`JS_Callback` + its
 forwarded `args`, freed under eval's context on fire/teardown but under the heap when
 `clearTimeout`/`clearImmediate` dispose synchronously), and the host-native registry's cached
 names (`host_natives.odin`; note that registry's two tables are thread-lived, so their
-_backing_ is bound to a process-lifetime allocator rather than to a state's). It is
+_backing_ is bound to a process-lifetime allocator rather than to a state's). The
+payloads a pool worker writes into — `Dns_Lookup_Request` (+ `hostname`) and fetch's
+`DNS_Job` (+ `host`) — capture the **heap** instead of the state's allocator: a worker
+blocked in a lookup can outlive the loop's owner (a detached loop's last worker frees
+them — the page runner's reaping, `page_runner.odin`) and the allocator an embedder handed in, so they must not live there
+(pinned by `eval_dns_workers_own_their_requests_on_the_heap`). It is
 deliberately _not_ context-based:
 those structs free under _multiple_ contexts (e.g. `fetch_reclaim_pending` during normal
-operation vs `fetch_destroy_pending` at teardown; a global DNS pool freeing jobs from
-several runtimes), which a "rebind `context.allocator` at the callback entry" approach
+operation vs `fetch_destroy_pending` at teardown; a pool job disposed by a worker thread rather than
+the loop thread), which a "rebind `context.allocator` at the callback entry" approach
 cannot cover. Dynamic-array fields (`response`/`carry`/`body_out`, `results`) carry their
 own bound allocator, so `delete()` already frees them correctly. Guarded by
 `module_cache_alloc_test`, `dns_alloc_test` and `timer_binding_frees_through_its_own_allocator`
@@ -252,7 +256,7 @@ design ([LARVA.md](LARVA.md) decision 2) and is not built yet: no page object
 exists, and loop handles carry no per-page owner. Package-level state is audited
 for page isolation in [GLOBAL-STATE.md](GLOBAL-STATE.md).
 
-The generic per-loop worker pool (`threadpool.odin`) backs async fs, crypto,
+The generic per-loop worker pool (`threadpool.odin`) backs async `fs.readFile`/`writeFile`,
 `node:dns` (`dns.odin`) and fetch's resolver (`fetch_dns.odin`); the old
 process-global `g_fetch_dns_pool` was folded into it. A worker touches only its own
 request; all JS-value work stays on the loop thread.

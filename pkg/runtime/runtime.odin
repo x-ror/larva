@@ -124,6 +124,49 @@ release_global_context_after_eval :: proc(ctx: jsc.JSGlobalContextRef) {
 	}
 }
 
+// Pre_Run_Hook fires once per eval, after top-level evaluation has succeeded (listeners bound,
+// context up) and BEFORE the event loop starts. It returns whether the loop should run: the
+// multi-worker supervisor uses it as the startup-barrier rendezvous (report ready, block until the
+// supervisor releases or aborts all workers), returning false on abort so this worker skips run() and
+// falls through to the normal teardown. nil (the default) means "just run" — the single-worker path.
+Pre_Run_Hook :: proc(user_data: rawptr) -> bool
+
+// Result_Hook receives eval's final Result once, BEFORE eval tears down its loop and
+// releases its JS context — the `report` parameter of eval and run_file.
+//
+// Params:
+//   result     The Result eval is about to return. Borrowed: eval's caller still owns
+//              it (result_destroy), so the hook must neither free nor keep its message.
+//   user_data  The `report_data` passed alongside the hook.
+// Node:
+//   Node writes an uncaught top-level error to stderr before its exit-time teardown
+//   joins libuv's worker pool, so a script that throws with a worker blocked (a
+//   readFile on a FIFO nobody writes) prints its error and then hangs. Verified on
+//   node v24.22.1 (probe case H): fs.readFile on a mkfifo with no writer, a throw
+//   once a worker sat in the FIFO open, stderr watched while the process was stuck,
+//   then killed. The CLI passes its printer here to keep that
+//   order: eval's loop teardown joins the loop's pool workers (in Larva,
+//   eventloop.close_finish after page_close), and printing after eval returned left
+//   Lava hanging with empty stderr. Pinned by
+//   tests/stdio/uncaught-before-teardown.test.mjs and
+//   cmd/lava/eval_report_hook_test.odin.
+//
+// The hook runs on eval's thread while the loop and the context are still alive, but
+// must not touch JS or the loop: it is a reporter (the CLI's print_result writes
+// through process_write and nothing else). Every return of eval and run_file reports,
+// pre-flight rejections included, so a caller that prints only from the hook never
+// misses a result; nil (the default) reports nothing, and an embedder that reads the
+// returned Result instead sees no change.
+Result_Hook :: proc(result: Result, user_data: rawptr)
+
+// reported hands `result` to the report hook, if any, and returns it unchanged — the
+// shape of every `return` in eval and run_file, so that none can skip the hook.
+@(private = "file")
+reported :: proc(result: Result, report: Result_Hook, report_data: rawptr) -> Result {
+	if report != nil do report(result, report_data)
+	return result
+}
+
 // echo_result mirrors REPL behavior: when true (the `lava eval` path) the
 // script's completion value is returned for printing. `lava run` passes false so
 // running a file never echoes a trailing expression value, matching `node file`
@@ -134,20 +177,20 @@ release_global_context_after_eval :: proc(ctx: jsc.JSGlobalContextRef) {
 // clean run), and for any path that created handles it does so while the context
 // they are GC-protected against is still alive. Callers must not destroy the loop
 // themselves (a double destroy closes fd 0); they only init it and pass it in.
-// Pre_Run_Hook fires once per eval, after top-level evaluation has succeeded (listeners bound,
-// context up) and BEFORE the event loop starts. It returns whether the loop should run: the
-// multi-worker supervisor uses it as the startup-barrier rendezvous (report ready, block until the
-// supervisor releases or aborts all workers), returning false on abort so this worker skips run() and
-// falls through to the normal teardown. nil (the default) means "just run" — the single-worker path.
-Pre_Run_Hook :: proc(user_data: rawptr) -> bool
-
+//
+// REPORT: a non-nil `report` (Result_Hook) fires exactly once on every return —
+// pre-flight rejections included — with the Result being returned, before eval's
+// loop teardown and context release run. eval hands it to page_close, which fires it
+// once the Result is decided and before its teardown (page.odin); a pre-flight
+// rejection page_open makes has destroyed the loop already, as in Lava.
+//
 // LIMITS: `limits` (Page_Limits, vm_pool.odin) puts the eval under a per-entry CPU
 // limit and a cumulative CPU budget on its VM. The budget is charged from runtime
 // install to the last loop tick; the first entry or tick that ends over a limit stops
 // the loop (force_exit) and eval returns .Execution_Error with Result.kill naming the
 // limit. Zero limits (the default) read no clocks. Larva policy with no Node counterpart. Pinned by
-// cmd/lava/page_cpu_budget_test.odin.
-
+// cmd/lava/page_cpu_budget_test.odin. It follows `report` so that Lava's positional
+// calls (cmd/lava/eval_report_hook_test.odin) bind the same parameters here.
 eval :: proc(
 	source: string,
 	source_name := "<eval>",
@@ -156,6 +199,8 @@ eval :: proc(
 	script_args: []string = nil,
 	pre_run: Pre_Run_Hook = nil,
 	pre_run_data: rawptr = nil,
+	report: Result_Hook = nil,
+	report_data: rawptr = nil,
 	limits: Page_Limits = {},
 ) -> Result {
 	// Per-eval temp arena boundary, mirroring the per-tick reset in
@@ -185,7 +230,10 @@ eval :: proc(
 			}
 		}
 	}
-	result, busy_loop := page_close(&page)
+	// The report fires inside page_close, before its teardown: the Result is final
+	// there, and close_finish below is where eval joins a pool worker that is still
+	// blocked — a top-level throw must reach stderr before that join, not after it.
+	result, busy_loop := page_close(&page, report = report, report_data = report_data)
 	// eval owns its thread, so it waits for blocking pool work as it always has; only
 	// the page runner, which shares its thread with other pages, must not (#34).
 	if busy_loop != nil do eventloop.close_finish(busy_loop)
@@ -224,28 +272,30 @@ run_file :: proc(
 	path: string,
 	loop: ^eventloop.Loop = nil,
 	script_args: []string = nil,
+	report: Result_Hook = nil,
+	report_data: rawptr = nil,
 ) -> Result {
 	if len(path) == 0 {
 		if loop != nil do eventloop.destroy(loop)
-		return Result {
+		return reported(Result {
 			status = .Invalid_Input,
 			exit_code = 2,
 			message = "missing JavaScript file path",
-		}
+		}, report, report_data)
 	}
 
 	data, err := os.read_entire_file(path, context.allocator)
 	if err != os.ERROR_NONE {
 		if loop != nil do eventloop.destroy(loop)
-		return Result {
+		return reported(Result {
 			status = .Read_Error,
 			exit_code = 1,
 			message = "could not read JavaScript file",
-		}
+		}, report, report_data)
 	}
 	defer delete(data)
 
-	return eval(string(data), path, loop, false, script_args)
+	return eval(string(data), path, loop, false, script_args, report = report, report_data = report_data)
 }
 
 // build_process_argv assembles Node's process.argv: [execPath, scriptPath,

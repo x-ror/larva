@@ -303,6 +303,12 @@ page_tick :: proc(page: ^Page) -> (alive: bool, did_work: bool) {
 //   heap_sample_every  Sample the VM's heap into Result.heap_bytes when this page is
 //                      the VM's Nth (VM.pages_hosted % N == 0) and no limit or cancel
 //                      ended it; 0 (eval's default) never samples.
+//   report             eval's Result_Hook (runtime.odin), fired exactly once with the
+//                      Result returned here, after the heap sample and BEFORE step 1 of
+//                      the teardown: the loop and context are still alive, and nothing
+//                      has joined a pool worker yet. nil (the page runner's case: it
+//                      reports through on_done) fires nothing.
+//   report_data        Passed to `report`.
 // Returns:
 //   result     The page's Result.
 //   busy_loop  nil once the page's loop is fully closed, or when it had none. The loop
@@ -337,7 +343,15 @@ page_tick :: proc(page: ^Page) -> (alive: bool, did_work: bool) {
 //   6. eventloop.close_finish, when no worker was busy: idle workers exit on
 //      close_begin's broadcast, so this returns at once, and closes the loop's last
 //      descriptor, its wakeup pipe.
-page_close :: proc(page: ^Page, heap_sample_every := 0) -> (result: Result, busy_loop: ^eventloop.Loop) {
+page_close :: proc(
+	page: ^Page,
+	heap_sample_every := 0,
+	report: Result_Hook = nil,
+	report_data: rawptr = nil,
+) -> (
+	result: Result,
+	busy_loop: ^eventloop.Loop,
+) {
 	ctx := cast(jsc.JSContextRef)page.ctx
 	if !page.finished && page.state != nil {
 		// process.exitCode can be a getter or carry a valueOf: user JS, so charged and
@@ -387,6 +401,9 @@ page_close :: proc(page: ^Page, heap_sample_every := 0) -> (result: Result, busy
 	   page.vm.pages_hosted % heap_sample_every == 0 && page.result.kill == .None {
 		if bytes, ok := jsc.heap_size_bytes(ctx); ok do page.result.heap_bytes = bytes
 	}
+
+	// Borrowed, not handed over: the caller of page_close still owns page.result.
+	if report != nil do report(page.result, report_data)
 
 	if page.completion != nil do jsc.JSValueUnprotect(ctx, page.completion)
 	if page.loop != nil {
