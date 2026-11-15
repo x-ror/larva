@@ -4,6 +4,7 @@
 #+build linux
 package main
 
+import "base:runtime"
 import "core:strings"
 import "core:sys/posix"
 import "core:testing"
@@ -95,8 +96,35 @@ cpu_budget_spares_a_page_under_budget :: proc(t: ^testing.T) {
 	testing.expect_value(t, result.kill, lava.Kill_Reason.None)
 }
 
+// thread_cpu_cb is `cpu()` for a bare test context: this thread's CPU seconds. A
+// `proc "c"` callback has no Odin context, so it sets the default one before calling
+// thread_cpu_s; it allocates nothing.
+@(private = "file")
+thread_cpu_cb :: proc "c" (
+	ctx: jsc.JSContextRef,
+	function: jsc.JSObjectRef,
+	this_object: jsc.JSObjectRef,
+	argument_count: uint,
+	arguments: [^]jsc.JSValueRef,
+	exception: ^jsc.JSValueRef,
+) -> jsc.JSValueRef {
+	context = runtime.default_context()
+	return jsc.JSValueMakeNumber(ctx, thread_cpu_s())
+}
+
 // The budget and the time spent belong to the page that held the VM: release clears
 // them, so the next page on a reused VM starts at zero with no budget armed.
+//
+// The second page burns CPU, not wall time. The kill latched the watchdog at its 1 ms
+// floor, so if release leaves it armed, JSC terminates the next entry once that entry
+// has used 1 ms of thread CPU (and the watchdog timer has run since). This page used
+// to spin 150 ms of wall time, and on a loaded runner that bought it too little CPU:
+// with 64 busy loops pinned to its one core (`taskset -c 0`) the entry got 3.3-3.6 ms
+// of CPU (14 instrumented runs) and the mutation that drops the clear survived 5 of
+// 40 runs, as it once did in CI (mutation shard 3/3 on x-ror/larva#53). Spinning to
+// 100 ms of thread CPU — 100x the floor whatever the load — killed that mutation in
+// 40 of 40 runs under the same load and passed 8 of 8 unmutated. The passing run
+// costs no more: 208 ms against 260 ms for the whole test, one unloaded run each.
 @(test)
 cpu_budget_is_cleared_on_release :: proc(t: ^testing.T) {
 	pool: lava.VM_Pool
@@ -127,8 +155,19 @@ cpu_budget_is_cleared_on_release :: proc(t: ^testing.T) {
 	testing.expect(t, vm2.cpu_budget_ns == 0, "budget survived release")
 	testing.expect_value(t, vm2.cpu_used_ns, 0)
 	ctx2 := lava.vm_create_context(vm2, nil)
+	cpu_name := jsc.JSStringCreateWithUTF8CString("cpu")
+	cpu_fn := jsc.JSObjectMakeFunctionWithCallback(cast(jsc.JSContextRef)ctx2, cpu_name, thread_cpu_cb)
+	jsc.JSObjectSetProperty(
+		cast(jsc.JSContextRef)ctx2,
+		jsc.JSContextGetGlobalObject(cast(jsc.JSContextRef)ctx2),
+		cpu_name,
+		cast(jsc.JSValueRef)cpu_fn,
+		{},
+		nil,
+	)
+	jsc.JSStringRelease(cpu_name)
 	lava.vm_cpu_enter(vm2)
-	s2 := jsc.JSStringCreateWithUTF8CString("var s = Date.now(); while (Date.now() - s < 150) {}")
+	s2 := jsc.JSStringCreateWithUTF8CString("var s = cpu(); while (cpu() - s < 0.1) {}")
 	exc2: jsc.JSValueRef
 	jsc.JSEvaluateScript(cast(jsc.JSContextRef)ctx2, s2, nil, nil, 1, &exc2)
 	jsc.JSStringRelease(s2)
