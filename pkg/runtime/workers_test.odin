@@ -1,8 +1,10 @@
 package lava_runtime
 
+import "core:log"
 import "core:sync"
 import "core:testing"
 import "core:thread"
+import eventloop "lava:pkg/runtime/eventloop"
 
 // Unit tests for the multi-worker primitives (Slice 3a): the pure LAVA_WORKERS parser and the
 // abortable startup barrier. Deterministic and JSC-free (they touch no event loop or context).
@@ -116,10 +118,36 @@ barrier_one_failure_aborts :: proc(t: ^testing.T) {
 // barrier — not eval plus a hand-placed teardown — so deleting the call in worker_main turns this red
 // (recorded in tests/mutation-manifest.json). Calling lava_run_workers instead would set g_multi_worker
 // and block SIGINT/SIGTERM on the test-runner thread for every later test.
+//
+// Tables bind only when the private host-call path is up (bind_host_tables runs after
+// jsc.host_function_create succeeds); under LAVA_HOSTFN_DISABLE=1 or a failed probe nothing binds, the
+// count never moves, and a worker_main without the teardown would still pass. So the same eval shape
+// worker_main uses is first run once on this thread and must move the count by exactly one; when it
+// does not, the leak this pins cannot occur here and the test skips (loudly) rather than pass vacuously.
 @(test)
 workers_give_back_their_host_tables :: proc(t: ^testing.T) {
 	N :: 3
 	baseline := host_native_tables_live()
+
+	{
+		probe_loop := eventloop.init(real_time = true)
+		res := eval("globalThis.__ran = typeof Buffer", "workers_host_tables_probe.js", &probe_loop, false, nil)
+		probe_exit := res.exit_code
+		result_destroy(&res)
+		bound := host_native_tables_live() == baseline + 1
+		// eval destroyed its context on every path, which is the teardown's precondition; harmless when
+		// nothing bound. Leaving the runner thread's tables bound would offset every later count.
+		host_native_thread_teardown()
+		if !testing.expectf(t, probe_exit == 0, "probe eval exit code %d", probe_exit) do return
+		if !bound {
+			log.warnf(
+				"SKIP workers_give_back_their_host_tables: an eval bound no host-native tables on this thread " +
+				"(host-call path unavailable, e.g. LAVA_HOSTFN_DISABLE=1) — the leak it pins cannot occur here",
+			)
+			return
+		}
+		if !testing.expectf(t, host_native_tables_live() == baseline, "probe teardown left %d tables live, want baseline %d", host_native_tables_live(), baseline) do return
+	}
 
 	barrier := Worker_Barrier {
 		total = N,
@@ -143,8 +171,8 @@ workers_give_back_their_host_tables :: proc(t: ^testing.T) {
 	sync.atomic_sub(&g_worker_exits, N)
 
 	for i in 0 ..< N {
-		// The workers really ran JS (and so really bound tables): a startup failure would make the
-		// count below pass vacuously.
+		// Every worker reached the ready barrier and exited cleanly, i.e. really ran the eval the probe
+		// above proved binds tables on this build — a startup failure would make the count below vacuous.
 		testing.expectf(t, workers[i].reported && !barrier.any_failed, "worker %d did not reach the ready barrier", i)
 		testing.expectf(t, workers[i].result.exit_code == 0, "worker %d exit code %d", i, workers[i].result.exit_code)
 		result_destroy(&workers[i].result)
