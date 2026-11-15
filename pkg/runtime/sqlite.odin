@@ -468,13 +468,7 @@ sqlite_row_cb :: proc "c" (
 		value: jsc.JSValueRef
 		switch sqlite.column_type(stmt, i) {
 		case .Integer:
-			value = sqlite_int_value(
-				ctx,
-				sqlite.column_int(stmt, i),
-				read_big_ints,
-				true,
-				exception,
-			)
+			value = sqlite_int_value(ctx, sqlite.column_int(stmt, i), read_big_ints, exception)
 			// An out-of-range INTEGER throws (ERR_OUT_OF_RANGE) — abandon the row.
 			if exception != nil && exception^ != nil do return jsc.JSValueMakeUndefined(ctx)
 		case .Float:
@@ -509,8 +503,8 @@ sqlite_changes_cb :: proc "c" (
 	db := sqlite_get_db(state, sqlite_arg_id(ctx, arguments[0]))
 	if db == nil do return jsc.JSValueMakeNumber(ctx, 0)
 	read_big_ints := sqlite_read_big_ints(ctx, argument_count, arguments, 1)
-	// changes/lastInsertRowid never throw (Node returns a lossy number by default).
-	return sqlite_int_value(ctx, sqlite.changes(db), read_big_ints, false, exception)
+	// Unsafe counts throw like a column read (node 26); see sqlite_int_value.
+	return sqlite_int_value(ctx, sqlite.changes(db), read_big_ints, exception)
 }
 
 sqlite_last_insert_rowid_cb :: proc "c" (
@@ -527,7 +521,7 @@ sqlite_last_insert_rowid_cb :: proc "c" (
 	db := sqlite_get_db(state, sqlite_arg_id(ctx, arguments[0]))
 	if db == nil do return jsc.JSValueMakeNumber(ctx, 0)
 	read_big_ints := sqlite_read_big_ints(ctx, argument_count, arguments, 1)
-	return sqlite_int_value(ctx, sqlite.last_insert_rowid(db), read_big_ints, false, exception)
+	return sqlite_int_value(ctx, sqlite.last_insert_rowid(db), read_big_ints, exception)
 }
 
 // --- helpers ---
@@ -553,18 +547,18 @@ sqlite_read_big_ints :: proc(
 
 // sqlite_int_value converts an i64 column/rowid value to a JS value honoring the
 // statement's readBigInts flag. With read_big_ints it returns a BigInt; otherwise
-// a JS number — throwing ERR_OUT_OF_RANGE (like node:sqlite) when throw_on_unsafe
-// is set and the value is not exactly representable. run()'s changes/lastInsertRowid
-// pass throw_on_unsafe=false: Node returns those as a lossy number, never throwing.
+// a JS number, throwing ERR_OUT_OF_RANGE (like node:sqlite) when the value is not
+// exactly representable. That includes run()'s changes/lastInsertRowid: node 26
+// throws for them after the statement has run (the row stays written); node 24
+// returned a lossy number. Pinned by tests/std/sqlite/cases/04-bigint.js.
 sqlite_int_value :: proc(
 	ctx: jsc.JSContextRef,
 	v: i64,
 	read_big_ints: bool,
-	throw_on_unsafe: bool,
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	if read_big_ints do return sqlite_make_bigint(ctx, v)
-	if throw_on_unsafe && (v > SQLITE_MAX_SAFE_INTEGER || v < -SQLITE_MAX_SAFE_INTEGER) {
+	if (v > SQLITE_MAX_SAFE_INTEGER || v < -SQLITE_MAX_SAFE_INTEGER) {
 		if exception != nil {
 			msg := fmt.tprintf(
 				"Value is too large to be represented as a JavaScript number: %d",

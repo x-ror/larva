@@ -173,9 +173,9 @@
   var I64_MAX = 2n ** 63n - 1n;
 
   // bindOne binds a single value, enforcing node:sqlite's accepted types. Only
-  // null, number, string, BigInt, boolean, TypedArray/DataView and
-  // ArrayBuffer/SharedArrayBuffer are bindable; anything else (undefined, plain
-  // object, symbol, function) throws instead of being silently coerced. BigInt
+  // null/undefined, number, string, BigInt, boolean, TypedArray/DataView and
+  // ArrayBuffer/SharedArrayBuffer are bindable; anything else (plain object,
+  // symbol, function) throws instead of being silently coerced. BigInt
   // binds as INTEGER when it fits in i64, otherwise throws — Node accepts neither a
   // lossy nor an overflowing bind.
   //
@@ -185,10 +185,14 @@
   //   empty Uint8Array, which stays an empty BLOB. Probed against node 24.21 with
   //   `SELECT ?, typeof(?)`; node 22 threw on the boolean and took the buffer for a
   //   named bag. Pinned by tests/std/sqlite/cases/08-coercion-parity.js.
+  //   node 26 binds `undefined` as NULL, positional and named; node 24 threw
+  //   ERR_INVALID_ARG_TYPE. Pinned by tests/std/sqlite/cases/05-coercion.js.
   function bindOne(stmtId, index, value) {
     var t = typeof value;
     var n;
-    if (value === null || t === 'number' || t === 'string') {
+    if (value === undefined) {
+      native.bind(stmtId, index, null); // primordials-ok: method
+    } else if (value === null || t === 'number' || t === 'string') {
       native.bind(stmtId, index, value);
     } else if (t === 'boolean') {
       // The BigInt path is the existing INTEGER bind; a number would bind REAL.
@@ -259,8 +263,8 @@
         }
         bindOne(this._stmtId, i + 1, value);
       } else if (pos < args.length) {
-        // Anonymous "?" parameter — take the next positional argument. An
-        // explicitly-passed undefined is rejected by bindOne (Node throws).
+        // Anonymous "?" parameter — take the next positional argument (an explicit
+        // undefined binds NULL, node 26).
         bindOne(this._stmtId, i + 1, args[pos++]);
       } else {
         // Fewer positional args than placeholders: the trailing ones bind NULL,

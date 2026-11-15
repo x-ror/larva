@@ -13,7 +13,7 @@
 Lava is a Node-compatible JavaScript runtime built on **JavaScriptCore (JSC)** as
 the execution engine and **Odin** as the systems language for everything around
 it: the engine FFI, the event loop, the I/O transports, and the native half of
-the standard library. Compatibility targets modern Node (22+/24 behavior) rather
+the standard library. Compatibility targets modern Node (26+ behavior, floor pinned in `.nvmrc`) rather
 than legacy APIs.
 
 Two design decisions shape the whole system:

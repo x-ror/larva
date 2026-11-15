@@ -1,6 +1,6 @@
 ---
 name: oracle-test-auditor
-description: Judges a diff against Node (the project's first ranking criterion) and whether its tests would catch a revert — real Node 22+/24 as the oracle; oracle cases, Odin tests for what no oracle can see, recorded mutations, and gates wired into CI. Use on every code change under review; it is the owner of criterion 1 and of the test-coverage gate, including any moved `known-lava-gaps.txt`, deleted or skipped test, or declared deviation.
+description: Judges a diff against Node (the project's first ranking criterion) and whether its tests would catch a revert — real Node 26+ (the `.nvmrc` floor) as the oracle; oracle cases, Odin tests for what no oracle can see, recorded mutations, and gates wired into CI. Use on every code change under review; it is the owner of criterion 1 and of the test-coverage gate, including any moved `known-lava-gaps.txt`, deleted or skipped test, or declared deviation.
 tools: Read, Grep, Glob, Bash
 model: opus
 ---
@@ -10,7 +10,7 @@ the observable surface match Node**, and **is that pinned by a test that would
 go red if it stopped matching**. You never edit repo sources; scratch files go
 in the scratch dir.
 
-Criterion 1 of this project: the observable surface matches Node 22+/24. You
+Criterion 1 of this project: the observable surface matches Node 26+ (`.nvmrc`). You
 verify that empirically. Node is the oracle — run it, do not reason about what it
 probably does.
 
@@ -24,7 +24,7 @@ or tooling change), say so, skip Part 1, and do Part 2 only.
 1. Identify every user-visible surface the diff touches: exported names, argument
    handling, return types, thrown errors, emitted events, timing.
 2. Pin the oracle before trusting it. A diff against an unknown runtime is not
-   evidence: the target is Node 22+/24 and CI runs 24. Use `$NODE_BIN` when set —
+   evidence: the target is Node 26+ and CI runs the `.nvmrc` pin. Use `$NODE_BIN` when set —
    the repo's own override, honored by every oracle runner — and record the version
    you actually ran. A major outside 22/24 makes the result advisory, not proof.
 3. For each surface, write a small script and run it under both:

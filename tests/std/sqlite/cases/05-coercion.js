@@ -67,12 +67,13 @@ throwsWithCode(
 );
 
 // --- unbindable types throw instead of coercing ---
-throwsWithCode(
-  () => insertOne(undefined),
-  'ERR_INVALID_ARG_TYPE',
-  UNBINDABLE_MSG,
-  'bind undefined',
-);
+// `undefined` is NOT one of them from node 26: it binds as SQL NULL, positional and
+// named alike (node 24 threw ERR_INVALID_ARG_TYPE here).
+insertOne(undefined);
+const undefRow = db.prepare('SELECT x, typeof(x) AS ty FROM t').get();
+assert.equal(undefRow.x, null);
+assert.equal(undefRow.ty, 'null');
+assert.equal(db.prepare('SELECT typeof(:v) AS ty').get({ v: undefined }).ty, 'null');
 throwsWithCode(() => insertOne(Symbol('s')), 'ERR_INVALID_ARG_TYPE', UNBINDABLE_MSG, 'bind symbol');
 // (A boolean is bindable since node 24.x — INTEGER 1/0, pinned in 08-coercion-parity.js.)
 

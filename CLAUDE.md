@@ -20,7 +20,8 @@ Layering (never blur it):
 
 1. **Node interface conformance.** The observable surface — names, argument
    coercion order, defaults, thrown error `code`/`name`/`message`, event order,
-   return types — matches Node 22+/24. Node is the oracle, not our reading of the
+   return types — matches Node 26+ (the `.nvmrc` floor; 28 is the planned final
+   pin). Node is the oracle, not our reading of the
    docs. Deviation is allowed **only** when it buys measured speed or memory
    control, and then it must be: written down in the code comment, listed in the
    PR, and covered by a Lava-only test pinning the intended behavior.

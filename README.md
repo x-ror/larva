@@ -32,7 +32,7 @@ fetch JavaScriptCore/WebKit and the SQLite amalgamation into the ignored `.deps/
 cache. `scripts/build-sqlite-windows.sh` then compiles SQLite into
 `build/sqlite3.lib`; WebKit is linked from `.deps/webkit/bun-webkit/lib`.
 
-Node 24 (`24.22.2` pinned in [`.nvmrc`](.nvmrc); oracle suites require Node 24) and Bun are needed for the JavaScript gates — run `bun install` once.
+Node 26+ (`26.13.0` pinned in [`.nvmrc`](.nvmrc); oracle suites refuse an older major) and Bun are needed for the JavaScript gates — run `bun install` once.
 They are dev-only (`markdownlint-cli2`, `acorn`/`acorn-walk` for the
 prototype-pollution ratchet, `fast-check` for `make test-property`); `bin/lava`
 links none of them. `make check-js` is an always-gate and now fails without them.
