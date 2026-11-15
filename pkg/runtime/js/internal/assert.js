@@ -3,7 +3,9 @@
 (function (require, module) {
   'use strict';
 
-  var inspect = require('util').inspect;
+  var util = require('util');
+  var inspect = util.inspect;
+  var isDeepStrictEqual = util.isDeepStrictEqual;
 
   function AssertionError(options) {
     var message = options.message;
@@ -50,58 +52,6 @@
     innerOk(assert, value, message);
   }
   var ok = assert;
-
-  function isDeepStrictEqual(a, b, seen) {
-    if (Object.is(a, b)) return true;
-    if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
-
-    var ta = Object.prototype.toString.call(a);
-    var tb = Object.prototype.toString.call(b);
-    if (ta !== tb) return false;
-
-    if (a instanceof Date) return a.getTime() === b.getTime();
-    if (a instanceof RegExp) return a.source === b.source && a.flags === b.flags;
-
-    seen = seen || [];
-    for (var s = 0; s < seen.length; s++) {
-      if (seen[s][0] === a && seen[s][1] === b) return true;
-    }
-    seen = seen.concat([[a, b]]);
-
-    // TypedArray / Buffer
-    if (ArrayBuffer.isView(a) && ArrayBuffer.isView(b)) {
-      if (a.length !== b.length) return false;
-      for (var n = 0; n < a.length; n++) if (a[n] !== b[n]) return false;
-      return true;
-    }
-
-    if (a instanceof Map) {
-      if (a.size !== b.size) return false;
-      var mapOk = true;
-      a.forEach(function (val, key) {
-        if (!b.has(key) || !isDeepStrictEqual(val, b.get(key), seen)) mapOk = false;
-      });
-      return mapOk;
-    }
-    if (a instanceof Set) {
-      if (a.size !== b.size) return false;
-      var setOk = true;
-      a.forEach(function (val) {
-        if (!b.has(val)) setOk = false;
-      });
-      return setOk;
-    }
-
-    var keysA = Object.keys(a);
-    var keysB = Object.keys(b);
-    if (keysA.length !== keysB.length) return false;
-    for (var i = 0; i < keysA.length; i++) {
-      var key = keysA[i];
-      if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
-      if (!isDeepStrictEqual(a[key], b[key], seen)) return false;
-    }
-    return true;
-  }
 
   function equal(actual, expected, message) {
     if (!Object.is(actual, expected) && actual !== expected) {

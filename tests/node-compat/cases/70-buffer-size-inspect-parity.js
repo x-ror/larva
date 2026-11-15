@@ -84,10 +84,11 @@ for (const [n, v] of nums) {
   show(`new Buffer(${n})`, () => new Buffer(v));
   show(`Buffer(${n})`, () => Buffer(v));
 }
-// Pooled storage would leak stale bytes here; node zero-fills.
+// Pooled storage would leak stale bytes here; node zero-fills and does not slice the pool.
 show('Buffer(5) after dirtying the pool', () => {
   Buffer.allocUnsafe(8).fill(0xaa);
-  return Buffer(5);
+  const res = Buffer(5);
+  return res.toString('hex') + ' buf=' + res.buffer.byteLength + ' off=' + res.byteOffset;
 });
 
 // --- 3. Separator with nothing shown ---------------------------------------------------

@@ -145,7 +145,7 @@
    * @node `The "size" argument must be of type number. Received type string ('5')`
    *       for Buffer.alloc('5'); the same template for "offset" (readUInt8('5'),
    *       writeUInt16LE(0, '1')) and "length" (Buffer.concat([a], '5')). Node 24.22.1,
-   *       verified by the issue #391 probe.
+   *       verified by tests/node-compat/cases/70-buffer-size-inspect-parity.js.
    * @deviates none
    */
   function errInvalidArgType(name, expected, actual) {
@@ -250,9 +250,10 @@
    *         ceiling; the message quotes the ceiling and `Received <size>`.
    * @node -1/NaN/±Infinity/2**53 → `The value of "size" is out of range. It must be
    *       >= 0 && <= 9007199254740991. Received -1` (2**53 prints 9_007_199_254_740_992);
-   *       -0 and 1.5 pass (length 0 and 1). Node 24.22.1, verified by the #391 probe.
-   * @deviates The ceiling is K_MAX_LENGTH (4294967296, the JSC-family kMaxLength that
-   *           buffer.constants.MAX_LENGTH reports), not node's 2**53-1 — the documented
+   *       -0 and 1.5 pass (length 0 and 1). Node 24.22.1, verified by
+   *       tests/node-compat/cases/70-buffer-size-inspect-parity.js.
+   * @deviates The ceiling is K_MAX_LENGTH (4 GiB by default; LAVA_MAX_BUFFER_BYTES lowers it,
+   *           and buffer.constants.MAX_LENGTH reports it), not node's 2**53-1 — the documented
    *           kMaxLength deviation in reference/node-compatibility.md. The bound is pinned
    *           to MAX_LENGTH, not to a literal, by
    *           tests/node-compat/cases/70-buffer-size-inspect-parity.js and
@@ -267,6 +268,7 @@
   /** @returns {string} Canonical encoding name (default utf8). */
   function normalizeEncoding(encoding) {
     if (encoding === undefined || encoding === null || encoding === '') return 'utf8';
+    if (typeof encoding === 'symbol') return '' + encoding; // throws TypeError on Symbol, matching Node
     var key = StringPrototypeToLowerCase(StringG(encoding));
     var canon = ENCODING_ALIASES[key];
     return canon !== undefined ? canon : key;
@@ -274,9 +276,9 @@
 
   /** @returns {boolean} */
   function isEncodingName(encoding) {
-    return ObjectPrototypeHasOwnProperty(
-      ENCODING_ALIASES,
-      StringPrototypeToLowerCase(StringG(encoding)),
+    return (
+      typeof encoding === 'string' &&
+      ObjectPrototypeHasOwnProperty(ENCODING_ALIASES, StringPrototypeToLowerCase(encoding))
     );
   }
 
@@ -407,7 +409,11 @@
     if (typeof value === 'string') return strToBytes(value, encoding || 'utf8');
     if (value instanceof Uint8Array) return value;
     if (value instanceof ArrayBuffer) return new Uint8Array(value);
-    throw new TypeError('value must be string, number, Buffer, or Uint8Array');
+    throw errInvalidArgType(
+      'value',
+      'one of type number or string or an instance of Buffer or Uint8Array',
+      value,
+    );
   }
 
   /** indexOf / lastIndexOf implementation (native search). */
@@ -494,7 +500,9 @@
   }
 
   function writeBigUInt(buf, value, offset, littleEndian) {
-    value = BigInt(value);
+    if (typeof value === 'symbol') Number(value); // throws TypeError on Symbol, matching Node
+    if (typeof value !== 'bigint')
+      throw new TypeError('Cannot mix BigInt and other types, use explicit conversions');
     checkValueInt(value, BIG_0, BIG_MAX_U64, 7);
     offset = checkBounds(buf, offset, 8);
     viewOf(buf).setBigUint64(offset, value, littleEndian);
@@ -502,7 +510,9 @@
   }
 
   function writeBigInt(buf, value, offset, littleEndian) {
-    value = BigInt(value);
+    if (typeof value === 'symbol') Number(value); // throws TypeError on Symbol, matching Node
+    if (typeof value !== 'bigint')
+      throw new TypeError('Cannot mix BigInt and other types, use explicit conversions');
     checkValueInt(value, -BIG_SIGN_I64, BIG_SIGN_I64 - BIG_1, 7);
     offset = checkBounds(buf, offset, 8);
     viewOf(buf).setBigInt64(offset, value, littleEndian);
@@ -536,9 +546,9 @@
       var len = TypedArrayPrototypeGetLength(this);
       if (start === undefined || start <= 0) start = 0;
       else if (start >= len) return '';
-      else start |= 0;
-      if (end === undefined || end > len) end = len;
-      else end |= 0;
+      else start = +start | 0;
+      if (end === undefined || end >= len) end = len;
+      else end = +end | 0;
       if (end <= start) return '';
       // Full-range toString (the common case) skips the subarray view: the
       // codec natives read this buffer's bytes in place either way.
@@ -592,6 +602,11 @@
      * @returns {number} Bytes written
      */
     write(string, offset, length, encoding) {
+      if (typeof string !== 'string') {
+        var e = new TypeError('argument must be a string');
+        e.code = 'ERR_INVALID_ARG_TYPE';
+        throw e;
+      }
       if (offset === undefined) {
         offset = 0;
         length = this.length;
@@ -600,7 +615,8 @@
         offset = 0;
         length = this.length;
       } else {
-        offset = validateWriteOffset(+offset, this.length, 'offset');
+        if (typeof offset !== 'number') throw errInvalidArgType('offset', 'of type number', offset);
+        offset = validateWriteOffset(offset, this.length, 'offset');
         if (typeof length === 'string') {
           encoding = length;
           length = undefined;
@@ -608,8 +624,13 @@
       }
       var enc = normalizeEncoding(encoding || 'utf8');
       var remaining = this.length - offset;
-      var max = length === undefined ? remaining : toInteger(length, 0);
-      if (max > remaining) max = remaining;
+      var max;
+      if (length === undefined) {
+        max = remaining;
+      } else {
+        if (typeof length !== 'number') throw errInvalidArgType('length', 'of type number', length);
+        max = validateWriteOffset(length, remaining, 'length');
+      }
       if (max <= 0) return 0;
       string = StringG(string);
       if (enc === 'utf8') return utf8WriteIntoNative(this, string, offset, max);
@@ -639,19 +660,31 @@
 
     compare(target, targetStart, targetEnd, sourceStart, sourceEnd) {
       if (!(target instanceof Uint8Array))
-        throw new TypeError('target must be a Buffer or Uint8Array');
-      targetStart = validateRange(targetStart, K_MAX_LENGTH, 'targetStart');
-      targetEnd = validateRange(
-        targetEnd === undefined ? target.length : targetEnd,
-        target.length,
-        'targetEnd',
-      );
-      sourceStart = validateRange(sourceStart, K_MAX_LENGTH, 'sourceStart');
-      sourceEnd = validateRange(
-        sourceEnd === undefined ? this.length : sourceEnd,
-        this.length,
-        'sourceEnd',
-      );
+        throw errInvalidArgType('target', 'an instance of Buffer or Uint8Array', target);
+      if (targetStart === undefined) targetStart = 0;
+      else {
+        if (typeof targetStart !== 'number')
+          throw errInvalidArgType('targetStart', 'of type number', targetStart);
+        targetStart = validateWriteOffset(targetStart, target.length, 'targetStart');
+      }
+      if (targetEnd === undefined) targetEnd = target.length;
+      else {
+        if (typeof targetEnd !== 'number')
+          throw errInvalidArgType('targetEnd', 'of type number', targetEnd);
+        targetEnd = validateWriteOffset(targetEnd, target.length, 'targetEnd');
+      }
+      if (sourceStart === undefined) sourceStart = 0;
+      else {
+        if (typeof sourceStart !== 'number')
+          throw errInvalidArgType('sourceStart', 'of type number', sourceStart);
+        sourceStart = validateWriteOffset(sourceStart, this.length, 'sourceStart');
+      }
+      if (sourceEnd === undefined) sourceEnd = this.length;
+      else {
+        if (typeof sourceEnd !== 'number')
+          throw errInvalidArgType('sourceEnd', 'of type number', sourceEnd);
+        sourceEnd = validateWriteOffset(sourceEnd, this.length, 'sourceEnd');
+      }
       if (sourceStart >= sourceEnd && targetStart >= targetEnd) return 0;
       if (sourceStart >= sourceEnd) return -1;
       if (targetStart >= targetEnd) return 1;
@@ -671,30 +704,33 @@
         end = this.length;
       }
       if (start === undefined) start = 0;
-      else start = validateWriteOffset(+start, K_MAX_LENGTH, 'offset');
+      else {
+        if (typeof start !== 'number') throw errInvalidArgType('offset', 'of type number', start);
+        start = validateWriteOffset(start, K_MAX_LENGTH, 'offset');
+      }
       if (end === undefined) end = this.length;
-      else end = validateWriteOffset(+end, this.length, 'end');
+      else {
+        if (typeof end !== 'number') throw errInvalidArgType('end', 'of type number', end);
+        end = validateWriteOffset(end, this.length, 'end');
+      }
       if (end <= start) return this;
-      if (typeof value === 'number') {
-        u8Fill.call(this, value & 0xff, start, end);
-        return this;
-      }
-      if (typeof value === 'boolean') {
-        u8Fill.call(this, value ? 1 : 0, start, end);
-        return this;
-      }
       var bytes;
-      if (value instanceof Uint8Array) {
-        if (value.length === 0) throw errInvalidArgValue('value', value);
-        bytes = value;
-      } else {
-        var str = StringG(value);
-        bytes = strToBytes(str, encoding || 'utf8');
+      if (typeof value === 'string') {
+        bytes = strToBytes(value, encoding || 'utf8');
         if (bytes.length === 0) {
-          if (str.length !== 0) throw errInvalidArgValue('value', value);
+          if (value.length !== 0) throw errInvalidArgValue('value', value);
           u8Fill.call(this, 0, start, end);
           return this;
         }
+      } else if (value instanceof Uint8Array) {
+        if (value.length === 0) throw errInvalidArgValue('value', value);
+        bytes = value;
+      } else {
+        // Non-string, non-Uint8Array values (including null, undefined, objects, booleans,
+        // numbers, BigInt, Symbol) coerce via ToNumber/ToInt32 (& 0xff), matching Node:
+        // null/undefined/{} -> 0, true -> 1, BigInt/Symbol -> TypeError.
+        u8Fill.call(this, value & 0xff, start, end);
+        return this;
       }
       if (bytes.length === 1) {
         u8Fill.call(this, bytes[0], start, end);
@@ -752,7 +788,8 @@
    *         ±Infinity or above kMaxLength (assertSize, the check Buffer.alloc runs).
    * @node `Buffer(n)` is `Buffer.alloc(n)`: -1, NaN, ±Infinity and 2**53 throw the
    *       coded "size" RangeError, -0 → length 0, 1.5 → length 1, 5 → five zero bytes;
-   *       identical with and without `new`. Node 24.22.1, verified by the #391 probe.
+   *       identical with and without `new`. Node 24.22.1, verified by
+   *       tests/node-compat/cases/70-buffer-size-inspect-parity.js.
    * @deviates The out-of-range bound is K_MAX_LENGTH (see assertSize), pinned by
    *           tests/node-compat/cases/70-buffer-size-inspect-parity.js.
    */
@@ -1260,8 +1297,10 @@
   };
 
   Buffer.compare = function (a, b) {
-    if (!(a instanceof Uint8Array) || !(b instanceof Uint8Array))
-      throw new TypeError('Arguments must be Buffers or Uint8Arrays');
+    if (!(a instanceof Uint8Array))
+      throw errInvalidArgType('buf1', 'an instance of Buffer or Uint8Array', a);
+    if (!(b instanceof Uint8Array))
+      throw errInvalidArgType('buf2', 'an instance of Buffer or Uint8Array', b);
     return compareBytes(a, b);
   };
 
@@ -1306,7 +1345,8 @@
   };
 
   Buffer.copyBytesFrom = function (view, offset, length) {
-    if (!ArrayBuffer.isView(view)) throw new TypeError('view must be a TypedArray');
+    if (!ArrayBuffer.isView(view))
+      throw errInvalidArgType('view', 'an instance of TypedArray', view);
     var bpe = view.BYTES_PER_ELEMENT || 1;
     offset = toInteger(offset, 0);
     length = length === undefined ? view.length - offset : toInteger(length, 0);
@@ -1611,6 +1651,12 @@
   }
   if (globalThis.File === undefined) {
     globalThis.File = File;
+  }
+  if (globalThis.atob === undefined) {
+    globalThis.atob = atob;
+  }
+  if (globalThis.btoa === undefined) {
+    globalThis.btoa = btoa;
   }
 
   var exported = {
