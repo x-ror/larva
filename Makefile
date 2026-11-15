@@ -45,7 +45,7 @@ help:
 	@printf '%s\n' '  make check-runtime      Type-check runtime packages only'
 	@printf '%s\n' '  make check-js           Vite+ fmt/lint + orphan-JS + scripts tests + primordials + global-replace'
 	@printf '%s\n' '  make fix-js             Auto-fix JS formatting/lint'
-	@printf '%s\n' '  make check-md           Markdown lint (markdownlint-cli2)'
+	@printf '%s\n' '  make check-md           Markdown lint + node-compat matrix drift check'
 	@printf '%s\n' '  make fix-md             Auto-fix markdown lint'
 	@printf '%s\n' '  make check-actions      actionlint over .github/workflows'
 	@printf '%s\n' '  make check-primordials  Prototype-pollution ratchet (UPDATE=1 to lower; RAISE=--allow-raise)'
@@ -149,6 +149,7 @@ fix-js:
 # .markdownlint-cli2.jsonc). Catches MD040 and friends locally instead of in review.
 check-md:
 	bun run md:check
+	python3 scripts/node-compat/gen-matrix.py --check
 
 fix-md:
 	bun run md:fix

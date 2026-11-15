@@ -1608,6 +1608,70 @@
       "replace": "",
       "gate": "odin:pkg/runtime:lava_runtime.workers_give_back_their_host_tables",
       "expect_detail": "host-native tables live after workers exited"
+    },
+    {
+      "name": "the matrix generator's check dies when a row changes without regenerating",
+      "why": "node-compat.json and node-compatibility.md are rendered from gen-matrix.py's table; both drifted from it before (hand edits in the JSON, a page marking shipped modules missing) and nothing failed.",
+      "source": "scripts/node-compat/gen-matrix.py",
+      "find": "\"os\": (\"full\", \"all 23 exports present\", \"\"),",
+      "replace": "\"os\": (\"partial\", \"all 23 exports present\", \"\"),",
+      "gate": "node-test:scripts/node-compat/gen-matrix.test.mjs",
+      "expect_detail": "is out of date"
+    },
+    {
+      "name": "70-buffer-size-inspect-parity dies when assertSize splices a bare type name",
+      "why": "node prints `must be of type number` for Buffer.alloc('5'); a bare 'number' prints `must be number`.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "throw errInvalidArgType('size', 'of type number', size);",
+      "replace": "throw errInvalidArgType('size', 'number', size);",
+      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
+      "expect_detail": [
+        "The \"size\" argument must be number"
+      ]
+    },
+    {
+      "name": "70-buffer-size-inspect-parity dies when checkBounds splices a bare type name",
+      "why": "every fixed-width read/write reports its offset type error here; node says `must be of type number`.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "throw errInvalidArgType('offset', 'of type number', offset);",
+      "replace": "throw errInvalidArgType('offset', 'number', offset);",
+      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
+      "expect_detail": [
+        "The \"offset\" argument must be number"
+      ]
+    },
+    {
+      "name": "70-buffer-size-inspect-parity dies when Buffer.concat's length check splices a bare type name",
+      "why": "Buffer.concat(list, '5') must say `The \"length\" argument must be of type number`.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "throw errInvalidArgType('length', 'of type number', totalLength);",
+      "replace": "throw errInvalidArgType('length', 'number', totalLength);",
+      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
+      "expect_detail": [
+        "The \"length\" argument must be number"
+      ]
+    },
+    {
+      "name": "70-buffer-size-inspect-parity dies when the deprecated Buffer(n) skips assertSize",
+      "why": "Buffer(-1) would throw JSC's codeless 'length cannot be negative' and Buffer(NaN) return an empty Buffer; node throws ERR_OUT_OF_RANGE.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "      assertSize(arg);\n",
+      "replace": "",
+      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
+      "expect_detail": [
+        "length cannot be negative"
+      ]
+    },
+    {
+      "name": "70-buffer-size-inspect-parity dies when the more-bytes separator is dropped with no hex shown",
+      "why": "node prints `<Buffer  ... 3 more bytes>` (two spaces) when INSPECT_MAX_BYTES = 0.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "hex += ' ... ' + remaining",
+      "replace": "hex += (hex ? ' ' : '') + '... ' + remaining",
+      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
+      "expect_detail": [
+        "<Buffer ... 1 more byte>"
+      ]
     }
   ]
 }
