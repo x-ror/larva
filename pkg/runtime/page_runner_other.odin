@@ -10,7 +10,8 @@ import "base:runtime"
 Page_Done_Proc :: proc(runner: ^Page_Runner, user_data: rawptr, result: Result)
 
 Page_Runner :: struct {
-	on_done: Page_Done_Proc,
+	on_done:           Page_Done_Proc,
+	heap_sample_every: int,
 }
 
 page_runner_init :: proc(runner: ^Page_Runner, capacity: int, on_done: Page_Done_Proc, allocator: runtime.Allocator) -> bool {
@@ -31,3 +32,8 @@ page_runner_run :: proc(runner: ^Page_Runner) {}
 page_runner_reaping :: proc(runner: ^Page_Runner) -> int {return 0}
 
 page_runner_reap :: proc(runner: ^Page_Runner) -> int {return 0}
+
+// No runner, so nothing to watch: refused, like page_runner_init.
+page_runner_watch_fd :: proc(runner: ^Page_Runner, fd: i32) -> bool {return false}
+
+page_runner_step :: proc(runner: ^Page_Runner) -> bool {return false}

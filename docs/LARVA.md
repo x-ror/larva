@@ -64,8 +64,18 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
      page deadlines are event-loop timers;
    - **memory:** the VM's heap belongs to one page at a time, so heap growth can
      be attributed and capped. Pools are fixed-size: every VM ever created keeps
-     one `timerfd` open for the life of the process, so retiring a VM is a rare,
-     fd-budgeted event (heap runaway), not a routine step. Measured: a warm VM
+     one `timerfd` open for the life of its thread (the timer is the thread's
+     `WTF::RunLoop`'s; a dispatcher worker's close when it ends — 6 open while
+     its workers live (3 workers × 2 slots), 0 after join, pinned by `dispatcher_closes_its_descriptors`),
+     so retiring a VM is a rare, fd-budgeted event (heap runaway), not a routine
+     step. A runner samples every Nth page's heap per VM into `Result.heap_bytes`
+     (`Page_Runner.heap_sample_every`, off by default; never a killed or cancelled
+     page). The sample is the heap's capacity — `JSGetMemoryUsageStatistics`'
+     `heapCapacity`, since its `heapSize` is the last collection's mark count and
+     reads 0 before the first one — and the call walks the heap: sampling every page
+     took a trivial page from 133 to 109 pages/s and a page keeping 50k objects
+     from 107 to 54 (`bench/pages`, N = 10, 1000 pages, medians of 7 interleaved
+     launches per arm). Nothing acts on the sample yet. Measured: a warm VM
      stays flat over 500 pages (`bench/jsc-vm` scenario G), and 50 bare JSC VMs
      each holding one page add 4999 KB of RSS apiece (`bench/jsc-vm` scenario D,
      medians of 5 launches, same machine as below) — raw JSC contexts after a
@@ -115,6 +125,26 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
      **budget**, not its entry limit: one tick fires every timer already due, so a
      page that queues many timers holds the thread for all of them. Slicing a tick
      is open work (#35).
+   - **threads:** a page dispatcher (`page_dispatcher.odin`) runs N worker
+     threads, each driving its own page runner and VM pool. A page goes to the
+     worker with the fewest pages queued or running, queues there while that
+     worker's slots are full, and stays on it for its whole life; its Result comes
+     back through `on_done` on that worker. Shutdown drains every accepted page
+     or cancels them, between ticks — so a page inside one synchronous entry ends
+     at its entry limit or budget, since stopping it sooner needs the VM lock its
+     thread holds. Not built on `workers.odin`: that is a process per worker
+     sharing a listen socket, which would put every VM pool behind IPC; a
+     supervisor wanting process isolation runs one dispatcher per process.
+     Throughput with 10 slots per worker, 2000 trivial pages submitted at once:
+     122, 230 and 354 pages/s at 1, 2 and 4 workers (`bench/pages dispatch`,
+     medians of 7 interleaved launches, the same 4-core box). Threads are not
+     "a few per process": JSC starts a collector thread per VM, so a dispatcher
+     runs about workers × slots threads plus a constant. Counted from `/proc`
+     4 s into `bench-pages dispatch T 10 1500`, one launch each: 17 threads,
+     34 fds and 241 MB VmRSS at 1 worker; 53 threads (40 of them "Collector
+     Thread"), 148 fds and 659 MB at 4. The dispatcher's own share is one
+     thread, a wake pipe and an epoll set per worker; the rest is the per-VM
+     cost multiplied (#36);
    - Known limits of the runner, open as issues:
      - The process fd table is shared. Under the Node profile a page can leak
        descriptors to `EMFILE` or `closeSync` a sibling's; the runner is not a
@@ -208,11 +238,13 @@ Stage 1 so far, all on the Node profile's `eval` path — there is no page objec
 - the per-entry execution limit (`vm_set_entry_limit`), exercised only by
   `cmd/lava/vm_pool_test.odin` — nothing sets it for real work yet;
 - VM cost measurements (`bench/jsc-vm`) and the global-state audit
-  ([GLOBAL-STATE.md](GLOBAL-STATE.md)).
+  ([GLOBAL-STATE.md](GLOBAL-STATE.md));
+- the page dispatcher over N worker threads and per-page heap sampling
+  (`page_dispatcher.odin`, `Result.heap_bytes`; decision 2).
 
 Still open in stage 1: the page lifecycle and per-page loop ownership, the
-cumulative CPU budget, heap accounting, the thread dispatcher, the Window profile,
-and the two-page isolation test that GLOBAL-STATE.md calls for.
+cumulative CPU budget, acting on a heap sample (killing or retiring a VM), the
+Window profile, and the two-page isolation test that GLOBAL-STATE.md calls for.
 
 ## Risks
 
