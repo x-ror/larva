@@ -1475,21 +1475,28 @@
     },
     {
       "name": "runner_destroy_detaches_loops_whose_workers_are_blocked dies when a page loop is allocated from the runner allocator",
-      "why": "A detached loop outlives the runner; on the runner allocator, its workers write into memory the embedder freed after destroy (CLAUDE.md §4).",
+      "why": "A detached loop outlives the runner; on the runner allocator, its workers write into memory the embedder freed after destroy (CLAUDE.md §4). The fault lands on whichever thread touches the unmapped arena first: the test thread (the runner's 'Signal caught: Segmentation_Fault') or a pool worker, whose signal makes Odin's runner abort the process ('odin test exited', core/testing/signal_handler_libc.odin:53-63) — the same death; CI (ubuntu-26.04) saw the latter.",
       "source": "pkg/runtime/page_runner.odin",
       "find": "\trp.loop = new(eventloop.Loop, runtime.heap_allocator())\n\trp.loop^ = eventloop.init(runtime.heap_allocator(), real_time = true)\n",
       "replace": "\trp.loop = new(eventloop.Loop, runner.allocator)\n\trp.loop^ = eventloop.init(runner.allocator, real_time = true)\n",
       "gate": "odin:cmd/lava:main.runner_destroy_detaches_loops_whose_workers_are_blocked",
-      "expect_detail": "Segmentation_Fault"
+      "expect_detail": [
+        "Segmentation_Fault",
+        "odin test exited"
+      ]
     },
     {
       "name": "runner_destroy_detaches_loops_whose_workers_are_blocked dies when fs.readFile registers no cancel hook",
-      "why": "Without fs_read_cancel the callback stays protected until the late dispose, which then calls into a VM the runner already destroyed, from a worker thread.",
+      "why": "Without fs_read_cancel the callback stays protected until the late dispose, which then calls into a VM the runner already destroyed, from a worker thread. Locally (ubuntu-24.04) that late call faults on the worker ('odin test exited'); on CI's ubuntu-26.04 build (run 43699940285) no fault reached the process within the wait, and the detached loop's last worker never finished its teardown, so the test's own check that the pipe closes fails — both are that late call into the destroyed VM; the unmutated test closes the pipe within milliseconds of the release.",
       "source": "pkg/runtime/fs.odin",
       "find": "fs_read_dispose, fs_read_cancel) {",
       "replace": "fs_read_dispose) {",
       "gate": "odin:cmd/lava:main.runner_destroy_detaches_loops_whose_workers_are_blocked",
-      "expect_detail": "odin test exited"
+      "expect_detail": [
+        "odin test exited",
+        "Segmentation_Fault",
+        "was never closed after its worker exited"
+      ]
     },
     {
       "name": "runner_reaping_frees_through_matching_allocators dies when the reaper frees a heap loop through the runner allocator",
@@ -1502,40 +1509,43 @@
     },
     {
       "name": "runner_close_does_not_wait_for_a_hanging_dns_lookup dies when a node:dns request is allocated from the runner allocator",
-      "why": "The worker of a loop detached by page_runner_destroy writes into the request after the embedder frees the runner allocator (CLAUDE.md §4, #34).",
+      "why": "The worker of a loop detached by page_runner_destroy writes into the request after the embedder frees the runner allocator (CLAUDE.md §4, #34). Locally (ubuntu-24.04) the worker faults ('odin test exited'); on CI's ubuntu-26.04 build (run 43699940285) no fault reached the process, and the detached loop's teardown never finished, so the test's own check that the loop's pipe closes after the resolver times out fails (15 s against a ~4 s resolver wait).",
       "source": "pkg/runtime/dns.odin",
       "find": "\talloc := runtime.heap_allocator()\n",
       "replace": "\talloc := get_state_from_ctx(ctx).allocator\n",
       "gate": "odin:cmd/lava:main.runner_close_does_not_wait_for_a_hanging_dns_lookup",
       "expect_detail": [
         "Segmentation_Fault",
-        "odin test exited"
+        "odin test exited",
+        "was never closed after the resolver timed out"
       ],
       "timeout_ms": 60000
     },
     {
       "name": "runner_close_does_not_wait_for_a_hanging_dns_lookup dies when fetch's DNS_Job is allocated from the request allocator",
-      "why": "req.allocator is the runner's; a detached lookup's worker re-reads job.host per family after the runner allocator is gone (#34).",
+      "why": "req.allocator is the runner's; a detached lookup's worker re-reads job.host per family after the runner allocator is gone (#34). Locally (ubuntu-24.04) the worker faults ('odin test exited'); on CI's ubuntu-26.04 build (run 43699940285) no fault reached the process, and the detached loop's teardown never finished, so the test's own check that the loop's pipe closes after the resolver times out fails (15 s against a ~4 s resolver wait).",
       "source": "pkg/runtime/fetch_dns.odin",
       "find": "\tjob := new(DNS_Job, runtime.heap_allocator())\n\tjob.allocator = runtime.heap_allocator()\n",
       "replace": "\tjob := new(DNS_Job, req.allocator)\n\tjob.allocator = req.allocator\n",
       "gate": "odin:cmd/lava:main.runner_close_does_not_wait_for_a_hanging_dns_lookup",
       "expect_detail": [
         "Segmentation_Fault",
-        "odin test exited"
+        "odin test exited",
+        "was never closed after the resolver timed out"
       ],
       "timeout_ms": 60000
     },
     {
       "name": "runner_close_does_not_wait_for_a_hanging_dns_lookup dies when dns.lookup registers no cancel hook",
-      "why": "Without dns_cancel the callback is unprotected only by the late dispose, from the worker thread, into a VM page_runner_destroy already freed.",
+      "why": "Without dns_cancel the callback is unprotected only by the late dispose, from the worker thread, into a VM page_runner_destroy already freed. Locally (ubuntu-24.04) the worker faults ('odin test exited'); on CI's ubuntu-26.04 build (run 43699940285) no fault reached the process, and the detached loop's teardown never finished, so the test's own check that the loop's pipe closes after the resolver times out fails (15 s against a ~4 s resolver wait).",
       "source": "pkg/runtime/dns.odin",
       "find": "dns_lookup_complete_cb, req, dns_dispose, dns_cancel) {",
       "replace": "dns_lookup_complete_cb, req, dns_dispose) {",
       "gate": "odin:cmd/lava:main.runner_close_does_not_wait_for_a_hanging_dns_lookup",
       "expect_detail": [
         "Segmentation_Fault",
-        "odin test exited"
+        "odin test exited",
+        "was never closed after the resolver timed out"
       ],
       "timeout_ms": 60000
     },
