@@ -7,6 +7,12 @@
 
   var customInspect =
     typeof Symbol !== 'undefined' && Symbol.for ? Symbol.for('nodejs.util.inspect.custom') : null;
+  // Captured at prelude eval, before any user code runs.
+  var ObjectHasOwn = Object.hasOwn;
+  // Stack-overflow latch for custom hooks; the same design as internal/util.js
+  // callCustomInspect (copied, not shared: this prelude has no `require`).
+  var hookNesting = 0;
+  var hookOverflow = null;
 
   function quote(s) {
     return "'" + s.replaceAll('\\', '\\\\').replaceAll("'", "\\'").replaceAll('\n', '\\n') + "'";
@@ -37,9 +43,15 @@
     // depth 0 under the options it is given, as node's util.inspect does. It used to
     // be a one-argument closure that dropped those options and continued this call's
     // nesting, so Buffer's extra properties printed at the prelude's depth instead of
-    // node's (`console.log(b)` with `b.o` five levels deep showed four of them).
+    // node's (`console.log(b)` with `b.o` five levels deep showed four of them). Like
+    // util.js it catches a stack overflow escaping a hook (a hook that inspects its own
+    // ancestor) and latches it, so console.log prints instead of throwing; see
+    // inspectWithOptions.
+    //
+    // A copy rather than a call into util.js because this prelude runs before the module
+    // loader and has no `require`; the two inspectors are to be unified under #104.
     if (customInspect && typeof v[customInspect] === 'function') {
-      var custom = v[customInspect](depth, {}, inspectWithOptions);
+      var custom = callCustomInspect(v, depth);
       if (custom !== v) {
         return typeof custom === 'string'
           ? custom
@@ -90,10 +102,45 @@
   }
 
   // The hook's inspect argument, util.inspect-shaped: (value, options) from depth 0, with
-  // node's default depth of 2 and `depth: null` meaning unbounded.
+  // node's default depth of 2 and `depth: null` meaning unbounded. `depth` is read as an
+  // OWN option only, as node copies only the caller's own keys: an inherited read let a
+  // polluted Object.prototype.depth = null lift the bound for every hook's sub-inspect.
+  // Pinned Lava-only by buffer_inspect_extras_pollution
+  // (cmd/lava/buffer_inspect_extras_test.odin).
+  //
+  // It also catches a stack overflow, where internal/util.js hookInspect does and for the
+  // same reasons (node catches it while formatting, not around the hook call; the first
+  // one is latched so a cycle with several ways back throws in bounded time instead of
+  // re-descending per key).
   function inspectWithOptions(value, options) {
-    var d = options !== null && typeof options === 'object' ? options.depth : undefined;
-    return inspect(value, [], 0, d === undefined ? 2 : d === null ? Infinity : d);
+    var d =
+      options !== null && typeof options === 'object' && ObjectHasOwn(options, 'depth')
+        ? options.depth
+        : undefined;
+    if (hookOverflow !== null) throw hookOverflow;
+    try {
+      return inspect(value, [], 0, d === undefined ? 2 : d === null ? Infinity : d);
+    } catch (e) {
+      if (
+        e === hookOverflow ||
+        e === null ||
+        typeof e !== 'object' ||
+        e.name !== 'RangeError' ||
+        e.message !== 'Maximum call stack size exceeded.'
+      )
+        throw e;
+      hookOverflow = e;
+      return '[Object: Inspection interrupted prematurely. Maximum call stack size exceeded.]';
+    }
+  }
+
+  function callCustomInspect(v, depth) {
+    hookNesting++;
+    try {
+      return v[customInspect](depth, {}, inspectWithOptions);
+    } finally {
+      if (--hookNesting === 0) hookOverflow = null;
+    }
   }
 
   function stringify(v) {

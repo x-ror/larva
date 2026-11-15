@@ -835,11 +835,13 @@
    *
    * Cost AT the cap, whole util.inspect(Buffer.alloc(n)) with no extras, head vs the
    * base hook (this binary with the pre-#391 bytes-only hook swapped in), mean per call
-   * over max(20, 2e6/n) calls after 200 warm-ups, performance.now(), 3 interleaved
-   * launches per arm: n=64 head 9.0/9.9/10.0µs vs base 2.9/3.4/3.8µs (~2.8x); n=65
-   * (just past the cap) 4.1/4.5/4.7 vs 3.2/3.3/4.7µs; n=16 2.3/2.4/2.7 vs 1.0/1.2/1.6µs;
-   * n=0 0.35/0.35/0.38 vs 0.12/0.12/0.13µs. At the previous cap of 1024 the head cost
-   * was ~92µs against ~5µs.
+   * after 200 warm-ups, performance.now(), 3 interleaved launches per arm. At 300 000
+   * calls per launch: n=64 head 7.3/8.5/9.1µs vs base 1.9/2.2/3.0µs (~3.5x); n=1024 (past
+   * the cap, so symbols only) 2.91/2.91/2.94 vs 2.13/2.24/2.33µs. At max(20, 2e6/n) calls
+   * per launch (31 250 at n=64, 125 000 at n=16, 2 000 000 at n=0): n=64 9.0/9.9/10.0 vs
+   * 2.9/3.4/3.8µs; n=65 4.1/4.5/4.7 vs 3.2/3.3/4.7µs; n=16 2.3/2.4/2.7 vs 1.0/1.2/1.6µs;
+   * n=0 0.35/0.35/0.38 vs 0.12/0.12/0.13µs. At the previous cap of 1024 the head cost was
+   * ~92µs against ~5µs.
    *
    * Past the cap, string-keyed extras are omitted — a deviation, pinned Lava-only by
    * buffer_inspect_extras_cap in cmd/lava/buffer_inspect_extras_test.odin.
@@ -892,14 +894,12 @@
    */
   function inspectExtras(buf, ctx, inspect) {
     var showHidden = ObjectPrototypeHasOwnProperty(ctx, 'showHidden') && !!ctx.showHidden;
-    var opts = {
-      __proto__: null,
-      depth: ObjectPrototypeHasOwnProperty(ctx, 'depth') ? ctx.depth : undefined,
-      showHidden: showHidden,
-    };
+    // Built on the first extra, not per call: most logged Buffers have none.
+    var opts = null;
     var out = '';
     var len = TypedArrayPrototypeGetLength(buf);
     var key;
+    var piece;
     if (len <= INSPECT_EXTRAS_MAX_LENGTH) {
       // A typed array's [[OwnPropertyKeys]] lists its integer indices first, in order
       // (ECMA-262 §10.4.5.7), and a canonical numeric key can never be added as a named
@@ -907,22 +907,85 @@
       var names = ObjectGetOwnPropertyNames(buf);
       for (var i = len; i < names.length; i++) {
         key = names[i];
-        if (showHidden || isEnumerableOwn(buf, key))
-          out +=
-            (out === '' ? '' : ', ') +
-            (isPlainKey(key) ? key : inspect(key)) +
-            ': ' +
-            inspectValue(buf[key], opts, inspect);
+        if (showHidden || isEnumerableOwn(buf, key)) {
+          if (opts === null) opts = extrasOptions(ctx, showHidden);
+          piece = inspectExtra(isPlainKey(key) ? key : null, key, buf[key], opts, inspect);
+          if (piece === null) return INSPECT_OVERFLOW_MARKER;
+          out += (out === '' ? '' : ', ') + piece;
+        }
       }
     }
     var syms = ObjectGetOwnPropertySymbols(buf);
     for (var s = 0; s < syms.length; s++) {
       key = syms[s];
-      if (showHidden || isEnumerableOwn(buf, key))
-        out +=
-          (out === '' ? '' : ', ') + StringG(key) + ': ' + inspectValue(buf[key], opts, inspect);
+      if (showHidden || isEnumerableOwn(buf, key)) {
+        if (opts === null) opts = extrasOptions(ctx, showHidden);
+        piece = inspectExtra(StringG(key), key, buf[key], opts, inspect);
+        if (piece === null) return INSPECT_OVERFLOW_MARKER;
+        out += (out === '' ? '' : ', ') + piece;
+      }
     }
     return out;
+  }
+
+  /** @returns {object} The options each extra is inspected with (see inspectExtras). */
+  function extrasOptions(ctx, showHidden) {
+    return {
+      __proto__: null,
+      depth: ObjectPrototypeHasOwnProperty(ctx, 'depth') ? ctx.depth : undefined,
+      showHidden: showHidden,
+    };
+  }
+
+  /**
+   * Renders one extra as `label: value`, or returns null when inspecting it overflowed
+   * the stack (the caller then prints the interrupted marker instead of its extras).
+   *
+   * `value` arrives already read: node reads the property before its overflow catch, so
+   * a getter that throws — even a RangeError carrying the overflow's message —
+   * propagates, and only errors raised while INSPECTING the value are candidates.
+   *
+   * Overflow. A Buffer that reaches itself recurses until the stack runs out; the
+   * innermost catch on the stack renders the marker. What keeps that bounded is the latch
+   * in the inspect this hook calls through (internal/util.js hookInspect, console.js
+   * inspectWithOptions): once an overflow has been caught there, any hook-side inspect
+   * rethrows it instead of descending again. Before it, every enclosing hook moved on to
+   * its next key and recursed to the limit again, so `b.k0 = b; b.k1 = b` did work like
+   * 2^depth and never finished. With one way back nothing descends again and the call
+   * returns with the marker, as node's does; with two or more it throws, which is node
+   * 24.22.1's outcome in a fresh process (see case 70 for why node's is accidental).
+   * `inspectOverflow` only remembers the overflow this hook already reported, so the
+   * latch's rethrow of that same error passes through every enclosing Buffer hook instead
+   * of being swallowed again as a fresh overflow at each level. Pinned by case 70 and,
+   * for bounded time, buffer_inspect_cycle_bounded in
+   * cmd/lava/buffer_inspect_extras_test.odin.
+   */
+  function inspectExtra(label, key, value, opts, inspect) {
+    try {
+      return (label !== null ? label : inspect(key)) + ': ' + inspectValue(value, opts, inspect);
+    } catch (e) {
+      if (e === inspectOverflow || !isStackOverflow(e)) throw e;
+      inspectOverflow = e;
+      return null;
+    }
+  }
+
+  /**
+   * @returns {boolean} Whether `e` is the engine's stack-overflow RangeError.
+   *
+   * A name + message compare — the same test node's isStackOverflowError makes, so a
+   * forged look-alike thrown from DEEP inside an extra's value is taken for an overflow
+   * on both runtimes. It cannot be done soundly in JS: nothing distinguishes the engine's
+   * own error object. What is sound is where the compare runs: only around inspecting a
+   * value, never around reading it (see inspectExtra).
+   */
+  function isStackOverflow(e) {
+    return (
+      e !== null &&
+      typeof e === 'object' &&
+      e.name === 'RangeError' &&
+      e.message === STACK_OVERFLOW_MESSAGE
+    );
   }
 
   /** @returns {string} `value` inspected one level down (see inspectExtras). */
@@ -940,9 +1003,13 @@
 
   // JSC's stack-overflow RangeError text (node's V8 text is the same sentence).
   var STACK_OVERFLOW_MESSAGE = 'Maximum call stack size exceeded.';
+  var INSPECT_OVERFLOW_MARKER =
+    'Inspection interrupted prematurely. Maximum call stack size exceeded';
 
-  /** @type {((value: *, options?: object) => string)|null} util.inspect, once resolved. */
-  var utilInspect = null;
+  // The overflow already reported by a Buffer hook on the stack (see inspectExtra), and
+  // how many Buffer hooks are on it: the outermost clears it.
+  var inspectNesting = 0;
+  var inspectOverflow = null;
 
   /**
    * Buffer's util.inspect hook; also `buf.inspect`, the same function as in node.
@@ -952,53 +1019,48 @@
    *        util.inspect from util.inspect, the prelude's own from console.log.
    * @returns {string} `<Buffer 00 01 02>`, plus `, key: value` per extra own property
    *          whenever `ctx` is an object.
+   * @throws Whatever a getter on an extra throws; and, when a Buffer reaches itself by
+   *         two or more extras, the stack-overflow RangeError (see inspectExtra).
    * @node `<Buffer 00 01 02, foo: 'bar'>`: insertion order, then symbols
    *       (`Symbol(s): 1`); non-enumerables only with showHidden; an enumerable getter
    *       prints its value (`g: 7`); nested values honour `depth`
    *       (`o: { a: { b: [Object] } }`, depth 0 → `o: [Object]`); a zero-length buffer
    *       prints `<Buffer foo: 'bar'>`; breakLength/compact change nothing. A direct
    *       `buf.inspect(0, {})` renders the extras too; `buf.inspect()` with no context
-   *       prints the bytes only. A Buffer whose extras lead back to itself recurses until
-   *       the stack runs out and ends in `Inspection interrupted prematurely. Maximum
-   *       call stack size exceeded` instead of throwing. Node 24.22.1, verified by the
-   *       #391 probes.
+   *       prints the bytes only. A Buffer with ONE way back to itself recurses until the
+   *       stack runs out and ends in `Inspection interrupted prematurely. Maximum call
+   *       stack size exceeded`; with two or more, node 24.22.1 throws in a fresh process.
+   *       Node 24.22.1, verified by the #391 probes.
    * @deviates A Buffer longer than INSPECT_EXTRAS_MAX_LENGTH (64) shows its symbol-keyed
    *           extras but not its string-keyed ones — the cost bound recorded at that
    *           constant. Pinned Lava-only by buffer_inspect_extras_cap in
-   *           cmd/lava/buffer_inspect_extras_test.odin. Not a deviation but a util.inspect
-   *           gap this inherits: `colors: true` leaves the extras uncoloured (gap,
-   *           tracked in #104).
+   *           cmd/lava/buffer_inspect_extras_test.odin. With two or more ways back, node
+   *           recurses with exponential work once its key regex is compiled; Lava throws
+   *           in bounded time (buffer_inspect_cycle_bounded). Not a deviation but a
+   *           util.inspect gap this inherits: `colors: true` leaves the extras uncoloured
+   *           (gap, tracked in #104).
    */
   function inspectHook(recurseTimes, ctx, inspect) {
     var str = inspectBytes(this);
     if (ctx !== null && typeof ctx === 'object') {
       if (typeof inspect !== 'function') {
         // A direct `buf.inspect(0, {})` passes no inspect function; node still renders
-        // the extras with its own. util is resolved HERE, on first such call, not at
-        // module eval: buffer is on the loader's eager list and util is not, so a
-        // module-eval require would instantiate util (and its dependencies) before user
-        // code on every start. The read goes through util's exports object, which user
-        // code can also reach — a replaced `util.inspect` steers this fallback alone;
+        // the extras with its own. util is required HERE, not at module eval: buffer is
+        // on the loader's eager list and util is not, so a module-eval require would
+        // instantiate util (and its dependencies) before user code on every start.
+        // There is no pristine handle to take instead — the loader publishes one only
+        // for Buffer (require.pristineBuffer) — so this reads util's exports, which user
+        // code can also reach: a replaced `util.inspect` steers this one fallback.
+        // It is read per call and NOT cached, so a replacement never outlives itself.
         // util.inspect and console.log hand the hook their own function.
-        if (utilInspect === null) utilInspect = require('util').inspect;
-        inspect = utilInspect;
+        inspect = require('util').inspect;
       }
+      inspectNesting++;
       var extras;
       try {
         extras = inspectExtras(this, ctx, inspect);
-      } catch (e) {
-        // Node catches a stack overflow inside inspect and prints what it had; a
-        // Buffer that reaches itself through its extras recurses until that happens.
-        // Logging must not throw. Any other error (a throwing getter) propagates, as
-        // in node.
-        if (
-          e === null ||
-          typeof e !== 'object' ||
-          e.name !== 'RangeError' ||
-          e.message !== STACK_OVERFLOW_MESSAGE
-        )
-          throw e;
-        extras = 'Inspection interrupted prematurely. Maximum call stack size exceeded';
+      } finally {
+        if (--inspectNesting === 0) inspectOverflow = null;
       }
       if (extras !== '') str += (TypedArrayPrototypeGetLength(this) !== 0 ? ', ' : '') + extras;
     }

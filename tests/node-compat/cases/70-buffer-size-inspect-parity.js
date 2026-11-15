@@ -27,6 +27,40 @@ const buffer = require('node:buffer');
 // deprecation warnings. Silenced so the compared output is the behaviour under test.
 process.noDeprecation = true;
 
+// --- Self-referencing Buffers with MORE than one way back --------------------------------
+// FIRST in the file, deliberately. In a fresh node 24.22.1 process these throw within
+// ~20 ms: after the first stack overflow is caught, the enclosing hook moves on to its
+// next key, and node's key-quoting regex /^[a-zA-Z_][a-zA-Z_0-9]*$/ is compiled lazily
+// at that point, at the stack limit, so it throws a SyntaxError that node's overflow catch
+// does not recognise. Once anything has inspected an object key, the regex is already
+// compiled and node instead recurses with work like k^depth: in a process that had
+// inspected `b.self = b` first, `b.k0 = b; b.k1 = b` ran 148 s and then threw
+// `RangeError: Invalid string length`. Lava throws in both orders. Its overflow latch lets
+// no hook descend again once an overflow has been caught, so this ends in bounded time.
+// Only "threw" is printed: node's error is that V8 SyntaxError, Lava's is the stack-overflow
+// RangeError. Bounded time is pinned Lava-only by buffer_inspect_cycle_bounded in
+// cmd/lava/buffer_inspect_extras_test.odin.
+for (const refs of [2, 3]) {
+  const b = Buffer.from([1]);
+  for (let i = 0; i < refs; i++) b['k' + i] = b;
+  for (const [how, fn] of [
+    ['util.inspect', () => util.inspect(b)],
+    ['console.log', () => console.log(b)],
+    // A direct call: no util.inspect or console.log frame above the hook, so only the
+    // Buffer hook's own overflow latch keeps this bounded.
+    ['inspect(0, {})', () => b.inspect(0, {})],
+  ]) {
+    let out;
+    try {
+      fn();
+      out = 'returned';
+    } catch {
+      out = 'threw';
+    }
+    console.log(`cycle ${refs} self-refs ${how}: ${out}`);
+  }
+}
+
 const MAX = String(buffer.constants.MAX_LENGTH);
 function show(label, fn) {
   let r;
@@ -278,4 +312,45 @@ function cycleShape(label, fn) {
   const d = Buffer.from([4]);
   d.o = { back: d };
   cycleShape('cycle via object:', () => util.inspect(d));
+}
+
+// Errors other than a stack overflow propagate out of inspect, as in node: from a getter
+// on the Buffer itself (read outside any catch) and from a hook further down (thrown
+// inside the inspect of an extra's value, where the overflow catch must not swallow it).
+// A getter that throws a RangeError carrying the overflow's own message also propagates:
+// node reads the property outside its overflow catch, and so does Lava.
+function threw(label, fn) {
+  try {
+    fn();
+    console.log(label, 'returned');
+  } catch (e) {
+    console.log(label, 'THREW', e.name, e.message);
+  }
+}
+{
+  const g = Buffer.from([1]);
+  Object.defineProperty(g, 'bad', {
+    enumerable: true,
+    get() {
+      throw new TypeError('boom');
+    },
+  });
+  threw('getter TypeError util.inspect:', () => util.inspect(g));
+  threw('getter TypeError inspect(0, {}):', () => g.inspect(0, {}));
+  const h = Buffer.from([2]);
+  h.inner = {
+    [custom]() {
+      throw new TypeError('deep boom');
+    },
+  };
+  threw('nested hook TypeError util.inspect:', () => util.inspect(h));
+  threw('nested hook TypeError inspect(0, {}):', () => h.inspect(0, {}));
+  const r = Buffer.from([3]);
+  Object.defineProperty(r, 'forged', {
+    enumerable: true,
+    get() {
+      throw new RangeError('Maximum call stack size exceeded.');
+    },
+  });
+  threw('getter forged overflow util.inspect:', () => util.inspect(r));
 }

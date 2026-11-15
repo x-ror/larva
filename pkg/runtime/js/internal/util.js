@@ -137,11 +137,19 @@
     // is true there): a hook that inspects a sub-value starts again at depth 0 under
     // whatever options it passes. It used to be a closure that inherited this call's
     // options and nesting, so a hook one level down got one level less depth than
-    // node gives it — and Buffer's extra-property rendering, which inspects each value
-    // at `depth - 1` the way node does, came out a level short.
+    // node gives it — and Buffer's extra-property rendering, which puts each value at
+    // depth 1 under the caller's own `depth` the way node does, came out a level short.
+    //
+    // A hook that inspects a structure pointing back at an ancestor (a parent pointer:
+    // the hook returns `inspect(parent)`) recurses until the stack overflows, in node as
+    // here, because the inspect it is handed starts a fresh visited set. Node catches the
+    // overflow and prints what it had; Lava used to let it throw out of util.inspect.
+    // The inspect a hook calls now catches it the same way — see hookInspect for where,
+    // and for the latch that keeps it from turning into exponential work. Pinned by
+    // tests/node-compat/cases/71-inspect-hook-ancestor-cycle.js.
     if (customInspect && typeof v[customInspect] === 'function') {
       var nested = seen.concat([v]);
-      var custom = v[customInspect](depth, opts, inspectPublic);
+      var custom = callCustomInspect(v, depth, opts);
       if (custom !== v) {
         return typeof custom === 'string' ? custom : inspect(custom, opts, nested, depth);
       }
@@ -185,6 +193,54 @@
       props.push(name + ': ' + inspect(v[key], opts, seen, depth + 1));
     }
     return prefix + '{ ' + props.join(', ') + ' }';
+  }
+
+  // Stack-overflow handling under custom hooks, the shape Buffer's hook uses
+  // (internal/buffer.js inspectExtra).
+  //
+  // WHERE it is caught matters. Node catches an overflow while formatting an object's
+  // body, not around the hook call itself, so an error thrown by the hook's own code —
+  // a getter that throws a RangeError carrying the overflow's message — still
+  // propagates. The catch is therefore in the inspect a hook is HANDED (hookInspect),
+  // which is where a hook re-entering a cycle recurses; the hook call stays uncaught.
+  //
+  // The first overflow caught there is rendered as node's marker and latched; any
+  // further hook-side inspect while it is latched rethrows it instead of descending
+  // again. With one way back to an ancestor nothing descends again and util.inspect
+  // returns, as node's does; with several it throws in bounded time where unlatched
+  // catching re-descended once per key and level (work like k^depth). The outermost hook
+  // clears the latch.
+  var hookNesting = 0;
+  var hookOverflow = null;
+  var STACK_OVERFLOW_MESSAGE = 'Maximum call stack size exceeded.';
+
+  function callCustomInspect(v, depth, opts) {
+    hookNesting++;
+    try {
+      return v[customInspect](depth, opts, inspectPublic);
+    } finally {
+      if (--hookNesting === 0) hookOverflow = null;
+    }
+  }
+
+  /** util.inspect as called from inside a custom hook (see above). */
+  function hookInspect(v, opts) {
+    if (hookOverflow !== null) throw hookOverflow;
+    try {
+      return inspect(v, opts, [], 0);
+    } catch (e) {
+      // The same name + message test node's isStackOverflowError makes.
+      if (
+        e === hookOverflow ||
+        e === null ||
+        typeof e !== 'object' ||
+        e.name !== 'RangeError' ||
+        e.message !== STACK_OVERFLOW_MESSAGE
+      )
+        throw e;
+      hookOverflow = e;
+      return '[Object: Inspection interrupted prematurely. Maximum call stack size exceeded.]';
+    }
   }
 
   function stringify(v) {
@@ -885,7 +941,9 @@
   }
 
   function inspectPublic(v, opts) {
-    return inspect(v, opts, [], 0);
+    // One function, so a hook's third argument stays `=== util.inspect` as in node; only
+    // a call made while a hook is running takes the overflow-catching path.
+    return hookNesting === 0 ? inspect(v, opts, [], 0) : hookInspect(v, opts);
   }
   // util.inspect.colors is the live style table (styleText reads it); util.inspect.custom
   // is the symbol a value implements to control its own inspection.
