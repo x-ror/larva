@@ -11,12 +11,12 @@ written by hand.
 - **Node docs source:** `nodejs/node` `doc/api` @ the commit recorded in [node-doc-api/SOURCE.txt](node-doc-api/SOURCE.txt) (70 pages, mirrored under [node-doc-api/](node-doc-api/)).
 <!-- BEGIN GENERATED: provenance -->
 
-- **lava revision measured:** `8e83f8d` (2026-11-15), export keys diffed against node 22.23.4.
+- **lava revision measured:** `8e83f8d` (2026-11-15), export keys diffed against node 24.22.1.
 
 <!-- END GENERATED: provenance -->
 - **Method:** every row was probed against the built `bin/lava` (`require('node:x')`, export-key diff against node, global lookups, and calling exported functions) — not inferred from source. Functions that exist but throw `"... is not implemented in Lava"` are counted as _not_ implemented. A gap that cites an issue number comes from that issue, not from the probe.
 
-**Legend:** ✅ implemented (substantial) · 🟡 partial (core works, notable gaps or many stubs) · 🟥 missing (`require` throws `MODULE_NOT_FOUND`) · ⚪ N/A for a JS-API matrix (native-addon / CLI / conceptual guide).
+**Legend:** ✅ implemented (substantial) · 🟡 partial (core works, notable gaps or many stubs) · 🟥 missing (none of the page's surface exists; for a module page, `require` throws `MODULE_NOT_FOUND`) · ⚪ N/A for a JS-API matrix (native-addon / CLI / conceptual guide).
 
 ## Scoreboard
 
@@ -45,14 +45,14 @@ requireable module in lava (the surface is global-only, or absent).
 | **assert** | `node:assert` | ✅ | node:assert + assert/strict, AssertionError, partialDeepStrictEqual | Assert class, CallTracker; deepStrictEqual divergences (#103) |
 | **async_context** | ❌ | 🟥 | — | AsyncLocalStorage |
 | **async_hooks** | ❌ | 🟥 | — | — |
-| **buffer** | `node:buffer` | ✅ | Buffer/Blob/File/SlowBuffer/isAscii/isUtf8/transcode/resolveObjectURL; module-level atob/btoa (+ global URL.createObjectURL/revokeObjectURL) | atob/btoa are not installed as globals (#86) |
+| **buffer** | `node:buffer` | ✅ | Buffer/Blob/File/SlowBuffer/isAscii/isUtf8/transcode/resolveObjectURL; module-level atob/btoa (+ global URL.createObjectURL/revokeObjectURL) | atob/btoa are not installed as globals (#86); exports a lava-only describeType |
 | **child_process** | ❌ | 🟥 | — | — |
 | **cluster** | ❌ | 🟥 | — | — |
 | **console** | `node:console` | 🟡 | global console + node:console module with a Console class | context/createTask/profile/profileEnd/timeStamp; Console ignores its stdout/stderr streams (#104) |
-| **crypto** | `node:crypto` | 🟡 | 19 working: createHash/createHmac/hash/Hash/Hmac/getHashes/hkdf(Sync)/pbkdf2(Sync)/scrypt(Sync)/randomBytes/randomFill(Sync)/randomInt/randomUUID/timingSafeEqual/getFips | 47 exported stubs that throw: ciphers/KeyObject/sign/verify/X509Certificate/ECDH/DH/KEM/argon2/primes/generateKey\*/setFips/randomUUIDv7 |
+| **crypto** | `node:crypto` | 🟡 | 19 working: createHash/createHmac/hash/Hash/Hmac/getHashes/hkdf(Sync)/pbkdf2(Sync)/scrypt(Sync)/randomBytes/randomFill(Sync)/randomInt/randomUUID/timingSafeEqual/getFips | 47 exported stubs that throw: ciphers/KeyObject/sign/verify/X509Certificate/ECDH/DH/KEM/argon2/primes/generateKey\*/setFips/randomUUIDv7; createMac/getMacs/parsePKCS12 absent |
 | **dgram** | ❌ | 🟥 | — | — |
 | **diagnostics_channel** | `node:diagnostics_channel` | ✅ | channel/hasSubscribers/subscribe/unsubscribe/tracingChannel/Channel (all 6 exports) | — |
-| **dns** | `node:dns` | 🟡 | lookup + dns/promises lookup (thread pool), constants and error codes | 17 exported stubs that throw: resolve\*/reverse/lookupService/getServers/setServers (#179); dns/promises lacks the error-code constants |
+| **dns** | `node:dns` | 🟡 | lookup + dns/promises lookup (thread pool), constants and error codes | 17 exported stubs that throw: resolve\*/reverse/lookupService/getServers/setServers (#179); resolveTlsa absent; dns/promises lacks the error-code constants |
 | **domain** | ❌ | 🟥 | — | deprecated upstream |
 | **dtls** | ❌ | 🟥 | — | — |
 | **environment_variables** | ❌ | 🟡 | some env honored | — |
@@ -60,15 +60,15 @@ requireable module in lava (the surface is global-only, or absent).
 | **events** | `node:events` | ✅ | EventEmitter, once, on, getEventListeners, getMaxListeners, setMaxListeners, listenerCount, addAbortListener, defaultMaxListeners | EventEmitterAsyncResource/errorMonitor/captureRejections; no EventTarget/CustomEvent globals; meta-events (#105) |
 | **ffi** | ❌ | 🟥 | — | — |
 | **fs** | `node:fs` | 🟡 | 15 fns: readFile/readFileSync/writeFile/writeFileSync/openSync/closeSync/existsSync/mkdirSync/mkdtempSync/rmSync/rmdirSync/unlinkSync/renameSync/statSync/readdirSync; reads return Buffer and honor the encoding (JS layer, #330) | no node:fs/promises, streams, watch, copyFile/access/chmod, async stat/readdir/mkdir, constants (#84) |
-| **globals** | ❌ | 🟡 | 40 globals present (see globals.present) | atob/btoa, Event/EventTarget/CustomEvent, FormData, DOMException, MessageChannel, navigator, reportError, WebSocket, byte/compression/text streams |
-| **http** | `node:http` | 🟡 | server: createServer/Server/IncomingMessage/ServerResponse/STATUS_CODES | no client (request/get/Agent/ClientRequest/globalAgent), METHODS, maxHeaderSize, validateHeaderName/Value (#81) |
+| **globals** | ❌ | 🟡 | 40 globals present (see globals.present) | atob/btoa, Event/EventTarget/CustomEvent, FormData, DOMException, MessageChannel, navigator, WebSocket, URLPattern, SharedArrayBuffer, byte/compression/text streams (see globals.missing) |
+| **http** | `node:http` | 🟡 | server: createServer/Server/IncomingMessage/ServerResponse/STATUS_CODES | no client (request/get/Agent/ClientRequest/globalAgent), OutgoingMessage, METHODS, maxHeaderSize, validateHeaderName/Value, WebSocket (#81) |
 | **http2** | ❌ | 🟥 | — | — |
 | **https** | `node:https` | 🟡 | server: createServer/Server over the native TLS server | request/get/Agent are exported stubs that throw — the HTTPS client is fetch (#81) |
 | **inspector** | ❌ | 🟥 | — | — |
 | **intl** | ❌ | ✅ | engine (JavaScriptCore) Intl | engine-provided, not lava code |
 | **module** | ❌ | 🟡 | CommonJS require + node: resolution | node:module is not requireable: createRequire/register/isBuiltin/SourceMap |
 | **modules** | ❌ | 🟡 | CommonJS require | same as module |
-| **net** | `node:net` | 🟡 | createServer/Server/Socket/connect/createConnection (TCP) | isIP/isIPv4/isIPv6, BlockList, SocketAddress, autoSelectFamily controls |
+| **net** | `node:net` | 🟡 | createServer/Server/Socket/connect/createConnection (TCP) | isIP/isIPv4/isIPv6, BlockList, SocketAddress, BoundSocket, autoSelectFamily controls |
 | **os** | `node:os` | ✅ | all 23 exports present | — |
 | **packages** | ❌ | 🟡 | package.json resolution (partial) | exports/imports map edge cases |
 | **path** | `node:path` | ✅ | posix+win32 full surface | — |
@@ -82,7 +82,7 @@ requireable module in lava (the surface is global-only, or absent).
 | **repl** | ❌ | 🟥 | — | — |
 | **report** | ❌ | 🟥 | — | — |
 | **single-executable-applications** | ❌ | 🟥 | — | tooling |
-| **sqlite** | `node:sqlite` | ✅ | DatabaseSync/StatementSync | backup/constants/session |
+| **sqlite** | `node:sqlite` | ✅ | DatabaseSync/StatementSync | Session/backup/constants |
 | **stream** | `node:stream` | 🟡 | Stream/Readable/Writable/Duplex/Transform/PassThrough/finished/pipeline/addAbortSignal/isReadable/isWritable + node:stream/promises; Readable/Writable toWeb/fromWeb | compose/duplexPair/destroy/isErrored/isDisturbed/isDestroyed/get\|setDefaultHighWaterMark/stream.promises; Duplex.toWeb/fromWeb; no node:stream/consumers |
 | **stream_iter** | ❌ | 🟥 | — | — |
 | **string_decoder** | `node:string_decoder` | ✅ | StringDecoder | — |
@@ -90,16 +90,16 @@ requireable module in lava (the surface is global-only, or absent).
 | **timers** | `node:timers` | 🟡 | global timers + node:timers + node:timers/promises | timers return a number, not a Timeout: no ref/unref/refresh (#85) |
 | **tls** | ❌ | 🟥 | TLS is used internally by fetch and https.createServer | node:tls is not requireable |
 | **tracing** | ❌ | 🟥 | — | trace_events |
-| **tty** | `node:tty` | 🟡 | isatty/ReadStream/WriteStream | getWindowSize reports a fixed 80x24 (#355) |
+| **tty** | `node:tty` | 🟡 | isatty/ReadStream/WriteStream | getWindowSize reads $COLUMNS/$LINES (default 80x24), not the terminal (#355) |
 | **typescript** | ❌ | 🟥 | — | no type stripping |
-| **url** | `node:url` | ✅ | WHATWG URL + URLSearchParams (global and module); fileURLToPath/pathToFileURL/urlToHttpOptions/format/domainToASCII/domainToUnicode | legacy url.parse/resolve/Url; IDNA approximated (NFKC+Punycode, not full ICU UTS-46) |
-| **util** | `node:util` | 🟡 | inspect/format/formatWithOptions/promisify/callbackify/inherits/deprecate/isDeepStrictEqual/debuglog/aborted/parseArgs/parseEnv/MIMEType/MIMEParams/styleText/stripVTControlCharacters/toUSVString/types | TextEncoder/TextDecoder re-exports, diff, getCallSites, getSystemErrorName/Message/Map, transferableAbort\*; inspect caps (#331) |
+| **url** | `node:url` | ✅ | WHATWG URL + URLSearchParams (global and module); fileURLToPath/pathToFileURL/urlToHttpOptions/format/domainToASCII/domainToUnicode | legacy url.parse/resolve/Url; URLPattern; fileURLToPathBuffer; IDNA approximated (NFKC+Punycode, not full ICU UTS-46) |
+| **util** | `node:util` | 🟡 | inspect/format/formatWithOptions/promisify/callbackify/inherits/deprecate/isDeepStrictEqual/debuglog/aborted/parseArgs/parseEnv/MIMEType/MIMEParams/styleText/stripVTControlCharacters/toUSVString/types | TextEncoder/TextDecoder re-exports, diff, getCallSites, getSystemErrorName/Message/Map, debounce/throttle, transferableAbort\*, deprecated isArray; inspect caps (#331) |
 | **v8** | ❌ | 🟥 | — | — |
 | **vfs** | ❌ | 🟥 | — | — |
 | **vm** | ❌ | 🟥 | — | — |
 | **wasi** | ❌ | 🟥 | — | WebAssembly present, WASI glue absent |
 | **webcrypto** | ❌ | 🟡 | crypto.getRandomValues/randomUUID | crypto.subtle (all SubtleCrypto) |
-| **webstreams** | `node:stream/web` | 🟡 | ReadableStream/WritableStream/TransformStream globals + node:stream/web; readers/writers/controllers; pipeTo/pipeThrough; backs response.body | byte streams/BYOB request+controller, TextEncoderStream/TextDecoderStream, CompressionStream/DecompressionStream (#214) |
+| **webstreams** | `node:stream/web` | 🟡 | ReadableStream/WritableStream/TransformStream globals + node:stream/web; readers/writers/controllers; pipeTo/pipeThrough; backs response.body | byte streams/BYOB request+controller, TextEncoderStream/TextDecoderStream, CompressionStream/DecompressionStream (#214); node:stream/web exports a lava-only _internal |
 | **worker_threads** | ❌ | 🟥 | — | — |
 | **zlib** | ❌ | 🟥 | — | — |
 
@@ -113,7 +113,7 @@ Probed directly against `bin/lava`.
 
 **Present (40):** `global`, `globalThis`, `Buffer`, `fetch`, `Headers`, `Request`, `Response`, `TextEncoder`, `TextDecoder`, `AbortController`, `AbortSignal`, `structuredClone`, `queueMicrotask`, `setTimeout`, `setInterval`, `setImmediate`, `clearTimeout`, `clearInterval`, `clearImmediate`, `console`, `process`, `performance`, `Blob`, `File`, `crypto`, `URL`, `URLSearchParams`, `ReadableStream`, `WritableStream`, `TransformStream`, `ReadableStreamDefaultReader`, `ReadableStreamBYOBReader`, `ReadableStreamDefaultController`, `WritableStreamDefaultWriter`, `WritableStreamDefaultController`, `TransformStreamDefaultController`, `ByteLengthQueuingStrategy`, `CountQueuingStrategy`, `WebAssembly`, `Intl`.
 
-**Missing (22):** `atob`, `btoa`, `Event`, `EventTarget`, `CustomEvent`, `FormData`, `DOMException`, `ReadableStreamBYOBRequest`, `ReadableByteStreamController`, `TextEncoderStream`, `TextDecoderStream`, `CompressionStream`, `DecompressionStream`, `MessageChannel`, `MessagePort`, `Worker`, `BroadcastChannel`, `WebSocket`, `PerformanceObserver`, `navigator`, `reportError`, `crypto.subtle`.
+**Missing (33):** `atob`, `btoa`, `Event`, `EventTarget`, `CustomEvent`, `MessageEvent`, `CloseEvent`, `FormData`, `DOMException`, `ReadableStreamBYOBRequest`, `ReadableByteStreamController`, `TextEncoderStream`, `TextDecoderStream`, `CompressionStream`, `DecompressionStream`, `MessageChannel`, `MessagePort`, `BroadcastChannel`, `WebSocket`, `PerformanceObserver`, `PerformanceEntry`, `PerformanceMark`, `navigator`, `Navigator`, `URLPattern`, `SharedArrayBuffer`, `Crypto`, `CryptoKey`, `SubtleCrypto`, `crypto.subtle`, `DisposableStack`, `AsyncDisposableStack`, `SuppressedError`.
 
 <!-- END GENERATED: globals -->
 

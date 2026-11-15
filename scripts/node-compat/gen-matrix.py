@@ -12,8 +12,12 @@ exported functions to tell working ones from throwing stubs). After re-probing,
 update the table AND the PROBED_* constants, then run:
 
     python3 scripts/node-compat/gen-matrix.py
+
+`--check` writes nothing and exits 1 if either file differs from what the table
+renders; scripts/node-compat/gen-matrix.test.mjs runs it under `make test-scripts`,
+because both files have drifted from this script before with nothing to notice.
 """
-import json, os, re
+import json, os, re, sys
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -22,29 +26,29 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 # probe that never happened.
 PROBED_LAVA_REV = "8e83f8d"
 PROBED_DATE = "2026-11-15"
-PROBED_NODE = "22.23.4"
+PROBED_NODE = "24.22.1"
 
 # status: full | partial | missing | na  (page -> (status, implemented, gaps))
 MODULES = {
     "assert": ("full", "node:assert + assert/strict, AssertionError, partialDeepStrictEqual", "Assert class, CallTracker; deepStrictEqual divergences (#103)"),
-    "buffer": ("full", "Buffer/Blob/File/SlowBuffer/isAscii/isUtf8/transcode/resolveObjectURL; module-level atob/btoa (+ global URL.createObjectURL/revokeObjectURL)", "atob/btoa are not installed as globals (#86)"),
+    "buffer": ("full", "Buffer/Blob/File/SlowBuffer/isAscii/isUtf8/transcode/resolveObjectURL; module-level atob/btoa (+ global URL.createObjectURL/revokeObjectURL)", "atob/btoa are not installed as globals (#86); exports a lava-only describeType"),
     "events": ("full", "EventEmitter, once, on, getEventListeners, getMaxListeners, setMaxListeners, listenerCount, addAbortListener, defaultMaxListeners", "EventEmitterAsyncResource/errorMonitor/captureRejections; no EventTarget/CustomEvent globals; meta-events (#105)"),
     "intl": ("full", "engine (JavaScriptCore) Intl", "engine-provided, not lava code"),
     "path": ("full", "posix+win32 full surface", ""),
-    "sqlite": ("full", "DatabaseSync/StatementSync", "backup/constants/session"),
+    "sqlite": ("full", "DatabaseSync/StatementSync", "Session/backup/constants"),
     "console": ("partial", "global console + node:console module with a Console class", "context/createTask/profile/profileEnd/timeStamp; Console ignores its stdout/stderr streams (#104)"),
-    "crypto": ("partial", "19 working: createHash/createHmac/hash/Hash/Hmac/getHashes/hkdf(Sync)/pbkdf2(Sync)/scrypt(Sync)/randomBytes/randomFill(Sync)/randomInt/randomUUID/timingSafeEqual/getFips", "47 exported stubs that throw: ciphers/KeyObject/sign/verify/X509Certificate/ECDH/DH/KEM/argon2/primes/generateKey*/setFips/randomUUIDv7"),
+    "crypto": ("partial", "19 working: createHash/createHmac/hash/Hash/Hmac/getHashes/hkdf(Sync)/pbkdf2(Sync)/scrypt(Sync)/randomBytes/randomFill(Sync)/randomInt/randomUUID/timingSafeEqual/getFips", "47 exported stubs that throw: ciphers/KeyObject/sign/verify/X509Certificate/ECDH/DH/KEM/argon2/primes/generateKey*/setFips/randomUUIDv7; createMac/getMacs/parsePKCS12 absent"),
     "esm": ("partial", ".mjs transform, import works", "loader hooks/register"),
     "fs": ("partial", "15 fns: readFile/readFileSync/writeFile/writeFileSync/openSync/closeSync/existsSync/mkdirSync/mkdtempSync/rmSync/rmdirSync/unlinkSync/renameSync/statSync/readdirSync; reads return Buffer and honor the encoding (JS layer, #330)", "no node:fs/promises, streams, watch, copyFile/access/chmod, async stat/readdir/mkdir, constants (#84)"),
-    "globals": ("partial", "40 globals present (see globals.present)", "atob/btoa, Event/EventTarget/CustomEvent, FormData, DOMException, MessageChannel, navigator, reportError, WebSocket, byte/compression/text streams"),
+    "globals": ("partial", "40 globals present (see globals.present)", "atob/btoa, Event/EventTarget/CustomEvent, FormData, DOMException, MessageChannel, navigator, WebSocket, URLPattern, SharedArrayBuffer, byte/compression/text streams (see globals.missing)"),
     "module": ("partial", "CommonJS require + node: resolution", "node:module is not requireable: createRequire/register/isBuiltin/SourceMap"),
     "modules": ("partial", "CommonJS require", "same as module"),
     "packages": ("partial", "package.json resolution (partial)", "exports/imports map edge cases"),
     "perf_hooks": ("partial", "global performance.now/timeOrigin", "node:perf_hooks is not requireable; PerformanceObserver/marks/entries"),
     "process": ("partial", "argv/env/cwd/exit/exitCode/nextTick/pid/platform/arch/version(s)/memoryUsage/stdout/stderr; node:process requireable", "hrtime/on/once/emit/stdin/kill/chdir/uptime/execPath/argv0/execArgv/umask/title/emitWarning (#355, #86); exitCode is honored when set but is not a predefined property"),
     "timers": ("partial", "global timers + node:timers + node:timers/promises", "timers return a number, not a Timeout: no ref/unref/refresh (#85)"),
-    "url": ("full", "WHATWG URL + URLSearchParams (global and module); fileURLToPath/pathToFileURL/urlToHttpOptions/format/domainToASCII/domainToUnicode", "legacy url.parse/resolve/Url; IDNA approximated (NFKC+Punycode, not full ICU UTS-46)"),
-    "util": ("partial", "inspect/format/formatWithOptions/promisify/callbackify/inherits/deprecate/isDeepStrictEqual/debuglog/aborted/parseArgs/parseEnv/MIMEType/MIMEParams/styleText/stripVTControlCharacters/toUSVString/types", "TextEncoder/TextDecoder re-exports, diff, getCallSites, getSystemErrorName/Message/Map, transferableAbort*; inspect caps (#331)"),
+    "url": ("full", "WHATWG URL + URLSearchParams (global and module); fileURLToPath/pathToFileURL/urlToHttpOptions/format/domainToASCII/domainToUnicode", "legacy url.parse/resolve/Url; URLPattern; fileURLToPathBuffer; IDNA approximated (NFKC+Punycode, not full ICU UTS-46)"),
+    "util": ("partial", "inspect/format/formatWithOptions/promisify/callbackify/inherits/deprecate/isDeepStrictEqual/debuglog/aborted/parseArgs/parseEnv/MIMEType/MIMEParams/styleText/stripVTControlCharacters/toUSVString/types", "TextEncoder/TextDecoder re-exports, diff, getCallSites, getSystemErrorName/Message/Map, debounce/throttle, transferableAbort*, deprecated isArray; inspect caps (#331)"),
     "webcrypto": ("partial", "crypto.getRandomValues/randomUUID", "crypto.subtle (all SubtleCrypto)"),
     "environment_variables": ("partial", "some env honored", ""),
     "async_context": ("missing", "", "AsyncLocalStorage"),
@@ -53,15 +57,15 @@ MODULES = {
     "cluster": ("missing", "", ""),
     "dgram": ("missing", "", ""),
     "diagnostics_channel": ("full", "channel/hasSubscribers/subscribe/unsubscribe/tracingChannel/Channel (all 6 exports)", ""),
-    "dns": ("partial", "lookup + dns/promises lookup (thread pool), constants and error codes", "17 exported stubs that throw: resolve*/reverse/lookupService/getServers/setServers (#179); dns/promises lacks the error-code constants"),
+    "dns": ("partial", "lookup + dns/promises lookup (thread pool), constants and error codes", "17 exported stubs that throw: resolve*/reverse/lookupService/getServers/setServers (#179); resolveTlsa absent; dns/promises lacks the error-code constants"),
     "domain": ("missing", "", "deprecated upstream"),
     "dtls": ("missing", "", ""),
     "ffi": ("missing", "", ""),
-    "http": ("partial", "server: createServer/Server/IncomingMessage/ServerResponse/STATUS_CODES", "no client (request/get/Agent/ClientRequest/globalAgent), METHODS, maxHeaderSize, validateHeaderName/Value (#81)"),
+    "http": ("partial", "server: createServer/Server/IncomingMessage/ServerResponse/STATUS_CODES", "no client (request/get/Agent/ClientRequest/globalAgent), OutgoingMessage, METHODS, maxHeaderSize, validateHeaderName/Value, WebSocket (#81)"),
     "http2": ("missing", "", ""),
     "https": ("partial", "server: createServer/Server over the native TLS server", "request/get/Agent are exported stubs that throw — the HTTPS client is fetch (#81)"),
     "inspector": ("missing", "", ""),
-    "net": ("partial", "createServer/Server/Socket/connect/createConnection (TCP)", "isIP/isIPv4/isIPv6, BlockList, SocketAddress, autoSelectFamily controls"),
+    "net": ("partial", "createServer/Server/Socket/connect/createConnection (TCP)", "isIP/isIPv4/isIPv6, BlockList, SocketAddress, BoundSocket, autoSelectFamily controls"),
     "os": ("full", "all 23 exports present", ""),
     "permissions": ("missing", "", ""),
     "punycode": ("full", "all 6 exports present", "deprecated upstream"),
@@ -77,13 +81,13 @@ MODULES = {
     "test": ("missing", "", ""),
     "tls": ("missing", "TLS is used internally by fetch and https.createServer", "node:tls is not requireable"),
     "tracing": ("missing", "", "trace_events"),
-    "tty": ("partial", "isatty/ReadStream/WriteStream", "getWindowSize reports a fixed 80x24 (#355)"),
+    "tty": ("partial", "isatty/ReadStream/WriteStream", "getWindowSize reads $COLUMNS/$LINES (default 80x24), not the terminal (#355)"),
     "typescript": ("missing", "", "no type stripping"),
     "v8": ("missing", "", ""),
     "vfs": ("missing", "", ""),
     "vm": ("missing", "", ""),
     "wasi": ("missing", "", "WebAssembly present, WASI glue absent"),
-    "webstreams": ("partial", "ReadableStream/WritableStream/TransformStream globals + node:stream/web; readers/writers/controllers; pipeTo/pipeThrough; backs response.body", "byte streams/BYOB request+controller, TextEncoderStream/TextDecoderStream, CompressionStream/DecompressionStream (#214)"),
+    "webstreams": ("partial", "ReadableStream/WritableStream/TransformStream globals + node:stream/web; readers/writers/controllers; pipeTo/pipeThrough; backs response.body", "byte streams/BYOB request+controller, TextEncoderStream/TextDecoderStream, CompressionStream/DecompressionStream (#214); node:stream/web exports a lava-only _internal"),
     "worker_threads": ("missing", "", ""),
     "zlib": ("missing", "", ""),
     "addons": ("na", "", "C++ addon docs"),
@@ -99,10 +103,13 @@ MODULES = {
 }
 
 GLOBALS_PRESENT = ["global", "globalThis", "Buffer", "fetch", "Headers", "Request", "Response", "TextEncoder", "TextDecoder", "AbortController", "AbortSignal", "structuredClone", "queueMicrotask", "setTimeout", "setInterval", "setImmediate", "clearTimeout", "clearInterval", "clearImmediate", "console", "process", "performance", "Blob", "File", "crypto", "URL", "URLSearchParams", "ReadableStream", "WritableStream", "TransformStream", "ReadableStreamDefaultReader", "ReadableStreamBYOBReader", "ReadableStreamDefaultController", "WritableStreamDefaultWriter", "WritableStreamDefaultController", "TransformStreamDefaultController", "ByteLengthQueuingStrategy", "CountQueuingStrategy", "WebAssembly", "Intl"]
-GLOBALS_MISSING = ["atob", "btoa", "Event", "EventTarget", "CustomEvent", "FormData", "DOMException", "ReadableStreamBYOBRequest", "ReadableByteStreamController", "TextEncoderStream", "TextDecoderStream", "CompressionStream", "DecompressionStream", "MessageChannel", "MessagePort", "Worker", "BroadcastChannel", "WebSocket", "PerformanceObserver", "navigator", "reportError", "crypto.subtle"]
+GLOBALS_MISSING = ["atob", "btoa", "Event", "EventTarget", "CustomEvent", "MessageEvent", "CloseEvent", "FormData", "DOMException", "ReadableStreamBYOBRequest", "ReadableByteStreamController", "TextEncoderStream", "TextDecoderStream", "CompressionStream", "DecompressionStream", "MessageChannel", "MessagePort", "BroadcastChannel", "WebSocket", "PerformanceObserver", "PerformanceEntry", "PerformanceMark", "navigator", "Navigator", "URLPattern", "SharedArrayBuffer", "Crypto", "CryptoKey", "SubtleCrypto", "crypto.subtle", "DisposableStack", "AsyncDisposableStack", "SuppressedError"]
 PROCESS_PRESENT = ["argv", "env", "cwd", "exit", "exitCode", "nextTick", "pid", "platform", "arch", "version", "versions", "memoryUsage", "stdout", "stderr"]
 PROCESS_MISSING = ["hrtime", "chdir", "kill", "resourceUsage", "uptime", "stdin", "execPath", "argv0", "execArgv", "umask", "on", "once", "emit", "title", "report", "ppid", "release", "config", "emitWarning", "getuid", "features"]
 
+
+JSON_PATH = os.path.join(REPO_ROOT, "reference", "node-compat.json")
+MD_PATH = os.path.join(REPO_ROOT, "reference", "node-compatibility.md")
 
 # Pages whose status is not "missing" but which are not a requireable `node:` module:
 # either the page documents no module, or the surface exists only as globals.
@@ -153,9 +160,8 @@ def render_sections(counts):
     }
 
 
-def write_markdown(counts):
-    path = os.path.join(REPO_ROOT, "reference", "node-compatibility.md")
-    text = open(path, encoding="utf-8").read()
+def render_markdown(counts):
+    text = open(MD_PATH, encoding="utf-8").read()
     for key, body in render_sections(counts).items():
         pat = re.compile(
             r"(<!-- BEGIN GENERATED: %s -->\n).*?(\n<!-- END GENERATED: %s -->)" % (key, key), re.S
@@ -163,9 +169,7 @@ def write_markdown(counts):
         text, n = pat.subn(lambda m: m.group(1) + "\n" + body + "\n" + m.group(2), text)
         if n != 1:
             raise SystemExit("node-compatibility.md: expected exactly one GENERATED block %r, found %d" % (key, n))
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(text)
-    print("wrote", path)
+    return text
 
 
 def node_sha():
@@ -193,7 +197,7 @@ def main():
         "legend": {
             "full": "implemented (substantial)",
             "partial": "core works, notable gaps/stubs",
-            "missing": "require throws MODULE_NOT_FOUND",
+            "missing": "none of the page's surface exists (a module page: require throws MODULE_NOT_FOUND)",
             "na": "not a JS-API surface",
         },
         "counts": counts,
@@ -201,13 +205,20 @@ def main():
         "globals": {"present": GLOBALS_PRESENT, "missing": GLOBALS_MISSING},
         "process": {"present": PROCESS_PRESENT, "missing": PROCESS_MISSING},
     }
-    dest = os.path.join(REPO_ROOT, "reference", "node-compat.json")
-    with open(dest, "w") as f:
-        json.dump(out, f, indent=2)
-        f.write("\n")
+    rendered = {
+        JSON_PATH: json.dumps(out, indent=2) + "\n",
+        MD_PATH: render_markdown(counts),
+    }
+    if "--check" in sys.argv[1:]:
+        stale = [p for p, text in rendered.items() if open(p, encoding="utf-8").read() != text]
+        for p in stale:
+            print("%s is out of date: run python3 scripts/node-compat/gen-matrix.py" % os.path.relpath(p, REPO_ROOT))
+        sys.exit(1 if stale else 0)
+    for p, text in rendered.items():
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(text)
+        print("wrote", p)
     print("counts:", counts, "total:", sum(counts.values()))
-    print("wrote", dest)
-    write_markdown(counts)
 
 
 if __name__ == "__main__":

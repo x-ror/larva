@@ -7,7 +7,7 @@
   "legend": {
     "full": "implemented (substantial)",
     "partial": "core works, notable gaps/stubs",
-    "missing": "require throws MODULE_NOT_FOUND",
+    "missing": "none of the page's surface exists (a module page: require throws MODULE_NOT_FOUND)",
     "na": "not a JS-API surface"
   },
   "counts": {
@@ -45,7 +45,7 @@
       "page": "buffer",
       "status": "full",
       "implemented": "Buffer/Blob/File/SlowBuffer/isAscii/isUtf8/transcode/resolveObjectURL; module-level atob/btoa (+ global URL.createObjectURL/revokeObjectURL)",
-      "gaps": "atob/btoa are not installed as globals (#86)"
+      "gaps": "atob/btoa are not installed as globals (#86); exports a lava-only describeType"
     },
     {
       "page": "child_process",
@@ -75,7 +75,7 @@
       "page": "crypto",
       "status": "partial",
       "implemented": "19 working: createHash/createHmac/hash/Hash/Hmac/getHashes/hkdf(Sync)/pbkdf2(Sync)/scrypt(Sync)/randomBytes/randomFill(Sync)/randomInt/randomUUID/timingSafeEqual/getFips",
-      "gaps": "47 exported stubs that throw: ciphers/KeyObject/sign/verify/X509Certificate/ECDH/DH/KEM/argon2/primes/generateKey*/setFips/randomUUIDv7"
+      "gaps": "47 exported stubs that throw: ciphers/KeyObject/sign/verify/X509Certificate/ECDH/DH/KEM/argon2/primes/generateKey*/setFips/randomUUIDv7; createMac/getMacs/parsePKCS12 absent"
     },
     {
       "page": "debugger",
@@ -105,7 +105,7 @@
       "page": "dns",
       "status": "partial",
       "implemented": "lookup + dns/promises lookup (thread pool), constants and error codes",
-      "gaps": "17 exported stubs that throw: resolve*/reverse/lookupService/getServers/setServers (#179); dns/promises lacks the error-code constants"
+      "gaps": "17 exported stubs that throw: resolve*/reverse/lookupService/getServers/setServers (#179); resolveTlsa absent; dns/promises lacks the error-code constants"
     },
     {
       "page": "documentation",
@@ -171,13 +171,13 @@
       "page": "globals",
       "status": "partial",
       "implemented": "40 globals present (see globals.present)",
-      "gaps": "atob/btoa, Event/EventTarget/CustomEvent, FormData, DOMException, MessageChannel, navigator, reportError, WebSocket, byte/compression/text streams"
+      "gaps": "atob/btoa, Event/EventTarget/CustomEvent, FormData, DOMException, MessageChannel, navigator, WebSocket, URLPattern, SharedArrayBuffer, byte/compression/text streams (see globals.missing)"
     },
     {
       "page": "http",
       "status": "partial",
       "implemented": "server: createServer/Server/IncomingMessage/ServerResponse/STATUS_CODES",
-      "gaps": "no client (request/get/Agent/ClientRequest/globalAgent), METHODS, maxHeaderSize, validateHeaderName/Value (#81)"
+      "gaps": "no client (request/get/Agent/ClientRequest/globalAgent), OutgoingMessage, METHODS, maxHeaderSize, validateHeaderName/Value, WebSocket (#81)"
     },
     {
       "page": "http2",
@@ -231,7 +231,7 @@
       "page": "net",
       "status": "partial",
       "implemented": "createServer/Server/Socket/connect/createConnection (TCP)",
-      "gaps": "isIP/isIPv4/isIPv6, BlockList, SocketAddress, autoSelectFamily controls"
+      "gaps": "isIP/isIPv4/isIPv6, BlockList, SocketAddress, BoundSocket, autoSelectFamily controls"
     },
     {
       "page": "os",
@@ -315,7 +315,7 @@
       "page": "sqlite",
       "status": "full",
       "implemented": "DatabaseSync/StatementSync",
-      "gaps": "backup/constants/session"
+      "gaps": "Session/backup/constants"
     },
     {
       "page": "stream",
@@ -369,7 +369,7 @@
       "page": "tty",
       "status": "partial",
       "implemented": "isatty/ReadStream/WriteStream",
-      "gaps": "getWindowSize reports a fixed 80x24 (#355)"
+      "gaps": "getWindowSize reads $COLUMNS/$LINES (default 80x24), not the terminal (#355)"
     },
     {
       "page": "typescript",
@@ -381,13 +381,13 @@
       "page": "url",
       "status": "full",
       "implemented": "WHATWG URL + URLSearchParams (global and module); fileURLToPath/pathToFileURL/urlToHttpOptions/format/domainToASCII/domainToUnicode",
-      "gaps": "legacy url.parse/resolve/Url; IDNA approximated (NFKC+Punycode, not full ICU UTS-46)"
+      "gaps": "legacy url.parse/resolve/Url; URLPattern; fileURLToPathBuffer; IDNA approximated (NFKC+Punycode, not full ICU UTS-46)"
     },
     {
       "page": "util",
       "status": "partial",
       "implemented": "inspect/format/formatWithOptions/promisify/callbackify/inherits/deprecate/isDeepStrictEqual/debuglog/aborted/parseArgs/parseEnv/MIMEType/MIMEParams/styleText/stripVTControlCharacters/toUSVString/types",
-      "gaps": "TextEncoder/TextDecoder re-exports, diff, getCallSites, getSystemErrorName/Message/Map, transferableAbort*; inspect caps (#331)"
+      "gaps": "TextEncoder/TextDecoder re-exports, diff, getCallSites, getSystemErrorName/Message/Map, debounce/throttle, transferableAbort*, deprecated isArray; inspect caps (#331)"
     },
     {
       "page": "v8",
@@ -423,7 +423,7 @@
       "page": "webstreams",
       "status": "partial",
       "implemented": "ReadableStream/WritableStream/TransformStream globals + node:stream/web; readers/writers/controllers; pipeTo/pipeThrough; backs response.body",
-      "gaps": "byte streams/BYOB request+controller, TextEncoderStream/TextDecoderStream, CompressionStream/DecompressionStream (#214)"
+      "gaps": "byte streams/BYOB request+controller, TextEncoderStream/TextDecoderStream, CompressionStream/DecompressionStream (#214); node:stream/web exports a lava-only _internal"
     },
     {
       "page": "worker_threads",
@@ -487,6 +487,8 @@
       "Event",
       "EventTarget",
       "CustomEvent",
+      "MessageEvent",
+      "CloseEvent",
       "FormData",
       "DOMException",
       "ReadableStreamBYOBRequest",
@@ -497,13 +499,22 @@
       "DecompressionStream",
       "MessageChannel",
       "MessagePort",
-      "Worker",
       "BroadcastChannel",
       "WebSocket",
       "PerformanceObserver",
+      "PerformanceEntry",
+      "PerformanceMark",
       "navigator",
-      "reportError",
-      "crypto.subtle"
+      "Navigator",
+      "URLPattern",
+      "SharedArrayBuffer",
+      "Crypto",
+      "CryptoKey",
+      "SubtleCrypto",
+      "crypto.subtle",
+      "DisposableStack",
+      "AsyncDisposableStack",
+      "SuppressedError"
     ]
   },
   "process": {
