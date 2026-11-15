@@ -65,6 +65,8 @@ Runner_Page :: struct {
 // given: a page reading a FIFO nobody writes never releases its entry. Unbounded,
 // the list would turn the thread hang it replaced into process-wide thread and fd
 // exhaustion; at the bound the runner refuses new pages instead (.Reaping_Full).
+// 8 is a chosen cap, not a measured one: at most 8 x THREADPOOL_SIZE = 32 threads and
+// 16 pipe fds pinned per runner.
 RUNNER_REAP_LIMIT :: 8
 
 // Reaping_Loop is a closed page's loop that close_begin left with a busy pool worker.
@@ -234,13 +236,13 @@ page_runner_open :: proc(
 }
 
 // page_runner_reaping is the number of closed pages whose loops still wait on a pool
-// worker (see Reaping_Loop).
+// worker (see Reaping_Loop). Never above reap_limit; does not reap.
 page_runner_reaping :: proc(runner: ^Page_Runner) -> int {
 	return len(runner.reaping)
 }
 
 // page_runner_reap finishes every reaping loop whose workers have exited, without
-// waiting on the others, and returns how many remain. page_runner_run and
+// waiting on the others, and returns how many remain. Never blocks; runner thread only. page_runner_run and
 // page_runner_open reap on their own; this is for an embedder between runs.
 page_runner_reap :: proc(runner: ^Page_Runner) -> int {
 	context.allocator = runner.allocator

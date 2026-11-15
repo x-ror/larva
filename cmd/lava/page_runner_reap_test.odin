@@ -205,6 +205,14 @@ runner_close_does_not_wait_for_a_worker_blocked_on_a_fifo :: proc(t: ^testing.T)
 // core:net's 1 s receive timeout per server and family — no resolver hook needed.
 // The configuration is process-wide; only lookups of names absent from /etc/hosts
 // reach it, and no other test resolves one.
+//
+// Then the runner is destroyed while both lookups still run, so both loops are
+// detached, and its allocator — a virtual arena — is unmapped. What the DNS workers
+// touch from then on (the node:dns request, fetch's DNS_Job and its host, which
+// core:net re-reads for each family) must be on the heap, and the dns callback must
+// already be unprotected: a late JSValueUnprotect from the worker would reach a VM
+// the destroy freed. Either mistake faults once the resolver times out; the test
+// waits for that, until both detached loops have closed their pipes.
 @(test)
 runner_close_does_not_wait_for_a_hanging_dns_lookup :: proc(t: ^testing.T) {
 	conf := fmt.aprintf("/tmp/lava-reap-%d-resolv.conf", os.get_pid())
@@ -218,11 +226,16 @@ runner_close_does_not_wait_for_a_hanging_dns_lookup :: proc(t: ^testing.T) {
 		os.remove(conf)
 		delete(conf)
 	}
+	arena: virtual.Arena
+	if virtual.arena_init_growing(&arena) != nil {
+		testing.fail_now(t, "arena_init_growing failed")
+	}
+	arena_live := true
+	defer if arena_live do virtual.arena_destroy(&arena)
 	runner: lava.Page_Runner
-	if !lava.page_runner_init(&runner, 3, record, context.allocator) {
+	if !lava.page_runner_init(&runner, 3, record, virtual.arena_allocator(&arena)) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
-	defer lava.page_runner_destroy(&runner)
 
 	f, d, b: Outcome
 	start := time.tick_now()
@@ -236,8 +249,30 @@ runner_close_does_not_wait_for_a_hanging_dns_lookup :: proc(t: ^testing.T) {
 	expect_exit(t, d, 4, "dns page")
 	expect_exit(t, b, 7, "sibling")
 	testing.expectf(t, wall < 1, "the runner took %.2fs: page_close waited for a DNS lookup", wall)
-	testing.expect_value(t, lava.page_runner_reaping(&runner), 2)
-	testing.expect(t, wait_reaped(&runner, 15 * time.Second), "a lookup's loop was never reaped once the resolver timed out")
+	if lava.page_runner_reaping(&runner) != 2 {
+		lava.page_runner_destroy(&runner)
+		testing.fail_now(t, "the lookups' loops are not on the reaping list")
+	}
+	pipes: [2]int
+	links: [2]string
+	for i in 0 ..< 2 {
+		pipes[i] = int(runner.reaping[i].fd)
+		links[i] = strings.clone(fd_link(pipes[i]))
+	}
+	defer for l in links do delete(l)
+
+	destroy_start := time.tick_now()
+	lava.page_runner_destroy(&runner)
+	took := time.duration_seconds(time.tick_since(destroy_start))
+	testing.expectf(t, took < 0.5, "page_runner_destroy took %.2fs: it joined a DNS lookup", took)
+	virtual.arena_destroy(&arena)
+	arena_live = false
+
+	deadline := time.tick_add(time.tick_now(), 15 * time.Second)
+	for i in 0 ..< 2 {
+		for fd_link(pipes[i]) == links[i] && time.tick_diff(time.tick_now(), deadline) > 0 do time.sleep(5 * time.Millisecond)
+		testing.expectf(t, fd_link(pipes[i]) != links[i], "a detached lookup loop's pipe (fd %d) was never closed after the resolver timed out", pipes[i])
+	}
 }
 
 // The hazard that rules out closing the wakeup pipe early (#34): a reaping loop's
@@ -554,4 +589,76 @@ runner_reaping_frees_through_matching_allocators :: proc(t: ^testing.T) {
 	for _, entry in track.allocation_map {
 		testing.expectf(t, false, "runner allocator leaked %d bytes from %v", entry.size, entry.location)
 	}
+}
+
+@(private = "file")
+Wake :: struct {
+	fifos:   [2]string,
+	a, b:    Outcome,
+	pipe:    int,
+	link:    string,
+	closed:  bool, // atomic: the checker saw the reaped loop's pipe closed in time
+	checker: ^thread.Thread,
+}
+
+@(private = "file")
+wake_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Result) {
+	w := cast(^Wake)user_data
+	if result.exit_code != 4 {
+		record(runner, &w.b, result)
+		return
+	}
+	record(runner, &w.a, result)
+	// Delivered right after runner_finish put A's loop on the list.
+	if lava.page_runner_reaping(runner) == 1 {
+		w.pipe = int(runner.reaping[0].fd)
+		w.link = strings.clone(fd_link(w.pipe))
+	}
+	w.checker = thread.create_and_start_with_poly_data(w, wake_checker)
+}
+
+// wake_checker lets A's worker through, looks at A's pipe half a second later from off
+// the runner thread — the runner itself only ever looks after a reap pass — and then
+// lets B's worker through, which is what ends the run.
+@(private = "file")
+wake_checker :: proc(w: ^Wake) {
+	time.sleep(50 * time.Millisecond)
+	release_within(w.fifos[0], time.Second)
+	time.sleep(500 * time.Millisecond)
+	sync.atomic_store(&w.closed, w.link != "" && fd_link(w.pipe) != w.link)
+	release_within(w.fifos[1], 2 * time.Second)
+}
+
+// A reaping loop wakes the runner by itself (#34): its worker's exit writes the loop's
+// wakeup pipe, which sits in the runner's epoll set, so the runner reaps it while the
+// only live page waits on a FIFO with no timer at all — the runner's wait has no
+// timeout, and nothing else would wake it until that page's own read completes.
+@(test)
+runner_reaps_a_loop_as_soon_as_its_worker_exits :: proc(t: ^testing.T) {
+	w: Wake
+	w.fifos = {make_fifo(t, "wake-0"), make_fifo(t, "wake-1")}
+	defer for f in w.fifos do drop_fifo(f)
+	defer delete(w.link)
+	u: Unblocker
+	unblocker_start(&u, w.fifos[:], 5 * time.Second)
+	defer unblocker_stop(&u)
+	runner: lava.Page_Runner
+	if !lava.page_runner_init(&runner, 2, wake_done, context.allocator) {
+		testing.fail_now(t, "page_runner_init failed")
+	}
+	defer lava.page_runner_destroy(&runner)
+	a_src := fifo_page(w.fifos[0])
+	b_src := fmt.aprintf(`require('fs').readFile(%q, () => {{ process.exitCode = 5; }});`, w.fifos[1])
+	defer delete(a_src)
+	defer delete(b_src)
+
+	lava.page_runner_open(&runner, a_src, "<reaped>", LIMITS, &w)
+	lava.page_runner_open(&runner, b_src, "<waiting>", LIMITS, &w)
+	lava.page_runner_run(&runner)
+	if w.checker != nil do thread.destroy(w.checker)
+
+	expect_exit(t, w.a, 4, "reaped page")
+	expect_exit(t, w.b, 5, "waiting page")
+	testing.expectf(t, strings.has_prefix(w.link, "pipe:"), "A's loop was not on the reaping list when it was reported (%q)", w.link)
+	testing.expect(t, sync.atomic_load(&w.closed), "A's loop was still unreaped 500 ms after its worker exited: the runner slept through its wakeup pipe")
 }

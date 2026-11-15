@@ -1501,6 +1501,68 @@
       "expect_detail": "never allocated"
     },
     {
+      "name": "runner_close_does_not_wait_for_a_hanging_dns_lookup dies when a node:dns request is allocated from the runner allocator",
+      "why": "The worker of a loop detached by page_runner_destroy writes into the request after the embedder frees the runner allocator (CLAUDE.md §4, #34).",
+      "source": "pkg/runtime/dns.odin",
+      "find": "\talloc := runtime.heap_allocator()\n",
+      "replace": "\talloc := get_state_from_ctx(ctx).allocator\n",
+      "gate": "odin:cmd/lava:main.runner_close_does_not_wait_for_a_hanging_dns_lookup",
+      "expect_detail": [
+        "Segmentation_Fault",
+        "odin test exited"
+      ],
+      "timeout_ms": 60000
+    },
+    {
+      "name": "runner_close_does_not_wait_for_a_hanging_dns_lookup dies when fetch's DNS_Job is allocated from the request allocator",
+      "why": "req.allocator is the runner's; a detached lookup's worker re-reads job.host per family after the runner allocator is gone (#34).",
+      "source": "pkg/runtime/fetch_dns.odin",
+      "find": "\tjob := new(DNS_Job, runtime.heap_allocator())\n\tjob.allocator = runtime.heap_allocator()\n",
+      "replace": "\tjob := new(DNS_Job, req.allocator)\n\tjob.allocator = req.allocator\n",
+      "gate": "odin:cmd/lava:main.runner_close_does_not_wait_for_a_hanging_dns_lookup",
+      "expect_detail": [
+        "Segmentation_Fault",
+        "odin test exited"
+      ],
+      "timeout_ms": 60000
+    },
+    {
+      "name": "runner_close_does_not_wait_for_a_hanging_dns_lookup dies when dns.lookup registers no cancel hook",
+      "why": "Without dns_cancel the callback is unprotected only by the late dispose, from the worker thread, into a VM page_runner_destroy already freed.",
+      "source": "pkg/runtime/dns.odin",
+      "find": "dns_lookup_complete_cb, req, dns_dispose, dns_cancel) {",
+      "replace": "dns_lookup_complete_cb, req, dns_dispose) {",
+      "gate": "odin:cmd/lava:main.runner_close_does_not_wait_for_a_hanging_dns_lookup",
+      "expect_detail": [
+        "Segmentation_Fault",
+        "odin test exited"
+      ],
+      "timeout_ms": 60000
+    },
+    {
+      "name": "runner_reaps_a_loop_as_soon_as_its_worker_exits dies when the reaping pipe is registered without EPOLLIN",
+      "why": "The runner then sleeps through a worker's exit wakeup and reaps the loop only when something else wakes it, holding its threads and fds meanwhile.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\t\t\tevents = {.IN, .ET},\n\t\t}\n\t\tif linux.epoll_ctl(runner.epfd, .ADD, fd, &ev) == .NONE do e.fd = fd\n",
+      "replace": "\t\t\tevents = {.ET},\n\t\t}\n\t\tif linux.epoll_ctl(runner.epfd, .ADD, fd, &ev) == .NONE do e.fd = fd\n",
+      "gate": "odin:cmd/lava:main.runner_reaps_a_loop_as_soon_as_its_worker_exits",
+      "expect_detail": "the runner slept through its wakeup pipe"
+    },
+    {
+      "name": "runner_fd_count_stays_flat_over_10k_pages dies when a busy loop is freed instead of reaped",
+      "why": "The blocked worker still holds the freed Loop: once a later page's allocation reuses it, the worker's late post_async and wakeup write into live memory (seen as a fault within ~2 s, 3/3 runs); were it not reused, the skipped close_finish leaks the wakeup pipe per busy page.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\t\trunner_reap_add(runner, busy_loop)\n",
+      "replace": "\t\tfree(rp.loop, runtime.heap_allocator())\n",
+      "gate": "odin:cmd/lava:main.runner_fd_count_stays_flat_over_10k_pages",
+      "expect_detail": [
+        "Segmentation_Fault",
+        "odin test exited",
+        "fd count grew"
+      ],
+      "timeout_ms": 600000
+    },
+    {
       "name": "runner_destroy_reports_live_pages_cancelled dies when destroy reports a cut-off page as finished",
       "why": "Without the cancel, a page cut off by destroy reads as a page that ran to completion, and its exitCode getter runs during destroy.",
       "source": "pkg/runtime/page_runner.odin",
