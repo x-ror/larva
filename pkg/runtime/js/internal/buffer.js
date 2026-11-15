@@ -62,6 +62,9 @@
   var StringFromCharCode = String.fromCharCode;
   var ObjectPrototypeHasOwnProperty = P.ObjectPrototypeHasOwnProperty;
   var TypedArrayPrototypeGetLength = P.TypedArrayPrototypeGetLength;
+  var ObjectGetOwnPropertyNames = P.ObjectGetOwnPropertyNames;
+  var ObjectGetOwnPropertySymbols = P.ObjectGetOwnPropertySymbols;
+  var ObjectGetOwnPropertyDescriptor = P.ObjectGetOwnPropertyDescriptor;
 
   /**
    * @type {Object<string, string>} lowercased name → canonical encoding.
@@ -134,7 +137,20 @@
     return (neg ? '-' : '') + str.slice(0, i) + out;
   }
 
-  /** @returns {TypeError & {code: string}} */
+  /**
+   * Builds node's ERR_INVALID_ARG_TYPE for a named argument.
+   * @param {string} name Argument name, quoted into the message.
+   * @param {string} expected Everything after "must be", verb phrase included:
+   *   'of type number', 'an instance of Array'. It is spliced verbatim, so a bare
+   *   type name ('number') yields `must be number` — a sentence node never prints.
+   * @param {*} actual The rejected value, rendered by describeType.
+   * @returns {TypeError & {code: string}}
+   * @node `The "size" argument must be of type number. Received type string ('5')`
+   *       for Buffer.alloc('5'); the same template for "offset" (readUInt8('5'),
+   *       writeUInt16LE(0, '1')) and "length" (Buffer.concat([a], '5')). Node 24.22.1,
+   *       verified by the issue #391 probe.
+   * @deviates none
+   */
   function errInvalidArgType(name, expected, actual) {
     var e = new TypeError(
       'The "' + name + '" argument must be ' + expected + '. Received ' + describeType(actual),
@@ -227,9 +243,26 @@
     return e;
   }
 
-  /** Validates size for alloc/allocUnsafe (Node + JSC abort guard). */
+  /**
+   * Validates a byte count for alloc/allocUnsafe/allocUnsafeSlow and the deprecated
+   * `Buffer(n)` constructor (node + JSC abort guard: JSC aborts rather than throws on
+   * some oversized typed-array requests, so the ceiling is checked here first).
+   * @param {*} size
+   * @throws {TypeError} ERR_INVALID_ARG_TYPE — size is not a number.
+   * @throws {RangeError} ERR_OUT_OF_RANGE — NaN, negative, ±Infinity, or above the
+   *         ceiling; the message quotes the ceiling and `Received <size>`.
+   * @node -1/NaN/±Infinity/2**53 → `The value of "size" is out of range. It must be
+   *       >= 0 && <= 9007199254740991. Received -1` (2**53 prints 9_007_199_254_740_992);
+   *       -0 and 1.5 pass (length 0 and 1). Node 24.22.1, verified by the #391 probe.
+   * @deviates The ceiling is K_MAX_LENGTH (4294967296, the JSC-family kMaxLength that
+   *           buffer.constants.MAX_LENGTH reports), not node's 2**53-1 — the documented
+   *           kMaxLength deviation in reference/node-compatibility.md. The bound is pinned
+   *           to MAX_LENGTH, not to a literal, by
+   *           tests/node-compat/cases/70-buffer-size-inspect-parity.js and
+   *           34-oversized-allocation.js.
+   */
   function assertSize(size) {
-    if (typeof size !== 'number') throw errInvalidArgType('size', 'number', size);
+    if (typeof size !== 'number') throw errInvalidArgType('size', 'of type number', size);
     if (!(size >= 0 && size <= K_MAX_LENGTH))
       throw errOutOfRange('size', '>= 0 && <= ' + K_MAX_LENGTH, size);
   }
@@ -342,7 +375,7 @@
   /** Node-style offset bounds for fixed-width numeric accessors. */
   function checkBounds(buf, offset, byteLength) {
     if (offset === undefined) offset = 0;
-    if (typeof offset !== 'number') throw errInvalidArgType('offset', 'number', offset);
+    if (typeof offset !== 'number') throw errInvalidArgType('offset', 'of type number', offset);
     if (Math.floor(offset) !== offset) throw errOutOfRange('offset', 'an integer', offset);
     var max = buf.length - byteLength;
     if (max < 0) throw errBufferOutOfBounds();
@@ -718,11 +751,23 @@
    * @param {number|string} [encodingOrOffset]
    * @param {number} [length]
    * @returns {Buffer}
+   * @throws {RangeError} ERR_OUT_OF_RANGE — a number `arg` that is NaN, negative,
+   *         ±Infinity or above kMaxLength (assertSize, the check Buffer.alloc runs).
+   * @node `Buffer(n)` is `Buffer.alloc(n)`: -1, NaN, ±Infinity and 2**53 throw the
+   *       coded "size" RangeError, -0 → length 0, 1.5 → length 1, 5 → five zero bytes;
+   *       identical with and without `new`. Node 24.22.1, verified by the #391 probe.
+   * @deviates The out-of-range bound is K_MAX_LENGTH (see assertSize), pinned by
+   *           tests/node-compat/cases/70-buffer-size-inspect-parity.js.
    */
   function Buffer(arg, encodingOrOffset, length) {
     if (typeof arg === 'string') return Buffer.from(arg, encodingOrOffset);
     if (typeof arg === 'number') {
-      if (arg > K_MAX_LENGTH) throw errOutOfRange('size', '>= 0 && <= ' + K_MAX_LENGTH, arg);
+      // Only the upper bound used to be checked here, so -1 reached the typed-array
+      // constructor and threw JSC's codeless "length cannot be negative", and NaN
+      // (ToIndex(NaN) is 0) quietly returned an empty Buffer. assertSize is the
+      // validation Buffer.alloc runs; calling it rather than the live `Buffer.alloc`
+      // keeps a user-replaced static out of the constructor.
+      assertSize(arg);
       return new FastBuffer(arg); // zero-filled, matching the old `super(number)`
     }
     return new FastBuffer(arg, encodingOrOffset, length);
@@ -739,7 +784,13 @@
 
   var p = Buffer.prototype;
 
+  /** @returns {string} `<Buffer …>` with the bytes only (no extra properties). */
   function inspectBuffer(buf) {
+    return '<Buffer ' + inspectBytes(buf) + '>';
+  }
+
+  /** @returns {string} The hex pairs and the `... N more bytes` tail, unframed. */
+  function inspectBytes(buf) {
     var max = inspectMaxBytes;
     var shown = buf.length > max ? max : buf.length;
     var hex = '';
@@ -760,19 +811,138 @@
       }
     }
     var remaining = buf.length - shown;
-    if (remaining > 0)
-      hex += (hex ? ' ' : '') + '... ' + remaining + ' more byte' + (remaining > 1 ? 's' : '');
-    return '<Buffer ' + hex + '>';
+    // The separator is unconditional: node appends ` ... N more bytes` to whatever
+    // hex it produced, so INSPECT_MAX_BYTES = 0 prints TWO spaces after `<Buffer`.
+    if (remaining > 0) hex += ' ... ' + remaining + ' more byte' + (remaining > 1 ? 's' : '');
+    return hex;
   }
 
-  p.inspect = function () {
-    return inspectBuffer(this);
-  };
+  /**
+   * Buffers longer than this skip the own string-key scan in inspectExtras.
+   *
+   * JS has no way to list a typed array's NAMED own properties without first listing
+   * every index: Object.getOwnPropertyNames / Object.keys / Reflect.ownKeys / for-in
+   * all materialise one string per byte (node avoids this with its native
+   * getOwnNonIndexProperties). Measured on bin/lava, one launch per size: timed with
+   * performance.now() around max(20, 2e6/n) back-to-back Object.getOwnPropertyNames
+   * calls on one Buffer.alloc(n), reported as the mean per call — 1.2µs at n=16, 18µs
+   * at n=256, 86µs at n=1024, 13.8ms at n=65536 — against 2.6µs mean for the whole
+   * bytes-only util.inspect of the same Buffer timed the same way. A single
+   * Reflect.ownKeys on Buffer.alloc(1e7) took 11.1s (one call, Date.now()). Unbounded,
+   * `console.log(chunk)` on a 64 KiB read chunk would cost ~5000x what it does today,
+   * so the scan is bounded and the rest is a deviation, pinned Lava-only by
+   * cmd/lava/buffer_inspect_extras_test.odin (buffer_inspect_extras_cap).
+   * Symbol keys are always shown: Object.getOwnPropertySymbols lists no indices.
+   */
+  var INSPECT_EXTRAS_MAX_LENGTH = 1024;
+
+  /** @returns {boolean} Whether `key` is an own enumerable property of `obj`. */
+  function isEnumerableOwn(obj, key) {
+    var desc = ObjectGetOwnPropertyDescriptor(obj, key);
+    return desc !== undefined && desc.enumerable === true;
+  }
+
+  /** @returns {boolean} node's keyStrRegExp, /^[a-zA-Z_][a-zA-Z_0-9]*$/, as a loop. */
+  function isPlainKey(key) {
+    var n = key.length;
+    if (n === 0) return false;
+    for (var i = 0; i < n; i++) {
+      var c = StringPrototypeCharCodeAt(key, i);
+      if (!(
+        (c >= 0x41 && c <= 0x5a) || // A-Z
+        (c >= 0x61 && c <= 0x7a) || // a-z
+        c === 0x5f || // _
+        (i > 0 && c >= 0x30 && c <= 0x39) // 0-9, not leading
+      ))
+        return false;
+    }
+    return true;
+  }
+
+  /**
+   * Renders a Buffer's extra own properties as `key: value, …` (no frame), or ''.
+   *
+   * Keys are formatted here rather than by building a null-prototype object and
+   * inspecting that, which is what node does: Lava's util.inspect drops symbol keys
+   * and prints no `[Object: null prototype]` prefix to slice off. Values go through
+   * the hook's `inspect` argument one level down — node inspects the property bag at
+   * depth 0, so each VALUE sits at depth 1 under the caller's own `depth`; asking a
+   * fresh inspect for `depth - 1` is the same cut-off for those values. It is not the
+   * same for a Buffer nested in a property: that inner hook sees `depth - 1` where node
+   * hands it the caller's depth unchanged — a gap, not intended behaviour.
+   */
+  function inspectExtras(buf, ctx, inspect) {
+    var showHidden = !!ctx.showHidden;
+    var depth = ctx.depth;
+    var valueOpts = {
+      __proto__: null,
+      depth: depth === null ? null : (depth === undefined ? 2 : depth) - 1,
+      showHidden: ctx.showHidden,
+    };
+    var out = '';
+    var len = TypedArrayPrototypeGetLength(buf);
+    var key;
+    if (len <= INSPECT_EXTRAS_MAX_LENGTH) {
+      // A typed array's [[OwnPropertyKeys]] lists its integer indices first, in order
+      // (ECMA-262 §10.4.5.7), and a canonical numeric key can never be added as a named
+      // property, so everything from position `len` on is a non-index name.
+      var names = ObjectGetOwnPropertyNames(buf);
+      for (var i = len; i < names.length; i++) {
+        key = names[i];
+        if (showHidden || isEnumerableOwn(buf, key))
+          out +=
+            (out === '' ? '' : ', ') +
+            (isPlainKey(key) ? key : inspect(key)) +
+            ': ' +
+            inspect(buf[key], valueOpts);
+      }
+    }
+    var syms = ObjectGetOwnPropertySymbols(buf);
+    for (var s = 0; s < syms.length; s++) {
+      key = syms[s];
+      if (showHidden || isEnumerableOwn(buf, key))
+        out += (out === '' ? '' : ', ') + StringG(key) + ': ' + inspect(buf[key], valueOpts);
+    }
+    return out;
+  }
+
+  /**
+   * Buffer's util.inspect hook; also `buf.inspect`, the same function as in node.
+   * @param {number} [recurseTimes] Unused; the depth that matters is `ctx.depth`.
+   * @param {{showHidden?: boolean, depth?: number|null}} [ctx] util.inspect's options.
+   * @param {(value: *, options?: object) => string} [inspect] util.inspect itself.
+   * @returns {string} `<Buffer 00 01 02>`, plus `, key: value` per extra own property
+   *          when called from util.inspect/console.log.
+   * @node `<Buffer 00 01 02, foo: 'bar'>`: insertion order, then symbols
+   *       (`Symbol(s): 1`); non-enumerables only with showHidden; an enumerable getter
+   *       prints its value (`g: 7`); nested values honour `depth`
+   *       (`o: { a: { b: [Object] } }`, depth 0 → `o: [Object]`); a zero-length buffer
+   *       prints `<Buffer foo: 'bar'>`; breakLength/compact change nothing. Called
+   *       directly with no context it returns the bytes only. Node 24.22.1, verified by
+   *       the #391 probe.
+   * @deviates (1) A Buffer longer than INSPECT_EXTRAS_MAX_LENGTH (1024) shows its
+   *           symbol-keyed extras but not its string-keyed ones — the cost bound recorded
+   *           at that constant. (2) Extras render only when an `inspect` function is
+   *           passed (util.inspect and console.log both pass one); node also renders
+   *           them for a bare `buf.inspect(0, {})`. Both pinned Lava-only by
+   *           buffer_inspect_extras_cap in cmd/lava/buffer_inspect_extras_test.odin.
+   *           Not deviations but util.inspect gaps this inherits: `colors: true` leaves
+   *           the extras uncoloured (gap, tracked in #104), and a Buffer held in another
+   *           Buffer's property renders its own extras one depth level short (gap).
+   */
+  function inspectHook(recurseTimes, ctx, inspect) {
+    var str = inspectBytes(this);
+    if (ctx !== null && typeof ctx === 'object' && typeof inspect === 'function') {
+      var extras = inspectExtras(this, ctx, inspect);
+      if (extras !== '') str += (TypedArrayPrototypeGetLength(this) !== 0 ? ', ' : '') + extras;
+    }
+    return '<Buffer ' + str + '>';
+  }
+
+  p.inspect = inspectHook;
   if (customInspectSymbol) {
     Object.defineProperty(p, customInspectSymbol, {
-      value: function () {
-        return inspectBuffer(this);
-      },
+      value: inspectHook,
       writable: true,
       configurable: true,
     });
@@ -1238,7 +1408,8 @@
         totalLength += list[i].length;
       }
     } else {
-      if (typeof totalLength !== 'number') throw errInvalidArgType('length', 'number', totalLength);
+      if (typeof totalLength !== 'number')
+        throw errInvalidArgType('length', 'of type number', totalLength);
       if (Math.floor(totalLength) !== totalLength)
         throw errOutOfRange('length', 'an integer', totalLength);
       if (totalLength < 0 || totalLength > K_MAX_LENGTH)

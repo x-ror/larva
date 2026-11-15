@@ -132,12 +132,16 @@
     // a string is used verbatim, anything else (number, object, …) is inspected
     // in its place, and returning the object itself falls through to default
     // formatting.
+    //
+    // The third argument is util.inspect ITSELF, as in node (`insp === util.inspect`
+    // is true there): a hook that inspects a sub-value starts again at depth 0 under
+    // whatever options it passes. It used to be a closure that inherited this call's
+    // options and nesting, so a hook one level down got one level less depth than
+    // node gives it — and Buffer's extra-property rendering, which inspects each value
+    // at `depth - 1` the way node does, came out a level short.
     if (customInspect && typeof v[customInspect] === 'function') {
       var nested = seen.concat([v]);
-      var recurse = function (val, o) {
-        return inspect(val, o || opts, nested, depth + 1);
-      };
-      var custom = v[customInspect](depth, opts, recurse);
+      var custom = v[customInspect](depth, opts, inspectPublic);
       if (custom !== v) {
         return typeof custom === 'string' ? custom : inspect(custom, opts, nested, depth);
       }
