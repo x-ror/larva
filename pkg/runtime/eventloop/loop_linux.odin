@@ -255,11 +255,11 @@ platform_wakeup :: proc(loop: ^Loop) {
 }
 
 // wakeup_fd returns the wakeup pipe's read end, for a driver that has to wait on a
-// loop it no longer ticks: the page runner's reaping list, where a closed page's loop
-// waits for its pool workers to exit. Every worker writes the pipe as it exits (and
+// loop it no longer ticks while its pool workers exit (Larva's page runner keeps such
+// loops on a reaping list). Every worker writes the pipe as it exits (and
 // on every completion it posts), so the read end becomes readable each time the loop
 // may have become ready to finish. A plain pipe fd under both backends, unlike
-// backend_fd, whose ring or epoll instance close_begin has already closed. false once
+// the ring or epoll instance, which close_begin has already closed. false once
 // the pipe is gone (a failed platform_init, or after close_finish).
 wakeup_fd :: proc(loop: ^Loop) -> (fd: linux.Fd, ok: bool) {
 	return loop.platform.wakeup_pipe[0], loop.platform.wakeup_pipe[0] >= 0
