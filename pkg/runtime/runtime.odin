@@ -39,6 +39,12 @@ Result :: struct {
 	// Which page limit (eval's `limits`) ended the run, if any. A kill is reported as
 	// .Execution_Error, so this is how a caller tells it from an uncaught exception.
 	kill:           Kill_Reason,
+	// Bytes the page VM's JS heap occupied as the page closed (jsc.heap_size_bytes: its
+	// capacity, uncollected garbage included, the VM's earlier pages' too);
+	// 0 means "not sampled" — sampling off (Page_Runner.heap_sample_every), not this
+	// page's turn, a page a limit or a cancel ended, a Result built without a page, or a
+	// JSC without the symbol. A sample is always > 0, so 0 is the only sentinel.
+	heap_bytes:     i64,
 }
 
 result_destroy :: proc(res: ^Result) {

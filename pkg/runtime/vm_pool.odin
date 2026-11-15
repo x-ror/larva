@@ -7,9 +7,11 @@ import jsc "lava:pkg/jsc"
 // bench/jsc-vm for the measurements behind it.
 //
 // Why a pool and not a VM per context: JSGlobalContextCreate makes a fresh VM per
-// context, and every VM ever created keeps one timerfd open for the life of the
-// process (its WTF::RunLoop timer), even after the last context and the group are
-// released and fully collected. Its memory does come back; the fd does not. A warm
+// context, and every VM ever created keeps one timerfd open for the life of its
+// thread (a timer on the thread's WTF::RunLoop), even after the last context and the
+// group are released and fully collected. Its memory does come back; the fd does not
+// until the thread ends — a page dispatcher worker's close as it exits (6 open, 0
+// after join: dispatcher_closes_its_descriptors), the main thread's never. A warm
 // VM also runs a page in ~41% less time, because JSC's CodeCache already holds the
 // embedded runtime JS: bench/jsc-vm scenario C (one warm pooled VM) against A (a
 // fresh implicit VM per page), each page evaluating 8 embedded runtime modules plus
@@ -62,6 +64,10 @@ VM :: struct {
 	// The watchdog is armed at a token limit so the running script stops at its next
 	// trap, and a fire in this state is neither kind of kill.
 	stop_requested:  bool,
+	// Pages this VM has hosted, counting the current holder: vm_acquire adds one and
+	// nothing resets it. The page runner samples a VM's heap on every Nth of its pages
+	// (Page_Runner.heap_sample_every), so the cost is spread per VM, not per runner.
+	pages_hosted:    int,
 }
 
 // Page_Limits are the CPU limits a page runs under. Seconds; 0 = no limit.
@@ -98,7 +104,8 @@ VM_Pool :: struct {
 	// most recently.
 	vms:       [dynamic]^VM,
 	capacity:  int,
-	// VMs ever created by this pool. Each one costs a permanent timerfd.
+	// VMs ever created by this pool. Each one costs a timerfd for the life of the
+	// pool's thread.
 	created:   int,
 	allocator: runtime.Allocator,
 }
@@ -133,8 +140,8 @@ thread_vm_pool :: proc() -> ^VM_Pool {
 }
 
 // thread_vm_pool_destroy tears down the calling thread's implicit pool, destroying
-// its VMs and reclaiming their heaps (not their timerfds, which JSC never closes). For
-// a thread that is about to end; a later thread_vm_pool on the same thread starts a
+// its VMs and reclaiming their heaps (not their timerfds, which close only when the
+// thread itself ends). For a thread that is about to end; a later thread_vm_pool on the same thread starts a
 // fresh pool. Every VM must be idle.
 thread_vm_pool_destroy :: proc() {
 	if !g_thread_pool_ready do return
@@ -178,6 +185,7 @@ vm_acquire :: proc(pool: ^VM_Pool) -> (^VM, VM_Pool_Error) {
 			vm.limit_hit = false
 			vm.budget_hit = false
 			vm.stop_requested = false
+			vm.pages_hosted += 1
 			return vm, .None
 		}
 	}
@@ -192,9 +200,10 @@ vm_acquire :: proc(pool: ^VM_Pool) -> (^VM, VM_Pool_Error) {
 		return nil, .Create_Failed
 	}
 	vm^ = VM {
-		group  = group,
-		pool   = pool,
-		in_use = true,
+		group        = group,
+		pool         = pool,
+		in_use       = true,
+		pages_hosted = 1,
 	}
 	// Cannot grow, so cannot fail: len < capacity was checked above and vm_pool_init
 	// reserved `capacity` slots.

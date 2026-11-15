@@ -299,6 +299,10 @@ page_tick :: proc(page: ^Page) -> (alive: bool, did_work: bool) {
 // page_close decides the page's Result (unless it already finished) and tears the
 // page down. Safe on a page whose page_open failed at any point.
 //
+// Params:
+//   heap_sample_every  Sample the VM's heap into Result.heap_bytes when this page is
+//                      the VM's Nth (VM.pages_hosted % N == 0) and no limit or cancel
+//                      ended it; 0 (eval's default) never samples.
 // Returns:
 //   result     The page's Result.
 //   busy_loop  nil once the page's loop is fully closed, or when it had none. The loop
@@ -333,7 +337,7 @@ page_tick :: proc(page: ^Page) -> (alive: bool, did_work: bool) {
 //   6. eventloop.close_finish, when no worker was busy: idle workers exit on
 //      close_begin's broadcast, so this returns at once, and closes the loop's last
 //      descriptor, its wakeup pipe.
-page_close :: proc(page: ^Page) -> (result: Result, busy_loop: ^eventloop.Loop) {
+page_close :: proc(page: ^Page, heap_sample_every := 0) -> (result: Result, busy_loop: ^eventloop.Loop) {
 	ctx := cast(jsc.JSContextRef)page.ctx
 	if !page.finished && page.state != nil {
 		// process.exitCode can be a getter or carry a valueOf: user JS, so charged and
@@ -358,6 +362,30 @@ page_close :: proc(page: ^Page) -> (result: Result, busy_loop: ^eventloop.Loop) 
 			}
 		}
 		page.finished = true
+	}
+
+	// The heap sample (Result.heap_bytes), read here because this is the last point
+	// where the VM is still this page's and its context is alive. Every Nth page per
+	// VM (VM.pages_hosted), so a runner's sampling cost is spread over its VMs. Never a
+	// page a limit or a cancel ended: its heap is not a finished page's, and the call's
+	// C-API exit would run whatever promise jobs the kill left queued. The call walks
+	// the heap (jsc.heap_size_bytes) and is not charged to the page's CPU budget — the
+	// page's verdict is already final, so an opted-in embedder pays it outside every
+	// budget. Measured with bench/pages (`bench-pages 10 1000 30 <0|1> <shape>`: 10 pages
+	// in flight on one runner thread, 1000 pages churned, every page sampled vs none,
+	// medians of 7 interleaved launches per arm, -o:speed, 4-core Xeon @ 2.10GHz): a
+	// trivial page went from 133 to 109 pages/s (+1.7 ms a page), a page keeping 50k
+	// small objects alive (shape `heavy`) from 107 to 54 (+9.2 ms). The call alone, by a
+	// standalone probe on the same box (not in the tree; to reproduce: one
+	// JSContextGroupCreate + JSGlobalContextCreateInGroup with no class and no Lava
+	// runtime, evaluate `globalThis.keep = Array.from({ length: K }, (_, i) => ({ i }))`
+	// for K = 0, 10k, 50k, 200k in turn on that one context, and time 7 back-to-back
+	// jsc.heap_size_bytes calls after each; median per K, 5 launches, -o:speed): 0.18-
+	// 0.28 ms at K = 0, 0.35-0.59 ms at 10k, 1.45-2.38 ms at 50k, 5.2-9.3 ms at 200k —
+	// it grows with the heap it walks. Hence every Nth.
+	if heap_sample_every > 0 && page.vm != nil && page.ctx != nil &&
+	   page.vm.pages_hosted % heap_sample_every == 0 && page.result.kill == .None {
+		if bytes, ok := jsc.heap_size_bytes(ctx); ok do page.result.heap_bytes = bytes
 	}
 
 	if page.completion != nil do jsc.JSValueUnprotect(ctx, page.completion)

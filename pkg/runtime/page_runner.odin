@@ -88,8 +88,9 @@ Page_Runner :: struct {
 	// The bound on `reaping`; RUNNER_REAP_LIMIT unless the embedder lowers it after
 	// page_runner_init.
 	reap_limit: int,
-	// The runner's own VMs, so the number of live VMs — and of permanent timerfds —
-	// is bounded by the runner's capacity, not by how many pages it ever ran.
+	// The runner's own VMs, so the number of live VMs — and of timerfds, kept for the
+	// life of the runner's thread — is bounded by the runner's capacity, not by how
+	// many pages it ever ran.
 	pool:       VM_Pool,
 	epfd:       linux.Fd,
 	allocator:  runtime.Allocator,
@@ -98,6 +99,13 @@ Page_Runner :: struct {
 	// their on_done call.
 	done:       [dynamic]Done_Page,
 	closing:    bool,
+	// Descriptors an embedder added to the runner's epoll set (page_runner_watch_fd),
+	// so page_runner_step can block on them while no page is live.
+	watched:    int,
+	// Sample every Nth page's JS heap per VM into Result.heap_bytes; 0 (the default)
+	// samples nothing. Set by the embedder after page_runner_init, like reap_limit.
+	// Sampled pages pay the heap walk outside their CPU budget (page_close says why).
+	heap_sample_every: int,
 }
 
 // page_runner_init prepares a runner that can hold up to `capacity` live pages (one
@@ -254,6 +262,36 @@ page_runner_live :: proc(runner: ^Page_Runner) -> int {
 	return len(runner.pages)
 }
 
+// page_runner_watch_fd adds `fd` to the runner's epoll set, level-triggered, so that
+// page_runner_step wakes when it becomes readable — the page dispatcher's wake pipe.
+// The runner never reads or closes it: the caller drains it, and removes nothing —
+// the descriptor must stay open until page_runner_destroy, which closes the epoll set.
+//
+// Returns:
+//   false when epoll refuses the descriptor; nothing was registered.
+page_runner_watch_fd :: proc(runner: ^Page_Runner, fd: i32) -> bool {
+	ev := linux.EPoll_Event {
+		events = {.IN},
+	}
+	if linux.epoll_ctl(runner.epfd, .ADD, linux.Fd(fd), &ev) != .NONE do return false
+	runner.watched += 1
+	return true
+}
+
+// page_runner_step runs one round — every queued Result reported, every live page
+// ticked once — and then, if no page made progress, blocks until one can or a watched
+// descriptor becomes readable. Unlike page_runner_run it blocks with no page live, so
+// a driver that feeds the runner from another thread (the dispatcher) sleeps on its
+// wake descriptor instead of spinning. It never blocks when there is nothing at all to
+// wait on (no page, no watched descriptor, nothing reaping).
+//
+// Returns:
+//   Whether the round ticked a page that did work or finished one.
+page_runner_step :: proc(runner: ^Page_Runner) -> bool {
+	context.allocator = runner.allocator
+	return runner_round(runner, idle_wait = true)
+}
+
 // page_runner_run ticks the live pages until none is left, including pages that
 // on_done opens along the way. Reaping loops are finished as their workers exit — a
 // worker's exit writes its loop's wakeup pipe, which wakes a blocked runner — but the
@@ -262,23 +300,40 @@ page_runner_live :: proc(runner: ^Page_Runner) -> int {
 page_runner_run :: proc(runner: ^Page_Runner) {
 	context.allocator = runner.allocator
 	for len(runner.pages) > 0 || len(runner.done) > 0 {
-		runner_report_done(runner)
-		runner_reap(runner)
-		progressed := false
-		i := 0
-		for i < len(runner.pages) {
-			alive, did_work := page_tick(&runner.pages[i].page)
-			if !alive {
-				// Swap-removes index i, so the page moved into it is ticked next.
-				runner_finish(runner, i)
-				progressed = true
-				continue
-			}
-			if did_work do progressed = true
-			i += 1
-		}
-		if !progressed && len(runner.pages) > 0 do runner_wait(runner)
+		runner_round(runner, idle_wait = false)
 	}
+}
+
+// runner_round is one round of run and step: report queued Results, reap, tick every
+// live page once, and wait when no page progressed and one is live. `idle_wait` lets
+// it wait with none live too — only for page_runner_step, whose driver has a watched
+// descriptor to be woken through; run's contract is to return once no page is left,
+// and a run that waited there would sleep on a descriptor it does not own (#28's
+// idle-step defect).
+@(private = "file")
+runner_round :: proc(runner: ^Page_Runner, idle_wait: bool) -> bool {
+	runner_report_done(runner)
+	runner_reap(runner)
+	progressed := false
+	i := 0
+	for i < len(runner.pages) {
+		alive, did_work := page_tick(&runner.pages[i].page)
+		if !alive {
+			// Swap-removes index i, so the page moved into it is ticked next.
+			runner_finish(runner, i)
+			progressed = true
+			continue
+		}
+		if did_work do progressed = true
+		i += 1
+	}
+	if progressed do return true
+	// Results delivered above are not progress: a run whose only page failed at open
+	// reaches here with nothing live, which is exactly where it must not wait.
+	if len(runner.pages) > 0 || (idle_wait && (runner.watched > 0 || len(runner.reaping) > 0)) {
+		runner_wait(runner)
+	}
+	return false
 }
 
 // runner_wait blocks until some page can make progress: an fd of any page's loop
@@ -314,7 +369,7 @@ runner_finish :: proc(runner: ^Page_Runner, index: int, deliver := true) {
 	rp := runner.pages[index]
 	unordered_remove(&runner.pages, index)
 	if rp.fd >= 0 do linux.epoll_ctl(runner.epfd, .DEL, rp.fd, nil)
-	result, busy_loop := page_close(&rp.page)
+	result, busy_loop := page_close(&rp.page, runner.heap_sample_every)
 	if busy_loop != nil {
 		runner_reap_add(runner, busy_loop)
 	} else {

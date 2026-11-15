@@ -41,6 +41,7 @@ Two design decisions shape the whole system:
 │   runtime.odin      eval(): one page run to completion                 │
 │   page.odin         page open/tick/close: context lifecycle, drains    │
 │   page_runner.odin  many pages (VM + loop each) on one thread          │
+│   page_dispatcher   pages over N threads, one page runner per thread   │
 │   globals.odin      global surface, Runtime_State, JS↔loop callbacks   │
 │   require.odin      CommonJS loader (cache, .js/.cjs/.mjs/.json)        │
 │   module_resolution native resolver (file/dir/node_modules/main)       │

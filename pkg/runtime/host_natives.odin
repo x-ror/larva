@@ -4,6 +4,7 @@ import "base:runtime"
 import "core:c"
 import "core:mem"
 import "core:strings"
+import "core:sync"
 import jsc "lava:pkg/jsc"
 
 // Generic host-call registration for every injected native. Explicit per-proc
@@ -143,6 +144,7 @@ Host_Native_Key :: struct {
 bind_host_tables :: proc() {
 	if g_host_tables_bound do return
 	g_host_tables_bound = true
+	sync.atomic_add(&g_host_tables_live, 1)
 	g_host_native_fns, _ = make(
 		map[Host_Native_Key]jsc.JSObjectRef,
 		64,
@@ -153,6 +155,41 @@ bind_host_tables :: proc() {
 		64,
 		runtime.default_allocator(),
 	)
+}
+
+// g_host_tables_live counts the threads whose host-native tables are bound and not
+// yet torn down. Process-wide, but a diagnostic only — no page reads it, and it gates
+// nothing; host_native_tables_live exposes it so a test can see that a thread which
+// ends (a dispatcher worker) gave its tables back. docs/GLOBAL-STATE.md lists it.
+@(private = "file")
+g_host_tables_live: int
+
+// host_native_thread_teardown frees the calling thread's host-native tables, for a
+// thread that is about to end. Every context the thread created must already be
+// destroyed (so every entry is already swept); a later injection on the same thread
+// binds fresh tables.
+//
+// Why it exists: the tables are thread_local and bound to the heap (bind_host_tables),
+// and nothing else ever deletes them, so every thread that ran a page and ended leaked
+// both backings — once per dispatcher worker per dispatcher lifetime. Pinned by
+// dispatcher_workers_give_back_their_host_tables.
+host_native_thread_teardown :: proc() {
+	if !g_host_tables_bound do return
+	// Every context's entries went with it (host_natives_release_context); one still
+	// here means a context outlived the thread, and its names would leak with it.
+	assert(len(g_host_native_fns) == 0, "host_native_thread_teardown: a context on this thread is still alive")
+	delete(g_host_native_fns)
+	delete(g_host_native_cbs)
+	g_host_native_fns = nil
+	g_host_native_cbs = nil
+	g_host_tables_bound = false
+	sync.atomic_sub(&g_host_tables_live, 1)
+}
+
+// host_native_tables_live is the number of threads whose host-native tables are
+// bound and not torn down (g_host_tables_live). For tests.
+host_native_tables_live :: proc() -> int {
+	return sync.atomic_load(&g_host_tables_live)
 }
 
 @(private = "file")

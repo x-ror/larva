@@ -1375,8 +1375,8 @@
       "name": "runner_pages_wait_concurrently dies when the runner spins instead of waiting on the page loops",
       "why": "Without the epoll wait an idle runner busy-loops over its pages, burning a core while every page sleeps.",
       "source": "pkg/runtime/page_runner.odin",
-      "find": "\t\tif !progressed && len(runner.pages) > 0 do runner_wait(runner)\n",
-      "replace": "\n",
+      "find": "\t\trunner_wait(runner)\n\t}\n\treturn false",
+      "replace": "\t}\n\treturn false",
       "gate": "odin:cmd/lava:main.runner_pages_wait_concurrently",
       "expect_detail": "runner burned"
     },
@@ -1987,6 +1987,175 @@
       "replace": "\tif false do os.exit(1)",
       "gate": "make:test-bench-pages-smoke",
       "expect_detail": "budget-0 run exited 0, want 1"
+    },
+    {
+      "name": "dispatcher_picks_the_least_loaded_worker dies when submit stops comparing loads",
+      "why": "Without the comparison submit is plain round-robin, and a worker pinned by a long page keeps getting pages while others sit idle.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "\t\tif l < best_load {",
+      "replace": "\t\tif false {",
+      "gate": "odin:cmd/lava:main.dispatcher_picks_the_least_loaded_worker",
+      "expect_detail": "got no pages / doubled up"
+    },
+    {
+      "name": "dispatcher_queues_past_capacity dies when a worker opens pages past its slots",
+      "why": "Opened past capacity, the extra pages find no VM in the worker's pool and fail instead of waiting in the inbox.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "\t\tfor page_runner_live(&w.runner) < d.pages_per_thread {",
+      "replace": "\t\tfor true {",
+      "gate": "odin:cmd/lava:main.dispatcher_queues_past_capacity",
+      "expect_detail": "Native_Runtime_Unavailable"
+    },
+    {
+      "name": "dispatcher_runaway_page_is_killed_alone dies when a page's limits do not travel with it",
+      "why": "A worker that opens pages under a default budget lets a runaway submitted with a 0.2 s budget run its whole course.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "page_runner_open(&w.runner, job.source, job.source_name, job.limits, job)",
+      "replace": "page_runner_open(&w.runner, job.source, job.source_name, Page_Limits{cpu_budget = 30}, job)",
+      "gate": "odin:cmd/lava:main.dispatcher_runaway_page_is_killed_alone",
+      "expect_detail": "runaway not killed by its budget"
+    },
+    {
+      "name": "dispatcher_cancel_shutdown_cancels_running_and_queued dies when shutdown drops the cancel flag",
+      "why": "Without it shutdown(cancel) drains instead, and waits for every queued and running page to end on its own.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "\t\tsync.atomic_store(&w.cancel, cancel)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.dispatcher_cancel_shutdown_cancels_running_and_queued",
+      "expect_detail": "not cancelled"
+    },
+    {
+      "name": "dispatcher_refuses_follow_ups_once_shutdown_begins dies when submit accepts pages while closing",
+      "why": "A submit accepted after the flip can land in the inbox of a worker that has already decided to exit, and is never reported (#28 defect 2).",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "\treturn sync.atomic_load(&d.state) == .Open\n",
+      "replace": "\treturn sync.atomic_load(&d.state) != .Closed\n",
+      "gate": "odin:cmd/lava:main.dispatcher_refuses_follow_ups_once_shutdown_begins",
+      "expect_detail": [
+        "no follow-up was refused",
+        "initial +"
+      ]
+    },
+    {
+      "name": "dispatcher_drain_shutdown_reports_every_page_once dies when a stopping worker exits with pages left",
+      "why": "A worker that exits on the stop flag alone cancels its running pages and strands its queued ones, which are never reported.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "\t\tif stop && page_runner_live(&w.runner) == 0 do return",
+      "replace": "\t\tif stop do return",
+      "gate": "odin:cmd/lava:main.dispatcher_drain_shutdown_reports_every_page_once",
+      "expect_detail": "not drained"
+    },
+    {
+      "name": "dispatcher_allocations_pair_through_its_allocator dies when submit copies through the ambient allocator",
+      "why": "A page's copy made with the feeder's context.allocator is freed by the worker through the dispatcher's, a bad free on another thread's allocator.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "\tsrc, serr := strings.clone(source, d.allocator)",
+      "replace": "\tsrc, serr := strings.clone(source)",
+      "gate": "odin:cmd/lava:main.dispatcher_allocations_pair_through_its_allocator",
+      "expect_detail": "bad free"
+    },
+    {
+      "name": "dispatcher_workers_give_back_their_host_tables dies when a worker skips the host-table teardown",
+      "why": "Every worker thread that ran a page would leak its two thread-lived host-native table backings when it ends.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "\thost_native_thread_teardown()\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.dispatcher_workers_give_back_their_host_tables",
+      "expect_detail": "host-native table set"
+    },
+    {
+      "name": "dispatcher_closes_its_descriptors dies when shutdown leaves a wake pipe open",
+      "why": "Each init/shutdown cycle would leak one descriptor per worker.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "\t\tif w.wake_read >= 0 do linux.close(w.wake_read)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.dispatcher_closes_its_descriptors",
+      "expect_detail": "descriptors open"
+    },
+    {
+      "name": "dispatcher_init_failure_leaves_nothing_behind dies when a failed init skips the cleanup",
+      "why": "A worker that cannot start would leave the started workers running and every allocation and descriptor behind (#28 defect 7).",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "\t\tdispatcher_stop_and_free(d, cancel = true)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.dispatcher_init_failure_leaves_nothing_behind",
+      "expect_detail": "left"
+    },
+    {
+      "name": "runner_heap_sampling_is_off_by_default dies when the sample is not stored",
+      "why": "Without the assignment Result.heap_bytes reads 0, 'not sampled', for every page even with sampling on.",
+      "source": "pkg/runtime/page.odin",
+      "find": "ok do page.result.heap_bytes = bytes",
+      "replace": "ok do _ = bytes",
+      "gate": "odin:cmd/lava:main.runner_heap_sampling_is_off_by_default",
+      "expect_detail": "heap not sampled"
+    },
+    {
+      "name": "runner_samples_every_nth_page_per_vm dies when the every-Nth gate is dropped",
+      "why": "Every page would pay the heap walk, whatever heap_sample_every says.",
+      "source": "pkg/runtime/page.odin",
+      "find": "page.vm.pages_hosted % heap_sample_every == 0 && page.result.kill",
+      "replace": "true && page.result.kill",
+      "gate": "odin:cmd/lava:main.runner_samples_every_nth_page_per_vm",
+      "expect_detail": "sampled the wrong pages on one VM"
+    },
+    {
+      "name": "runner_does_not_sample_a_killed_page dies when killed pages are sampled",
+      "why": "A page a limit ended would report a heap that is not a finished page's, and the sampling call would run the jobs its kill left queued.",
+      "source": "pkg/runtime/page.odin",
+      "find": " && page.result.kill == .None {",
+      "replace": " {",
+      "gate": "odin:cmd/lava:main.runner_does_not_sample_a_killed_page",
+      "expect_detail": "a killed page was sampled"
+    },
+    {
+      "name": "runner_run_returns_with_a_watched_fd_and_no_pages dies when run waits with no page live",
+      "why": "page_runner_run would block on a descriptor it does not own once its last page ended (#28 defect 9).",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\t\trunner_round(runner, idle_wait = false)",
+      "replace": "\t\trunner_round(runner, idle_wait = true)",
+      "gate": "odin:cmd/lava:main.runner_run_returns_with_a_watched_fd_and_no_pages",
+      "expect_detail": "with no page live"
+    },
+    {
+      "name": "runner_step_wakes_on_a_watched_fd dies when step does not wait with no page live",
+      "why": "A dispatcher worker with nothing to run would spin a core instead of sleeping on its wake pipe.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\treturn runner_round(runner, idle_wait = true)",
+      "replace": "\treturn runner_round(runner, idle_wait = false)",
+      "gate": "odin:cmd/lava:main.runner_step_wakes_on_a_watched_fd",
+      "expect_detail": "did not block"
+    },
+    {
+      "name": "dispatcher_wakes_an_idle_worker_again dies when the worker never clears its posted flag",
+      "why": "With `posted` left set after the first wake, no later submit writes the pipe: an idle worker sleeps through every new page and through shutdown's own wake.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "\t\t\tsync.atomic_exchange(&w.posted, false)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.dispatcher_wakes_an_idle_worker_again",
+      "expect_detail": [
+        "worker never woke",
+        "timed out"
+      ],
+      "timeout_ms": 30000
+    },
+    {
+      "name": "dispatcher_forwards_heap_sampling dies when init's heap_sample_every is not forwarded to the workers",
+      "why": "The dispatcher's sampling option would be accepted and silently ignored: every Result reports 0, 'not sampled'.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "\t\tw.runner.heap_sample_every = d.heap_sample_every\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.dispatcher_forwards_heap_sampling",
+      "expect_detail": "was not sampled"
+    },
+    {
+      "name": "dispatcher_idle_workers_sleep dies when the worker stops draining its wake pipe",
+      "why": "The wake pipe is level-triggered in the runner's epoll set; never drained, it keeps every idle step returning at once and each idle worker spins a core.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "\t\t\tworker_drain_wake(w)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.dispatcher_idle_workers_sleep",
+      "expect_detail": "spins instead of sleeping"
     }
   ]
 }

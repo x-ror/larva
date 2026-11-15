@@ -10,6 +10,7 @@ import "core:strings"
 import "core:sys/linux"
 import "core:sys/posix"
 import "core:testing"
+import "core:thread"
 import "core:time"
 import lava "lava:pkg/runtime"
 import eventloop "lava:pkg/runtime/eventloop"
@@ -591,4 +592,206 @@ runner_vm_reused_after_process_exit_runs_the_next_page :: proc(t: ^testing.T) {
 	testing.expectf(t, r.second.done && r.second.status == .Ok && r.second.exit == 11, "second page: %v", r.second)
 	_, created := lava.vm_pool_stats(&runner.pool)
 	testing.expect_value(t, created, 1)
+}
+
+@(private = "file")
+Heap_Outcome :: struct {
+	done:   bool,
+	status: lava.Status,
+	kill:   lava.Kill_Reason,
+	heap:   i64,
+}
+
+@(private = "file")
+record_heap :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Result) {
+	result := result
+	o := cast(^Heap_Outcome)user_data
+	o^ = {
+		done   = true,
+		status = result.status,
+		kill   = result.kill,
+		heap   = result.heap_bytes,
+	}
+	lava.result_destroy(&result)
+}
+
+// run_one_by_one runs each page to its end before opening the next, on a one-slot
+// runner, so every page is on the same VM and the VM's page count is the page's
+// index + 1.
+@(private = "file")
+run_one_by_one :: proc(t: ^testing.T, every: int, sources: []string, limits: []lava.Page_Limits, out: []Heap_Outcome) {
+	runner: lava.Page_Runner
+	if !lava.page_runner_init(&runner, 1, record_heap, context.allocator) {
+		testing.fail_now(t, "page_runner_init failed")
+	}
+	defer lava.page_runner_destroy(&runner)
+	runner.heap_sample_every = every
+	for src, i in sources {
+		lava.page_runner_open(&runner, src, "<heap>", limits[i], &out[i])
+		lava.page_runner_run(&runner)
+	}
+}
+
+// Sampling is off by default and reports 0; on, every page's heap is sampled (> 0).
+@(test)
+runner_heap_sampling_is_off_by_default :: proc(t: ^testing.T) {
+	src := []string{"process.exitCode = 0;"}
+	lim := []lava.Page_Limits{LIMITS}
+	off, on: [1]Heap_Outcome
+	run_one_by_one(t, 0, src, lim, off[:])
+	run_one_by_one(t, 1, src, lim, on[:])
+	testing.expectf(t, off[0].done && off[0].status == .Ok && off[0].heap == 0, "sampling off: %v", off[0])
+	testing.expectf(t, on[0].done && on[0].status == .Ok && on[0].heap > 0, "sampling on, heap not sampled: %v", on[0])
+}
+
+// Every Nth page PER VM: one by one on one VM with N = 2, only the second of three
+// pages is sampled; and with two VMs each hosting two pages at once, both second
+// pages are sampled and neither first — a per-runner count would sample the second
+// and fourth page opened instead.
+@(test)
+runner_samples_every_nth_page_per_vm :: proc(t: ^testing.T) {
+	src := []string{"1", "1", "1"}
+	lim := []lava.Page_Limits{LIMITS, LIMITS, LIMITS}
+	seq: [3]Heap_Outcome
+	run_one_by_one(t, 2, src, lim, seq[:])
+	testing.expectf(t, seq[0].heap == 0 && seq[1].heap > 0 && seq[2].heap == 0, "sampled the wrong pages on one VM: %v %v %v", seq[0].heap, seq[1].heap, seq[2].heap)
+
+	runner: lava.Page_Runner
+	if !lava.page_runner_init(&runner, 2, record_heap, context.allocator) {
+		testing.fail_now(t, "page_runner_init failed")
+	}
+	defer lava.page_runner_destroy(&runner)
+	runner.heap_sample_every = 2
+	pair: [4]Heap_Outcome
+	lava.page_runner_open(&runner, "setTimeout(() => {}, 5);", "<a>", LIMITS, &pair[0])
+	lava.page_runner_open(&runner, "setTimeout(() => {}, 5);", "<b>", LIMITS, &pair[1])
+	lava.page_runner_run(&runner)
+	lava.page_runner_open(&runner, "setTimeout(() => {}, 5);", "<c>", LIMITS, &pair[2])
+	lava.page_runner_open(&runner, "setTimeout(() => {}, 5);", "<d>", LIMITS, &pair[3])
+	lava.page_runner_run(&runner)
+	testing.expectf(
+		t,
+		pair[0].heap == 0 && pair[1].heap == 0 && pair[2].heap > 0 && pair[3].heap > 0,
+		"sampled the wrong pages across two VMs: %v %v %v %v",
+		pair[0].heap,
+		pair[1].heap,
+		pair[2].heap,
+		pair[3].heap,
+	)
+}
+
+// A page a limit ended is not sampled — its heap is not a finished page's, and the
+// sampling call would run whatever jobs the kill left queued — while the next page on
+// the same VM is.
+@(test)
+runner_does_not_sample_a_killed_page :: proc(t: ^testing.T) {
+	src := []string{"while (true) {}", "1"}
+	lim := []lava.Page_Limits{{entry_limit = 0.05, cpu_budget = 30}, LIMITS}
+	out: [2]Heap_Outcome
+	run_one_by_one(t, 1, src, lim, out[:])
+	testing.expectf(t, out[0].kill == .Entry_Limit, "runaway page was not killed: %v", out[0])
+	testing.expectf(t, out[0].heap == 0, "a killed page was sampled: %v", out[0])
+	testing.expectf(t, out[1].status == .Ok && out[1].heap > 0, "the page after it was not sampled: %v", out[1])
+}
+
+// The sample is the page's heap: a page holding 200k objects reads more than 4 MB
+// above a trivial page run before it on the same VM.
+@(test)
+runner_heap_sample_grows_with_the_page :: proc(t: ^testing.T) {
+	src := []string{"1", "globalThis.keep = Array.from({ length: 200000 }, (_, i) => ({ i, s: 'x' + i }));"}
+	lim := []lava.Page_Limits{LIMITS, LIMITS}
+	out: [2]Heap_Outcome
+	run_one_by_one(t, 1, src, lim, out[:])
+	testing.expectf(t, out[0].heap > 0 && out[1].heap > out[0].heap + 4 << 20, "heap not attributed per page: light %d, heavy %d", out[0].heap, out[1].heap)
+}
+
+@(private = "file")
+Late_Writer :: struct {
+	fd:    linux.Fd,
+	delay: time.Duration,
+}
+
+@(private = "file")
+late_write :: proc(w: ^Late_Writer) {
+	time.sleep(w.delay)
+	b := [1]u8{1}
+	linux.write(w.fd, b[:])
+}
+
+// page_runner_run keeps its contract with a watched descriptor in the set: it returns
+// once no page is live, and never waits on the descriptor. Its only page is refused at
+// open, so each run is one round with nothing to tick — the round in which a run that
+// waited when idle would sleep until the descriptor turned readable, 1.5 s later.
+//
+// The page is refused for its missing budget, BEFORE it gets a loop: with the wait in
+// place, a run whose page failed after getting a loop returned in ~20 ms, its
+// epoll_wait ended by EINTR (observed; the likely source is task work the loop's
+// io_uring teardown queues on this thread), which hides the wait. Three runs, so one
+// stray interrupt left by an earlier test cannot hide it either.
+@(test)
+runner_run_returns_with_a_watched_fd_and_no_pages :: proc(t: ^testing.T) {
+	fds: [2]linux.Fd
+	if linux.pipe2(&fds, {.CLOEXEC, .NONBLOCK}) != nil do testing.fail_now(t, "pipe2 failed")
+	defer linux.close(fds[0])
+	defer linux.close(fds[1])
+	runner: lava.Page_Runner
+	if !lava.page_runner_init(&runner, 1, record_outcome, context.allocator) {
+		testing.fail_now(t, "page_runner_init failed")
+	}
+	defer lava.page_runner_destroy(&runner)
+	testing.expect(t, lava.page_runner_watch_fd(&runner, i32(fds[0])), "watch refused")
+	w := Late_Writer{fds[1], 1500 * time.Millisecond}
+	th := thread.create_and_start_with_poly_data(&w, late_write)
+	defer thread.destroy(th)
+	start := time.tick_now()
+	for i in 0 ..< 3 {
+		o: Outcome
+		lava.page_runner_open(&runner, "1", "<no-budget>", {}, &o)
+		lava.page_runner_run(&runner)
+		testing.expectf(t, o.done && o.status == .Invalid_Input, "run %d, refused page: %v", i, o)
+	}
+	elapsed := time.duration_seconds(time.tick_since(start))
+	testing.expectf(t, elapsed < 1.0, "page_runner_run blocked %.2fs on a watched fd with no page live", elapsed)
+}
+
+// page_runner_step blocks with no page live until a watched descriptor is readable,
+// and wakes when it is; with nothing at all to wait on it returns at once. A blocked
+// step may also return early on a signal (EINTR: JSC signals its threads), so the
+// test steps until the byte arrives and counts the steps: a step that blocks takes a
+// handful over 300 ms, one that does not takes thousands.
+@(test)
+runner_step_wakes_on_a_watched_fd :: proc(t: ^testing.T) {
+	bare: lava.Page_Runner
+	if !lava.page_runner_init(&bare, 1, record_outcome, context.allocator) {
+		testing.fail_now(t, "page_runner_init failed")
+	}
+	start := time.tick_now()
+	lava.page_runner_step(&bare)
+	testing.expectf(t, time.duration_seconds(time.tick_since(start)) < 0.5, "step with nothing to wait on blocked")
+	lava.page_runner_destroy(&bare)
+
+	fds: [2]linux.Fd
+	if linux.pipe2(&fds, {.CLOEXEC, .NONBLOCK}) != nil do testing.fail_now(t, "pipe2 failed")
+	defer linux.close(fds[0])
+	defer linux.close(fds[1])
+	runner: lava.Page_Runner
+	if !lava.page_runner_init(&runner, 1, record_outcome, context.allocator) {
+		testing.fail_now(t, "page_runner_init failed")
+	}
+	defer lava.page_runner_destroy(&runner)
+	testing.expect(t, lava.page_runner_watch_fd(&runner, i32(fds[0])), "watch refused")
+	w := Late_Writer{fds[1], 300 * time.Millisecond}
+	th := thread.create_and_start_with_poly_data(&w, late_write)
+	defer thread.destroy(th)
+	start = time.tick_now()
+	steps := 0
+	buf: [8]u8
+	for time.duration_seconds(time.tick_since(start)) < 3 {
+		lava.page_runner_step(&runner)
+		steps += 1
+		if n, _ := linux.read(fds[0], buf[:]); n > 0 do break
+	}
+	elapsed := time.duration_seconds(time.tick_since(start))
+	testing.expectf(t, elapsed > 0.2 && elapsed < 3, "the byte written at 300 ms was seen after %.2fs", elapsed)
+	testing.expectf(t, steps < 50, "%d steps in %.2fs: step did not block until the fd was readable", steps, elapsed)
 }
