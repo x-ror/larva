@@ -60,6 +60,25 @@ show('Buffer.copyBytesFrom(null)', () => Buffer.copyBytesFrom(null));
 show('writeBigInt64LE(1)', () => b().writeBigInt64LE(1, 0));
 show('writeBigInt64LE(Symbol)', () => b().writeBigInt64LE(Symbol('s'), 0));
 show('writeBigUInt64BE(1)', () => b().writeBigUInt64BE(1, 0));
+// Node's order: range check, then offset bounds, then the BigInt mask that throws
+// "Cannot mix" — so a boxed BigInt writes, and a bad range/offset wins over the type.
+show('writeBigInt64LE(Object(5n))', () => b().writeBigInt64LE(Object(5n)));
+show('writeBigUInt64BE(Object(5n)) bytes', () => {
+  const x = b();
+  x.writeBigUInt64BE(Object(5n));
+  return x;
+});
+show('writeBigUInt64LE(2n ** 64n)', () => b().writeBigUInt64LE(2n ** 64n));
+show('writeBigUInt64LE(-1)', () => b().writeBigUInt64LE(-1));
+show('writeBigInt64LE(2 ** 70)', () => b().writeBigInt64LE(2 ** 70));
+show('writeBigInt64LE(1, "x")', () => b().writeBigInt64LE(1, 'x'));
+show('writeBigInt64LE(1, 9)', () => b().writeBigInt64LE(1, 9));
+show('writeBigInt64LE("5")', () => b().writeBigInt64LE('5'));
+show('writeBigInt64BE(-1n) bytes', () => {
+  const x = b();
+  x.writeBigInt64BE(-1n);
+  return x;
+});
 show('toString(Symbol)', () => b().toString(Symbol('s')));
 show('toString("utf8", 1n)', () => b().toString('utf8', 1n));
 show('toString("utf8", 10n)', () => b().toString('utf8', 10n));

@@ -21,7 +21,7 @@
     "method": 41,
     "invoke": 6,
     "accessor": 22,
-    "global": 129
+    "global": 127
   },
   "internal/console.js": {
     "method": 0,
@@ -246,7 +246,7 @@
     "global": 24
   },
   "internal/util.js": {
-    "method": 50,
+    "method": 46,
     "invoke": 14,
     "accessor": 15,
     "global": 72

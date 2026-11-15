@@ -506,23 +506,24 @@
     return viewOf(buf).getBigInt64(offset, littleEndian);
   }
 
+  // Node's writeBigU_Int64* order (lib/internal/buffer.js checkInt): the range compare
+  // runs first on the raw value, then the offset bounds, and only then `value & mask`,
+  // whose mixed-type `&` is what throws "Cannot mix BigInt and other types". So a boxed
+  // BigInt (Object(5n)) writes, an out-of-range number reports ERR_OUT_OF_RANGE, a bad
+  // offset beats a non-BigInt value, and a Symbol throws from the compare. The mask
+  // also yields the two's-complement u64 for a negative signed value, so both widths
+  // store through setBigUint64. Pinned by tests/node-compat/cases/73-buffer-type-fill-bigint.js.
   function writeBigUInt(buf, value, offset, littleEndian) {
-    if (typeof value === 'symbol') Number(value); // throws TypeError on Symbol, matching Node
-    if (typeof value !== 'bigint')
-      throw new TypeError('Cannot mix BigInt and other types, use explicit conversions');
     checkValueInt(value, BIG_0, BIG_MAX_U64, 7);
     offset = checkBounds(buf, offset, 8);
-    viewOf(buf).setBigUint64(offset, value, littleEndian);
+    viewOf(buf).setBigUint64(offset, value & BIG_MAX_U64, littleEndian);
     return offset + 8;
   }
 
   function writeBigInt(buf, value, offset, littleEndian) {
-    if (typeof value === 'symbol') Number(value); // throws TypeError on Symbol, matching Node
-    if (typeof value !== 'bigint')
-      throw new TypeError('Cannot mix BigInt and other types, use explicit conversions');
     checkValueInt(value, -BIG_SIGN_I64, BIG_SIGN_I64 - BIG_1, 7);
     offset = checkBounds(buf, offset, 8);
-    viewOf(buf).setBigInt64(offset, value, littleEndian);
+    viewOf(buf).setBigUint64(offset, value & BIG_MAX_U64, littleEndian);
     return offset + 8;
   }
 
@@ -703,19 +704,28 @@
       else end = validateOffsetArg(end, 'end', this.length);
       if (end <= start) return this;
       var bytes;
-      if (typeof value === 'string') {
-        bytes = strToBytes(value, encoding || 'utf8');
-        if (bytes.length === 0) {
-          if (value.length !== 0) throw errInvalidArgValue('value', value);
-          u8Fill.call(this, 0, start, end);
-          return this;
+      // Numbers skip the string and instanceof tests (the hot case) and land in the
+      // same `& 0xff` fill as every other non-string, non-Uint8Array value, so the order
+      // is unobservable. Behind those tests, 3e6 fill(i, 0, 32) on a 64-byte buffer took
+      // 1111 ms; ahead of them, 989 ms (medians of 5 interleaved launches per arm,
+      // darwin arm64, -o:speed). One shared fill site rather than an early-return copy,
+      // so the primordials invoke count does not grow.
+      if (typeof value !== 'number') {
+        if (typeof value === 'string') {
+          bytes = strToBytes(value, encoding || 'utf8');
+          if (bytes.length === 0) {
+            if (value.length !== 0) throw errInvalidArgValue('value', value);
+            u8Fill.call(this, 0, start, end);
+            return this;
+          }
+        } else if (value instanceof Uint8Array) {
+          if (value.length === 0) throw errInvalidArgValue('value', value);
+          bytes = value;
         }
-      } else if (value instanceof Uint8Array) {
-        if (value.length === 0) throw errInvalidArgValue('value', value);
-        bytes = value;
-      } else {
-        // Non-string, non-Uint8Array values (including null, undefined, objects, booleans,
-        // numbers, BigInt, Symbol) coerce via ToNumber/ToInt32 (& 0xff), matching Node:
+      }
+      if (bytes === undefined) {
+        // Numbers and every other value (null, undefined, objects, booleans, BigInt,
+        // Symbol) coerce via ToNumber/ToInt32 (& 0xff), matching Node:
         // null/undefined/{} -> 0, true -> 1, BigInt/Symbol -> TypeError.
         u8Fill.call(this, value & 0xff, start, end);
         return this;
@@ -1355,14 +1365,79 @@
 
   createPool();
 
-  /** Base64 → latin1 (Node global atob polyfill surface). */
-  function atob(data) {
-    return Buffer.from(StringG(data), 'base64').toString('latin1');
+  function errMissingInput() {
+    var e = new TypeError('The "input" argument must be specified');
+    e.code = 'ERR_MISSING_ARGS';
+    return e;
   }
 
-  /** latin1 → Base64 (Node global btoa polyfill surface). */
-  function btoa(data) {
-    return Buffer.from(StringG(data), 'latin1').toString('base64');
+  // Node throws a DOMException here; Lava has no DOMException (same gap as
+  // structured_clone.js's DataCloneError), so this is an Error carrying the
+  // DOMException's name and legacy numeric code.
+  function errInvalidCharacter(message) {
+    var e = new Error(message);
+    e.name = 'InvalidCharacterError';
+    e.code = 5;
+    return e;
+  }
+
+  /**
+   * Base64 → latin1 per the HTML forgiving-base64 decode (global atob and node:buffer's
+   * atob are the same function, as in Node).
+   * @param {*} input Stringified with a template literal, like Node (`${input}`).
+   * @returns {string}
+   * @throws {TypeError} ERR_MISSING_ARGS — called with no argument.
+   * @throws {Error} name InvalidCharacterError, code 5 — a character outside
+   *         A-Za-z0-9+/= and ASCII whitespace, '=' not at the end or more than two,
+   *         '=' when the length is not a multiple of 4, or a lone trailing character.
+   * @node Mirrors lib/buffer.js atob: whitespace is TAB LF FF CR SPACE (not VT); the
+   *       messages are 'Invalid character' and 'The string to be decoded is not
+   *       correctly encoded.' (node 26.13.0, tests/node-compat/cases/03-buffer.js).
+   * @deviates The error is an Error, not a DOMException (Lava has none); name, code
+   *           and message match. Pinned by cmd/lava/atob_invalid_character_test.odin.
+   */
+  function atob(input) {
+    if (arguments.length === 0) throw errMissingInput();
+    input = `${input}`;
+    var nonWhitespace = 0;
+    var equals = 0;
+    for (var i = 0; i < input.length; i++) {
+      var c = StringPrototypeCharCodeAt(input, i);
+      if (c === 0x09 || c === 0x0a || c === 0x0c || c === 0x0d || c === 0x20) continue;
+      var alnum = (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) || (c >= 0x30 && c <= 0x39);
+      if (!alnum && c !== 0x2b && c !== 0x2f && c !== 0x3d)
+        throw errInvalidCharacter('Invalid character');
+      nonWhitespace++;
+      if (c === 0x3d) equals++;
+      else if (equals) throw errInvalidCharacter('Invalid character'); // '=' only at the end
+      if (equals > 2) throw errInvalidCharacter('Invalid character');
+    }
+    var remainder = nonWhitespace % 4;
+    if (!remainder) remainder = (nonWhitespace - equals) % 4;
+    else if (equals) throw errInvalidCharacter('Invalid character');
+    if (remainder === 1)
+      throw errInvalidCharacter('The string to be decoded is not correctly encoded.');
+    return Buffer.from(input, 'base64').toString('latin1');
+  }
+
+  /**
+   * latin1 → Base64 (global btoa and node:buffer's btoa are the same function).
+   * @param {*} input Stringified with a template literal, like Node.
+   * @returns {string}
+   * @throws {TypeError} ERR_MISSING_ARGS — called with no argument.
+   * @throws {Error} name InvalidCharacterError, code 5 — a code unit above 0xFF.
+   * @node lib/buffer.js btoa (node 26.13.0, tests/node-compat/cases/03-buffer.js).
+   * @deviates Not a DOMException, as for atob; pinned by
+   *           cmd/lava/atob_invalid_character_test.odin.
+   */
+  function btoa(input) {
+    if (arguments.length === 0) throw errMissingInput();
+    input = `${input}`;
+    for (var i = 0; i < input.length; i++) {
+      if (StringPrototypeCharCodeAt(input, i) > 0xff)
+        throw errInvalidCharacter('Invalid character');
+    }
+    return Buffer.from(input, 'latin1').toString('base64');
   }
 
   /** @param {ArrayBuffer|Uint8Array} input @returns {boolean} */
