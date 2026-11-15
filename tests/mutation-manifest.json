@@ -1382,12 +1382,194 @@
     },
     {
       "name": "runner_fd_count_stays_flat_over_10k_pages dies when a closed page keeps its loop open",
-      "why": "Every page loop owns an epoll or io_uring fd plus a wakeup pipe; a page close that skips the loop teardown leaks three fds per page.",
+      "why": "Every page loop owns an epoll or io_uring fd plus a wakeup pipe; a page close that skips close_finish leaks the pipe, two fds per page.",
       "source": "pkg/runtime/page.odin",
-      "find": "\t\teventloop.destroy(page.loop)\n",
+      "find": "\tif page.loop != nil && busy_loop == nil do eventloop.close_finish(page.loop)\n",
       "replace": "\n",
       "gate": "odin:cmd/lava:main.runner_fd_count_stays_flat_over_10k_pages",
       "expect_detail": "fd count grew",
+      "timeout_ms": 600000
+    },
+    {
+      "name": "runner_fd_count_stays_flat_over_10k_pages dies when the reaper drops a reaping loop without finishing it",
+      "why": "A loop that went through the reaping list still holds its wakeup pipe; reaping it without close_finish leaks two fds per page that closed with a blocked worker (#34).",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\t\teventloop.close_finish(e.loop)\n\t\tfree(e.loop, runtime.heap_allocator())\n",
+      "replace": "\t\tfree(e.loop, runtime.heap_allocator())\n",
+      "gate": "odin:cmd/lava:main.runner_fd_count_stays_flat_over_10k_pages",
+      "expect_detail": "fd count grew",
+      "timeout_ms": 600000
+    },
+    {
+      "name": "close_begin_cancels_a_running_job_without_waiting_for_it dies when close_begin skips the cancel hook of a running job",
+      "why": "Without the cancel, a job's protected JS callback is unprotected only by its late dispose, after the page's context — or the runner's VM — is gone.",
+      "source": "pkg/runtime/eventloop/threadpool.odin",
+      "find": "\t\t\tif job.cancel != nil do job.cancel(job.user_data)\n",
+      "replace": "",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.close_begin_cancels_a_running_job_without_waiting_for_it",
+      "expect_detail": "job.cancel) to be 1"
+    },
+    {
+      "name": "close_detach_leaves_the_loop_to_its_last_worker dies when the last worker of a detached loop does not release it",
+      "why": "A detached loop has no other owner: if its last worker just exits, its jobs, its wakeup pipe and its memory leak forever.",
+      "source": "pkg/runtime/eventloop/threadpool.odin",
+      "find": "\t\t\tif last_of_detached {\n",
+      "replace": "\t\t\tif false {\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.close_detach_leaves_the_loop_to_its_last_worker",
+      "expect_detail": "job.dispose) to be 1"
+    },
+    {
+      "name": "runner_close_does_not_wait_for_a_worker_blocked_on_a_fifo dies when page_close finishes a busy loop itself",
+      "why": "Finishing the loop joins the worker blocked in open() on the FIFO, and the whole runner thread with it (#34).",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\tif eventloop.close_begin(page.loop) do busy_loop = page.loop\n",
+      "replace": "\t\teventloop.close_begin(page.loop)\n",
+      "gate": "odin:cmd/lava:main.runner_close_does_not_wait_for_a_worker_blocked_on_a_fifo",
+      "expect_detail": "page_close waited on a worker blocked in open() on a FIFO"
+    },
+    {
+      "name": "runner_close_does_not_wait_for_a_hanging_dns_lookup dies when close_begin does not report a running job as busy",
+      "why": "A lookup the resolver has not answered then reads as idle, page_close joins it, and the runner thread waits out the resolver's timeouts (#34).",
+      "source": "pkg/runtime/eventloop/threadpool.odin",
+      "find": "\t\t\tbusy = true\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.runner_close_does_not_wait_for_a_hanging_dns_lookup",
+      "expect_detail": "page_close waited for a DNS lookup",
+      "timeout_ms": 60000
+    },
+    {
+      "name": "runner_reaping_loop_keeps_its_pipe_until_its_worker_exits dies when close_begin closes the wakeup pipe",
+      "why": "A worker still blocked will write its late wakeup into that descriptor number, which the runner has already handed to a sibling's loop (#34).",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tplatform_close_backend(loop)\n\treturn\n",
+      "replace": "\tplatform_close_backend(loop)\n\tplatform_close_wakeup(loop)\n\treturn\n",
+      "gate": "odin:cmd/lava:main.runner_reaping_loop_keeps_its_pipe_until_its_worker_exits",
+      "expect_detail": "not the loop's wakeup pipe"
+    },
+    {
+      "name": "runner_second_page_in_a_reused_vm_gets_no_callback_from_the_first_pages_job dies when close_begin disposes a job a worker is running",
+      "why": "Disposing a running job frees what its worker is still using and leaves the page close to join that worker; the next page on the VM waits behind it.",
+      "source": "pkg/runtime/eventloop/threadpool.odin",
+      "find": "\t\tif job.running {\n",
+      "replace": "\t\tif false {\n",
+      "gate": "odin:cmd/lava:main.runner_second_page_in_a_reused_vm_gets_no_callback_from_the_first_pages_job",
+      "expect_detail": "the first page's close waited on its worker"
+    },
+    {
+      "name": "runner_refuses_pages_while_its_reaping_list_is_full dies when page_runner_open ignores the reaping bound",
+      "why": "Pages that read FIFOs never release their reaping entries; without the bound they pile up threads and fds until the process runs out (#34).",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\tif runner_reap(runner) >= runner.reap_limit {\n",
+      "replace": "\tif runner_reap(runner) >= runner.reap_limit + 1000 {\n",
+      "gate": "odin:cmd/lava:main.runner_refuses_pages_while_its_reaping_list_is_full",
+      "expect_detail": "page_runner_live(&runner) to be 0"
+    },
+    {
+      "name": "runner_destroy_detaches_loops_whose_workers_are_blocked dies when page_runner_destroy joins a reaping loop",
+      "why": "Joining moves the hang from page_close to destroy: the runner thread waits for as long as the blocked read does (#34).",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\t\tif !eventloop.close_detach(e.loop) do free(e.loop, runtime.heap_allocator())\n",
+      "replace": "\t\teventloop.close_finish(e.loop)\n\t\tfree(e.loop, runtime.heap_allocator())\n",
+      "gate": "odin:cmd/lava:main.runner_destroy_detaches_loops_whose_workers_are_blocked",
+      "expect_detail": "page_runner_destroy took"
+    },
+    {
+      "name": "runner_destroy_detaches_loops_whose_workers_are_blocked dies when a page loop is allocated from the runner allocator",
+      "why": "A detached loop outlives the runner; on the runner allocator, its workers write into memory the embedder freed after destroy (CLAUDE.md §4). The fault lands on whichever thread touches the unmapped arena first: the test thread (the runner's 'Signal caught: Segmentation_Fault') or a pool worker, whose signal makes Odin's runner abort the process ('odin test exited', core/testing/signal_handler_libc.odin:53-63) — the same death; CI (ubuntu-26.04) saw the latter.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\trp.loop = new(eventloop.Loop, runtime.heap_allocator())\n\trp.loop^ = eventloop.init(runtime.heap_allocator(), real_time = true)\n",
+      "replace": "\trp.loop = new(eventloop.Loop, runner.allocator)\n\trp.loop^ = eventloop.init(runner.allocator, real_time = true)\n",
+      "gate": "odin:cmd/lava:main.runner_destroy_detaches_loops_whose_workers_are_blocked",
+      "expect_detail": [
+        "Segmentation_Fault",
+        "odin test exited"
+      ]
+    },
+    {
+      "name": "runner_destroy_detaches_loops_whose_workers_are_blocked dies when fs.readFile registers no cancel hook",
+      "why": "Without fs_read_cancel the callback stays protected until the late dispose, which then calls into a VM the runner already destroyed, from a worker thread. Locally (ubuntu-24.04) that late call faults on the worker ('odin test exited'); on CI's ubuntu-26.04 build (run 43699940285) no fault reached the process within the wait, and the detached loop's last worker never finished its teardown, so the test's own check that the pipe closes fails — both are that late call into the destroyed VM; the unmutated test closes the pipe within milliseconds of the release.",
+      "source": "pkg/runtime/fs.odin",
+      "find": "fs_read_dispose, fs_read_cancel) {",
+      "replace": "fs_read_dispose) {",
+      "gate": "odin:cmd/lava:main.runner_destroy_detaches_loops_whose_workers_are_blocked",
+      "expect_detail": [
+        "odin test exited",
+        "Segmentation_Fault",
+        "was never closed after its worker exited"
+      ]
+    },
+    {
+      "name": "runner_reaping_frees_through_matching_allocators dies when the reaper frees a heap loop through the runner allocator",
+      "why": "The loop came from the heap; freeing it through the runner allocator is an alloc/free mismatch (CLAUDE.md §4).",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\t\tfree(e.loop, runtime.heap_allocator())\n\t\tunordered_remove(&runner.reaping, i)\n",
+      "replace": "\t\tfree(e.loop, runner.allocator)\n\t\tunordered_remove(&runner.reaping, i)\n",
+      "gate": "odin:cmd/lava:main.runner_reaping_frees_through_matching_allocators",
+      "expect_detail": "never allocated"
+    },
+    {
+      "name": "runner_close_does_not_wait_for_a_hanging_dns_lookup dies when a node:dns request is allocated from the runner allocator",
+      "why": "The worker of a loop detached by page_runner_destroy writes into the request after the embedder frees the runner allocator (CLAUDE.md §4, #34). Locally (ubuntu-24.04) the worker faults ('odin test exited'); on CI's ubuntu-26.04 build (run 43699940285) no fault reached the process, and the detached loop's teardown never finished, so the test's own check that the loop's pipe closes after the resolver times out fails (15 s against a ~4 s resolver wait).",
+      "source": "pkg/runtime/dns.odin",
+      "find": "\talloc := runtime.heap_allocator()\n",
+      "replace": "\talloc := get_state_from_ctx(ctx).allocator\n",
+      "gate": "odin:cmd/lava:main.runner_close_does_not_wait_for_a_hanging_dns_lookup",
+      "expect_detail": [
+        "Segmentation_Fault",
+        "odin test exited",
+        "was never closed after the resolver timed out"
+      ],
+      "timeout_ms": 60000
+    },
+    {
+      "name": "runner_close_does_not_wait_for_a_hanging_dns_lookup dies when fetch's DNS_Job is allocated from the request allocator",
+      "why": "req.allocator is the runner's; a detached lookup's worker re-reads job.host per family after the runner allocator is gone (#34). Locally (ubuntu-24.04) the worker faults ('odin test exited'); on CI's ubuntu-26.04 build (run 43699940285) no fault reached the process, and the detached loop's teardown never finished, so the test's own check that the loop's pipe closes after the resolver times out fails (15 s against a ~4 s resolver wait).",
+      "source": "pkg/runtime/fetch_dns.odin",
+      "find": "\tjob := new(DNS_Job, runtime.heap_allocator())\n\tjob.allocator = runtime.heap_allocator()\n",
+      "replace": "\tjob := new(DNS_Job, req.allocator)\n\tjob.allocator = req.allocator\n",
+      "gate": "odin:cmd/lava:main.runner_close_does_not_wait_for_a_hanging_dns_lookup",
+      "expect_detail": [
+        "Segmentation_Fault",
+        "odin test exited",
+        "was never closed after the resolver timed out"
+      ],
+      "timeout_ms": 60000
+    },
+    {
+      "name": "runner_close_does_not_wait_for_a_hanging_dns_lookup dies when dns.lookup registers no cancel hook",
+      "why": "Without dns_cancel the callback is unprotected only by the late dispose, from the worker thread, into a VM page_runner_destroy already freed. Locally (ubuntu-24.04) the worker faults ('odin test exited'); on CI's ubuntu-26.04 build (run 43699940285) no fault reached the process, and the detached loop's teardown never finished, so the test's own check that the loop's pipe closes after the resolver times out fails (15 s against a ~4 s resolver wait).",
+      "source": "pkg/runtime/dns.odin",
+      "find": "dns_lookup_complete_cb, req, dns_dispose, dns_cancel) {",
+      "replace": "dns_lookup_complete_cb, req, dns_dispose) {",
+      "gate": "odin:cmd/lava:main.runner_close_does_not_wait_for_a_hanging_dns_lookup",
+      "expect_detail": [
+        "Segmentation_Fault",
+        "odin test exited",
+        "was never closed after the resolver timed out"
+      ],
+      "timeout_ms": 60000
+    },
+    {
+      "name": "runner_reaps_a_loop_as_soon_as_its_worker_exits dies when the reaping pipe is registered without EPOLLIN",
+      "why": "The runner then sleeps through a worker's exit wakeup and reaps the loop only when something else wakes it, holding its threads and fds meanwhile.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\t\t\tevents = {.IN, .ET},\n\t\t}\n\t\tif linux.epoll_ctl(runner.epfd, .ADD, fd, &ev) == .NONE do e.fd = fd\n",
+      "replace": "\t\t\tevents = {.ET},\n\t\t}\n\t\tif linux.epoll_ctl(runner.epfd, .ADD, fd, &ev) == .NONE do e.fd = fd\n",
+      "gate": "odin:cmd/lava:main.runner_reaps_a_loop_as_soon_as_its_worker_exits",
+      "expect_detail": "the runner slept through its wakeup pipe"
+    },
+    {
+      "name": "runner_fd_count_stays_flat_over_10k_pages dies when a busy loop is freed instead of reaped",
+      "why": "The blocked worker still holds the freed Loop: once a later page's allocation reuses it, the worker's late post_async and wakeup write into live memory (seen as a fault within ~2 s, 3/3 runs); were it not reused, the skipped close_finish leaks the wakeup pipe per busy page.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\t\trunner_reap_add(runner, busy_loop)\n",
+      "replace": "\t\tfree(rp.loop, runtime.heap_allocator())\n",
+      "gate": "odin:cmd/lava:main.runner_fd_count_stays_flat_over_10k_pages",
+      "expect_detail": [
+        "Segmentation_Fault",
+        "odin test exited",
+        "fd count grew"
+      ],
       "timeout_ms": 600000
     },
     {

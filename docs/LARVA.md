@@ -89,11 +89,26 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
      evaluating 8 embedded runtime modules plus a 200k-iteration loop, mean of
      100 pages per launch, medians of 5 interleaved launches per arm.
    - **one event loop per page**, interleaved by a per-thread page runner
-     (`page_runner.odin`): closing a page destroys its loop, which cancels
+     (`page_runner.odin`): closing a page closes its loop, which cancels
      everything the page registered, so nothing can fire into the next page
      that reuses the VM. No page loop blocks on its own; when no page can
      progress the runner blocks on every page loop's descriptor at once,
      bounded by the nearest timer;
+   - closing a page never waits for blocking pool work (#34). A page whose
+     loop still has a worker inside a job — an `fs` read on a FIFO, a `fetch`
+     or `node:dns` lookup the resolver has not answered — has its JS side torn
+     down at once (VM, `Runtime_State`, context; every callback of the job
+     released while the context lives), and its loop, pool and wakeup pipe
+     move to the runner's **reaping list**. The runner waits on the loop's
+     wakeup pipe through its epoll set and finishes the loop when the worker
+     exits. The list is bounded (8 by default, `Page_Runner.reap_limit`); at
+     the bound `page_runner_open` refuses with `Kill_Reason.Reaping_Full`,
+     since a page reading a FIFO nobody writes never releases its entry.
+     `page_runner_destroy` detaches, it does not join: the last worker of a
+     detached loop frees it. Page loops are on the heap, never on the runner
+     allocator, so the embedder may free that allocator as soon as destroy
+     returns; nothing is leaked once the workers exit, but each blocked
+     worker keeps its thread and its loop's two pipe descriptors until then;
    - Pages on one thread still share its CPU; threads are sized to cores. A runner
      page must carry a CPU budget (`page_runner_open` refuses one without), and a
      page that spins is killed alone. Until then it delays its siblings by up to its
@@ -101,12 +116,6 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
      page that queues many timers holds the thread for all of them. Slicing a tick
      is open work (#35).
    - Known limits of the runner, open as issues:
-     - `page_close` joins the page loop's worker pool on the runner thread, so
-       blocking work still in flight there holds every sibling on the thread, with
-       no CPU limit to cut it: a `fetch` DNS lookup until the resolver times out —
-       reachable from the Window profile too — and an `fs` read on a pipe or FIFO
-       without bound. Must be fixed before the multi-thread dispatcher ships
-       (#34).
      - The process fd table is shared. Under the Node profile a page can leak
        descriptors to `EMFILE` or `closeSync` a sibling's; the runner is not a
        security boundary there. The Window profile has no `fs`, which is what

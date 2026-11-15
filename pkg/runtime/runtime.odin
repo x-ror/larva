@@ -179,7 +179,11 @@ eval :: proc(
 			}
 		}
 	}
-	return page_close(&page)
+	result, busy_loop := page_close(&page)
+	// eval owns its thread, so it waits for blocking pool work as it always has; only
+	// the page runner, which shares its thread with other pages, must not (#34).
+	if busy_loop != nil do eventloop.close_finish(busy_loop)
+	return result
 }
 
 // resolve_exit_code computes the final process exit code after the event loop

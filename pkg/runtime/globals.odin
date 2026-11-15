@@ -63,8 +63,9 @@ Runtime_State :: struct {
 	// teardown to stop requests and join any DNS worker before the loop/context die.
 	active_fetches:    [dynamic]^Fetch_Request,
 	// node:dns lookups run off-loop on the loop's shared worker pool (see dns.odin);
-	// the pool's own `outstanding` list is the in-flight tracking, and pool_shutdown
-	// joins + disposes at teardown, so no separate active_dns bag is needed here.
+	// the pool's own `outstanding` list is the in-flight tracking, and the loop's
+	// teardown (close_begin / close_finish) cancels and disposes it, so no separate
+	// active_dns bag is needed here.
 	// node:sqlite handle registries: opaque id -> ^sqlite.Database / ^sqlite.Statement
 	// (kept as rawptr so this struct need not import pkg/std/sqlite). See sqlite.odin.
 	sqlite_dbs:        map[u64]rawptr,

@@ -25,7 +25,7 @@ Platform_Loop :: struct {
 	watchers:  [dynamic]^IO_Watcher, // active readiness watchers (loop thread)
 	wake_recv: windows.SOCKET, // loopback pair read end, always selected for read
 	wake_send: windows.SOCKET, // loopback pair write end, poked by platform_wakeup
-	started:   bool, // WSAStartup succeeded (so platform_destroy cleans up)
+	started:   bool, // WSAStartup succeeded (so platform_close_wakeup cleans up)
 }
 
 platform_name :: proc(loop: ^Loop) -> string {
@@ -133,7 +133,15 @@ set_nonblocking :: proc(sock: windows.SOCKET) -> bool {
 	)
 }
 
-platform_destroy :: proc(loop: ^Loop) {
+// platform_close_backend / platform_close_wakeup: the two halves of the teardown,
+// split for close_begin / close_finish as on Linux (loop_linux.odin says why the
+// wakeup pair goes last). WSACleanup goes with the wakeup pair, the last sockets.
+platform_close_backend :: proc(loop: ^Loop) {
+	delete(loop.platform.watchers)
+	loop.platform.watchers = nil
+}
+
+platform_close_wakeup :: proc(loop: ^Loop) {
 	if loop.platform.wake_recv != windows.INVALID_SOCKET {
 		windows.closesocket(loop.platform.wake_recv)
 		loop.platform.wake_recv = windows.INVALID_SOCKET
@@ -142,7 +150,6 @@ platform_destroy :: proc(loop: ^Loop) {
 		windows.closesocket(loop.platform.wake_send)
 		loop.platform.wake_send = windows.INVALID_SOCKET
 	}
-	delete(loop.platform.watchers)
 	if loop.platform.started {
 		windows.WSACleanup()
 		loop.platform.started = false
