@@ -31,8 +31,8 @@ import eventloop "lava:pkg/runtime/eventloop"
 // IPv6 address, #145, tried in turn by the connect path). Allocated by fetch_dns_submit, freed by
 // dns_resolve_done (success) or dns_resolve_dispose (dropped at teardown) through its captured
 // allocator, so the alloc/free pair stays matched whichever path releases it. That allocator is the
-// heap, not req.allocator: the worker writes into the job, and a closed page's worker may still be
-// resolving after page_runner_destroy has left the runner allocator to be freed.
+// heap, not req.allocator: the worker writes into the job and may still be resolving after a detached
+// loop's owner (Larva's page runner) has freed the request's allocator.
 DNS_Job :: struct {
 	host:       string,
 	allocator:  runtime.Allocator,

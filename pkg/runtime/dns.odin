@@ -47,9 +47,9 @@ Dns_Lookup_Request :: struct {
 	// inside a `proc "c"` (context reset to runtime.default_context) but the free runs
 	// from dns_request_free under the loop/teardown context. Routing alloc+free through
 	// this stored allocator keeps the pair matched. Not the Runtime_State's allocator
-	// (a page runner's): a pool worker writes into this struct, and a closed page's
-	// worker may still be resolving after page_runner_destroy has left the runner
-	// allocator to be freed (#34). (results carries its own bound allocator — the
+	// (in Larva, a page runner's): a pool worker writes into this struct and may still
+	// be resolving after a detached loop's owner has freed that allocator
+	// (x-ror/larva#34). (results carries its own bound allocator — the
 	// worker's, the heap — so plain delete() frees it correctly.)
 	allocator: runtime.Allocator,
 	hostname:  string, // owned clone (the worker reads it off-loop)

@@ -242,8 +242,9 @@ sync_real_clock :: proc(loop: ^Loop) {
 //
 // destroy is close_begin followed by close_finish, so it waits for blocking pool work
 // still in flight: a DNS lookup until the resolver times out, a read on a pipe without
-// bound. A driver that must not wait — the page runner, which shares its thread with
-// other pages — calls the two halves itself and finishes the loop later (#34).
+// bound. A driver that must not wait — one that shares its thread with other work, such
+// as Larva's page runner — calls the two halves itself and finishes the loop later
+// (x-ror/larva#34).
 destroy :: proc(loop: ^Loop) {
 	close_begin(loop)
 	close_finish(loop)
@@ -336,8 +337,8 @@ close_ready :: proc(loop: ^Loop) -> bool {
 //             the Loop struct.
 //
 // PRECONDITION: the Loop struct was allocated with `new(Loop, loop.allocator)` and that
-// allocator is thread-safe and outlives the workers (the heap; the page runner's
-// loops use it), since the last worker frees the struct through it from its own
+// allocator is thread-safe and outlives the workers (the heap, which Larva's page
+// runner uses for its loops), since the last worker frees the struct through it from its own
 // thread. The worker's own Thread struct is freed by core:thread once it has returned
 // (Self_Cleanup), so a detached loop leaks nothing — thread.destroy is unusable on the
 // calling thread itself, since Odin sets `Done` after the thread proc returns.
