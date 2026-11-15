@@ -4,6 +4,9 @@ on:
   pull_request:
   push:
     branches: [master]
+  # sync-lava.yml starts CI on the sync branch this way: a PR it opens with
+  # GITHUB_TOKEN does not trigger pull_request runs.
+  workflow_dispatch:
 
 # Cancel superseded runs on the same ref (e.g. new pushes to a PR).
 concurrency:
@@ -17,8 +20,92 @@ concurrency:
 # project tracks newer Odin dev builds.
 
 jobs:
-  linux:
+  # Which step groups this run needs (scripts/ci-scope.mjs): `docs` runs only
+  # the lints, `tooling` adds the JS checks and the changed-only mutation gate,
+  # `code` runs everything with the changed-only mutation gate, and `full`
+  # (push to master, manual runs) runs everything including the whole mutation
+  # manifest. Master's full run is the safety net for whatever a PR skipped.
+  #
+  # The job layout follows Node's and Bun's CI: cheap checks, the build-and-test job
+  # and the mutation gate run as separate jobs side by side instead of one after the
+  # other, and the mutation gate — the long pole — is sharded across three runners
+  # (run-mutations.mjs --shard, which keeps each gate's baseline in one shard).
+  scope:
+    name: Scope
+    runs-on: ubuntu-latest
+    outputs:
+      scope: ${{ steps.scope.outputs.scope }}
+    steps:
+      # Full history: the scope step diffs against the PR base.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Scope
+        id: scope
+        run: node scripts/ci-scope.mjs ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }} >> "$GITHUB_OUTPUT"
+
+  checks:
+    name: Checks (type-check, format, lint)
+    needs: scope
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install JavaScriptCoreGTK (6.0), SQLite and OpenSSL
+        if: needs.scope.outputs.scope != 'docs'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libjavascriptcoregtk-6.0-dev libsqlite3-dev libssl-dev pkg-config
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # Bun runs the JS gates (`bun fmt`, `bun run js:*`) and installs the dev
+      # dependencies. The version comes from package.json's packageManager so CI
+      # formats with the same Bun as `make check-js` does locally.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install JS dev dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Setup Odin
+        if: needs.scope.outputs.scope != 'docs'
+        uses: laytan/setup-odin@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          llvm-version: '18'
+
+      - name: Type-check
+        if: needs.scope.outputs.scope == 'code' || needs.scope.outputs.scope == 'full'
+        run: make check
+
+      # `make fmt` once exited non-zero for every caller (a strip-semicolon
+      # parse failure, fixed by -collection:lava=.) and nothing noticed, because
+      # no CI step ran it. This pins both that fmt runs and that the tree is
+      # already formatted: fmt rewrites in place, so any diff is a formatting
+      # violation (or a fmt regression).
+      - name: Format (Odin)
+        if: needs.scope.outputs.scope == 'code' || needs.scope.outputs.scope == 'full'
+        run: make fmt && git diff --exit-code
+
+      - name: JavaScript lint and format
+        if: needs.scope.outputs.scope != 'docs'
+        run: make check-js
+
+      - name: Markdown lint
+        run: make check-md
+
+      - name: Workflow lint
+        run: make check-actions
+
+  test:
     name: Linux (full build + tests)
+    needs: scope
+    if: needs.scope.outputs.scope == 'code' || needs.scope.outputs.scope == 'full'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -28,37 +115,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libjavascriptcoregtk-6.0-dev libsqlite3-dev libssl-dev pkg-config
 
-      - uses: voidzero-dev/setup-vp@v1
+      - uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: true
-          run-install: true
+
+      # Bun runs the JS gates (`bun fmt`, `bun run js:*`) and installs the dev
+      # dependencies. The version comes from package.json's packageManager so CI
+      # formats with the same Bun as `make check-js` does locally.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install JS dev dependencies
+        run: bun install --frozen-lockfile
 
       - name: Setup Odin
         uses: laytan/setup-odin@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           llvm-version: '18'
-
-      - name: Type-check
-        run: make check
-
-      # `make fmt` once exited non-zero for every caller (a strip-semicolon
-      # parse failure, fixed by -collection:lava=.) and nothing noticed, because
-      # no CI step ran it. This pins both that fmt runs and that the tree is
-      # already formatted: fmt rewrites in place, so any diff is a formatting
-      # violation (or a fmt regression).
-      - name: Format (Odin)
-        run: make fmt && git diff --exit-code
-
-      - name: JavaScript lint and format
-        run: make check-js
-
-      - name: Markdown lint
-        run: make check-md
-
-      - name: Workflow lint
-        run: make check-actions
 
       - name: Build
         run: make build
@@ -81,17 +156,6 @@ jobs:
       # checkout for want of a binary.
       - name: Test (stdio writer)
         run: make test-stdio
-
-      # MUTATION GATE. Breaks the code each recorded test claims to pin and requires
-      # the test to go red. It exists because three tests in #321 passed for the
-      # wrong reason and every one was caught only by doing this by hand: an oracle
-      # case that threw inside its own setup and so printed identical output on both
-      # runtimes, a property suite that compared zero inputs after a NaN run count,
-      # and an event-loop test whose timer gave platform_poll a positive timeout —
-      # which counts as progress by itself, so the no-progress tick under test never
-      # happened. Rebuilds bin/lava per embedded-JS mutation, hence its own step.
-      - name: Test (mutation gate)
-        run: make test-mutation
 
       - name: Test (Lava behavior)
         run: make test-lava
@@ -152,3 +216,58 @@ jobs:
       # to `make bench-gate` to enforce regressions. See bench/README.md.
       - name: Benchmarks (report-only)
         run: make bench
+
+  # MUTATION GATE. Breaks the code each recorded test claims to pin and requires
+  # the test to go red. It exists because three tests in #321 passed for the
+  # wrong reason and every one was caught only by doing this by hand: an oracle
+  # case that threw inside its own setup and so printed identical output on both
+  # runtimes, a property suite that compared zero inputs after a NaN run count,
+  # and an event-loop test whose timer gave platform_poll a positive timeout —
+  # which counts as progress by itself, so the no-progress tick under test never
+  # happened.
+  #
+  # A pull request runs only the recorded mutations its diff can affect (CHANGED=1;
+  # the runner widens to the whole manifest when its own machinery changed). Every
+  # push to master runs the full manifest — the safety net for whatever a PR skipped.
+  mutation:
+    name: Mutation gate (${{ matrix.shard }}/3)
+    needs: scope
+    if: needs.scope.outputs.scope != 'docs'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      # Full history: --changed takes its merge-base with origin/master.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install JavaScriptCoreGTK (6.0), SQLite and OpenSSL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libjavascriptcoregtk-6.0-dev libsqlite3-dev libssl-dev pkg-config
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # Bun runs the JS gates (`bun fmt`, `bun run js:*`) and installs the dev
+      # dependencies. The version comes from package.json's packageManager so CI
+      # formats with the same Bun as `make check-js` does locally.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install JS dev dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Setup Odin
+        uses: laytan/setup-odin@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          llvm-version: '18'
+
+      - name: Test (mutation gate)
+        run: make test-mutation SHARD=${{ matrix.shard }}/3 ${{ needs.scope.outputs.scope != 'full' && 'CHANGED=1' || '' }}

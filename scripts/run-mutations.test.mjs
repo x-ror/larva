@@ -19,81 +19,21 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const RUNNER = join(dirname(fileURLToPath(import.meta.url)), 'run-mutations.mjs');
-
-// The fixture source. `VALUE` is what the gate asserts on; a mutation that changes
-// it makes the gate red, and one that only touches the comment leaves it green.
-const SOURCE = `// fixture module — MARKER
-export const VALUE = 'expected';
-export const OTHER = 'untouched';
-`;
-
-// The fixture gate. Distinct assertion messages so expect_detail can tell the two
-// failure modes apart, which is the whole point of the field.
-const GATE = `import test from 'node:test';
-import assert from 'node:assert/strict';
-import { VALUE, OTHER } from './src.mjs';
-test('value is expected', () => {
-  assert.equal(VALUE, 'expected', 'THE-RECORDED-REASON');
-});
-test('other is untouched', () => {
-  assert.equal(OTHER, 'untouched', 'AN-UNRELATED-REASON');
-});
-`;
-
-function makeTree(mutations, { source = SOURCE, gate = GATE } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'lava-mut-'));
-  mkdirSync(join(dir, 'fx'), { recursive: true });
-  writeFileSync(join(dir, 'fx', 'src.mjs'), source);
-  writeFileSync(join(dir, 'fx', 'gate.test.mjs'), gate);
-  writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ mutations }, null, 2));
-  // A real git repo: the runner refuses to touch sources it cannot restore, and
-  // that refusal is itself one of the behaviours under test.
-  const git = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' });
-  git('init', '-q');
-  git('config', 'user.email', 't@t');
-  git('config', 'user.name', 't');
-  git('add', '-A');
-  git('commit', '-qm', 'fixture');
-  return dir;
-}
-
-function run(dir, extra = [], env = {}) {
-  const r = spawnSync(
-    process.execPath,
-    [RUNNER, `--root=${dir}`, `--manifest=${join(dir, 'manifest.json')}`, ...extra],
-    { encoding: 'utf8', cwd: dir, env: { ...process.env, ...env } },
-  );
-  return { status: r.status, out: (r.stdout ?? '') + (r.stderr ?? '') };
-}
-
-const entry = (over = {}) => ({
-  name: 'fixture dies when VALUE is broken',
-  why: 'the gate must observe VALUE',
-  source: 'fx/src.mjs',
-  find: "export const VALUE = 'expected';",
-  replace: "export const VALUE = 'BROKEN';",
-  gate: 'node-test:fx/gate.test.mjs',
-  expect_detail: 'THE-RECORDED-REASON',
-  ...over,
-});
-
-const sourceOf = (dir) => readFileSync(join(dir, 'fx', 'src.mjs'), 'utf8');
-
-function withTree(mutations, opts, fn) {
-  const dir = makeTree(mutations, opts);
-  try {
-    return fn(dir);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-}
+import { join } from 'node:path';
+import {
+  SOURCE,
+  GATE,
+  makeTree,
+  run,
+  runClean,
+  entry,
+  sourceOf,
+  withTree,
+  odinStub,
+} from './lib/run-mutations-fixture.mjs';
 
 test('a mutation that kills its gate for the recorded reason passes', () => {
   withTree([entry()], {}, (dir) => {
@@ -369,40 +309,6 @@ test('a deletion mutation (empty replace) is allowed and applied literally', () 
   );
 });
 
-test('a gate that hangs is RED with a timeout verdict, not a hang', () => {
-  // Several manifest entries deliberately reintroduce a spin, because the bug class
-  // they pin is "a global regex replace never terminates". Without a bound here the
-  // gate ran until the allocator gave up — 6.2 GB and climbing locally, 3m16s in CI
-  // — and a SIGKILL under a memory cap produced no error line at all, so the verdict
-  // degraded to WRONG REASON naming nothing about memory.
-  //
-  // capture() runs the gate under GNU timeout so the whole process group is killed
-  // (spawnSync alone leaves a node --test worker spinning). Assert no orphan.
-  withTree(
-    [entry({ gate: 'node-test:fx/hang.test.mjs', expect_detail: 'timed out' })],
-    {},
-    (dir) => {
-      const hangPath = join(dir, 'fx', 'hang.test.mjs');
-      writeFileSync(
-        hangPath,
-        // Green when VALUE is intact, spins when it is not — the shape of the real
-        // entries, without the multi-GB appetite.
-        "import { VALUE } from './src.mjs';\n" + "if (VALUE !== 'expected') { for (;;) {} }\n",
-      );
-      const { status, out } = run(dir, [], { MUTATION_TIMEOUT_MS: '3000' });
-      assert.match(out, /killed/);
-      assert.match(out, /timed out/);
-      assert.equal(status, 0);
-      assert.equal(sourceOf(dir), SOURCE);
-      // No worker still executing THIS hang fixture (process-group kill).
-      // Scope to hangPath so leftovers from earlier runs do not false-positive.
-      const ps = spawnSync('ps', ['-eo', 'args='], { encoding: 'utf8' });
-      const survivors = (ps.stdout ?? '').split('\n').filter((l) => l.includes(hangPath));
-      assert.equal(survivors.length, 0, `orphan hang process(es):\n${survivors.join('\n')}`);
-    },
-  );
-});
-
 test('expect_detail as an array accepts any alternative', () => {
   // Hang pins fail as timeout on some runners and RangeError on others; the
   // manifest records both with a string[]. Any one match is a kill.
@@ -448,6 +354,39 @@ test('--list reports without patching anything', () => {
   });
 });
 
+test('--shard slices are disjoint, cover every entry, and keep a gate together', () => {
+  // Three gate keys: the whole file, and two `test`-narrowed runs of it.
+  const entries = [
+    entry({ name: 'whole-a' }),
+    entry({ name: 'whole-b' }),
+    entry({ name: 'value-a', test: 'value is expected' }),
+    entry({ name: 'other-a', test: 'other is untouched' }),
+  ];
+  withTree(entries, {}, (dir) => {
+    const names = (shard) => {
+      const { status, out } = run(dir, ['--list', `--shard=${shard}`]);
+      assert.equal(status, 0, out);
+      return entries.map((e) => e.name).filter((n) => out.includes(`  ${n}\n`));
+    };
+    const one = names('1/2');
+    const two = names('2/2');
+    assert.equal(one.filter((n) => two.includes(n)).length, 0, 'an entry ran in two shards');
+    assert.deepEqual([...one, ...two].sort(), entries.map((e) => e.name).sort());
+    // whole-a and whole-b share a gate, so one baseline: never split.
+    assert.equal(one.includes('whole-a'), one.includes('whole-b'));
+  });
+});
+
+test('a malformed --shard fails rather than running everything', () => {
+  withTree([entry()], {}, (dir) => {
+    for (const bad of ['3/2', '0/2', 'x']) {
+      const { status, out } = run(dir, ['--list', `--shard=${bad}`]);
+      assert.equal(status, 1, `--shard=${bad}: ${out}`);
+      assert.match(out, /--shard must be i\/n/);
+    }
+  });
+});
+
 test('every mutation runs — one failure does not abort the rest', () => {
   withTree([entry({ name: 'first' }), entry({ name: 'second', find: 'NOPE' })], {}, (dir) => {
     const { status, out } = run(dir);
@@ -455,6 +394,322 @@ test('every mutation runs — one failure does not abort the rest', () => {
     assert.match(out, /\[2\/2\]/);
     assert.match(out, /STALE/);
     assert.equal(status, 1);
+    assert.equal(sourceOf(dir), SOURCE);
+  });
+});
+
+// --- --changed ----------------------------------------------------------------
+//
+// Two sources, two gates, two entries. A second commit touches only the first
+// source, so `--changed` against the first commit must run exactly one entry.
+const OTHER_SOURCE = `export const SECOND = 'second';\n`;
+const OTHER_GATE = `import test from 'node:test';
+import assert from 'node:assert/strict';
+import { SECOND } from './other.mjs';
+test('second is second', () => {
+  assert.equal(SECOND, 'second', 'THE-SECOND-REASON');
+});
+`;
+const otherEntry = (over = {}) => ({
+  name: 'second fixture dies when SECOND is broken',
+  why: 'the second gate must observe SECOND',
+  source: 'fx/other.mjs',
+  find: "export const SECOND = 'second';",
+  replace: "export const SECOND = 'BROKEN';",
+  gate: 'node-test:fx/other.test.mjs',
+  expect_detail: 'THE-SECOND-REASON',
+  ...over,
+});
+
+function makeTwoSourceTree(mutations) {
+  const dir = makeTree(mutations);
+  const git = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' });
+  writeFileSync(join(dir, 'fx', 'other.mjs'), OTHER_SOURCE);
+  writeFileSync(join(dir, 'fx', 'other.test.mjs'), OTHER_GATE);
+  git('add', '-A');
+  git('commit', '-qm', 'second source');
+  const base = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim();
+  return { dir, git, base };
+}
+
+test('--changed runs only the entries whose source the diff touches', () => {
+  const { dir, git, base } = makeTwoSourceTree([entry(), otherEntry()]);
+  try {
+    // Touch the first source without changing what its gate asserts on.
+    writeFileSync(join(dir, 'fx', 'src.mjs'), SOURCE.replace('MARKER', 'MARKER edited'));
+    git('commit', '-qam', 'touch first source');
+    const { status, out } = runClean(dir, ['--changed'], { MUTATION_BASE: base });
+    assert.equal(status, 0, out);
+    assert.match(out, /1 of 2 mutation\(s\) affected/);
+    assert.match(out, /fixture dies when VALUE is broken/);
+    // The unaffected entry must not have run at all — not its baseline, not its kill.
+    assert.doesNotMatch(out, /second fixture/);
+    assert.doesNotMatch(out, /other\.test\.mjs/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--changed with nothing affected exits 0 and says it is not a full pass', () => {
+  const { dir, base } = makeTwoSourceTree([entry(), otherEntry()]);
+  try {
+    const { status, out } = runClean(dir, ['--changed'], { MUTATION_BASE: base });
+    assert.equal(status, 0, out);
+    assert.match(out, /0 of 2 mutation\(s\) affected/);
+    assert.match(out, /NOT a full pass/);
+    // "ok: N/N died" is the full gate's sentence and must not appear for a no-op.
+    assert.doesNotMatch(out, /mutation gate ok/);
+    assert.equal(sourceOf(dir), SOURCE);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--changed keeps an entry that is new in the manifest even if its source is untouched', () => {
+  const { dir, git, base } = makeTwoSourceTree([entry()]);
+  try {
+    writeFileSync(
+      join(dir, 'manifest.json'),
+      JSON.stringify({ mutations: [entry(), otherEntry()] }, null, 2),
+    );
+    git('commit', '-qam', 'record a second mutation');
+    const { status, out } = runClean(dir, ['--changed'], { MUTATION_BASE: base });
+    assert.equal(status, 0, out);
+    assert.match(out, /1 of 2 mutation\(s\) affected/);
+    assert.match(out, /second fixture dies when SECOND is broken/);
+    assert.match(out, /killed/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--changed keeps an entry whose gate file changed', () => {
+  const { dir, git, base } = makeTwoSourceTree([entry(), otherEntry()]);
+  try {
+    writeFileSync(join(dir, 'fx', 'other.test.mjs'), OTHER_GATE + '// edited\n');
+    git('commit', '-qam', 'edit the second gate');
+    const { status, out } = runClean(dir, ['--changed'], { MUTATION_BASE: base });
+    assert.equal(status, 0, out);
+    assert.match(out, /1 of 2 mutation\(s\) affected/);
+    assert.match(out, /second fixture dies when SECOND is broken/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The cases below pin the paths that WIDEN the selection — the ones that make
+// `--changed` safe to route /pr-gate through. Each had no test, and a review
+// removed each in turn with the suite staying green. They use `--list`, which is
+// decided after selection and runs no gate, so they cost a git call and no more.
+const listChanged = (dir, base) => runClean(dir, ['--changed', '--list'], { MUTATION_BASE: base });
+
+test('--changed sees a renamed gate file under its OLD name', () => {
+  // `git diff --name-only` follows renames and lists only the new path, so an entry
+  // still naming the old one was never selected: "0 of 2 affected", exit 0, while
+  // the full gate dies on a baseline that cannot find its file.
+  const { dir, git, base } = makeTwoSourceTree([entry(), otherEntry()]);
+  try {
+    git('mv', 'fx/other.test.mjs', 'fx/renamed.test.mjs');
+    git('commit', '-qm', 'rename the second gate');
+    const { status, out } = listChanged(dir, base);
+    assert.equal(status, 0, out);
+    assert.match(out, /1 of 2 mutation\(s\) affected/);
+    assert.match(out, /second fixture dies when SECOND is broken/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--changed runs everything when the build machinery changed', () => {
+  // A changed Makefile, build script or runner means no entry's earlier verdict is
+  // evidence; the promise route-gates and gates.md both make on --changed's behalf.
+  const { dir, git, base } = makeTwoSourceTree([entry(), otherEntry()]);
+  try {
+    writeFileSync(join(dir, 'Makefile'), 'build:\n\ttrue\n');
+    git('add', 'Makefile');
+    git('commit', '-qm', 'touch the Makefile');
+    const { status, out } = listChanged(dir, base);
+    assert.equal(status, 0, out);
+    assert.match(out, /Makefile changed — running all 2/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--changed counts an untracked file as changed', () => {
+  // A gate file that exists only on disk is still a gate file that changed.
+  // `git diff` never lists one; `ls-files --others` is the only thing that does.
+  const { dir, base } = makeTwoSourceTree([
+    entry(),
+    otherEntry({ gate: 'node-test:fx/untracked.test.mjs' }),
+  ]);
+  try {
+    writeFileSync(join(dir, 'fx', 'untracked.test.mjs'), OTHER_GATE);
+    const { status, out } = listChanged(dir, base);
+    assert.equal(status, 0, out);
+    assert.match(out, /1 of 2 mutation\(s\) affected/);
+    assert.match(out, /second fixture dies when SECOND is broken/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--changed diffs the working tree, not just the commits', () => {
+  // Iterating means uncommitted edits. Diffing base..HEAD would miss every one of
+  // them and select nothing.
+  const { dir, base } = makeTwoSourceTree([entry(), otherEntry()]);
+  try {
+    writeFileSync(join(dir, 'fx', 'other.test.mjs'), OTHER_GATE + '// uncommitted\n');
+    const { status, out } = listChanged(dir, base);
+    assert.equal(status, 0, out);
+    assert.match(out, /1 of 2 mutation\(s\) affected/);
+    assert.match(out, /second fixture dies when SECOND is broken/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--changed keeps an odin: entry when a *_test.odin in its package changed', () => {
+  // An odin: gate names a test, not a file, so the package's test files stand in
+  // for "the gate's own file".
+  const { dir, git, base } = makeTwoSourceTree([
+    entry(),
+    otherEntry({ gate: 'odin:pkg/x:main.t' }),
+  ]);
+  try {
+    mkdirSync(join(dir, 'pkg', 'x'), { recursive: true });
+    writeFileSync(join(dir, 'pkg', 'x', 'y_test.odin'), 'package main\n');
+    git('add', '-A');
+    git('commit', '-qm', 'add an odin test');
+    const { status, out } = listChanged(dir, base);
+    assert.equal(status, 0, out);
+    assert.match(out, /1 of 2 mutation\(s\) affected/);
+    assert.match(out, /second fixture dies when SECOND is broken/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--changed with no resolvable base fails rather than selecting nothing', () => {
+  // The fixture repo has no origin/master. Without MUTATION_BASE there is no diff
+  // to take, and "nothing changed" would be a guess that exits 0.
+  withTree([entry()], {}, (dir) => {
+    const { status, out } = runClean(dir, ['--changed']);
+    assert.equal(status, 1, out);
+    assert.match(out, /no merge-base/);
+    assert.equal(sourceOf(dir), SOURCE);
+  });
+});
+
+test('an odin: build that leaves no executable is RED, never a stale one answering', () => {
+  // gateOdin builds to a fixed path, so the BASELINE leaves a passing executable
+  // there. The mutant build below exits 0 and writes nothing. Two guards stand
+  // between that and a false SURVIVED: removing the previous executable first, and
+  // reading a missing one as RED. Without the first, the baseline's binary runs and
+  // passes; without the second, the runner spawns a path that is not there and the
+  // verdict names nothing about the build.
+  withTree(
+    [entry({ gate: 'odin:pkg:main.t', expect_detail: 'odin build exited 0' })],
+    {},
+    (dir) => {
+      const odin = odinStub(dir, { mutant: null });
+      const { status, out } = runClean(dir, [], { ODIN: odin });
+      assert.equal(status, 0, out);
+      assert.match(out, /killed \(odin build exited 0\)/);
+      assert.equal(sourceOf(dir), SOURCE);
+    },
+  );
+});
+
+test('mutant builds get MUTATION_OPT; the restore build gets the caller’s level', () => {
+  // The speed-up is only safe if the binary LEFT ON DISK is the one `make build`
+  // would have made. `build` logs the LAVA_OPT it was given, so the last line is
+  // the restore build and every earlier one is a baseline or mutant build.
+  const dir = makeTree([entry({ gate: 'make:gate', expect_detail: 'make gate saw BROKEN' })]);
+  try {
+    writeFileSync(
+      join(dir, 'Makefile'),
+      'build:\n\t@mkdir -p bin && cp fx/src.mjs bin/lava && echo "$${LAVA_OPT:-unset}" >> bin/opt.log\n\n' +
+        'gate: build\n\t@grep -q BROKEN bin/lava && { echo "make gate saw BROKEN"; exit 1; } || exit 0\n',
+    );
+    const { status, out } = runClean(dir);
+    assert.equal(status, 0, out);
+    const log = readFileSync(join(dir, 'bin', 'opt.log'), 'utf8')
+      .trim()
+      .split('\n');
+    assert.ok(log.length >= 3, `baseline, mutant and restore builds expected, got ${log}`);
+    assert.equal(log.at(-1), 'unset', 'restore build must not inherit MUTATION_OPT');
+    assert.deepEqual([...new Set(log.slice(0, -1))], ['none'], 'mutant builds run at -o:none');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// --- `test`: one named test instead of the whole file ----------------------------
+
+test('an entry that names its test is killed by that test alone', () => {
+  withTree([entry({ test: 'value is expected' })], {}, (dir) => {
+    const { status, out } = runClean(dir);
+    assert.equal(status, 0, out);
+    assert.match(out, /baseline node-test:fx\/gate\.test\.mjs#value is expected \.\.\. green/);
+    assert.match(out, /killed/);
+    assert.equal(sourceOf(dir), SOURCE);
+  });
+});
+
+test('naming a test the mutation does not break is SURVIVED, even if another test goes red', () => {
+  // The whole point of narrowing: the mutation breaks `value is expected`, but the
+  // entry claims `other is untouched` pins it. Run whole-file, the gate goes red
+  // and the entry would be judged on its expect_detail; narrowed, the named test
+  // still passes, and that is the honest answer about the named test.
+  withTree([entry({ test: 'other is untouched', expect_detail: '' })], {}, (dir) => {
+    const { status, out } = runClean(dir);
+    assert.equal(status, 1, out);
+    assert.match(out, /SURVIVED/);
+    assert.equal(sourceOf(dir), SOURCE);
+  });
+});
+
+test('a test name that matches nothing is a red baseline, not a pass', () => {
+  // node --test exits 0 when the name pattern matches no test, so without the
+  // explicit "did it run" check a typo here is a green baseline and then SURVIVED
+  // for a mutation nothing ever looked at — or, with a renamed test, silently so.
+  withTree([entry({ test: 'value is expcted' })], {}, (dir) => {
+    const { status, out } = runClean(dir);
+    assert.equal(status, 1, out);
+    assert.match(out, /already failing before any mutation/);
+    assert.match(out, /did not run/);
+    assert.doesNotMatch(out, /killed|SURVIVED/);
+    assert.equal(sourceOf(dir), SOURCE);
+  });
+});
+
+test('a test name is a literal, not a pattern', () => {
+  // Two tests whose names differ only where `.` is a regex wildcard. The mutation
+  // breaks `abc`; the entry names `a.c`, which keeps passing. As a literal, only
+  // `a.c` runs and the honest verdict is SURVIVED. Reaching node as a pattern,
+  // `a.c` would also select `abc`, whose failure would then count as this entry's
+  // kill — a narrowed entry quietly judged on a test it did not name.
+  const gate =
+    "import test from 'node:test';\n" +
+    "import assert from 'node:assert/strict';\n" +
+    "import { VALUE } from './src.mjs';\n" +
+    "test('a.c', () => {});\n" +
+    "test('abc', () => assert.equal(VALUE, 'expected', 'THE-RECORDED-REASON'));\n";
+  withTree([entry({ test: 'a.c' })], { gate }, (dir) => {
+    const { status, out } = runClean(dir);
+    assert.equal(status, 1, out);
+    assert.match(out, /SURVIVED/);
+    assert.doesNotMatch(out, /killed/);
+    assert.equal(sourceOf(dir), SOURCE);
+  });
+});
+
+test('`test` on a gate that is not node-test: is refused', () => {
+  withTree([entry({ gate: 'make:gate', test: 'value is expected' })], {}, (dir) => {
+    const { status, out } = runClean(dir);
+    assert.equal(status, 1, out);
+    assert.match(out, /names a "test" but its gate is not node-test:/);
     assert.equal(sourceOf(dir), SOURCE);
   });
 });

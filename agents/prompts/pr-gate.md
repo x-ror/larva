@@ -49,7 +49,7 @@ and lists every routed-but-unrun target as `NOT RUN`. Never let "not run" read
 as "passed".
 
 With `--review-only`, the environment is expected to lack the toolchain (Odin,
-LLVM, JavaScriptCore, SQLite, OpenSSL, vite-plus) and a separate CI job is
+LLVM, JavaScriptCore, SQLite, OpenSSL, Bun) and a separate CI job is
 running the gates on the same commit. Skip this step; `gate-runner` gets
 `phase: ci` in step 3 and reads CI's conclusions for the exact SHA instead of
 reproducing them. This mode requires a target that resolves to an exact SHA —

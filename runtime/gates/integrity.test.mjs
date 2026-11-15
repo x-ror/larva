@@ -19,6 +19,7 @@ const blocked = [
   ['LAVA_BIN=node make bench-gate', 'lava-bin-to-node'],
   ['PROPERTY_RUNS=1 make test-property', 'property-runs'],
   ['MUTATION_MANIFEST=/tmp/m make test-mutation', 'mutation-override'],
+  ['MUTATION_BASE=HEAD make test-mutation CHANGED=1', 'mutation-override'],
   ['node scripts/run-mutations.mjs --filter=clone', 'mutation-override'],
   ['make check-primordials UPDATE=1', 'primordials-update'],
   ['git commit --no-verify -m x', 'no-verify'],
@@ -38,6 +39,7 @@ for (const [cmd, id] of blocked) {
 }
 
 const allowed = [
+  'make test-mutation CHANGED=1',
   'make check',
   'make test-lava',
   'make check-js',

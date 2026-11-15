@@ -72,7 +72,7 @@ help:
 	@printf '%s\n' '  make test-stdio         node:test over tests/stdio (needs bin/lava)'
 	@printf '%s\n' '  make test-property      Differential property tests (PROPERTY_RUNS=N)'
 	@printf '%s\n' '  make test-scripts       node:test over scripts/ only (also inside check-js)'
-	@printf '%s\n' '  make test-mutation      Mutation gate (FILTER=name substring)'
+	@printf '%s\n' '  make test-mutation      Mutation gate (CHANGED=1: only what the diff affects; FILTER=name)'
 	@printf '%s\n' '  make bun-buffer-tests   Ported Buffer cases node-vs-Lava'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Smokes (bind local ports)'
@@ -141,24 +141,24 @@ native-deps:
 	$(RUNSCRIPT) ./scripts/build-native-deps.sh
 
 check-js:
-	vp run js:check
+	bun run js:check
 
 fix-js:
-	vp run js:fix
+	bun run js:fix
 
 # Markdown lint over the repo's own docs (config + rationale for the two disabled rules:
 # .markdownlint-cli2.jsonc). Catches MD040 and friends locally instead of in review.
 check-md:
-	vp run md:check
+	bun run md:check
 
 fix-md:
-	vp run md:fix
+	bun run md:fix
 
 # actionlint (WASM build, no Go toolchain) over .github/workflows. Catches the semantic
 # mistakes a YAML parse cannot: contexts used where they are not available, bad `needs`,
 # shellcheck errors inside `run:` blocks.
 check-actions:
-	vp run actions:check
+	bun run actions:check
 
 # Prototype-pollution ratchet over the embedded runtime JS (also part of check-js).
 # UPDATE=1 LOWERS the baseline after hardening a module; a RAISE is refused
@@ -182,12 +182,17 @@ test-scripts:
 # is unique, and every gate is green BEFORE mutating: "it went red" proves nothing
 # about a gate that was already red.
 # Rebuilds bin/lava per embedded-JS mutation, so it is minutes, not seconds — its
-# own target and its own CI step, never part of the always-block.
+# own target and its own CI step, never part of the always-block. Mutant builds
+# run at -o:none (MUTATION_OPT) and the final restore build at the normal level;
+# the runner prints where the time went, by gate kind.
 #   make test-mutation FILTER=clone   # substring match on the entry name
+#   make test-mutation CHANGED=1      # only entries the diff vs origin/master can affect
+#   MUTATION_OPT=speed                # mutant builds default to -o:none; this restores the old cost
 #   node scripts/run-mutations.mjs --list
 #   MUTATION_TIMEOUT_MS=N             # default per-gate timeout ms (default 120000); hang pins use manifest timeout_ms
+#   make test-mutation SHARD=2/3      # one of N disjoint slices (CI runs three side by side)
 test-mutation: build
-	@node scripts/run-mutations.mjs $(if $(FILTER),--filter=$(FILTER),)
+	@node scripts/run-mutations.mjs $(if $(FILTER),--filter=$(FILTER),) $(if $(CHANGED),--changed,) $(if $(SHARD),--shard=$(SHARD),)
 
 # Differential PROPERTY tests: fast-check generates the inputs and both runtimes
 # answer, so a mismatch shrinks to a minimal reproducer instead of arriving as a

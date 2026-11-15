@@ -1,0 +1,154 @@
+name: Sync from Lava
+
+# Lava is Larva's upstream (CONTRIBUTING.md, "Lava is upstream"): shared work lands
+# once in x-ror/lava and reaches Larva by merging Lava's master. This workflow does
+# that merge on a schedule and opens it as a pull request, so a human still reviews
+# and merges every sync and CI runs on the merged result.
+#
+# What it does, per run:
+#   - Lava's master already in Larva's master → nothing to do.
+#   - An open sync PR exists → merge the newer Lava commits into its branch (never a
+#     force-push: a human may have resolved conflicts on that branch).
+#   - Otherwise → branch `sync/lava` from master, merge, open a PR.
+#   - The merge conflicts → nothing is pushed; the run opens (or comments on) one
+#     issue that lists the conflicted files. Conflicts are resolved by hand, on
+#     Larva's side where Larva deliberately diverged — see CONTRIBUTING.md.
+#
+# CI on the sync PR: a pull request opened with GITHUB_TOKEN does not trigger other
+# workflows, so this workflow starts ci.yml on the sync branch itself through
+# workflow_dispatch, which GitHub does allow from GITHUB_TOKEN. Its checks attach to
+# the branch's head commit and so show on the PR.
+#
+# Needs one repository setting: Settings → Actions → General → "Allow GitHub Actions
+# to create and approve pull requests". Without it `gh pr create` fails with 403.
+
+on:
+  schedule:
+    - cron: '17 4 * * *' # daily; minute 17 to stay off the top-of-hour rush
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: sync-lava
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_URL: https://github.com/x-ror/lava
+  SYNC_BRANCH: sync/lava
+  CONFLICT_ISSUE_TITLE: 'Sync from Lava: merge conflicts'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Fetch Lava
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # Both repositories append to tests/mutation-manifest.json, so a text merge
+          # conflicts on almost every sync; .gitattributes routes it to a driver
+          # that merges entries by name and still fails on a real conflict.
+          git config merge.mutation-manifest.name 'mutation manifest, merged by entry name'
+          git config merge.mutation-manifest.driver 'node scripts/merge-mutation-manifest.mjs %O %A %B'
+          git remote add lava "$UPSTREAM_URL"
+          git fetch --no-tags lava master
+
+      - name: Check whether there is anything to sync
+        id: state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          upstream=$(git rev-parse lava/master)
+          echo "upstream=$upstream" >> "$GITHUB_OUTPUT"
+          echo "short=$(git rev-parse --short lava/master)" >> "$GITHUB_OUTPUT"
+          if git merge-base --is-ancestor lava/master origin/master; then
+            echo "Lava $upstream is already in master."
+            echo "todo=none" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          pr=$(gh pr list --head "$SYNC_BRANCH" --state open --json number --jq '.[0].number // empty')
+          echo "pr=$pr" >> "$GITHUB_OUTPUT"
+          if [ -n "$pr" ] && git ls-remote --exit-code --heads origin "$SYNC_BRANCH" >/dev/null; then
+            git fetch --no-tags origin "$SYNC_BRANCH"
+            if git merge-base --is-ancestor lava/master "origin/$SYNC_BRANCH"; then
+              echo "Sync PR #$pr already contains Lava $upstream."
+              echo "todo=none" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            git checkout -B "$SYNC_BRANCH" "origin/$SYNC_BRANCH"
+            echo "todo=update" >> "$GITHUB_OUTPUT"
+          else
+            git checkout -B "$SYNC_BRANCH" origin/master
+            echo "todo=open" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Merge Lava
+        id: merge
+        if: steps.state.outputs.todo != 'none'
+        run: |
+          base=$(git merge-base HEAD lava/master)
+          {
+            echo "merge: sync lava master into larva"
+            echo
+            echo "Brings x-ror/lava up to ${{ steps.state.outputs.upstream }}:"
+            echo
+            git log --no-merges --format='- %h %s' "$base..lava/master"
+          } > "$RUNNER_TEMP/msg"
+          if git merge --no-ff --no-edit -F "$RUNNER_TEMP/msg" lava/master; then
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+          else
+            git diff --name-only --diff-filter=U > "$RUNNER_TEMP/conflicts"
+            git merge --abort
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push and open or update the pull request
+        if: steps.state.outputs.todo != 'none' && steps.merge.outputs.conflict == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git push origin "HEAD:refs/heads/$SYNC_BRANCH"
+          if [ "${{ steps.state.outputs.todo }}" = open ]; then
+            gh pr create --base master --head "$SYNC_BRANCH" \
+              --title "merge: sync lava master (${{ steps.state.outputs.short }})" \
+              --body "Automatic merge of x-ror/lava \`master\` (${{ steps.state.outputs.upstream }}) into Larva, opened by the \`Sync from Lava\` workflow.
+
+          Review it like any other PR: the merge was clean, but a clean merge can still break Larva where it diverged from Lava (the page runner, the VM pool, \`CLAUDE.md\` and \`agents/\` wording). CI is started on this branch by the workflow itself.
+
+          Commits brought in are listed in the merge commit message."
+          else
+            gh pr comment "${{ steps.state.outputs.pr }}" \
+              --body "Merged newer x-ror/lava commits into this branch (up to ${{ steps.state.outputs.upstream }})."
+          fi
+          gh workflow run ci.yml --ref "$SYNC_BRANCH"
+
+      - name: Report merge conflicts
+        if: steps.state.outputs.todo != 'none' && steps.merge.outputs.conflict == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "Merging x-ror/lava \`master\` (${{ steps.state.outputs.upstream }}) into \`${SYNC_BRANCH}\` conflicts in:"
+            echo
+            sed 's/^/- `/; s/$/`/' "$RUNNER_TEMP/conflicts"
+            echo
+            echo "Nothing was pushed. Resolve by hand as described in CONTRIBUTING.md (\"Lava is upstream\"), then open or update the sync PR. This workflow stops reporting once Lava's master is merged."
+            echo
+            echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } > "$RUNNER_TEMP/body"
+          issue=$(gh issue list --state open --search "in:title \"$CONFLICT_ISSUE_TITLE\"" --json number --jq '.[0].number // empty')
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body-file "$RUNNER_TEMP/body"
+          else
+            gh issue create --title "$CONFLICT_ISSUE_TITLE" --body-file "$RUNNER_TEMP/body"
+          fi
+          echo "::warning::Lava sync has merge conflicts; see the issue."
