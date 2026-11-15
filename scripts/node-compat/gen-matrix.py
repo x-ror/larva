@@ -1,15 +1,28 @@
 #!/usr/bin/env python3
-"""Generate reference/node-compat.json — the machine-readable Lava<->Node matrix.
+"""Generate the Lava<->Node compatibility matrix from one curated table.
+
+Writes reference/node-compat.json (machine-readable) and the generated sections
+of reference/node-compatibility.md (between `<!-- BEGIN GENERATED: x -->` and
+`<!-- END GENERATED: x -->` markers), so the two cannot disagree: the page used
+to be edited separately and kept marking shipped modules as missing.
 
 The per-module statuses below are curated from probing the built `bin/lava`
-(require('node:x'), global lookups, calling representative functions). Keep them
-in sync with reference/node-compatibility.md. Run:
+(require('node:x'), export-key diff against node, global lookups, calling
+exported functions to tell working ones from throwing stubs). After re-probing,
+update the table AND the PROBED_* constants, then run:
 
     python3 scripts/node-compat/gen-matrix.py
 """
-import json, os, subprocess
+import json, os, re
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+# What the table below was measured against. Constants, not `git rev-parse HEAD`:
+# the script is re-run for wording fixes too, and stamping HEAD then would claim a
+# probe that never happened.
+PROBED_LAVA_REV = "8e83f8d"
+PROBED_DATE = "2026-11-15"
+PROBED_NODE = "22.23.4"
 
 # status: full | partial | missing | na  (page -> (status, implemented, gaps))
 MODULES = {
@@ -28,7 +41,7 @@ MODULES = {
     "modules": ("partial", "CommonJS require", "same as module"),
     "packages": ("partial", "package.json resolution (partial)", "exports/imports map edge cases"),
     "perf_hooks": ("partial", "global performance.now/timeOrigin", "node:perf_hooks is not requireable; PerformanceObserver/marks/entries"),
-    "process": ("partial", "argv/env/cwd/exit/exitCode/nextTick/pid/platform/arch/version(s)/memoryUsage/stdout/stderr; node:process requireable", "hrtime/on/once/emit/stdin/kill/chdir/uptime/execPath/argv0/execArgv/umask/title/emitWarning (#355, #86)"),
+    "process": ("partial", "argv/env/cwd/exit/exitCode/nextTick/pid/platform/arch/version(s)/memoryUsage/stdout/stderr; node:process requireable", "hrtime/on/once/emit/stdin/kill/chdir/uptime/execPath/argv0/execArgv/umask/title/emitWarning (#355, #86); exitCode is honored when set but is not a predefined property"),
     "timers": ("partial", "global timers + node:timers + node:timers/promises", "timers return a number, not a Timeout: no ref/unref/refresh (#85)"),
     "url": ("full", "WHATWG URL + URLSearchParams (global and module); fileURLToPath/pathToFileURL/urlToHttpOptions/format/domainToASCII/domainToUnicode", "legacy url.parse/resolve/Url; IDNA approximated (NFKC+Punycode, not full ICU UTS-46)"),
     "util": ("partial", "inspect/format/formatWithOptions/promisify/callbackify/inherits/deprecate/isDeepStrictEqual/debuglog/aborted/parseArgs/parseEnv/MIMEType/MIMEParams/styleText/stripVTControlCharacters/toUSVString/types", "TextEncoder/TextDecoder re-exports, diff, getCallSites, getSystemErrorName/Message/Map, transferableAbort*; inspect caps (#331)"),
@@ -58,7 +71,7 @@ MODULES = {
     "repl": ("missing", "", ""),
     "report": ("missing", "", ""),
     "single-executable-applications": ("missing", "", "tooling"),
-    "stream": ("partial", "Stream/Readable/Writable/Duplex/Transform/PassThrough/finished/pipeline/addAbortSignal/isReadable/isWritable + node:stream/promises", "compose/duplexPair/destroy/isErrored/isDisturbed/isDestroyed/get|setDefaultHighWaterMark/stream.promises; no node:stream/consumers"),
+    "stream": ("partial", "Stream/Readable/Writable/Duplex/Transform/PassThrough/finished/pipeline/addAbortSignal/isReadable/isWritable + node:stream/promises; Readable/Writable toWeb/fromWeb", "compose/duplexPair/destroy/isErrored/isDisturbed/isDestroyed/get|setDefaultHighWaterMark/stream.promises; Duplex.toWeb/fromWeb; no node:stream/consumers"),
     "stream_iter": ("missing", "", ""),
     "string_decoder": ("full", "StringDecoder", ""),
     "test": ("missing", "", ""),
@@ -91,13 +104,68 @@ PROCESS_PRESENT = ["argv", "env", "cwd", "exit", "exitCode", "nextTick", "pid", 
 PROCESS_MISSING = ["hrtime", "chdir", "kill", "resourceUsage", "uptime", "stdin", "execPath", "argv0", "execArgv", "umask", "on", "once", "emit", "title", "report", "ppid", "release", "config", "emitWarning", "getuid", "features"]
 
 
-def lava_rev():
-    try:
-        return subprocess.check_output(
-            ["git", "-C", REPO_ROOT, "rev-parse", "--short", "HEAD"], text=True
-        ).strip()
-    except Exception:
-        return "unknown"
+# Pages whose status is not "missing" but which are not a requireable `node:` module:
+# either the page documents no module, or the surface exists only as globals.
+NOT_REQUIREABLE = {"environment_variables", "esm", "globals", "intl", "module", "modules", "packages", "perf_hooks", "webcrypto"}
+# Pages requireable under another specifier than `node:<page>`.
+REQUIRE_AS = {"webstreams": "node:stream/web"}
+
+ICON = {"full": "✅", "partial": "🟡", "missing": "🟥", "na": "⚪"}
+
+
+def code_list(names):
+    return ", ".join("`%s`" % n for n in names)
+
+
+def cell(text):
+    return text.replace("|", "\\|").replace("*", "\\*") if text else "—"
+
+
+def render_sections(counts):
+    by = {st: sorted(n for n, (s, _, _) in MODULES.items() if s == st) for st in ICON}
+    label = {"full": "Full", "partial": "Partial", "missing": "Missing", "na": "N/A"}
+    score = ["| Status | Count | Pages |", "| --- | ---: | --- |"]
+    for st in ("full", "partial", "missing", "na"):
+        score.append("| %s %s | %d | %s |" % (ICON[st], label[st], counts[st], ", ".join(by[st])))
+    mods = ["| Page | `require` | Status | Implemented | Gaps |", "| --- | :---: | :---: | --- | --- |"]
+    for name, (st, have, gaps) in sorted(MODULES.items()):
+        if st == "na":
+            continue
+        if st == "missing" or name in NOT_REQUIREABLE:
+            req = "❌"
+        else:
+            req = "`%s`" % REQUIRE_AS.get(name, "node:" + name)
+        mods.append("| **%s** | %s | %s | %s | %s |" % (name, req, ICON[st], cell(have), cell(gaps)))
+    na = ["| Page | Note |", "| --- | --- |"]
+    for name in by["na"]:
+        _, have, gaps = MODULES[name]
+        na.append("| %s | %s |" % (name, cell("; ".join(x for x in (have, gaps) if x))))
+    return {
+        "provenance": "- **lava revision measured:** `%s` (%s), export keys diffed against node %s."
+        % (PROBED_LAVA_REV, PROBED_DATE, PROBED_NODE),
+        "scoreboard": "\n".join(score),
+        "modules": "\n".join(mods),
+        "globals": "**Present (%d):** %s.\n\n**Missing (%d):** %s."
+        % (len(GLOBALS_PRESENT), code_list(GLOBALS_PRESENT), len(GLOBALS_MISSING), code_list(GLOBALS_MISSING)),
+        "process": "**Present (%d):** %s.\n\n**Missing (%d):** %s."
+        % (len(PROCESS_PRESENT), code_list(PROCESS_PRESENT), len(PROCESS_MISSING), code_list(PROCESS_MISSING)),
+        "na": "\n".join(na),
+    }
+
+
+def write_markdown(counts):
+    path = os.path.join(REPO_ROOT, "reference", "node-compatibility.md")
+    text = open(path, encoding="utf-8").read()
+    for key, body in render_sections(counts).items():
+        pat = re.compile(
+            r"(<!-- BEGIN GENERATED: %s -->\n).*?(\n<!-- END GENERATED: %s -->)" % (key, key), re.S
+        )
+        text, n = pat.subn(lambda m: m.group(1) + "\n" + body + "\n" + m.group(2), text)
+        if n != 1:
+            raise SystemExit("node-compatibility.md: expected exactly one GENERATED block %r, found %d" % (key, n))
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    print("wrote", path)
 
 
 def node_sha():
@@ -118,7 +186,7 @@ def main():
 
     out = {
         "generated_against": {
-            "lava_rev": lava_rev(),
+            "lava_rev": PROBED_LAVA_REV,
             "node_doc_sha": node_sha(),
             "node_doc_pages": len(MODULES),
         },
@@ -139,6 +207,7 @@ def main():
         f.write("\n")
     print("counts:", counts, "total:", sum(counts.values()))
     print("wrote", dest)
+    write_markdown(counts)
 
 
 if __name__ == "__main__":

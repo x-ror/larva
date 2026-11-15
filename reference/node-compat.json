@@ -267,7 +267,7 @@
       "page": "process",
       "status": "partial",
       "implemented": "argv/env/cwd/exit/exitCode/nextTick/pid/platform/arch/version(s)/memoryUsage/stdout/stderr; node:process requireable",
-      "gaps": "hrtime/on/once/emit/stdin/kill/chdir/uptime/execPath/argv0/execArgv/umask/title/emitWarning (#355, #86)"
+      "gaps": "hrtime/on/once/emit/stdin/kill/chdir/uptime/execPath/argv0/execArgv/umask/title/emitWarning (#355, #86); exitCode is honored when set but is not a predefined property"
     },
     {
       "page": "punycode",
@@ -320,8 +320,8 @@
     {
       "page": "stream",
       "status": "partial",
-      "implemented": "Stream/Readable/Writable/Duplex/Transform/PassThrough/finished/pipeline/addAbortSignal/isReadable/isWritable + node:stream/promises",
-      "gaps": "compose/duplexPair/destroy/isErrored/isDisturbed/isDestroyed/get|setDefaultHighWaterMark/stream.promises; no node:stream/consumers"
+      "implemented": "Stream/Readable/Writable/Duplex/Transform/PassThrough/finished/pipeline/addAbortSignal/isReadable/isWritable + node:stream/promises; Readable/Writable toWeb/fromWeb",
+      "gaps": "compose/duplexPair/destroy/isErrored/isDisturbed/isDestroyed/get|setDefaultHighWaterMark/stream.promises; Duplex.toWeb/fromWeb; no node:stream/consumers"
     },
     {
       "page": "stream_iter",
