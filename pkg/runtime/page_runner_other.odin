@@ -27,3 +27,7 @@ page_runner_open :: proc(runner: ^Page_Runner, source: string, source_name: stri
 page_runner_live :: proc(runner: ^Page_Runner) -> int {return 0}
 
 page_runner_run :: proc(runner: ^Page_Runner) {}
+
+page_runner_reaping :: proc(runner: ^Page_Runner) -> int {return 0}
+
+page_runner_reap :: proc(runner: ^Page_Runner) -> int {return 0}

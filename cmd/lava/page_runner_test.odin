@@ -154,6 +154,12 @@ Churn :: struct {
 	total:                    int,
 	fds_after_warmup:         int,
 	outcome:                  Outcome,
+	// Every fifo_every-th page closes with its pool worker blocked in open() on a
+	// FIFO, so its loop goes through the reaping list (#34); churn_done lets the
+	// worker through once the page is reported.
+	fifo, fifo_src:           string,
+	fifo_every:               int,
+	fifo_pages, fifo_stuck:   int,
 }
 
 @(private = "file")
@@ -162,11 +168,19 @@ churn_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Re
 	c := cast(^Churn)user_data
 	c.finished += 1
 	if result.status != .Ok do c.failed += 1
+	if result.exit_code == 4 {
+		c.fifo_pages += 1
+		if !release_within(c.fifo, time.Second) do c.fifo_stuck += 1
+	}
 	lava.result_destroy(&result)
 	if c.finished == 100 do c.fds_after_warmup = fd_census()
 	if c.opened < c.total {
 		c.opened += 1
-		lava.page_runner_open(runner, "let x = 0; setTimeout(() => { x++; }, 0); Promise.resolve().then(() => x++);", "<churn>", LIMITS, c)
+		if c.opened % c.fifo_every == c.fifo_every / 2 {
+			lava.page_runner_open(runner, c.fifo_src, "<churn-fifo>", LIMITS, c)
+		} else {
+			lava.page_runner_open(runner, "let x = 0; setTimeout(() => { x++; }, 0); Promise.resolve().then(() => x++);", "<churn>", LIMITS, c)
+		}
 	}
 }
 
@@ -175,6 +189,10 @@ churn_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Re
 // (and so the permanent per-VM timerfd count) at its capacity. 8 pages in flight.
 // The full 10k runs only on one runner thread (`make test-odin-serial`), where the
 // census means something; otherwise a short run still exercises the churn path.
+// The count includes loops that closed with a blocked worker and went through the
+// reaping list (#34): one page in a hundred does (100 of the 10k), and the census
+// waits for the list to drain. A hundred, not ten: the warm-up census is taken with 8
+// pages in flight, and that slack (~24 fds) would hide ten leaked pipes.
 @(test)
 runner_fd_count_stays_flat_over_10k_pages :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
@@ -184,12 +202,20 @@ runner_fd_count_stays_flat_over_10k_pages :: proc(t: ^testing.T) {
 	defer lava.page_runner_destroy(&runner)
 	c := Churn {
 		total = RUNNER_THREADS == 1 ? 10_000 : 300,
+		fifo  = make_fifo(t, "churn"),
 	}
+	defer drop_fifo(c.fifo)
+	c.fifo_every = RUNNER_THREADS == 1 ? 100 : 30
+	c.fifo_src = fmt.aprintf(`require('fs').readFile(%q, () => {{}}); setTimeout(() => process.exit(4), 5);`, c.fifo)
+	defer delete(c.fifo_src)
 	for _ in 0 ..< 8 {
 		c.opened += 1
 		lava.page_runner_open(&runner, "let x = 0; setTimeout(() => { x++; }, 0);", "<churn>", LIMITS, &c)
 	}
 	lava.page_runner_run(&runner)
+	testing.expect(t, wait_reaped(&runner, 5 * time.Second), "reaping loops never drained")
+	testing.expect_value(t, c.fifo_pages, c.total / c.fifo_every)
+	testing.expect_value(t, c.fifo_stuck, 0)
 	// The census first: a leak of three fds per page hits EMFILE in a 10k run, and the
 	// failures it causes would otherwise be the first thing reported.
 	when RUNNER_THREADS == 1 {

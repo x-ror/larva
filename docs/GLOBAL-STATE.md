@@ -67,8 +67,11 @@ are listed here for the page work:
   registers — timers, watchers, thread-pool jobs — lives on its loop, so closing the
   page destroys the loop and cancels all of it; no per-handle owner tag is needed, and
   a page's timer cannot fire into the next page that reuses its VM. Cost: the loop's
-  descriptors (epoll or io_uring plus a wakeup pipe) while the page lives. Pinned by
-  `cmd/lava/page_runner_test.odin` (the fd count stays flat over 10k pages).
+  descriptors (epoll or io_uring plus a wakeup pipe) while the page lives — the pipe
+  longer when the page closes with a pool worker still blocked, until the runner
+  reaps the loop (#34; the loop is on the heap, owned by the runner's reaping list,
+  never shared). Pinned by `cmd/lava/page_runner_test.odin` (the fd count stays flat
+  over 10k pages, reaped loops included) and `cmd/lava/page_runner_reap_test.odin`.
 - **The VM's microtask queue.** It is drained on every exit from the C API. Because
   a VM hosts one page at a time, the queue holds only that page's jobs, as long as
   the page drains or drops them before it releases the VM.

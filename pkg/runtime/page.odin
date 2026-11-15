@@ -11,21 +11,24 @@ import eventloop "lava:pkg/runtime/eventloop"
 //
 //   page_open   runtime install + the top-level script, charged to the page's limits
 //   page_tick   one event-loop tick, charged to the page's limits
-//   page_close  the Result, then teardown in the order eval has always used
+//   page_close  the Result, then teardown in the order eval has always used; a loop
+//               whose pool worker is still blocked is handed back, not waited for
 //
 // Why one loop per page and not one loop per thread: everything a page registers —
 // timers, sockets, fetches, thread-pool jobs — lives on its loop, so closing the page
 // destroys the loop and cancels all of it. With a shared loop every handle would need
 // a page owner tag, and one missed tag would fire a closed page's timer into the next
 // page that reuses the VM (docs/GLOBAL-STATE.md, "The event loop"). The price is the
-// loop's descriptors (epoll or io_uring, plus the wakeup pipe), closed with the page.
+// loop's descriptors (epoll or io_uring, plus the wakeup pipe), closed with the page —
+// the pipe later, if a pool worker is still blocked (page_close).
 Page :: struct {
 	vm:           ^VM,
 	ctx:          jsc.JSGlobalContextRef,
 	global_class: jsc.JSClassRef,
 	state:        ^Runtime_State,
-	// The page's loop; nil for a loop-less eval. Owned (destroyed by page_close)
-	// from the moment it is handed to page_open, on every path.
+	// The page's loop; nil for a loop-less eval. Owned (closed by page_close, or
+	// handed back by it with a busy worker) from the moment it is handed to
+	// page_open, on every path.
 	loop:         ^eventloop.Loop,
 	// The top-level completion value, kept for `lava eval`'s echo and GC-protected
 	// until page_close, since the loop runs (and can collect) in between.
@@ -296,13 +299,27 @@ page_tick :: proc(page: ^Page) -> (alive: bool, did_work: bool) {
 // page_close decides the page's Result (unless it already finished) and tears the
 // page down. Safe on a page whose page_open failed at any point.
 //
+// Returns:
+//   result     The page's Result.
+//   busy_loop  nil once the page's loop is fully closed, or when it had none. The loop
+//              itself when one of its pool workers was still inside a job — a read on
+//              a FIFO, a DNS lookup the resolver has not answered — so that closing it
+//              would wait for as long as the job blocks (#34). Its JS side is gone and
+//              every callback released; what is left is the loop's pool, its async
+//              queue and its wakeup pipe, which the caller owns finishing:
+//              eventloop.close_finish (eval, which waits), or the page runner's
+//              reaping list.
+// Node:
+//   No observable change: a closing page's callbacks never ran after close before
+//   either; only when the thread gets back moves.
+//
 // Teardown order is eval's, and each step needs the ones after it still alive:
-//   1. settle active fetches, close net handles, then destroy the loop — its dispose
-//      hooks unprotect callbacks, so the context must be alive. fs, node:dns and
-//      fetch's DNS lookups all run on the loop's worker pool, which
-//      eventloop.destroy -> pool_shutdown joins, so no background thread can post
-//      into a destroyed loop/context — and so this call waits for blocking work
-//      still in flight (docs/LARVA.md decision 2, known limits);
+//   1. settle active fetches, close net handles, then eventloop.close_begin — its
+//      dispose and cancel hooks unprotect callbacks, so the context must be alive.
+//      close_begin settles every pool job (fs, node:dns and fetch's DNS lookups all run
+//      on the loop's pool) without waiting for one a worker is still running: that
+//      job's JS half is released by its cancel hook here, and its memory goes when the
+//      worker exits;
 //   2. destroy_runtime_state — JSValueUnprotect on cached modules needs the context;
 //   3. release the context;
 //   4. return the VM to its pool, only after its context is gone: a pooled VM never
@@ -312,8 +329,11 @@ page_tick :: proc(page: ^Page) -> (alive: bool, did_work: bool) {
 //      several on this page's own context, and after those they never run again
 //      (pinned by vm_watchdog_cut_job_chain_does_not_outlive_the_next_api_exits and
 //      runner_second_page_in_a_reused_vm_sees_nothing_of_a_killed_first);
-//   5. release the global class.
-page_close :: proc(page: ^Page) -> Result {
+//   5. release the global class;
+//   6. eventloop.close_finish, when no worker was busy: idle workers exit on
+//      close_begin's broadcast, so this returns at once, and closes the loop's last
+//      descriptor, its wakeup pipe.
+page_close :: proc(page: ^Page) -> (result: Result, busy_loop: ^eventloop.Loop) {
 	ctx := cast(jsc.JSContextRef)page.ctx
 	if !page.finished && page.state != nil {
 		// process.exitCode can be a getter or carry a valueOf: user JS, so charged and
@@ -344,16 +364,17 @@ page_close :: proc(page: ^Page) -> Result {
 	if page.loop != nil {
 		fetch_shutdown_active(page.state)
 		net_shutdown_active(page.state)
-		eventloop.destroy(page.loop)
+		if eventloop.close_begin(page.loop) do busy_loop = page.loop
 	}
 	if page.state != nil do destroy_runtime_state(ctx, page.state)
 	if page.ctx != nil do release_global_context_after_eval(page.ctx)
 	vm_release(page.vm)
 	if page.global_class != nil do jsc.JSClassRelease(page.global_class)
+	if page.loop != nil && busy_loop == nil do eventloop.close_finish(page.loop)
 
-	result := page.result
+	result = page.result
 	page^ = {}
-	return result
+	return
 }
 
 // page_fail records an early Result; page_close returns it after the teardown.
@@ -415,6 +436,8 @@ page_killed :: proc(kill: Kill_Reason) -> Result {
 		msg = "page killed: CPU budget exceeded"
 	case .Cancelled:
 		msg = "page cancelled: its runner was destroyed while it ran"
+	case .Reaping_Full:
+		msg = "page refused: its runner holds too many closed pages still waiting on blocked work"
 	case .None:
 	}
 	return Result{status = .Execution_Error, exit_code = 1, message = msg, kill = kill}

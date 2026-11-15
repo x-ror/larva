@@ -87,6 +87,10 @@ Kill_Reason :: enum {
 	Cpu_Budget,
 	// Not a limit: the page runner was destroyed while the page was still running.
 	Cancelled,
+	// Not a limit: the page runner refused the page without opening it, because its
+	// reaping list — closed pages whose loops still wait on blocked pool work — is at
+	// its bound (page_runner.odin, Page_Runner.reap_limit).
+	Reaping_Full,
 }
 
 VM_Pool :: struct {
