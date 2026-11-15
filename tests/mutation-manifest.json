@@ -1440,6 +1440,35 @@
       "gate": "node-test:scripts/ci-scope.test.mjs",
       "test": "a shell script under scripts/ is code, not tooling",
       "expect_detail": "a shell script under scripts/ is code, not tooling"
+    },
+    {
+      "name": "the runner's own tests die when --shard stops slicing the selection",
+      "why": "CI fans the mutation gate out over parallel jobs with --shard; a shard that runs everything costs every job the full run, and one that drops entries passes a manifest it never ran.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "  selected = selected.filter((m) => mine.has(gateKey(m)));",
+      "replace": "  selected = selected.filter((m) => mine.has(gateKey(m)) || true);",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "--shard slices are disjoint, cover every entry, and keep a gate together",
+      "expect_detail": "an entry ran in two shards"
+    },
+    {
+      "name": "the runner's own tests die when a malformed --shard is accepted",
+      "why": "--shard=3/2 or a typo must fail the job; read as 'no shard' it would run (or, past the end, skip) work silently.",
+      "source": "scripts/run-mutations.mjs",
+      "find": "  if (!sm || Number(sm[1]) > Number(sm[2]))",
+      "replace": "  if (false)",
+      "gate": "node-test:scripts/run-mutations.test.mjs",
+      "test": "a malformed --shard fails rather than running everything",
+      "expect_detail": "--shard="
+    },
+    {
+      "name": "parallel-suites tests die when a failed oracle suite stops failing the run",
+      "why": "run-oracles.sh and run-tests.sh now run the four oracle suites concurrently through this helper; if a non-zero suite no longer sets the exit status, make test-lava reports green with a red suite in its log.",
+      "source": "scripts/lib/parallel-suites.sh",
+      "find": "\t\t\tfailed=1",
+      "replace": "\t\t\t: # failed=1",
+      "gate": "node-test:scripts/lib/parallel-suites.test.mjs",
+      "expect_detail": "RESULT=fail"
     }
   ]
 }

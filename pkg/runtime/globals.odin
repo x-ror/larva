@@ -965,7 +965,14 @@ install_microtasks :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef) {
 	process := get_named(ctx, global, "process")
 	if process == nil || !jsc.JSValueIsObject(ctx, process) do return
 
-	factory := eval_internal(ctx, "lava:microtasks", MICROTASK_PRELUDE)
+	override_dir := js_override_dir()
+	factory := eval_internal_source(
+		ctx,
+		"lava:microtasks",
+		override_dir,
+		"js/internal/microtasks.js",
+		MICROTASK_PRELUDE,
+	)
 	if factory == nil || !jsc.JSValueIsObject(ctx, factory) do return
 
 	// A throw from a nextTick/queueMicrotask callback is an uncaught exception
@@ -1106,61 +1113,63 @@ install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef)
 
 	Module :: struct {
 		name:   string,
+		path:   string,
 		source: string,
 	}
 	modules := [?]Module {
-		{"primordials", INTERNAL_PRIMORDIALS},
-		{"util", INTERNAL_UTIL},
-		{"events", INTERNAL_EVENTS},
-		{"assert", INTERNAL_ASSERT},
-		{"buffer", INTERNAL_BUFFER},
-		{"crypto", INTERNAL_CRYPTO},
-		{"stream/web", INTERNAL_STREAMS},
-		{"stream", INTERNAL_STREAM},
-		{"stream/promises", INTERNAL_STREAM_PROMISES},
-		{"fetch", INTERNAL_FETCH},
-		{"abort", INTERNAL_ABORT},
-		{"timers/promises", INTERNAL_TIMERS_PROMISES},
-		{"encoding", INTERNAL_ENCODING},
-		{"url", INTERNAL_URL},
-		{"structured_clone", INTERNAL_STRUCTURED_CLONE},
-		{"path", INTERNAL_PATH},
-		{"path/posix", INTERNAL_PATH_POSIX},
-		{"path/win32", INTERNAL_PATH_WIN32},
-		{"sqlite", INTERNAL_SQLITE},
-		{"dns", INTERNAL_DNS},
-		{"dns/promises", INTERNAL_DNS_PROMISES},
-		{"net", INTERNAL_NET},
-		{"http", INTERNAL_HTTP},
-		{"https", INTERNAL_HTTPS},
-		{"os", INTERNAL_OS},
-		{"querystring", INTERNAL_QUERYSTRING},
-		{"string_decoder", INTERNAL_STRING_DECODER},
-		{"timers", INTERNAL_TIMERS},
-		{"util/types", INTERNAL_UTIL_TYPES},
-		{"punycode", INTERNAL_PUNYCODE},
-		{"process", INTERNAL_PROCESS},
-		{"console", INTERNAL_CONSOLE},
-		{"tty", INTERNAL_TTY},
-		{"diagnostics_channel", INTERNAL_DIAGNOSTICS_CHANNEL},
+		{"primordials", "js/internal/primordials.js", INTERNAL_PRIMORDIALS},
+		{"util", "js/internal/util.js", INTERNAL_UTIL},
+		{"events", "js/internal/events.js", INTERNAL_EVENTS},
+		{"assert", "js/internal/assert.js", INTERNAL_ASSERT},
+		{"buffer", "js/internal/buffer.js", INTERNAL_BUFFER},
+		{"crypto", "js/internal/crypto.js", INTERNAL_CRYPTO},
+		{"stream/web", "js/internal/streams.js", INTERNAL_STREAMS},
+		{"stream", "js/internal/stream.js", INTERNAL_STREAM},
+		{"stream/promises", "js/internal/stream_promises.js", INTERNAL_STREAM_PROMISES},
+		{"fetch", "js/internal/fetch.js", INTERNAL_FETCH},
+		{"abort", "js/internal/abort.js", INTERNAL_ABORT},
+		{"timers/promises", "js/internal/timers_promises.js", INTERNAL_TIMERS_PROMISES},
+		{"encoding", "js/internal/encoding.js", INTERNAL_ENCODING},
+		{"url", "js/internal/url.js", INTERNAL_URL},
+		{"structured_clone", "js/internal/structured_clone.js", INTERNAL_STRUCTURED_CLONE},
+		{"path", "js/internal/path.js", INTERNAL_PATH},
+		{"path/posix", "js/internal/path_posix.js", INTERNAL_PATH_POSIX},
+		{"path/win32", "js/internal/path_win32.js", INTERNAL_PATH_WIN32},
+		{"sqlite", "js/internal/sqlite.js", INTERNAL_SQLITE},
+		{"dns", "js/internal/dns.js", INTERNAL_DNS},
+		{"dns/promises", "js/internal/dns_promises.js", INTERNAL_DNS_PROMISES},
+		{"net", "js/internal/net.js", INTERNAL_NET},
+		{"http", "js/internal/http.js", INTERNAL_HTTP},
+		{"https", "js/internal/https.js", INTERNAL_HTTPS},
+		{"os", "js/internal/os.js", INTERNAL_OS},
+		{"querystring", "js/internal/querystring.js", INTERNAL_QUERYSTRING},
+		{"string_decoder", "js/internal/string_decoder.js", INTERNAL_STRING_DECODER},
+		{"timers", "js/internal/timers.js", INTERNAL_TIMERS},
+		{"util/types", "js/internal/util_types.js", INTERNAL_UTIL_TYPES},
+		{"punycode", "js/internal/punycode.js", INTERNAL_PUNYCODE},
+		{"process", "js/internal/process.js", INTERNAL_PROCESS},
+		{"console", "js/internal/console.js", INTERNAL_CONSOLE},
+		{"tty", "js/internal/tty.js", INTERNAL_TTY},
+		{"diagnostics_channel", "js/internal/diagnostics_channel.js", INTERNAL_DIAGNOSTICS_CHANNEL},
 		// Internal helpers backing util.parseArgs / util.parseEnv / util.MIMEType; hidden
 		// from the public resolver (loader.js publicReq), like primordials — Node has no
 		// node:parse_args or node:mime.
-		{"parse_args", INTERNAL_PARSE_ARGS},
-		{"parse_env", INTERNAL_PARSE_ENV},
-		{"mime", INTERNAL_MIME},
-		{"stdio", INTERNAL_STDIO},
-		{"fs", INTERNAL_FS},
+		{"parse_args", "js/internal/parse_args.js", INTERNAL_PARSE_ARGS},
+		{"parse_env", "js/internal/parse_env.js", INTERNAL_PARSE_ENV},
+		{"mime", "js/internal/mime.js", INTERNAL_MIME},
+		{"stdio", "js/internal/stdio.js", INTERNAL_STDIO},
+		{"fs", "js/internal/fs.js", INTERNAL_FS},
 	}
 
+	override_dir := js_override_dir()
 	factories := jsc.JSObjectMake(ctx, nil, nil)
 	for m in modules {
-		factory := eval_internal(ctx, m.name, m.source)
+		factory := eval_internal_source(ctx, m.name, override_dir, m.path, m.source)
 		if factory == nil do continue
 		set_named(ctx, factories, m.name, factory)
 	}
 
-	loader := eval_internal(ctx, "internal:loader", INTERNAL_LOADER)
+	loader := eval_internal_source(ctx, "internal:loader", override_dir, "js/internal/loader.js", INTERNAL_LOADER)
 	if loader == nil || !jsc.JSValueIsObject(ctx, loader) do return
 
 	// Native primitives keyed by module name. The loader passes natives[key] to
@@ -1235,7 +1244,7 @@ install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef)
 	// Fail CLOSED. Without the table the transform would run on live intrinsics, so a
 	// missing one leaves state.esm_transform nil and `.mjs` reports "ESM transform
 	// unavailable" instead of silently transforming with the poisonable path.
-	esm_factory := eval_internal(ctx, "lava:esm", INTERNAL_ESM)
+	esm_factory := eval_internal_source(ctx, "lava:esm", override_dir, "js/internal/esm.js", INTERNAL_ESM)
 	if esm_factory != nil && jsc.JSValueIsObject(ctx, esm_factory) {
 		primordials := get_named(ctx, cast(jsc.JSObjectRef)resolver, "primordials")
 		if primordials != nil && jsc.JSValueIsObject(ctx, primordials) {
@@ -1325,7 +1334,8 @@ install_console :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef) {
 	err_fn := make_native_function(ctx, "__lava_write_err", console_stderr_write_cb)
 	if out_fn == nil || err_fn == nil do return
 
-	factory := eval_internal(ctx, "lava:console", CONSOLE_PRELUDE)
+	override_dir := js_override_dir()
+	factory := eval_internal_source(ctx, "lava:console", override_dir, "js/console.js", CONSOLE_PRELUDE)
 	if factory == nil || !jsc.JSValueIsObject(ctx, factory) do return
 
 	args := [2]jsc.JSValueRef{cast(jsc.JSValueRef)out_fn, cast(jsc.JSValueRef)err_fn}
@@ -1354,6 +1364,63 @@ make_native_function :: proc(
 	js_name := jsc.JSStringCreateWithUTF8CString(c_name)
 	defer jsc.JSStringRelease(js_name)
 	return jsc.JSObjectMakeFunctionWithCallback(ctx, js_name, callback)
+}
+
+// LAVA_JS_OVERRIDE compiles in the dev-only "builtin JS from disk" path. It is OFF
+// in every normal build (`make build`, release, bench): such a binary never stats or
+// reads a file to get its runtime JS, so the embedded `#load` strings are the only
+// source and nothing on disk can steer it. scripts/build.sh turns it on only when
+// LAVA_JS_OVERRIDE=1 is in the environment, which the mutation runner sets for its
+// mutant builds.
+LAVA_JS_OVERRIDE :: #config(LAVA_JS_OVERRIDE, false)
+
+RUNTIME_SOURCE_FILE :: #file
+
+// js_override_dir returns the compile-time `pkg/runtime` directory when this is a
+// LAVA_JS_OVERRIDE build and `bin/.lava.js-override` exists (written by
+// scripts/build.sh when only `pkg/runtime/js/**/*.js` changed since `bin/lava` was
+// linked). The analogue of Node's `--node-builtin-modules-path`: a JS-only mutation
+// takes effect from disk without relinking `bin/lava` once per mutation.
+// It costs one `os.exists` per context init, and only in override builds.
+js_override_dir :: proc() -> string {
+	when !LAVA_JS_OVERRIDE {
+		return ""
+	} else {
+		file := RUNTIME_SOURCE_FILE
+		last_sep := -1
+		for i := len(file) - 1; i >= 0; i -= 1 {
+			if file[i] == '/' || file[i] == '\\' {
+				last_sep = i
+				break
+			}
+		}
+		if last_sep < 0 do return ""
+		runtime_dir := file[:last_sep]
+		marker, err := strings.concatenate(
+			{runtime_dir, "/../../bin/.lava.js-override"},
+			context.temp_allocator,
+		)
+		if err != nil || !os.exists(marker) do return ""
+		return runtime_dir
+	}
+}
+
+eval_internal_source :: proc(
+	ctx: jsc.JSContextRef,
+	name: string,
+	override_dir: string,
+	rel_path: string,
+	embedded: string,
+) -> jsc.JSValueRef {
+	if len(override_dir) > 0 && len(rel_path) > 0 {
+		full_path, err := strings.concatenate({override_dir, "/", rel_path}, context.temp_allocator)
+		if err == nil {
+			if data, read_err := os.read_entire_file(full_path, context.temp_allocator); read_err == os.ERROR_NONE {
+				return eval_internal(ctx, name, string(data))
+			}
+		}
+	}
+	return eval_internal(ctx, name, embedded)
 }
 
 // eval_internal runs a trusted, lava-provided JS snippet (a prelude) and returns

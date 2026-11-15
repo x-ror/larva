@@ -35,7 +35,11 @@ function under(fn) {
   const forged = ['forged'];
   forged.index = 0;
   forged.input = '';
+  let spins = 0;
   RegExp.prototype.exec = function () {
+    if (++spins > 256) {
+      throw new RangeError('forged exec spin');
+    }
     return forged;
   };
   let out;

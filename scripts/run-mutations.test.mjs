@@ -354,6 +354,39 @@ test('--list reports without patching anything', () => {
   });
 });
 
+test('--shard slices are disjoint, cover every entry, and keep a gate together', () => {
+  // Three gate keys: the whole file, and two `test`-narrowed runs of it.
+  const entries = [
+    entry({ name: 'whole-a' }),
+    entry({ name: 'whole-b' }),
+    entry({ name: 'value-a', test: 'value is expected' }),
+    entry({ name: 'other-a', test: 'other is untouched' }),
+  ];
+  withTree(entries, {}, (dir) => {
+    const names = (shard) => {
+      const { status, out } = run(dir, ['--list', `--shard=${shard}`]);
+      assert.equal(status, 0, out);
+      return entries.map((e) => e.name).filter((n) => out.includes(`  ${n}\n`));
+    };
+    const one = names('1/2');
+    const two = names('2/2');
+    assert.equal(one.filter((n) => two.includes(n)).length, 0, 'an entry ran in two shards');
+    assert.deepEqual([...one, ...two].sort(), entries.map((e) => e.name).sort());
+    // whole-a and whole-b share a gate, so one baseline: never split.
+    assert.equal(one.includes('whole-a'), one.includes('whole-b'));
+  });
+});
+
+test('a malformed --shard fails rather than running everything', () => {
+  withTree([entry()], {}, (dir) => {
+    for (const bad of ['3/2', '0/2', 'x']) {
+      const { status, out } = run(dir, ['--list', `--shard=${bad}`]);
+      assert.equal(status, 1, `--shard=${bad}: ${out}`);
+      assert.match(out, /--shard must be i\/n/);
+    }
+  });
+});
+
 test('every mutation runs — one failure does not abort the rest', () => {
   withTree([entry({ name: 'first' }), entry({ name: 'second', find: 'NOPE' })], {}, (dir) => {
     const { status, out } = run(dir);

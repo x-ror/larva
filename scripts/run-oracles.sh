@@ -20,9 +20,12 @@ ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 RUN_LAVA=${RUN_LAVA:-1}
 export RUN_LAVA
 
-SKIP_KNOWN_LAVA_GAPS=1 "$ROOT_DIR/scripts/run-eventloop-oracle.sh"
-"$ROOT_DIR/scripts/run-fs-oracle.sh"
-"$ROOT_DIR/scripts/run-sqlite-oracle.sh"
-SKIP_KNOWN_LAVA_GAPS=1 "$ROOT_DIR/scripts/run-node-compat-all.sh"
+# shellcheck source=lib/parallel-suites.sh
+. "$ROOT_DIR/scripts/lib/parallel-suites.sh"
+suite eventloop env SKIP_KNOWN_LAVA_GAPS=1 "$ROOT_DIR/scripts/run-eventloop-oracle.sh"
+suite fs "$ROOT_DIR/scripts/run-fs-oracle.sh"
+suite sqlite "$ROOT_DIR/scripts/run-sqlite-oracle.sh"
+suite node-compat env SKIP_KNOWN_LAVA_GAPS=1 "$ROOT_DIR/scripts/run-node-compat-all.sh"
+run_suites || exit 1
 
 printf '%s\n' 'all supported oracle suites passed'
