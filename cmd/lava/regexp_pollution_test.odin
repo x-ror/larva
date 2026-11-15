@@ -31,8 +31,15 @@ forged.input = '';
 
 // Poison for the duration of one call, then restore before inspecting — reading the
 // result through the poisoned prototype would tell us nothing about the runtime.
-function under(fn) {
+// underUnbounded stays unbounded for the fetch header-trim pin whose manifest entry
+// expects 'timed out'; under() caps forged exec spins at 256 iterations so the
+// remaining global-replace mutation pins fail fast with THREW:RangeError.
+function underWithLimit(fn, maxSpins) {
+  let spins = 0;
   RegExp.prototype.exec = function () {
+    if (maxSpins > 0 && ++spins > maxSpins) {
+      throw new RangeError('forged exec spin');
+    }
     return forged;
   };
   let out;
@@ -44,6 +51,14 @@ function under(fn) {
     RegExp.prototype.exec = real;
   }
   return out;
+}
+
+function under(fn) {
+  return underWithLimit(fn, 256);
+}
+
+function underUnbounded(fn) {
+  return underWithLimit(fn, 0);
 }
 
 const results = [];
@@ -74,7 +89,7 @@ results.push(
 // is the assertion.
 results.push(
   'valid=' +
-    under(() => {
+    underUnbounded(() => {
       const h = new Headers();
       h.set('X-Ok', '  v  ');
       return h.get('x-ok');
@@ -212,7 +227,10 @@ results.push('puny-clean=' + puny.toASCII('münchen.de'));
 // reads, so a forged exec makes it encode every label ('.de' becomes '.xn--de-'). That
 // is the steering class, not the spin class this entry closes, and it is left to the
 // file's own hardening pass — asserting the garbage value would pin the bug, not the fix.
-results.push('puny=' + (typeof under(() => puny.toASCII('münchen.de')) === 'string' ? 'returned' : 'BROKEN'));
+const punyRes = under(() => puny.toASCII('münchen.de'));
+results.push(
+  'puny=' + (typeof punyRes === 'string' && punyRes !== 'THREW:RangeError' ? 'returned' : punyRes),
+);
 
 const want = [
   'inject=THREW:TypeError',

@@ -43,10 +43,13 @@ printf '%s\n' '== Oracle suites =='
 if [ "$RUN_LAVA" = 1 ]; then
 	RUN_LAVA=1 "$ROOT_DIR/scripts/run-oracles.sh"
 else
-	"$ROOT_DIR/scripts/run-node-compat-all.sh"
-	"$ROOT_DIR/scripts/run-sqlite-oracle.sh"
-	"$ROOT_DIR/scripts/run-fs-oracle.sh"
-	"$ROOT_DIR/scripts/run-eventloop-oracle.sh"
+	# shellcheck source=lib/parallel-suites.sh
+	. "$ROOT_DIR/scripts/lib/parallel-suites.sh"
+	suite node-compat "$ROOT_DIR/scripts/run-node-compat-all.sh"
+	suite sqlite "$ROOT_DIR/scripts/run-sqlite-oracle.sh"
+	suite fs "$ROOT_DIR/scripts/run-fs-oracle.sh"
+	suite eventloop "$ROOT_DIR/scripts/run-eventloop-oracle.sh"
+	run_suites || exit 1
 fi
 
 if [ "$INCLUDE_FETCH_SMOKE" = 1 ]; then
