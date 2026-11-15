@@ -54,6 +54,7 @@
 //   node scripts/run-mutations.mjs --filter=clone  # substring match on `name`
 //   node scripts/run-mutations.mjs --list
 //   node scripts/run-mutations.mjs --changed       # only entries the diff can affect
+//   node scripts/run-mutations.mjs --shard=2/3     # the 2nd of 3 disjoint slices (CI fan-out)
 //   MUTATION_OPT=none|minimal|speed                # opt level of mutant builds (default none)
 //   MUTATION_TIMEOUT_MS=N                          # default per-gate bound (default 120000)
 //   manifest timeout_ms                            # per-entry override (hang pins use 30000)
@@ -109,7 +110,12 @@ const changedOnly = args.includes('--changed');
 // The restore build at the end does NOT use this: it runs with the caller's own
 // environment, so bin/lava is left at the level `make build` would have produced.
 const MUTATION_OPT = process.env.MUTATION_OPT || 'none';
-const mutantEnv = () => ({ ...process.env, LAVA_OPT: MUTATION_OPT });
+// LAVA_JS_OVERRIDE=1 makes scripts/build.sh link the dev-only binary that loads
+// pkg/runtime/js from disk, and then skip the relink when a mutation touched only
+// embedded JS (globals.odin, js_override_dir). Most compat: entries mutate JS, so
+// they stop paying a link each. The restore build does not set it, so the bin/lava
+// left behind is a normal one that embeds its JS.
+const mutantEnv = () => ({ ...process.env, LAVA_OPT: MUTATION_OPT, LAVA_JS_OVERRIDE: '1' });
 
 function die(msg) {
   console.error(`mutation gate: ${msg}`);
@@ -309,6 +315,45 @@ if (changedOnly) {
       'mutation gate: nothing to run — no recorded mutation reads a path this diff touches.\n' +
         'This is NOT a full pass; `make test-mutation` without CHANGED runs every entry.',
     );
+    process.exit(0);
+  }
+}
+
+// --shard=i/n splits the selection into n disjoint slices for parallel CI jobs. It
+// shards by GATE, not by entry: the baseline is paid once per gate, so a gate split
+// across two jobs would pay it twice. Gates go, heaviest first, to the least-loaded
+// slice; ties break by key, so every job computes the same partition. The weight is
+// the mean seconds per entry of each gate kind in a full CI run (x-ror/lava run
+// 43643808196: odin 6.0, make 3.9, node-test 2.3, compat 1.9 before the JS override
+// took compat: JS mutants off the link path), rounded — only the ratio matters.
+const shardArg = argOf('shard');
+if (shardArg !== undefined) {
+  const sm = /^([1-9][0-9]*)\/([1-9][0-9]*)$/.exec(shardArg);
+  if (!sm || Number(sm[1]) > Number(sm[2]))
+    die(`--shard must be i/n with 1 <= i <= n, got ${shardArg}`);
+  const [index, count] = [Number(sm[1]) - 1, Number(sm[2])];
+  const groups = new Map();
+  for (const m of selected) {
+    const k = gateKey(m);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(m);
+  }
+  const KIND_WEIGHT = { __proto__: null, odin: 6, make: 4, 'node-test': 2, compat: 1 };
+  const weight = (k) => (KIND_WEIGHT[k.slice(0, k.indexOf(':'))] ?? 4) * groups.get(k).length;
+  const order = [...groups.keys()].sort(
+    (a, b) => weight(b) - weight(a) || (a < b ? -1 : a > b ? 1 : 0),
+  );
+  const load = new Array(count).fill(0);
+  const mine = new Set();
+  for (const k of order) {
+    let best = 0;
+    for (let i = 1; i < count; i++) if (load[i] < load[best]) best = i;
+    load[best] += weight(k);
+    if (best === index) mine.add(k);
+  }
+  selected = selected.filter((m) => mine.has(gateKey(m)));
+  if (selected.length === 0) {
+    console.log(`mutation gate: shard ${shardArg} has no entries (fewer gates than shards).`);
     process.exit(0);
   }
 }
