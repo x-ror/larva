@@ -27,8 +27,8 @@ five that CI does not run.
 
 The brief's `phase:` picks one.
 
-- **`compile`** — `make check`; `make check-js` if any JS changed; `make
-  check-md` if any `.md` changed; `make check-actions` if a workflow changed;
+- **`compile`** — `make check`; `make check-js` if any JS changed;
+  `make check-md` if any `.md` changed; `make check-actions` if a workflow changed;
   `make build`. Fast, and the conductor waits on it: reviewers are not spawned
   on code that does not compile. Stop at the first failure of `make check` or
   `make build`.
@@ -55,8 +55,8 @@ Before the first target, compare the toolchain with what CI pins — `node
 repo has one), `odin
 version` if the brief names one. On a mismatch:
 
-- Look for the pinned version before saying it is absent: `ls /opt`, `type -a
-  node`, the version manager on the box. "Not on `PATH`" is not "not
+- Look for the pinned version before saying it is absent: `ls /opt`, `type -a node`,
+  the version manager on the box. "Not on `PATH`" is not "not
   installed".
 - Found → run every gate with it first on `PATH` and report
   `ENV MISMATCH: default node <x>, pinned <y> — ran with <y> from <path>`.
