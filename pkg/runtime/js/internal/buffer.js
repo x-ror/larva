@@ -134,7 +134,20 @@
     return (neg ? '-' : '') + str.slice(0, i) + out;
   }
 
-  /** @returns {TypeError & {code: string}} */
+  /**
+   * Builds node's ERR_INVALID_ARG_TYPE for a named argument.
+   * @param {string} name Argument name, quoted into the message.
+   * @param {string} expected Everything after "must be", verb phrase included:
+   *   'of type number', 'an instance of Array'. It is spliced verbatim, so a bare
+   *   type name ('number') yields `must be number` — a sentence node never prints.
+   * @param {*} actual The rejected value, rendered by describeType.
+   * @returns {TypeError & {code: string}}
+   * @node `The "size" argument must be of type number. Received type string ('5')`
+   *       for Buffer.alloc('5'); the same template for "offset" (readUInt8('5'),
+   *       writeUInt16LE(0, '1')) and "length" (Buffer.concat([a], '5')). Node 24.22.1,
+   *       verified by the issue #391 probe.
+   * @deviates none
+   */
   function errInvalidArgType(name, expected, actual) {
     var e = new TypeError(
       'The "' + name + '" argument must be ' + expected + '. Received ' + describeType(actual),
@@ -227,9 +240,26 @@
     return e;
   }
 
-  /** Validates size for alloc/allocUnsafe (Node + JSC abort guard). */
+  /**
+   * Validates a byte count for alloc/allocUnsafe/allocUnsafeSlow and the deprecated
+   * `Buffer(n)` constructor (node + JSC abort guard: JSC aborts rather than throws on
+   * some oversized typed-array requests, so the ceiling is checked here first).
+   * @param {*} size
+   * @throws {TypeError} ERR_INVALID_ARG_TYPE — size is not a number.
+   * @throws {RangeError} ERR_OUT_OF_RANGE — NaN, negative, ±Infinity, or above the
+   *         ceiling; the message quotes the ceiling and `Received <size>`.
+   * @node -1/NaN/±Infinity/2**53 → `The value of "size" is out of range. It must be
+   *       >= 0 && <= 9007199254740991. Received -1` (2**53 prints 9_007_199_254_740_992);
+   *       -0 and 1.5 pass (length 0 and 1). Node 24.22.1, verified by the #391 probe.
+   * @deviates The ceiling is K_MAX_LENGTH (4294967296, the JSC-family kMaxLength that
+   *           buffer.constants.MAX_LENGTH reports), not node's 2**53-1 — the documented
+   *           kMaxLength deviation in reference/node-compatibility.md. The bound is pinned
+   *           to MAX_LENGTH, not to a literal, by
+   *           tests/node-compat/cases/70-buffer-size-inspect-parity.js and
+   *           34-oversized-allocation.js.
+   */
   function assertSize(size) {
-    if (typeof size !== 'number') throw errInvalidArgType('size', 'number', size);
+    if (typeof size !== 'number') throw errInvalidArgType('size', 'of type number', size);
     if (!(size >= 0 && size <= K_MAX_LENGTH))
       throw errOutOfRange('size', '>= 0 && <= ' + K_MAX_LENGTH, size);
   }
@@ -342,7 +372,7 @@
   /** Node-style offset bounds for fixed-width numeric accessors. */
   function checkBounds(buf, offset, byteLength) {
     if (offset === undefined) offset = 0;
-    if (typeof offset !== 'number') throw errInvalidArgType('offset', 'number', offset);
+    if (typeof offset !== 'number') throw errInvalidArgType('offset', 'of type number', offset);
     if (Math.floor(offset) !== offset) throw errOutOfRange('offset', 'an integer', offset);
     var max = buf.length - byteLength;
     if (max < 0) throw errBufferOutOfBounds();
@@ -718,11 +748,23 @@
    * @param {number|string} [encodingOrOffset]
    * @param {number} [length]
    * @returns {Buffer}
+   * @throws {RangeError} ERR_OUT_OF_RANGE — a number `arg` that is NaN, negative,
+   *         ±Infinity or above kMaxLength (assertSize, the check Buffer.alloc runs).
+   * @node `Buffer(n)` is `Buffer.alloc(n)`: -1, NaN, ±Infinity and 2**53 throw the
+   *       coded "size" RangeError, -0 → length 0, 1.5 → length 1, 5 → five zero bytes;
+   *       identical with and without `new`. Node 24.22.1, verified by the #391 probe.
+   * @deviates The out-of-range bound is K_MAX_LENGTH (see assertSize), pinned by
+   *           tests/node-compat/cases/70-buffer-size-inspect-parity.js.
    */
   function Buffer(arg, encodingOrOffset, length) {
     if (typeof arg === 'string') return Buffer.from(arg, encodingOrOffset);
     if (typeof arg === 'number') {
-      if (arg > K_MAX_LENGTH) throw errOutOfRange('size', '>= 0 && <= ' + K_MAX_LENGTH, arg);
+      // Only the upper bound used to be checked here, so -1 reached the typed-array
+      // constructor and threw JSC's codeless "length cannot be negative", and NaN
+      // (ToIndex(NaN) is 0) quietly returned an empty Buffer. assertSize is the
+      // validation Buffer.alloc runs; calling it rather than the live `Buffer.alloc`
+      // keeps a user-replaced static out of the constructor.
+      assertSize(arg);
       return new FastBuffer(arg); // zero-filled, matching the old `super(number)`
     }
     return new FastBuffer(arg, encodingOrOffset, length);
@@ -760,8 +802,9 @@
       }
     }
     var remaining = buf.length - shown;
-    if (remaining > 0)
-      hex += (hex ? ' ' : '') + '... ' + remaining + ' more byte' + (remaining > 1 ? 's' : '');
+    // Unconditional separator: node appends ` ... N more bytes` to whatever hex it
+    // produced, so INSPECT_MAX_BYTES = 0 prints TWO spaces after `<Buffer`.
+    if (remaining > 0) hex += ' ... ' + remaining + ' more byte' + (remaining > 1 ? 's' : '');
     return '<Buffer ' + hex + '>';
   }
 
@@ -1238,7 +1281,8 @@
         totalLength += list[i].length;
       }
     } else {
-      if (typeof totalLength !== 'number') throw errInvalidArgType('length', 'number', totalLength);
+      if (typeof totalLength !== 'number')
+        throw errInvalidArgType('length', 'of type number', totalLength);
       if (Math.floor(totalLength) !== totalLength)
         throw errOutOfRange('length', 'an integer', totalLength);
       if (totalLength < 0 || totalLength > K_MAX_LENGTH)
