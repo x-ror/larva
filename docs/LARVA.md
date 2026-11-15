@@ -66,11 +66,23 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
      be attributed and capped. Pools are fixed-size: every VM ever created keeps
      one `timerfd` open for the life of the process, so retiring a VM is a rare,
      fd-budgeted event (heap runaway), not a routine step. Measured: a warm VM
-     stays flat over 500 pages, and a live VM with a page costs ~15 MB
-     (`bench/jsc-vm`);
+     stays flat over 500 pages (`bench/jsc-vm` scenario G), and 50 bare JSC VMs
+     each holding one page add 4999 KB of RSS apiece (`bench/jsc-vm` scenario D,
+     medians of 5 launches, same machine as below) — raw JSC contexts after a
+     process warm-up, so lower than the page-runner figures below, which add the
+     Lava runtime and loop per page and count JSC's process init;
    - reuse keeps JSC's `CodeCache` warm, so the embedded runtime JS is not
      recompiled for every page. Context start-up cost is measured (stage 1) and
-     the Web API surface is installed lazily where it is not;
+     the Web API surface is installed lazily where it is not. `make bench-pages`
+     (bench/README.md, commit `aee73e1`, 4-core Xeon @ 2.10GHz, medians of 5
+     launches per N, 1000 pages per launch, 30 s CPU budget per page), at N = 10..100
+     concurrent pages on one thread: ~24 ms per page on a cold VM, ~10-11 ms warm,
+     ~110 pages/s, 4463-6233 KB whole-process RSS growth per live page, and
+     18688-26254 KB per VM created after churn. That last column is an
+     upper bound — JSC process init, heaps `vm_release` leaves uncollected (it runs
+     no GC) and malloc's high-water mark, with per-VM and per-run cost inseparable
+     — not what an idle pooled VM keeps; N = 1 is dominated by process init. The
+     Node-profile install is the whole cost today; the Window profile's is measured once it exists (#5);
    - the pool bounds the per-VM `timerfd` leak (`runtime.odin`), and a warm VM
      runs a page in ~41% less time: 7.40 vs 12.61 ms/page, `bench/jsc-vm`
      scenario C (one warm pooled VM) vs A (a fresh VM per page), each page

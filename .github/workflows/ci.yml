@@ -210,6 +210,12 @@ jobs:
       - name: Zerocopy send smoke
         run: make test-zerocopy-smoke
 
+      # bench/pages is report-only, so this is the only place it runs: a small valid run
+      # must report no failed page, and a budget-0 run must exit 1 with every page
+      # counted failed — a refused page is never timed as a start-up again (#26 made it so).
+      - name: Pages bench smoke
+        run: make test-bench-pages-smoke
+
       # Benchmarks: print the node-vs-Lava ratio table in the job log. Report-only for
       # now (never fails) because the bench/thresholds.json caps are uncalibrated
       # starters — once the ratios here are observed and the caps tightened, flip this

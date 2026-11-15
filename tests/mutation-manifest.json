@@ -1796,6 +1796,15 @@
       "replace": "\t\t\t: # failed=1",
       "gate": "node-test:scripts/lib/parallel-suites.test.mjs",
       "expect_detail": "RESULT=fail"
+    },
+    {
+      "name": "test-bench-pages-smoke dies when a failed page no longer fails the pages bench",
+      "why": "After #26 every page the bench opened was refused for want of a CPU budget, returned from page_runner_open at once, and was timed as a fast start-up; if failed pages stop setting the exit status, run.sh takes medians over refused pages again and nothing in CI notices.",
+      "source": "bench/pages/main.odin",
+      "find": "\tif cold.failed + warm.failed + churn.failed > 0 do os.exit(1)",
+      "replace": "\tif false do os.exit(1)",
+      "gate": "make:test-bench-pages-smoke",
+      "expect_detail": "budget-0 run exited 0, want 1"
     }
   ]
 }

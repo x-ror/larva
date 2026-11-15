@@ -25,7 +25,7 @@ endif
 SOURCE ?= console.log('hello from Lava')
 FILE ?=
 
-.PHONY: test-stdio help bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-sqlite-odin test-sqlite-node test-sqlite-lava test-fs-node test-fs-lava test-eventloop-node test-eventloop-lava test-fetch-smoke test-net-smoke test-http-smoke test-https-smoke test-multicore-smoke test-zerocopy-smoke bench bench-gate bench-http fmt clean
+.PHONY: test-stdio help bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-sqlite-odin test-sqlite-node test-sqlite-lava test-fs-node test-fs-lava test-eventloop-node test-eventloop-lava test-fetch-smoke test-net-smoke test-http-smoke test-https-smoke test-multicore-smoke test-zerocopy-smoke test-bench-pages-smoke bench bench-gate bench-http bench-pages fmt clean
 
 help:
 	@printf '%s\n' 'Lava commands'
@@ -78,11 +78,13 @@ help:
 	@printf '%s\n' 'Smokes (bind local ports)'
 	@printf '%s\n' '  make test-fetch-smoke test-net-smoke test-http-smoke'
 	@printf '%s\n' '  make test-https-smoke test-multicore-smoke test-zerocopy-smoke'
+	@printf '%s\n' '  make test-bench-pages-smoke  bench/pages builds, runs, and fails on a refused page'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Bench / report'
 	@printf '%s\n' '  make bench              node-vs-Lava ratio table (report-only)'
 	@printf '%s\n' '  make bench-gate         Fail if any ratio exceeds bench/thresholds.json'
 	@printf '%s\n' '  make bench-http         HTTP throughput/latency report (not in CI)'
+	@printf '%s\n' '  make bench-pages        Pages per thread: start-up, RSS, pages/s (not in CI)'
 	@printf '%s\n' '  make api-surface        Buffer/Crypto surface diff vs Node (report-only)'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Env knobs (oracle runners):'
@@ -119,6 +121,9 @@ eval: build
 
 check: check-cli check-runtime
 	$(ODIN) check pkg/jsc -no-entry-point
+	# bench/pages is report-only and nothing else compiles it; without this a runtime
+	# API change breaks it silently (#26 did, by making the CPU budget mandatory).
+	$(ODIN) check bench/pages -collection:lava=.
 
 check-cli:
 	$(ODIN) check cmd/lava -collection:lava=.
@@ -318,6 +323,11 @@ test-zerocopy-smoke: build
 	LAVA_BIN="$(LAVA)" ./scripts/run-zerocopy-smoke.sh
 	LAVA_BIN="$(LAVA)" LAVA_NET_FORCE_READINESS=1 ./scripts/run-zerocopy-smoke.sh
 
+# bench/pages, small: a valid run must report no failed page and a budget-0 run must
+# exit 1 with every page counted failed. Links the runtime, so native-deps, not lava.
+test-bench-pages-smoke: native-deps
+	ODIN="$(ODIN)" ./scripts/run-bench-pages-smoke.sh
+
 # bench runs the micro/macro benchmarks node-vs-Lava and prints a ratio table; it never
 # fails on timing (report-only). bench-gate adds --gate, enforcing the per-benchmark
 # lava/node ratio caps in bench/thresholds.json (exit non-zero on a regression).
@@ -331,6 +341,12 @@ bench-gate: build
 # connection for Lava vs Node vs Bun. Report-only; binds local ports.
 bench-http: build
 	LAVA_BIN="$(LAVA)" $${NODE_BIN:-node} bench/http/run-http-bench.mjs
+
+# Pages per thread (#4): N = 1/10/50/100 concurrent pages on one thread's page runner —
+# cold vs warm VM start-up, process RSS growth per live page and per VM, pages/s. Medians
+# of LAUNCHES (default 5) processes per N. Report-only; needs native-deps, not lava.
+bench-pages: native-deps
+	./bench/pages/run.sh
 
 # test-lava runs every oracle suite the platform supports through one entry point
 # (scripts/run-oracles.sh) — the same script the Windows CI job runs against

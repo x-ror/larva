@@ -74,8 +74,9 @@ odin build bench/jsc-vm -o:speed -out:"$TMP/jsc-vm" && "$TMP/jsc-vm" pkg/runtime
 
 The unit of cost is now the **page**: Larva exists to replace a Chromium
 process per request, so pages/sec per core and MB per live page are the
-headline numbers (`docs/LARVA.md`: ~15 MB per live VM with a page; a warm
-pooled VM runs a page in 7.40 vs 12.61 ms fresh).
+headline numbers (`docs/LARVA.md` decision 2: ~5 MB per bare JSC VM with a
+page, more per runner page; a warm pooled VM runs a page in 7.40 vs 12.61 ms
+fresh).
 
 - Anything that makes a page pay a fresh VM, a cold `CodeCache`, or an eager
   install of Web API surface it does not use (decision 2 says install lazily).
