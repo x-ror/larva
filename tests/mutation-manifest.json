@@ -1599,6 +1599,15 @@
       "replace": "\tjob := new(DNS_Job, req.allocator)\n\tjob.allocator = req.allocator\n",
       "gate": "odin:cmd/lava:main.eval_dns_workers_own_their_requests_on_the_heap",
       "expect_detail": "came from eval's allocator, not the heap"
+    },
+    {
+      "name": "workers_give_back_their_host_tables dies when worker_main stops tearing down its host-native tables",
+      "why": "The thread_local host-native tables are heap-bound and nothing else deletes them, so a worker thread that ends without host_native_thread_teardown leaks both backings per worker per lifetime (larva#51's fix, ported into Lava's multi-worker path).",
+      "source": "pkg/runtime/workers.odin",
+      "find": "\thost_native_thread_teardown()\n",
+      "replace": "",
+      "gate": "odin:pkg/runtime:lava_runtime.workers_give_back_their_host_tables",
+      "expect_detail": "host-native tables live after workers exited"
     }
   ]
 }
