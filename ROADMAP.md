@@ -233,12 +233,11 @@ the index, the issue is the detail. Ordered by what it unblocks.
       `TypeError [ERR_INVALID_ARG_VALUE]: …` while keeping `name === 'TypeError'`; Lava
       renders `TypeError: …`. `err.code` is correct on both, so this only shows where an
       error is logged or stringified — which is most crash output. Repo-wide, not fs.
-- [ ] **`make bench-gate` is red on master**
-      ([#336](https://github.com/x-ror/lava/issues/336)) — `urlsearchparams-get` sits at
-      1.00x against a 0.9x cap, i.e. the cap asserts Lava is faster than node and it no
-      longer is. Either a real cost from `url.js`'s hardening passes or a cap that was
-      never achievable on this hardware; nobody has distinguished them. A permanently-red
-      gate stops being read, which is the actual risk.
+- [x] **`make bench-gate` is red on master**
+      ([#336](https://github.com/x-ror/lava/issues/336)) — `urlsearchparams-get` sat at
+      1.00x against a 0.9x cap after `url.js` primordials hardening (`118c8b5`, `5466d59`,
+      `2f43897`); recalibrated alongside #362 (`bench/thresholds.json`) with headroom over
+      both the 4-core `ubuntu-latest` CI runs and the unpinned dev-box median-of-3.
 - [ ] **Encoded `fs` reads are 6.3x node** ([#332](https://github.com/x-ror/lava/issues/332))
       — the cost of moving decoding into `Buffer#toString`, measured above. Recovering it
       means passing the validated encoding to the native and decoding from bytes with the
@@ -393,22 +392,12 @@ the index, the issue is the detail. Ordered by what it unblocks.
       coverage it did not have.
       Latent rather than live when found: no committed case contained `%%`, so
       nothing was mis-comparing. A future one would have, silently, on both sides.
-- [ ] **`decode-utf16le` breaches its cap ~3 runs in 8, and `bench-gate` is not in
+- [x] **`decode-utf16le` breaches its cap ~3 runs in 8, and `bench-gate` is not in
       CI** ([#362](https://github.com/x-ror/lava/issues/362)) — measured 2026-07-30
       over 8 `--gate` runs: 11.07x, 14.01x, 14.44x,
-      14.63x, 15.22x, 15.61x and two unrecorded passes, against a 14.5 cap. The cap
-      was recalibrated 2026-07-28 to "~1.4x the fresh idle-box median-of-3" from a
-      9.8x measurement; the median now reads ~14.3x. Either the box differs or
-      decode-utf16le regressed ~46% in two days — not guessed at here, because
-      `make bench-gate` runs in no CI job, so nothing would have caught either.
-      This is the exact failure `thresholds.json` warns about in its own note ("a
-      light that fires on one clean run in four ... trains reviewers to re-run"),
-      now firing on one of its own caps. It also blocks wiring the URL bench's cap
-      into the mutation gate: that gate refuses a red baseline, correctly, and
-      `make test-mutation` is in CI.
-      First step is deciding which of the two it is — rebuild at the 2026-07-28 tip
-      and re-measure on the same box, rather than widening the cap and losing the
-      detector.
+      14.63x, 15.22x, 15.61x and two unrecorded passes, against a 14.5 cap. Recalibrated
+      in `bench/thresholds.json` (together with #336/#403 URL caps observed across 4
+      `ubuntu-latest` CI runs) and enabled `make bench-gate` in `.github/workflows/ci.yml`.
 - [ ] **`Object.prototype.then` is an uncounted, easily-set pollution vector**
       ([#353](https://github.com/x-ror/lava/issues/353)) —
       a plain data property, so an ordinary merge/`obj[a][b]=c` gadget sets it,
@@ -792,16 +781,11 @@ the index, the issue is the detail. Ordered by what it unblocks.
 
 ### CI / tooling housekeeping
 
-- [ ] **Give the gates one honest runner**
-      ([#360](https://github.com/x-ror/lava/issues/360)) — `make <target> | tail`
-      reports **tail's** exit status, not make's, so a failing gate reads as a pass. This
-      is not hypothetical: during the #320 review it hid a real `make test-lava`
-      failure (the oracle diff was in the output text while the status said 0),
-      and it is how `test-odin-serial` stayed green for a whole session while
-      testing nothing. Wanted: a `make gates` that runs the routed set with real
-      exit codes, stopping at the first failure, so neither a human nor an agent
-      has to remember `set -o pipefail`. Until it exists, every gate claim in a
-      PR body rests on the author having piped correctly.
+- [x] **Give the gates one honest runner**
+      ([#360](https://github.com/x-ror/lava/issues/360)) — `make gates` (`scripts/run-gates.mjs`)
+      routes changed paths through `runtime/gates/route-gates.mjs`, executes each target
+      without a `| tail` pipe masking its exit status, stops at the first failure, and
+      prints a summary table.
 - [ ] **A test-only fault-injection seam for JSC-side failures**
       ([#361](https://github.com/x-ror/lava/issues/361)) — three
       safety-critical branches are accepted-untested today because the fault has
@@ -811,15 +795,12 @@ the index, the issue is the detail. Ordered by what it unblocks.
       when an invariant is already broken, which is exactly the code least likely
       to be exercised and most expensive to get wrong. One env-gated seam
       (`LAVA_HOSTFN_DISABLE` is the precedent) unlocks all three.
-- [ ] Pin a specific Odin release in CI (currently the `setup-odin` default) for
-      reproducibility, and bump `llvm-version` if a newer Odin needs it
-      ([#35](https://github.com/x-ror/lava/issues/35)). Newly
-      concrete: this session turned on the fact that `ODIN_TEST_THREADS` is a
-      compile-time `#config`, not an environment variable — runner semantics we
-      now depend on in two targets, and which a silent `setup-odin` bump could
-      change under us.
-- [ ] Update `actions/checkout` / `actions/setup-node` past the Node 20
-      deprecation warning ([#35](https://github.com/x-ror/lava/issues/35)).
+- [x] Pin a specific Odin release in CI (`dev-2026-11a` with `llvm-version: '18'`,
+      [#35](https://github.com/x-ror/lava/issues/35)), and pin Node `24.22.2` in
+      `.nvmrc` + `scripts/lib/compare.sh` (#185).
+- [x] Update `actions/checkout` (`v7`) / `actions/setup-node` (`v7` with
+      `node-version-file: .nvmrc`) past the Node 20 deprecation warning
+      ([#35](https://github.com/x-ror/lava/issues/35)).
 - [x] Real `odin build` + run job for Windows: the CI Windows job links a
       JavaScriptCore-backed `lava.exe` (JSC from the Bun WebKit fork) and runs a
       runtime smoke, on top of type-check + codegen.

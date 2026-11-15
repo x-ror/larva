@@ -55,9 +55,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libjavascriptcoregtk-6.0-dev libsqlite3-dev libssl-dev pkg-config
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '24'
+          node-version-file: .nvmrc
 
       # Bun runs the JS gates (`bun fmt`, `bun run js:*`) and installs the dev
       # dependencies. The version comes from package.json's packageManager so CI
@@ -75,6 +75,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           llvm-version: '18'
+          release: 'dev-2026-11a'
 
       - name: Type-check
         if: needs.scope.outputs.scope == 'code' || needs.scope.outputs.scope == 'full'
@@ -112,9 +113,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libjavascriptcoregtk-6.0-dev libsqlite3-dev libssl-dev pkg-config
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '24'
+          node-version-file: .nvmrc
 
       # Bun runs the JS gates (`bun fmt`, `bun run js:*`) and installs the dev
       # dependencies. The version comes from package.json's packageManager so CI
@@ -131,6 +132,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           llvm-version: '18'
+          release: 'dev-2026-11a'
 
       - name: Build
         run: make build
@@ -206,12 +208,10 @@ jobs:
       - name: Zerocopy send smoke
         run: make test-zerocopy-smoke
 
-      # Benchmarks: print the node-vs-Lava ratio table in the job log. Report-only for
-      # now (never fails) because the bench/thresholds.json caps are uncalibrated
-      # starters — once the ratios here are observed and the caps tightened, flip this
-      # to `make bench-gate` to enforce regressions. See bench/README.md.
-      - name: Benchmarks (report-only)
-        run: make bench
+      # Benchmarks: enforce the per-benchmark lava/node ratio caps in
+      # bench/thresholds.json (median of 3 launches per side via --gate, #362).
+      - name: Benchmark gate
+        run: make bench-gate
 
   # MUTATION GATE. Breaks the code each recorded test claims to pin and requires
   # the test to go red. It exists because three tests in #321 passed for the
@@ -245,9 +245,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libjavascriptcoregtk-6.0-dev libsqlite3-dev libssl-dev pkg-config
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '24'
+          node-version-file: .nvmrc
 
       # Bun runs the JS gates (`bun fmt`, `bun run js:*`) and installs the dev
       # dependencies. The version comes from package.json's packageManager so CI
@@ -264,6 +264,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           llvm-version: '18'
+          release: 'dev-2026-11a'
 
       - name: Test (mutation gate)
         run: make test-mutation SHARD=${{ matrix.shard }}/3 ${{ needs.scope.outputs.scope != 'full' && 'CHANGED=1' || '' }}

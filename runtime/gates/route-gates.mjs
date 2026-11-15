@@ -323,7 +323,6 @@ export function routePaths(paths) {
     'make bun-buffer-tests',
     'make api-surface',
     'make test-compat-lava-strict',
-    'make bench-gate',
     'make bench-http',
   ].filter((t) => targets.has(t));
 
