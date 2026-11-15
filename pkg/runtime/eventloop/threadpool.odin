@@ -15,9 +15,12 @@ import "core:thread"
 // would race across loops — notably the parallel test runner, where one loop's
 // destroy would join another loop's still-running workers.)
 //
-// Memory: the pool's containers and Pool_Job allocations all use loop.allocator (the
-// same ownership contract the loop's queues follow — see loop.odin init); the loop
-// thread is the only one that allocates or frees them (workers only pop and post).
+// Memory: the pool's containers, its Pool_Job allocations and the workers' Thread
+// structs all use loop.allocator (the same ownership contract the loop's queues follow
+// — see loop.odin init), so a loop on the heap is entirely on the heap: the page runner
+// relies on that to leave a closed page's loop to its workers (close_detach). Until
+// teardown the loop thread is the only one that allocates or frees them (workers only
+// pop and post); after close_detach, the last worker frees them.
 //
 // Lifetime / safety mirrors the DNS pool:
 //   - Workers are lazily started on the first submit, so a loop that never offloads
@@ -28,9 +31,12 @@ import "core:thread"
 //   - A worker touches ONLY its job's user_data (never the loop or the JS engine);
 //     the single cross-thread handoff is the post_async at the end. The lock/unlock
 //     inside post_async publishes whatever the worker wrote into user_data.
-//   - At teardown destroy() calls pool_shutdown(loop), which stops and joins every
-//     worker BEFORE the loop's async_queue is touched, so no worker can post into a
-//     destroyed loop.
+//   - Teardown is split (loop.odin, close_begin / close_finish). close_begin stops
+//     the pool without joining it — pool_stop — and settles every job on the loop
+//     thread while the JS context lives; close_finish joins (pool_join) and only then
+//     frees the async_queue and the wakeup pipe the workers may still write. So no
+//     worker can post into a freed loop, and a worker blocked in `work` holds only its
+//     own loop, never the thread that closed it.
 
 // THREADPOOL_SIZE mirrors libuv's default UV_THREADPOOL_SIZE.
 THREADPOOL_SIZE :: 4
@@ -48,20 +54,49 @@ Pool_Done :: proc(loop: ^Loop, user_data: rawptr)
 // was dropped at loop teardown (still queued, or its completion posted but discarded
 // with the async_queue). Exactly one of {done, dispose} runs per job, so a caller can
 // release a protected JS callback / buffer / path here without separately tracking
-// in-flight requests. Runs on the loop thread, inside pool_shutdown. Optional.
+// in-flight requests. Optional.
+//
+// Where it runs depends on whether a worker had taken the job. Not taken: in
+// close_begin, on the loop thread, with the JS context alive — it may unprotect. Taken:
+// after the worker is gone — in close_finish, which may run after the caller has
+// released its context, or on the detached loop's last worker thread — so by then
+// `cancel` has released the engine half and dispose must free memory only.
 Pool_Dispose :: proc(user_data: rawptr)
 
+// Pool_Cancel releases the engine half of a job's user_data — a protected JS callback,
+// say — while a worker may still be running `work` on it. Called on the loop thread by
+// close_begin for a job a worker has already taken, so the JS context the caller is
+// about to release is not touched again by the `dispose` that follows much later,
+// possibly from another thread (close_finish run by a reaper, or by the last worker of
+// a detached loop). It must not write anything `work` reads. Optional: a job with
+// nothing to release before its memory goes needs none.
+Pool_Cancel :: proc(user_data: rawptr)
+
 // Pool_Job pairs a unit of off-loop work with its on-loop completion. Allocated by
-// pool_submit and freed by its completion (pool_complete) — or by pool_shutdown for a
-// job whose completion is dropped at teardown. user_data is owned by the caller, not
-// the pool; the pool only ever frees the Pool_Job wrapper (and invokes `dispose` so
-// the caller can free user_data on the dropped path).
+// pool_submit and freed by its completion (pool_complete) — or by the teardown
+// (close_begin / close_finish) for a job whose completion is dropped. user_data is
+// owned by the caller, not the pool; the pool only ever frees the Pool_Job wrapper
+// (and invokes `dispose` so the caller can free user_data on the dropped path).
+//
+// The release rule, which every caller's hooks rely on:
+//   - exactly one of {done, dispose} frees user_data;
+//   - the engine half (JSValueUnprotect) is released exactly once: in `done`; in
+//     `dispose` for a job no worker took; or in `cancel` for a job a worker took
+//     before the teardown, in which case the later `dispose` finds nothing left to
+//     release and frees memory only.
+// `done` never runs once close_begin has run.
 Pool_Job :: struct {
 	work:      Pool_Work,
 	done:      Pool_Done,
 	dispose:   Pool_Dispose,
+	cancel:    Pool_Cancel,
 	user_data: rawptr,
 	loop:      ^Loop,
+	// Set under pool.mutex by the worker that pops the job. From then on the worker
+	// may be inside `work`, or have posted the completion and still be reading
+	// job.loop, so the teardown must neither free the job nor hand user_data to a
+	// `dispose` that can run concurrently with `work` until that worker is joined.
+	running:   bool,
 }
 
 // Thread_Pool is embedded in Loop. Its containers use loop.allocator; nothing is
@@ -82,6 +117,11 @@ Thread_Pool :: struct {
 	outstanding:   [dynamic]^Pool_Job, // every live job (loop-thread-only; for teardown dispose/free)
 	started:       bool,
 	stopping:      bool,
+	// Workers that have left their job loop for good. Bumped under the mutex as a
+	// worker's last decision about the loop; read without it by close_ready.
+	exited:        int,
+	// Set under the mutex by close_detach: the last worker to exit finishes the loop.
+	detached:      bool,
 }
 
 // pool_init binds the pool's dynamic containers to the loop allocator at zero
@@ -93,7 +133,8 @@ pool_init :: proc(pool: ^Thread_Pool, allocator: mem.Allocator) {
 }
 
 // pool_destroy frees the pool's container backings. The workers must already be
-// joined (pool_shutdown) — destroy() calls them in that order.
+// gone (pool_join, or the last worker of a detached loop) — close_release calls them
+// in that order.
 pool_destroy :: proc(pool: ^Thread_Pool, allocator: mem.Allocator) {
 	delete(pool.threads)
 	delete(pool.outstanding)
@@ -140,6 +181,7 @@ pool_submit :: proc(
 	done: Pool_Done,
 	user_data: rawptr = nil,
 	dispose: Pool_Dispose = nil,
+	cancel: Pool_Cancel = nil,
 ) -> bool {
 	if loop == nil || work == nil do return false
 	pool := &loop.pool
@@ -156,6 +198,7 @@ pool_submit :: proc(
 	job.work = work
 	job.done = done
 	job.dispose = dispose
+	job.cancel = cancel
 	job.user_data = user_data
 	job.loop = loop
 
@@ -169,16 +212,25 @@ pool_submit :: proc(
 	return true
 }
 
+// pool_ensure_started starts the workers on the first submit. Each Thread struct comes
+// from loop.allocator (core:thread allocates it from context.allocator), so a detached
+// loop's workers can free it with the rest of the loop.
 @(private = "file")
 pool_ensure_started :: proc(loop: ^Loop) -> bool {
 	pool := &loop.pool
 	if pool.started do return true
 	pool.stopping = false
+	pool.exited = 0
 	// Workers receive the loop pointer and reach the pool through loop.pool; the loop
-	// outlives them (destroy joins every worker before the loop is freed).
+	// outlives them (close_finish joins every worker before the loop is freed, and a
+	// detached loop is freed by its last worker).
+	context.allocator = loop.allocator
 	for _ in 0 ..< THREADPOOL_SIZE {
-		th := thread.create_and_start_with_data(loop, pool_worker, nil, .Normal, false)
-		if th != nil do append(&pool.threads, th)
+		th := thread.create(pool_worker)
+		if th == nil do continue
+		th.data = loop
+		thread.start(th)
+		append(&pool.threads, th)
 	}
 	// As long as one worker started, the pool can make progress.
 	if len(pool.threads) == 0 do return false
@@ -187,8 +239,8 @@ pool_ensure_started :: proc(loop: ^Loop) -> bool {
 }
 
 @(private = "file")
-pool_worker :: proc(data: rawptr) {
-	loop := cast(^Loop)data
+pool_worker :: proc(self: ^thread.Thread) {
+	loop := cast(^Loop)self.data
 	pool := &loop.pool
 	for {
 		sync.lock(&pool.mutex)
@@ -196,10 +248,22 @@ pool_worker :: proc(data: rawptr) {
 			sync.cond_wait(&pool.wake, &pool.mutex)
 		}
 		if pool.stopping && pool.pending_count == 0 {
+			// Count out under the mutex, so close_detach and the last worker agree on
+			// who finishes a detached loop: whichever of them sees the other's write.
+			exited := sync.atomic_add(&pool.exited, 1) + 1
+			last_of_detached := pool.detached && exited == len(pool.threads)
 			sync.unlock(&pool.mutex)
+			if last_of_detached {
+				pool_release_detached(loop, self)
+				return
+			}
+			// Wake a driver waiting to reap this loop (close_ready moved). Safe after
+			// the unlock: the pipe closes only after this thread is joined.
+			wakeup(loop)
 			return
 		}
 		job := pool_ring_pop(pool) // FIFO from the ring head, O(1)
+		job.running = true
 		sync.unlock(&pool.mutex)
 
 		if job.work != nil do job.work(job.user_data)
@@ -209,6 +273,27 @@ pool_worker :: proc(data: rawptr) {
 		// the completion (or teardown) owns it now.
 		post_async(job.loop, pool_complete, job)
 	}
+}
+
+// pool_release_detached finishes a detached loop from its last worker: joins the
+// other workers (each has counted out, so the join waits only for its thread
+// epilogue), frees their Thread structs, and releases the loop (close_release) and the
+// Loop struct itself. Its own Thread struct cannot be freed here — core:thread writes
+// `Done` into it after this proc returns — so it is flagged Self_Cleanup, which makes
+// core:thread detach the pthread and free the struct through its creation allocator
+// (loop.allocator) once it is done with it. Set by the thread on itself, so it cannot
+// race core:thread's own read of the flag.
+@(private = "file")
+pool_release_detached :: proc(loop: ^Loop, self: ^thread.Thread) {
+	pool := &loop.pool
+	for th in pool.threads {
+		if th != self do thread.destroy(th)
+	}
+	clear(&pool.threads)
+	sync.atomic_or(&self.flags, {.Self_Cleanup})
+	pool.started = false
+	close_release(loop)
+	free(loop, loop.allocator)
 }
 
 // pool_complete runs on the loop thread once a job's work finishes: it frees the job
@@ -238,46 +323,69 @@ pool_release_job :: proc(loop: ^Loop, job: ^Pool_Job) {
 	free(job, loop.allocator)
 }
 
-// pool_shutdown stops the loop's pool and joins its workers, so no worker can post
-// into a loop about to be destroyed.
+// pool_stop stops the loop's pool without waiting for it, and settles every job, for
+// close_begin. Queued-but-unstarted jobs are dropped from the ring under the lock and
+// the workers woken, so no worker takes another job; then, on the loop thread with
+// the JS context alive, each job no worker took is disposed and freed at once, and
+// each job a worker did take gets its `cancel` and stays outstanding — the worker may
+// still be in `work` on its user_data, or about to read job.loop to post — until
+// pool_join or the detached loop's last worker disposes it.
 //
-// CONTRACT: destroy-only. This is NOT a quiesce/restart primitive — it does not
-// balance the per-job async_begin counts (active_async is left as-is) and does not
-// remove the pool completions already posted to async_queue (which, once their jobs
-// are freed here, dangle). That is safe ONLY because destroy() calls this and then
-// immediately tears the whole loop down (async_queue included, with those completion
-// callbacks never invoked). A future "pause the pool but keep the loop running" use
-// would need to also decrement active_async per dropped job and cancel/skip the
-// queued completions. Don't call this outside destroy().
+// Returns:
+//   busy  true when some worker had taken a job: joining the pool may then wait for as
+//         long as that job's `work` blocks.
 //
-// Loop-thread only; idempotent (a no-op once stopped, or when never started).
-// Queued-but-unstarted jobs are dropped under the
-// lock before the workers are woken, so the join blocks only on work already in
-// flight — at most THREADPOOL_SIZE units, not the whole backlog. After the join every
-// still-outstanding job has its `dispose` invoked (so the caller can release
-// user_data) and the wrapper freed: these are the jobs whose `done` will never run —
-// the dropped-queue ones, plus any whose completion was posted but is discarded when
-// the loop's async_queue is torn down (that task's callback is never invoked, so the
-// freed pointer is not dereferenced).
-pool_shutdown :: proc(loop: ^Loop) {
+// CONTRACT: teardown-only. This is NOT a quiesce/restart primitive — it does not
+// balance the per-job async_begin counts and leaves posted completions in async_queue
+// (their jobs are freed by close_release, and the tasks are never invoked). Loop-thread
+// only; a no-op when the pool never started.
+pool_stop :: proc(loop: ^Loop) -> (busy: bool) {
 	pool := &loop.pool
-	if !pool.started do return
+	if !pool.started do return false
 	sync.lock(&pool.mutex)
 	pool.stopping = true
-	// Drop the queued backlog (the jobs stay in `outstanding`, freed/disposed below).
+	// Drop the queued backlog (the jobs stay in `outstanding`, settled below).
 	pool.pending_count = 0
 	pool.pending_head = 0
 	sync.cond_broadcast(&pool.wake)
+	// `running` is set under this mutex by the worker that pops a job, and nothing pops
+	// once the ring is empty, so the flags read after this unlock are final.
 	sync.unlock(&pool.mutex)
-	for th in pool.threads {
-		thread.join(th)
-		thread.destroy(th)
+	i := 0
+	for i < len(pool.outstanding) {
+		job := pool.outstanding[i]
+		if job.running {
+			if job.cancel != nil do job.cancel(job.user_data)
+			busy = true
+			i += 1
+			continue
+		}
+		unordered_remove(&pool.outstanding, i)
+		if job.dispose != nil do job.dispose(job.user_data)
+		free(job, loop.allocator)
 	}
+	return
+}
+
+// pool_join waits for every worker to exit and frees their Thread structs. Blocks for
+// as long as a job's `work` does; close_ready says when it will not. close_finish only.
+pool_join :: proc(loop: ^Loop) {
+	pool := &loop.pool
+	if !pool.started do return
+	for th in pool.threads do thread.destroy(th) // joins, then frees through loop.allocator
 	clear(&pool.threads)
+	pool.started = false
+}
+
+// pool_dispose_outstanding disposes and frees the jobs pool_stop left: every one a
+// worker had taken. Their `cancel` already ran, so `dispose` frees memory only — this
+// may run after the caller's JS context is gone, or on a worker thread. Once every
+// worker has exited.
+pool_dispose_outstanding :: proc(loop: ^Loop) {
+	pool := &loop.pool
 	for job in pool.outstanding {
 		if job.dispose != nil do job.dispose(job.user_data)
 		free(job, loop.allocator)
 	}
 	clear(&pool.outstanding)
-	pool.started = false
 }

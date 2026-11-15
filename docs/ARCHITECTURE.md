@@ -195,8 +195,8 @@ native codec at every size. Removed rather than left as folklore steering review
 
 `fetch_transport.odin` is a platform-agnostic connect→[TLS]→write→read state
 machine; each platform supplies only narrow socket primitives, and TLS is a
-swappable backend (OpenSSL, or a rejecting stub). DNS resolves off-loop on a
-bounded 4-worker pool. Streaming request _and_ response bodies are real
+swappable backend (OpenSSL, or a rejecting stub). DNS — `fetch`'s and `node:dns`'s
+— resolves off-loop on the loop's own 4-worker pool (`threadpool.odin`). Streaming request _and_ response bodies are real
 incremental `ReadableStream`s with backpressure. This is the second-strongest
 subsystem after the loop, and it validates the `post_async` design end to end.
 
@@ -222,16 +222,20 @@ tracking allocator). The fix is _localized_ — each request/job captures the ow
 `Runtime_State.allocator` at creation and clones **and** frees through it, so the
 alloc/free pair stays matched no matter which context is active at either end. This is
 applied to `module_cache` keys, `fetch` (`Fetch_Request` method/url/host/path +
-`request_bytes` + the struct), `dns` (`Dns_Lookup_Request.hostname` + the struct), and
-the fetch DNS pool (`DNS_Job.host` + the struct), timer bindings (`JS_Callback` + its
+`request_bytes` + the struct), timer bindings (`JS_Callback` + its
 forwarded `args`, freed under eval's context on fire/teardown but under the heap when
 `clearTimeout`/`clearImmediate` dispose synchronously), and the host-native registry's cached
 names (`host_natives.odin`; note that registry's two tables are thread-lived, so their
-_backing_ is bound to a process-lifetime allocator rather than to a state's). It is
+_backing_ is bound to a process-lifetime allocator rather than to a state's). The
+payloads a pool worker writes into — `Dns_Lookup_Request` (+ `hostname`) and fetch's
+`DNS_Job` (+ `host`) — capture the **heap** instead of the state's allocator: a worker
+blocked in a lookup can outlive the loop's owner (a detached loop's last worker frees
+them, §5.2) and the allocator an embedder handed in, so they must not live there
+(pinned by `eval_dns_workers_own_their_requests_on_the_heap`). It is
 deliberately _not_ context-based:
 those structs free under _multiple_ contexts (e.g. `fetch_reclaim_pending` during normal
-operation vs `fetch_destroy_pending` at teardown; a global DNS pool freeing jobs from
-several runtimes), which a "rebind `context.allocator` at the callback entry" approach
+operation vs `fetch_destroy_pending` at teardown; a pool job disposed by a worker thread rather than
+the loop thread), which a "rebind `context.allocator` at the callback entry" approach
 cannot cover. Dynamic-array fields (`response`/`carry`/`body_out`, `results`) carry their
 own bound allocator, so `delete()` already frees them correctly. Guarded by
 `module_cache_alloc_test`, `dns_alloc_test` and `timer_binding_frees_through_its_own_allocator`
@@ -241,15 +245,12 @@ bindings were routed through it and none leaked).
 ### 4.2 Concurrency model
 
 **Single VM, single JS thread, single context.** The generic per-loop worker pool
-(`threadpool.odin`) currently backs **async `fs.readFile`/`writeFile` only** (§5.2). DNS
-still runs its own off-loop work — `node:dns` spawns a thread per lookup (`dns.odin`)
-and `fetch` uses a separate process-global resolver pool (`g_fetch_dns_pool`); neither
-has been migrated onto the generic pool yet (the generic pool generalizes the fetch DNS
-pool's design, but nothing was moved over). There are no `worker_threads` and no
-isolates, and the `*Sync` APIs and `crypto` KDFs still run on the loop thread — but
-blocking file I/O no longer does. A worker touches only its own request; all JS-value
-work stays on the loop thread. Migrating DNS/fetch onto the generic pool and lifting the
-remaining blocking ops (async `fs.stat`/`readdir`, `crypto`) onto it is the rest of §5.2.
+(`threadpool.odin`) backs async `fs.readFile`/`writeFile`, `node:dns` lookups
+(`dns.odin`) and `fetch`'s DNS resolution (`fetch_dns.odin`) (§5.2). There are no
+`worker_threads` and no isolates, and the `*Sync` APIs and `crypto` KDFs still run on
+the loop thread — but blocking file I/O and DNS no longer do. A worker touches only its
+own request; all JS-value work stays on the loop thread. Lifting the remaining blocking
+ops (async `fs.stat`/`readdir`, `crypto`) onto the pool is the rest of §5.2.
 
 ### 4.3 The FFI trust boundary — resolved (#159)
 
@@ -324,14 +325,23 @@ sits on top of it.
 
 **Step 1 — the generic pool — done (`pkg/runtime/eventloop/threadpool.odin`).**
 A fixed pool (`THREADPOOL_SIZE`, libuv's default of 4) of OS threads blocking on a
-shared FIFO queue, lazily started on first submit and joined at `destroy()`.
+shared FIFO queue, lazily started on first submit and stopped at loop teardown.
 `pool_submit(loop, work, done, user_data)` does `async_begin(loop)` (keeping the
 loop alive and parked in poll), runs `work` off-loop on a worker, then hands the
 completion back through `post_async`, where `done` runs on the loop thread. The
 invariant that **workers touch only their user_data — never the loop or JSC** keeps
 the single-VM model intact; only the loop-thread `done` materializes JS values. It
 generalizes the DNS pool and shares its teardown discipline (workers joined before
-the async queue is torn down). Covered by deterministic tests in
+the async queue is torn down). Teardown is split: `close_begin` stops the pool
+without waiting and settles every job on the loop thread while the JS context is alive —
+`dispose` for a job no worker took, `Pool_Cancel` (releasing its protected callback) for
+one a worker is still running — and `close_finish` joins the workers, then frees the
+remaining jobs, the async queue and the wakeup pipe; `destroy` is the two back to back,
+which is what `eval` runs. `close_detach` instead leaves a heap-allocated loop to its last
+worker to finish — Larva's page runner uses it so a page blocked on a FIFO read or an
+unanswered DNS lookup cannot hold its thread (#34); in Lava only tests call it. Because a
+worker can outlive the loop's owner that way, what it writes into is heap-owned (§4.1).
+Covered by deterministic tests in
 `eventloop_test.odin` (off-loop work → on-loop completion; submit-then-destroy joins
 in-flight work without leak/hang).
 

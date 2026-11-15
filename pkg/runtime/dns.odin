@@ -42,12 +42,15 @@ Dns_Lookup_Result :: struct {
 Dns_Lookup_Request :: struct {
 	ctx:       jsc.JSContextRef,
 	callback:  jsc.JSObjectRef, // GC-protected JS callback(errCode|null, addresses|null)
-	// allocator owns `hostname` and the request struct. Captured from the owning
-	// Runtime_State at creation rather than read from the ambient context, because the
-	// clone happens inside a `proc "c"` (context reset to runtime.default_context) but
-	// the free runs from dns_request_free under the loop/teardown context. Routing
-	// alloc+free through this stored allocator keeps the pair matched. (results carries
-	// its own bound allocator, so plain delete() frees it correctly.)
+	// allocator owns `hostname` and the request struct: always the heap, captured at
+	// creation rather than read from the ambient context, because the clone happens
+	// inside a `proc "c"` (context reset to runtime.default_context) but the free runs
+	// from dns_request_free under the loop/teardown context. Routing alloc+free through
+	// this stored allocator keeps the pair matched. Not the Runtime_State's allocator
+	// (in Larva, a page runner's): a pool worker writes into this struct and may still
+	// be resolving after a detached loop's owner has freed that allocator
+	// (x-ror/larva#34). (results carries its own bound allocator — the
+	// worker's, the heap — so plain delete() frees it correctly.)
 	allocator: runtime.Allocator,
 	hostname:  string, // owned clone (the worker reads it off-loop)
 	family:   int, // 0 (any) | 4 | 6
@@ -96,12 +99,9 @@ dns_lookup_cb :: proc "c" (
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
-	// Capture the owning allocator from the Runtime_State (not the ambient proc "c"
-	// context) so the hostname clone and the struct are freed through the same
-	// allocator at teardown. Falls back to context.allocator when there is no state.
-	state := get_state_from_ctx(ctx)
-	alloc := context.allocator
-	if state != nil do alloc = state.allocator
+	// The heap, not the Runtime_State's allocator: the worker writes into the request
+	// and may outlive the page (see Dns_Lookup_Request.allocator).
+	alloc := runtime.heap_allocator()
 
 	hostname, host_alloc := jsc_value_to_string_or_default(ctx, args[0])
 	defer if host_alloc do delete(hostname, context.allocator)
@@ -121,10 +121,11 @@ dns_lookup_cb :: proc "c" (
 	// THREADPOOL_SIZE), instead of spawning a fresh OS thread per lookup. pool_submit
 	// does the async_begin that keeps the loop alive until the completion posts, and on
 	// a start failure undoes it itself — so we only unwind our own protect+alloc. The
-	// pool's own `outstanding` list is the in-flight tracking: at teardown
-	// eventloop.destroy -> pool_shutdown joins the workers and runs dns_dispose for any
-	// job whose completion never fires, replacing the bespoke active_dns join logic.
-	if !eventloop.pool_submit(loop, dns_work, dns_lookup_complete_cb, req, dns_dispose) {
+	// pool's own `outstanding` list is the in-flight tracking: at teardown close_begin
+	// releases the callback (dns_cancel) of a lookup a worker is running, and
+	// dns_dispose frees each request whose completion never fires, replacing the
+	// bespoke active_dns join logic.
+	if !eventloop.pool_submit(loop, dns_work, dns_lookup_complete_cb, req, dns_dispose, dns_cancel) {
 		jsc.JSValueUnprotect(ctx, cast(jsc.JSValueRef)callback)
 		delete(req.hostname, req.allocator)
 		free(req, req.allocator)
@@ -277,12 +278,10 @@ dns_lookup_complete_cb :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 // --- request teardown ---
 
 // dns_request_free releases everything the request owns and unprotects the JS
-// callback (WITHOUT invoking it). Loop-thread only — it runs either from the
-// completion (dns_lookup_complete_cb, after the callback has fired) or from
-// dns_dispose (pool teardown, before the callback fires). It nils the callback so
-// the two paths can't double-unprotect, and never touches a worker thread: the pool
-// owns worker lifetime and joins every worker before any dns_dispose runs, so no
-// background thread can race this.
+// callback (WITHOUT invoking it) if it is still held. It runs from the completion
+// (dns_lookup_complete_cb, after the callback has fired) or from dns_dispose (pool
+// teardown, before it fires). It never races a worker: the pool disposes a job a
+// worker took only once that worker has exited.
 dns_request_free :: proc(req: ^Dns_Lookup_Request) {
 	if req == nil do return
 	if req.callback != nil {
@@ -295,11 +294,24 @@ dns_request_free :: proc(req: ^Dns_Lookup_Request) {
 }
 
 // dns_dispose is the Pool_Dispose hook: it frees a request whose completion will
-// never run because the loop's worker pool was shut down at teardown (see
-// threadpool.odin). Exactly one of {dns_lookup_complete_cb, dns_dispose} runs per
-// request. Runs on the loop thread inside pool_shutdown, where the JS context is
-// still live (eval defers eventloop.destroy before the context release).
+// never run because the loop was torn down (see threadpool.odin). Exactly one of
+// {dns_lookup_complete_cb, dns_dispose} runs per request. For a lookup no worker took
+// it runs in close_begin, with the context alive, and unprotects the callback; for one
+// a worker took, dns_cancel already did, and this runs once the worker has exited —
+// maybe after the context is gone, maybe on that worker's thread — freeing heap
+// memory only.
 dns_dispose :: proc(user_data: rawptr) {
 	context = runtime.default_context()
 	dns_request_free(cast(^Dns_Lookup_Request)user_data)
+}
+
+// dns_cancel is the Pool_Cancel hook: close_begin calls it on the loop thread, with the
+// context alive, for a lookup a worker is running, so the JS callback is unprotected
+// before the page releases its context. dns_work never reads req.callback or req.ctx.
+dns_cancel :: proc(user_data: rawptr) {
+	req := cast(^Dns_Lookup_Request)user_data
+	if req.callback != nil {
+		jsc.JSValueUnprotect(req.ctx, cast(jsc.JSValueRef)req.callback)
+		req.callback = nil
+	}
 }

@@ -1500,6 +1500,105 @@
       "test": "lava eval reports a top-level throw while a pool worker is still blocked",
       "expect_detail": "lava did not report the throw within",
       "rebuild": true
+    },
+    {
+      "name": "close_begin_cancels_a_running_job_without_waiting_for_it dies when close_begin skips the cancel hook of a running job",
+      "why": "Without the cancel, a job's protected JS callback is unprotected only by its late dispose, after the page's context — or the runner's VM — is gone.",
+      "source": "pkg/runtime/eventloop/threadpool.odin",
+      "find": "\t\t\tif job.cancel != nil do job.cancel(job.user_data)\n",
+      "replace": "",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.close_begin_cancels_a_running_job_without_waiting_for_it",
+      "expect_detail": "job.cancel) to be 1"
+    },
+    {
+      "name": "close_detach_leaves_the_loop_to_its_last_worker dies when the last worker of a detached loop does not release it",
+      "why": "A detached loop has no other owner: if its last worker just exits, its jobs, its wakeup pipe and its memory leak forever.",
+      "source": "pkg/runtime/eventloop/threadpool.odin",
+      "find": "\t\t\tif last_of_detached {\n",
+      "replace": "\t\t\tif false {\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.close_detach_leaves_the_loop_to_its_last_worker",
+      "expect_detail": "job.dispose) to be 1"
+    },
+    {
+      "name": "close_begin_cancels_a_running_job_without_waiting_for_it dies when close_begin does not report a running job as busy",
+      "why": "The caller then reads a loop whose worker is blocked as idle and calls close_finish, joining that worker for as long as its job blocks (#34) — Lava's port of larva#49's runner_close_does_not_wait_for_a_hanging_dns_lookup entry, which a page runner gates.",
+      "source": "pkg/runtime/eventloop/threadpool.odin",
+      "find": "\t\t\tbusy = true\n",
+      "replace": "",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.close_begin_cancels_a_running_job_without_waiting_for_it",
+      "expect_detail": "close_begin did not report the blocked worker"
+    },
+    {
+      "name": "close_begin_never_disposes_a_job_its_worker_is_running dies when close_begin disposes a job a worker is running",
+      "why": "Disposing a running job frees the Pool_Job its worker reads job.loop from to post its completion, and the user_data it is still inside `work` on — Lava's port of larva#49's runner_second_page_in_a_reused_vm_gets_no_callback_from_the_first_pages_job entry, which a page runner gates. The gate test fails before it releases the worker. Gated by close_begin_cancels_a_running_job_without_waiting_for_it, which releases it, the worker's use-after-free faulted locally but hung CI (ubuntu, 4 cores) until the 120 s gate timeout (PR #388, shard 3/3).",
+      "source": "pkg/runtime/eventloop/threadpool.odin",
+      "find": "\t\tif job.running {\n",
+      "replace": "\t\tif false {\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.close_begin_never_disposes_a_job_its_worker_is_running",
+      "expect_detail": "close_begin disposed a job its worker is still running"
+    },
+    {
+      "name": "close_detach_leaves_the_loop_to_its_last_worker dies when close_begin closes the wakeup pipe",
+      "why": "A worker still blocked will write its late wakeup into that descriptor number, which by then may belong to another loop or file (#34) — Lava's port of larva#49's runner_reaping_loop_keeps_its_pipe_until_its_worker_exits entry, which a page runner gates.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tplatform_close_backend(loop)\n\treturn\n",
+      "replace": "\tplatform_close_backend(loop)\n\tplatform_close_wakeup(loop)\n\treturn\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.close_detach_leaves_the_loop_to_its_last_worker",
+      "expect_detail": "while its worker was blocked"
+    },
+    {
+      "name": "close_ready_is_announced_on_the_wakeup_pipe dies when an exiting pool worker does not write the wakeup pipe",
+      "why": "A driver waiting on wakeup_fd for a closed loop's workers then sleeps through their exit and finishes the loop only when something else wakes it, holding its threads and fds meanwhile (#34).",
+      "source": "pkg/runtime/eventloop/threadpool.odin",
+      "find": "\t\t\twakeup(loop)\n\t\t\treturn\n",
+      "replace": "\t\t\treturn\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.close_ready_is_announced_on_the_wakeup_pipe",
+      "expect_detail": "the wakeup pipe was not written as the workers exited"
+    },
+    {
+      "name": "fs_read_file_cancel_releases_the_callback_of_a_blocked_read dies when fs.readFile registers no cancel hook",
+      "why": "Without fs_read_cancel the callback stays protected until the late dispose, which for a detached loop runs on a worker thread after the context is gone (#34) — larva#49's page-runner-gated entry, pinned in Lava on the request itself.",
+      "source": "pkg/runtime/fs.odin",
+      "find": "fs_read_dispose, fs_read_cancel) {",
+      "replace": "fs_read_dispose) {",
+      "gate": "odin:cmd/lava:main.fs_read_file_cancel_releases_the_callback_of_a_blocked_read",
+      "expect_detail": "close_begin left the callback of a job its worker is still running protected"
+    },
+    {
+      "name": "fs_write_file_cancel_releases_the_callback_of_a_blocked_write dies when fs.writeFile registers no cancel hook",
+      "why": "Without fs_write_cancel the callback stays protected until the late dispose, which for a detached loop runs on a worker thread after the context is gone (#34).",
+      "source": "pkg/runtime/fs.odin",
+      "find": "fs_write_dispose, fs_write_cancel) {",
+      "replace": "fs_write_dispose) {",
+      "gate": "odin:cmd/lava:main.fs_write_file_cancel_releases_the_callback_of_a_blocked_write",
+      "expect_detail": "close_begin left the callback of a job its worker is still running protected"
+    },
+    {
+      "name": "dns_lookup_cancel_releases_the_callback_of_a_hanging_lookup dies when dns.lookup registers no cancel hook",
+      "why": "Without dns_cancel the callback is unprotected only by the late dispose, which for a detached loop runs on the worker thread once the resolver times out, after the context is gone (#34) — larva#49's page-runner-gated entry, pinned in Lava on the request itself.",
+      "source": "pkg/runtime/dns.odin",
+      "find": "dns_lookup_complete_cb, req, dns_dispose, dns_cancel) {",
+      "replace": "dns_lookup_complete_cb, req, dns_dispose) {",
+      "gate": "odin:cmd/lava:main.dns_lookup_cancel_releases_the_callback_of_a_hanging_lookup",
+      "expect_detail": "close_begin left the callback of a job its worker is still running protected"
+    },
+    {
+      "name": "eval_dns_workers_own_their_requests_on_the_heap dies when a node:dns request is allocated from the runtime allocator",
+      "why": "A worker blocked in a lookup can outlive its loop's owner and the allocator the embedder handed in (CLAUDE.md §4, #34) — larva#49's page-runner-gated entry, pinned in Lava by where the allocation comes from.",
+      "source": "pkg/runtime/dns.odin",
+      "find": "\talloc := runtime.heap_allocator()\n",
+      "replace": "\talloc := get_state_from_ctx(ctx).allocator\n",
+      "gate": "odin:cmd/lava:main.eval_dns_workers_own_their_requests_on_the_heap",
+      "expect_detail": "came from eval's allocator, not the heap"
+    },
+    {
+      "name": "eval_dns_workers_own_their_requests_on_the_heap dies when fetch's DNS_Job is allocated from the request allocator",
+      "why": "req.allocator is the runtime's; a lookup's worker re-reads job.host per family and may outlive that allocator (CLAUDE.md §4, #34) — larva#49's page-runner-gated entry, pinned in Lava by where the allocation comes from.",
+      "source": "pkg/runtime/fetch_dns.odin",
+      "find": "\tjob := new(DNS_Job, runtime.heap_allocator())\n\tjob.allocator = runtime.heap_allocator()\n",
+      "replace": "\tjob := new(DNS_Job, req.allocator)\n\tjob.allocator = req.allocator\n",
+      "gate": "odin:cmd/lava:main.eval_dns_workers_own_their_requests_on_the_heap",
+      "expect_detail": "came from eval's allocator, not the heap"
     }
   ]
 }

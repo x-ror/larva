@@ -244,11 +244,14 @@ eval :: proc(
 	// allocation failure would otherwise return the loop alive with GC-protected
 	// callbacks stranded. Declared after destroy_runtime_state so it fires first
 	// (LIFO), and before the context release, so dispose hooks still see a live
-	// context. On abnormal returns it first stops active fetches and joins the fetch
-	// resolver workers; node:dns lookups run on the loop's worker pool, which
-	// eventloop.destroy -> pool_shutdown joins and disposes — so no background thread
-	// can post into a destroyed loop/context. On the success path it runs after
-	// eventloop.run returns.
+	// context. On abnormal returns it first settles active fetches and closes net
+	// handles; fs, node:dns and fetch's DNS lookups run on the loop's worker pool,
+	// which eventloop.destroy settles in close_begin (each job's JS half released by
+	// its cancel hook while this context is alive) and joins and disposes in
+	// close_finish — so no background thread can post into a destroyed loop/context.
+	// eval owns its thread, so it waits for blocking pool work as it always has; only
+	// a driver that shares its thread with other loops must not (#34).
+	// On the success path it runs after eventloop.run returns.
 	defer if loop != nil {
 		fetch_shutdown_active(state)
 		net_shutdown_active(state)
