@@ -15,7 +15,7 @@ platform_name :: proc(loop: ^Loop) -> string {
 }
 
 platform_init :: proc(loop: ^Loop) -> bool {
-	// Sentinels so a failed init leaves no fd 0 defaults that platform_destroy
+	// Sentinels so a failed init leaves no fd 0 defaults that the close procs
 	// would close (closing fd 0 = stdin). Mirrors loop_linux.odin.
 	loop.platform.kq = -1
 	loop.platform.wakeup_pipe = {-1, -1}
@@ -61,7 +61,17 @@ platform_init :: proc(loop: ^Loop) -> bool {
 	return true
 }
 
-platform_destroy :: proc(loop: ^Loop) {
+// platform_close_backend / platform_close_wakeup: the two halves of the teardown,
+// split for close_begin / close_finish as on Linux (loop_linux.odin says why the
+// wakeup pipe goes last).
+platform_close_backend :: proc(loop: ^Loop) {
+	if loop.platform.kq >= 0 {
+		posix.close(loop.platform.kq)
+		loop.platform.kq = -1
+	}
+}
+
+platform_close_wakeup :: proc(loop: ^Loop) {
 	if loop.platform.wakeup_pipe[0] >= 0 {
 		posix.close(loop.platform.wakeup_pipe[0])
 		loop.platform.wakeup_pipe[0] = -1
@@ -69,10 +79,6 @@ platform_destroy :: proc(loop: ^Loop) {
 	if loop.platform.wakeup_pipe[1] >= 0 {
 		posix.close(loop.platform.wakeup_pipe[1])
 		loop.platform.wakeup_pipe[1] = -1
-	}
-	if loop.platform.kq >= 0 {
-		posix.close(loop.platform.kq)
-		loop.platform.kq = -1
 	}
 }
 

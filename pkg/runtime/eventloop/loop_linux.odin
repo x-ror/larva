@@ -166,7 +166,7 @@ platform_init :: proc(loop: ^Loop) -> bool {
 		linux.close(loop.platform.wakeup_pipe[1])
 		// Reset, not just close. init returns the Loop even when this fails
 		// (loop.odin: backend stays .Unavailable) and destroy calls
-		// platform_destroy unconditionally, closing every wakeup_pipe entry >= 0
+		// platform_close_wakeup unconditionally, closing every wakeup_pipe entry >= 0
 		// — so a stale number here is closed a SECOND time. epoll_create1 fails
 		// on EMFILE, i.e. exactly when the kernel is recycling numbers, so that
 		// second close lands on an unrelated descriptor rather than being
@@ -185,7 +185,12 @@ platform_init :: proc(loop: ^Loop) -> bool {
 	return true
 }
 
-platform_destroy :: proc(loop: ^Loop) {
+// platform_close_backend closes everything of the platform loop except the wakeup
+// pipe: the ring or epoll instance, and with the ring every in-flight op, whose
+// Op_Dispose hooks run here. Those hooks reach the net layer's Runtime_State and JS
+// context (net_maybe_free), so this runs in close_begin, while both are alive. The
+// pipe is left to platform_close_wakeup: a pool worker may still write it.
+platform_close_backend :: proc(loop: ^Loop) {
 	if loop.platform.use_uring {
 		// Tear the ring down FIRST: closing the io_uring fd cancels every in-flight op in the
 		// kernel and guarantees it will not touch the op buffers again. Only then is it safe
@@ -219,7 +224,13 @@ platform_destroy :: proc(loop: ^Loop) {
 		linux.close(loop.platform.epoll_fd)
 		loop.platform.epoll_fd = -1
 	}
+}
 
+// platform_close_wakeup closes the wakeup pipe — only once no thread can write it any
+// more (close_finish: every pool worker joined, or exited for a detached loop). In a
+// page runner fd numbers are reused at once, so a pipe closed under a live worker
+// would hand its late wakeup byte to whichever sibling got the number (#34).
+platform_close_wakeup :: proc(loop: ^Loop) {
 	if loop.platform.wakeup_pipe[0] >= 0 {
 		linux.close(loop.platform.wakeup_pipe[0])
 		loop.platform.wakeup_pipe[0] = -1
@@ -234,13 +245,24 @@ platform_wakeup :: proc(loop: ^Loop) {
 	// One byte is enough to make the read end readable; coalesced wakeups are
 	// drained together. Called from any thread (write() is async-signal-safe and
 	// thread-safe); EAGAIN on a full pipe is fine — a wakeup is already pending.
-	// Skip an invalidated write end (-1 after platform_destroy, 0 after destroy's
+	// Skip an invalidated write end (-1 after platform_close_wakeup, 0 after destroy's
 	// `loop^ = Loop{}`): a cross-thread request_shutdown that races teardown past the
 	// shutdown-mutex guard must never write a closed/zeroed fd. The real pipe fd is
 	// always > 2 (stdin/out/err precede it), so this never skips a live wakeup.
 	if loop.platform.wakeup_pipe[1] <= 0 do return
 	b := [1]u8{1}
 	linux.write(loop.platform.wakeup_pipe[1], b[:])
+}
+
+// wakeup_fd returns the wakeup pipe's read end, for a driver that has to wait on a
+// loop it no longer ticks: the page runner's reaping list, where a closed page's loop
+// waits for its pool workers to exit. Every worker writes the pipe as it exits (and
+// on every completion it posts), so the read end becomes readable each time the loop
+// may have become ready to finish. A plain pipe fd under both backends, unlike
+// backend_fd, whose ring or epoll instance close_begin has already closed. false once
+// the pipe is gone (a failed platform_init, or after close_finish).
+wakeup_fd :: proc(loop: ^Loop) -> (fd: linux.Fd, ok: bool) {
+	return loop.platform.wakeup_pipe[0], loop.platform.wakeup_pipe[0] >= 0
 }
 
 // drain_wakeup empties the wakeup pipe's read end so it is not perpetually

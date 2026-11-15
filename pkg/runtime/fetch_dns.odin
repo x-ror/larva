@@ -21,13 +21,18 @@ import eventloop "lava:pkg/runtime/eventloop"
 //   - pool_submit does the async_begin that keeps the loop alive until the completion posts (and
 //     undoes it itself on a start failure); the caller (fetch_transport_start) pins the REQUEST via
 //     drive_pending so a cancel mid-lookup cannot free it before the completion runs.
-//   - At teardown eventloop.destroy -> pool_shutdown joins the workers and runs dns_resolve_dispose
-//     for any job whose completion will not fire, freeing it — so no worker posts into a freed loop.
+//   - At teardown the loop's close_begin stops the pool without waiting for a lookup in flight, and
+//     dns_resolve_dispose frees each job whose completion will not fire — once its worker has exited,
+//     which may be after the page and its Fetch_Request are gone (#34). dns_resolve_done never runs
+//     after close_begin, so a late lookup never reaches the freed request; the job holds no JS, so it
+//     needs no Pool_Cancel.
 
 // DNS_Job is one resolution request: an owned host copy + the ordered result (up to one IPv4 then one
 // IPv6 address, #145, tried in turn by the connect path). Allocated by fetch_dns_submit, freed by
 // dns_resolve_done (success) or dns_resolve_dispose (dropped at teardown) through its captured
-// allocator (req.allocator at submit), so the alloc/free pair stays matched whichever path releases it.
+// allocator, so the alloc/free pair stays matched whichever path releases it. That allocator is the
+// heap, not req.allocator: the worker writes into the job, and a closed page's worker may still be
+// resolving after page_runner_destroy has left the runner allocator to be freed.
 DNS_Job :: struct {
 	host:       string,
 	allocator:  runtime.Allocator,
@@ -45,9 +50,9 @@ DNS_Job :: struct {
 // Returns false only if the pool could not start a worker (the caller then undoes its drive_pending
 // pin); the request settles later via dns_resolve_done.
 fetch_dns_submit :: proc(req: ^Fetch_Request, host: string) -> bool {
-	job := new(DNS_Job, req.allocator)
-	job.allocator = req.allocator
-	job.host = strings.clone(host, req.allocator)
+	job := new(DNS_Job, runtime.heap_allocator())
+	job.allocator = runtime.heap_allocator()
+	job.host = strings.clone(host, job.allocator)
 	job.req = req
 	req.dns_job = job // back-pointer so an abort before the completion can cancel it
 	if !eventloop.pool_submit(req.loop, dns_resolve_work, dns_resolve_done, job, dns_resolve_dispose) {
@@ -113,8 +118,10 @@ dns_resolve_done :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 }
 
 // dns_resolve_dispose frees a job whose completion will not run (dropped at loop teardown). The owning
-// request is freed separately by fetch_destroy_pending, so only the job's own allocations are released
-// here. Runs on the loop thread inside pool_shutdown.
+// request is freed separately by fetch_destroy_pending, so only the job's own heap allocations are
+// released here, and job.req — possibly freed by now — is never read. Runs in close_begin for a queued
+// job, or once its worker has exited for one in flight (close_finish, or that worker's own thread for
+// a detached loop).
 @(private = "file")
 dns_resolve_dispose :: proc(user_data: rawptr) {
 	job := cast(^DNS_Job)user_data

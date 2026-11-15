@@ -116,7 +116,7 @@ fs_read_file_cb :: proc "c" (
 	// Happy path: read off-loop on the pool. pool_submit keeps the loop alive until the
 	// completion posts; fs_read_pool_done then re-queues onto the poll phase.
 	if loop != nil &&
-	   eventloop.pool_submit(loop, fs_read_work, fs_read_pool_done, req, fs_read_dispose) {
+	   eventloop.pool_submit(loop, fs_read_work, fs_read_pool_done, req, fs_read_dispose, fs_read_cancel) {
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
@@ -164,13 +164,27 @@ fs_read_pool_done :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 
 // fs_read_dispose releases a request whose completion will never run — the pool job was
 // dropped at teardown, or the re-queued poll callback was discarded when the loop died.
-// Exactly one of {fs_read_complete_cb, fs_read_dispose} runs per request.
+// Exactly one of {fs_read_complete_cb, fs_read_dispose} runs per request. For a job a
+// worker had taken, fs_read_cancel already released the callback, and this runs later —
+// possibly after the context is gone, possibly on a pool worker of a detached loop — so
+// it frees memory only (all heap: req.allocator).
 fs_read_dispose :: proc(user_data: rawptr) {
 	context = runtime.default_context()
 	req := cast(^FS_Read_Request)user_data
 	if req == nil do return
 	if req.callback != nil do jsc.JSValueUnprotect(req.ctx, cast(jsc.JSValueRef)req.callback)
 	fs_read_request_free(req)
+}
+
+// fs_read_cancel releases the request's JS callback while a pool worker may still be
+// reading the file (eventloop.Pool_Cancel): close_begin calls it on the loop thread
+// with the context alive, so the later fs_read_dispose has no JS left to touch.
+// fs_read_work never reads req.callback or req.ctx, so this races nothing.
+fs_read_cancel :: proc(user_data: rawptr) {
+	context = runtime.default_context()
+	req := cast(^FS_Read_Request)user_data
+	if req.callback != nil do jsc.JSValueUnprotect(req.ctx, cast(jsc.JSValueRef)req.callback)
+	req.callback = nil
 }
 
 // fs_read_request_free releases everything the request owns. req.data is freed only when
@@ -570,7 +584,7 @@ fs_write_file_cb :: proc "c" (
 
 	loop := get_loop_from_ctx(ctx)
 	if loop != nil &&
-	   eventloop.pool_submit(loop, fs_write_work, fs_write_pool_done, req, fs_write_dispose) {
+	   eventloop.pool_submit(loop, fs_write_work, fs_write_pool_done, req, fs_write_dispose, fs_write_cancel) {
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
@@ -601,13 +615,23 @@ fs_write_pool_done :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 	eventloop.queue_io_callback(loop, fs_op_complete_cb, user_data, fs_write_dispose)
 }
 
-// fs_write_dispose releases a request whose completion will never run (teardown).
+// fs_write_dispose releases a request whose completion will never run (teardown). After
+// fs_write_cancel it frees memory only, as fs_read_dispose does.
 fs_write_dispose :: proc(user_data: rawptr) {
 	context = runtime.default_context()
 	req := cast(^FS_Op_Request)user_data
 	if req == nil do return
 	if req.callback != nil do jsc.JSValueUnprotect(req.ctx, cast(jsc.JSValueRef)req.callback)
 	fs_op_request_free(req)
+}
+
+// fs_write_cancel is fs_read_cancel for a write: fs_write_work reads only path and
+// write_data, never the callback.
+fs_write_cancel :: proc(user_data: rawptr) {
+	context = runtime.default_context()
+	req := cast(^FS_Op_Request)user_data
+	if req.callback != nil do jsc.JSValueUnprotect(req.ctx, cast(jsc.JSValueRef)req.callback)
+	req.callback = nil
 }
 
 // fs_op_request_free releases everything an FS_Op_Request owns.
