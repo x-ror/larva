@@ -20,7 +20,6 @@
       "Bash(sudo apt-get install:*)",
       "Bash(apt-get install:*)",
       "Bash(apt-cache:*)",
-
       "Bash(./bin/lava:*)",
       "Bash(bin/lava:*)",
       "Bash(node:*)",
@@ -29,7 +28,6 @@
       "Bash(npx markdownlint-cli2:*)",
       "Bash(npm test:*)",
       "Bash(npm run:*)",
-
       "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
@@ -48,13 +46,11 @@
       "Bash(git rev-parse:*)",
       "Bash(git push -u origin claude/:*)",
       "Bash(git push origin claude/:*)",
-
       "Bash(taskset:*)",
       "Bash(nproc)",
       "Bash(ls /proc/self/fd:*)",
       "Bash(/usr/bin/time:*)",
       "Bash(perf stat:*)",
-
       "mcp__github__issue_read",
       "mcp__github__list_issues",
       "mcp__github__list_pull_requests",

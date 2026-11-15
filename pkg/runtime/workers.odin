@@ -165,7 +165,9 @@ worker_pre_run :: proc(user_data: rawptr) -> bool {
 	return !sync.atomic_load(&g_shutdown)
 }
 
-@(private = "file")
+// Package-private (not file-private) only so workers_test.odin can run the real thread body; the
+// supervisor in lava_run_workers stays its one production caller.
+@(private)
 worker_main :: proc(data: rawptr) {
 	w := cast(^Worker)data
 	loop := eventloop.init(real_time = true)
@@ -188,6 +190,12 @@ worker_main :: proc(data: rawptr) {
 	sync.unlock(&w.sig_mutex)
 	if !w.reported do barrier_settle(w.barrier, true) // eval failed before the ready hook
 	if w.result.backend_failed do sync.atomic_store(&g_worker_crashed, true)
+	// This thread is about to end: give back its thread_local host-native tables, which nothing else
+	// ever deletes. eval has already destroyed its context on every return path once one existed
+	// (destroy_runtime_state -> host_natives_release_context), which is the teardown's precondition;
+	// an eval that failed before creating one never bound the tables, and teardown is then a no-op.
+	// Pinned by workers_give_back_their_host_tables.
+	host_native_thread_teardown()
 	sync.atomic_add(&g_worker_exits, 1)
 }
 
