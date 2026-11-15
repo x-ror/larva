@@ -1,22 +1,19 @@
 {
-  "$comment": "STALE (agent-cycle F3, 2026-08-03): generated_against.lava_rev is ancient (3de9128). Modules marked missing here (os/net/http/https/dns/stream/…) exist on master. Do NOT use as a groom or backlog map until regenerated against current master. See docs/agent-cycle/groom-report.md.",
-  "stale": true,
-  "stale_reason": "Generated against 3de9128; lists shipped modules as missing. Regenerate before trusting status fields.",
   "generated_against": {
-    "lava_rev": "3de9128",
+    "lava_rev": "8e83f8d",
     "node_doc_sha": "463e56fb000f3e2943d68973bfb4fde9378c942a",
     "node_doc_pages": 70
   },
   "legend": {
     "full": "implemented (substantial)",
     "partial": "core works, notable gaps/stubs",
-    "missing": "require throws MODULE_NOT_FOUND",
+    "missing": "none of the page's surface exists (a module page: require throws MODULE_NOT_FOUND)",
     "na": "not a JS-API surface"
   },
   "counts": {
-    "full": 7,
-    "partial": 14,
-    "missing": 39,
+    "full": 12,
+    "partial": 21,
+    "missing": 27,
     "na": 10
   },
   "modules": [
@@ -29,8 +26,8 @@
     {
       "page": "assert",
       "status": "full",
-      "implemented": "node:assert + assert/strict, AssertionError",
-      "gaps": ""
+      "implemented": "node:assert + assert/strict, AssertionError, partialDeepStrictEqual",
+      "gaps": "Assert class, CallTracker; deepStrictEqual divergences (#103)"
     },
     {
       "page": "async_context",
@@ -47,8 +44,8 @@
     {
       "page": "buffer",
       "status": "full",
-      "implemented": "Buffer/Blob/File/SlowBuffer/atob/btoa/isAscii/isUtf8/transcode/resolveObjectURL (+ global URL.createObjectURL/revokeObjectURL)",
-      "gaps": ""
+      "implemented": "Buffer/Blob/File/SlowBuffer/isAscii/isUtf8/transcode/resolveObjectURL; module-level atob/btoa (+ global URL.createObjectURL/revokeObjectURL)",
+      "gaps": "atob/btoa are not installed as globals (#86); exports a lava-only describeType"
     },
     {
       "page": "child_process",
@@ -71,14 +68,14 @@
     {
       "page": "console",
       "status": "partial",
-      "implemented": "global console (rich)",
-      "gaps": "no node:console module / Console class"
+      "implemented": "global console + node:console module with a Console class",
+      "gaps": "context/createTask/profile/profileEnd/timeStamp; Console ignores its stdout/stderr streams (#104)"
     },
     {
       "page": "crypto",
       "status": "partial",
-      "implemented": "hash/hmac (+OpenSSL aliases)/hkdf/pbkdf2/scrypt/random*/uuid/timingSafeEqual/getFips",
-      "gaps": "~45 stubbed: ciphers/keys/sign/verify/x509/ecdh/dh/argon2/subtle"
+      "implemented": "19 working: createHash/createHmac/hash/Hash/Hmac/getHashes/hkdf(Sync)/pbkdf2(Sync)/scrypt(Sync)/randomBytes/randomFill(Sync)/randomInt/randomUUID/timingSafeEqual/getFips",
+      "gaps": "47 exported stubs that throw: ciphers/KeyObject/sign/verify/X509Certificate/ECDH/DH/KEM/argon2/primes/generateKey*/setFips/randomUUIDv7; createMac/getMacs/parsePKCS12 absent"
     },
     {
       "page": "debugger",
@@ -100,15 +97,15 @@
     },
     {
       "page": "diagnostics_channel",
-      "status": "missing",
-      "implemented": "",
+      "status": "full",
+      "implemented": "channel/hasSubscribers/subscribe/unsubscribe/tracingChannel/Channel (all 6 exports)",
       "gaps": ""
     },
     {
       "page": "dns",
-      "status": "missing",
-      "implemented": "internal IPv4 resolver in fetch only",
-      "gaps": "public module in progress (c-ares)"
+      "status": "partial",
+      "implemented": "lookup + dns/promises lookup (thread pool), constants and error codes",
+      "gaps": "17 exported stubs that throw: resolve*/reverse/lookupService/getServers/setServers (#179); resolveTlsa absent; dns/promises lacks the error-code constants"
     },
     {
       "page": "documentation",
@@ -155,8 +152,8 @@
     {
       "page": "events",
       "status": "full",
-      "implemented": "EventEmitter + static once",
-      "gaps": "EventTarget/CustomEvent"
+      "implemented": "EventEmitter, once, on, getEventListeners, getMaxListeners, setMaxListeners, listenerCount, addAbortListener, defaultMaxListeners",
+      "gaps": "EventEmitterAsyncResource/errorMonitor/captureRejections; no EventTarget/CustomEvent globals; meta-events (#105)"
     },
     {
       "page": "ffi",
@@ -167,20 +164,20 @@
     {
       "page": "fs",
       "status": "partial",
-      "implemented": "15 fns: readFile/writeFile(Sync)/open/closeSync/stat/readdir/mkdir/rm/...; reads return Buffer and honor the encoding (JS layer, #330)",
-      "gaps": "no promises/streams/watch/copyFile/access/chmod/open"
+      "implemented": "15 fns: readFile/readFileSync/writeFile/writeFileSync/openSync/closeSync/existsSync/mkdirSync/mkdtempSync/rmSync/rmdirSync/unlinkSync/renameSync/statSync/readdirSync; reads return Buffer and honor the encoding (JS layer, #330)",
+      "gaps": "no node:fs/promises, streams, watch, copyFile/access/chmod, async stat/readdir/mkdir, constants (#84)"
     },
     {
       "page": "globals",
       "status": "partial",
-      "implemented": "29 globals present (incl. URL/URLSearchParams)",
-      "gaps": "Event/streams/atob/navigator/reportError"
+      "implemented": "40 globals present (see globals.present)",
+      "gaps": "atob/btoa, Event/EventTarget/CustomEvent, FormData, DOMException, MessageChannel, navigator, WebSocket, URLPattern, SharedArrayBuffer, byte/compression/text streams (see globals.missing)"
     },
     {
       "page": "http",
-      "status": "missing",
-      "implemented": "",
-      "gaps": "fetch covers client only"
+      "status": "partial",
+      "implemented": "server: createServer/Server/IncomingMessage/ServerResponse/STATUS_CODES",
+      "gaps": "no client (request/get/Agent/ClientRequest/globalAgent), OutgoingMessage, METHODS, maxHeaderSize, validateHeaderName/Value, WebSocket (#81)"
     },
     {
       "page": "http2",
@@ -190,9 +187,9 @@
     },
     {
       "page": "https",
-      "status": "missing",
-      "implemented": "",
-      "gaps": ""
+      "status": "partial",
+      "implemented": "server: createServer/Server over the native TLS server",
+      "gaps": "request/get/Agent are exported stubs that throw \u2014 the HTTPS client is fetch (#81)"
     },
     {
       "page": "index",
@@ -216,7 +213,7 @@
       "page": "module",
       "status": "partial",
       "implemented": "CommonJS require + node: resolution",
-      "gaps": "createRequire/register/isBuiltin/SourceMap"
+      "gaps": "node:module is not requireable: createRequire/register/isBuiltin/SourceMap"
     },
     {
       "page": "modules",
@@ -232,14 +229,14 @@
     },
     {
       "page": "net",
-      "status": "missing",
-      "implemented": "",
-      "gaps": ""
+      "status": "partial",
+      "implemented": "createServer/Server/Socket/connect/createConnection (TCP)",
+      "gaps": "isIP/isIPv4/isIPv6, BlockList, SocketAddress, BoundSocket, autoSelectFamily controls"
     },
     {
       "page": "os",
-      "status": "missing",
-      "implemented": "",
+      "status": "full",
+      "implemented": "all 23 exports present",
       "gaps": ""
     },
     {
@@ -257,8 +254,8 @@
     {
       "page": "perf_hooks",
       "status": "partial",
-      "implemented": "performance.now/timeOrigin",
-      "gaps": "PerformanceObserver/marks/entries"
+      "implemented": "global performance.now/timeOrigin",
+      "gaps": "node:perf_hooks is not requireable; PerformanceObserver/marks/entries"
     },
     {
       "page": "permissions",
@@ -269,20 +266,20 @@
     {
       "page": "process",
       "status": "partial",
-      "implemented": "argv/env/cwd/exit/nextTick/pid/platform/arch/version(s)",
-      "gaps": "hrtime/stdio/on/kill/memoryUsage/execPath"
+      "implemented": "argv/env/cwd/exit/exitCode/nextTick/pid/platform/arch/version(s)/memoryUsage/stdout/stderr; node:process requireable",
+      "gaps": "hrtime/on/once/emit/stdin/kill/chdir/uptime/execPath/argv0/execArgv/umask/title/emitWarning (#355, #86); exitCode is honored when set but is not a predefined property"
     },
     {
       "page": "punycode",
-      "status": "missing",
-      "implemented": "",
+      "status": "full",
+      "implemented": "all 6 exports present",
       "gaps": "deprecated upstream"
     },
     {
       "page": "querystring",
-      "status": "missing",
-      "implemented": "",
-      "gaps": ""
+      "status": "full",
+      "implemented": "parse/stringify/escape/unescape/decode/encode",
+      "gaps": "unescapeBuffer"
     },
     {
       "page": "quic",
@@ -318,13 +315,13 @@
       "page": "sqlite",
       "status": "full",
       "implemented": "DatabaseSync/StatementSync",
-      "gaps": "session/backup"
+      "gaps": "Session/backup/constants"
     },
     {
       "page": "stream",
-      "status": "missing",
-      "implemented": "",
-      "gaps": ""
+      "status": "partial",
+      "implemented": "Stream/Readable/Writable/Duplex/Transform/PassThrough/finished/pipeline/addAbortSignal/isReadable/isWritable + node:stream/promises; Readable/Writable toWeb/fromWeb",
+      "gaps": "compose/duplexPair/destroy/isErrored/isDisturbed/isDestroyed/get|setDefaultHighWaterMark/stream.promises; Duplex.toWeb/fromWeb; no node:stream/consumers"
     },
     {
       "page": "stream_iter",
@@ -334,8 +331,8 @@
     },
     {
       "page": "string_decoder",
-      "status": "missing",
-      "implemented": "",
+      "status": "full",
+      "implemented": "StringDecoder",
       "gaps": ""
     },
     {
@@ -353,14 +350,14 @@
     {
       "page": "timers",
       "status": "partial",
-      "implemented": "global timers + node:timers/promises",
-      "gaps": "no node:timers module; no ref/unref"
+      "implemented": "global timers + node:timers + node:timers/promises",
+      "gaps": "timers return a number, not a Timeout: no ref/unref/refresh (#85)"
     },
     {
       "page": "tls",
       "status": "missing",
-      "implemented": "used internally by fetch",
-      "gaps": ""
+      "implemented": "TLS is used internally by fetch and https.createServer",
+      "gaps": "node:tls is not requireable"
     },
     {
       "page": "tracing",
@@ -370,9 +367,9 @@
     },
     {
       "page": "tty",
-      "status": "missing",
-      "implemented": "",
-      "gaps": ""
+      "status": "partial",
+      "implemented": "isatty/ReadStream/WriteStream",
+      "gaps": "getWindowSize reads $COLUMNS/$LINES (default 80x24), not the terminal (#355)"
     },
     {
       "page": "typescript",
@@ -384,13 +381,13 @@
       "page": "url",
       "status": "full",
       "implemented": "WHATWG URL + URLSearchParams (global and module); fileURLToPath/pathToFileURL/urlToHttpOptions/format/domainToASCII/domainToUnicode",
-      "gaps": "legacy url.parse/resolve/Url; IDNA approximated (NFKC+Punycode, not full ICU UTS-46)"
+      "gaps": "legacy url.parse/resolve/Url; URLPattern; fileURLToPathBuffer; IDNA approximated (NFKC+Punycode, not full ICU UTS-46)"
     },
     {
       "page": "util",
       "status": "partial",
-      "implemented": "inspect/format/formatWithOptions",
-      "gaps": "promisify/callbackify/types/inherits/parseArgs"
+      "implemented": "inspect/format/formatWithOptions/promisify/callbackify/inherits/deprecate/isDeepStrictEqual/debuglog/aborted/parseArgs/parseEnv/MIMEType/MIMEParams/styleText/stripVTControlCharacters/toUSVString/types",
+      "gaps": "TextEncoder/TextDecoder re-exports, diff, getCallSites, getSystemErrorName/Message/Map, debounce/throttle, transferableAbort*, deprecated isArray; inspect caps (#331)"
     },
     {
       "page": "v8",
@@ -426,7 +423,7 @@
       "page": "webstreams",
       "status": "partial",
       "implemented": "ReadableStream/WritableStream/TransformStream globals + node:stream/web; readers/writers/controllers; pipeTo/pipeThrough; backs response.body",
-      "gaps": "byte streams/BYOB (deferred), TextEncoderStream/TextDecoderStream, CompressionStream"
+      "gaps": "byte streams/BYOB request+controller, TextEncoderStream/TextDecoderStream, CompressionStream/DecompressionStream (#214); node:stream/web exports a lava-only _internal"
     },
     {
       "page": "worker_threads",
@@ -490,18 +487,34 @@
       "Event",
       "EventTarget",
       "CustomEvent",
+      "MessageEvent",
+      "CloseEvent",
+      "FormData",
+      "DOMException",
       "ReadableStreamBYOBRequest",
       "ReadableByteStreamController",
       "TextEncoderStream",
       "TextDecoderStream",
       "CompressionStream",
+      "DecompressionStream",
       "MessageChannel",
       "MessagePort",
-      "Worker",
       "BroadcastChannel",
+      "WebSocket",
+      "PerformanceObserver",
+      "PerformanceEntry",
+      "PerformanceMark",
       "navigator",
-      "reportError",
-      "crypto.subtle"
+      "Navigator",
+      "URLPattern",
+      "SharedArrayBuffer",
+      "Crypto",
+      "CryptoKey",
+      "SubtleCrypto",
+      "crypto.subtle",
+      "DisposableStack",
+      "AsyncDisposableStack",
+      "SuppressedError"
     ]
   },
   "process": {
@@ -510,12 +523,14 @@
       "env",
       "cwd",
       "exit",
+      "exitCode",
       "nextTick",
       "pid",
       "platform",
       "arch",
       "version",
       "versions",
+      "memoryUsage",
       "stdout",
       "stderr"
     ],
@@ -523,7 +538,6 @@
       "hrtime",
       "chdir",
       "kill",
-      "memoryUsage",
       "resourceUsage",
       "uptime",
       "stdin",
@@ -533,9 +547,15 @@
       "umask",
       "on",
       "once",
-      "exitCode",
+      "emit",
       "title",
-      "report"
+      "report",
+      "ppid",
+      "release",
+      "config",
+      "emitWarning",
+      "getuid",
+      "features"
     ]
   }
 }
