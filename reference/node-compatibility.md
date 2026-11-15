@@ -1,15 +1,15 @@
 # Lava ↔ Node.js API compatibility matrix
 
-> **STALE (agent-cycle F3, 2026-08-03):** measured against lava rev `3de9128`. The
-> scoreboard still marks **net / http(s) / stream / dns / … as missing** while those
-> modules exist on current `master`. Companion [node-compat.json](node-compat.json)
-> is also marked `"stale": true`. **Do not use this matrix as a groom or backlog
-> map** until regenerated. See [docs/agent-cycle/groom-report.md](../docs/agent-cycle/groom-report.md).
+> **PARTLY STALE:** the tables below were measured against lava rev `3de9128` and
+> still mark **net / http(s) / stream / dns / … as missing**. The companion
+> [node-compat.json](node-compat.json) was re-probed against `8e83f8d`
+> (2026-11-15) and is current; **trust the JSON, not these tables**, until this
+> page is regenerated from it.
 
 Coverage of the Node.js public API surface in **lava**.
 
 - **Node docs source:** `nodejs/node` `doc/api` @ the commit recorded in [node-doc-api/SOURCE.txt](node-doc-api/SOURCE.txt) (70 pages, mirrored under [node-doc-api/](node-doc-api/)).
-- **lava revision measured:** `3de9128` (HEAD at generation time) — **out of date**.
+- **lava revision measured:** `3de9128` for this page (**out of date**); `8e83f8d` for `node-compat.json`.
 - **Method:** every row was probed against the built `bin/lava` (`require('node:x')`, global lookups, and calling representative functions) — not inferred from source. Stub functions that exist but throw `"... is not implemented in Lava"` are counted as _not_ implemented.
 
 **Legend:** ✅ implemented (substantial) · 🟡 partial (core works, notable gaps or many stubs) · 🟥 missing (`require` throws `MODULE_NOT_FOUND`) · ⚪ N/A for a JS-API matrix (native-addon / CLI / conceptual guide).
