@@ -107,3 +107,47 @@ barrier_one_failure_aborts :: proc(t: ^testing.T) {
 	testing.expect(t, !released, "a failed startup must abort the ready workers (released=false)")
 	testing.expect(t, any_failed, "failure recorded")
 }
+
+// --- worker thread exit gives back its host-native tables ---------------------------------------------
+// Each worker thread binds the thread_local host-native tables (host_natives.odin) the first time eval
+// injects a native. They are heap-backed and nothing but host_native_thread_teardown deletes them, so a
+// worker_main that does not call it leaks both backings per worker per lifetime (an in-process respawn
+// would leak per restart). Runs the REAL thread body, worker_main, on three threads through the real
+// barrier — not eval plus a hand-placed teardown — so deleting the call in worker_main turns this red
+// (recorded in tests/mutation-manifest.json). Calling lava_run_workers instead would set g_multi_worker
+// and block SIGINT/SIGTERM on the test-runner thread for every later test.
+@(test)
+workers_give_back_their_host_tables :: proc(t: ^testing.T) {
+	N :: 3
+	baseline := host_native_tables_live()
+
+	barrier := Worker_Barrier {
+		total = N,
+	}
+	workers: [N]Worker
+	threads: [N]^thread.Thread
+	for i in 0 ..< N {
+		workers[i] = Worker {
+			source      = "globalThis.__ran = typeof Buffer",
+			source_name = "workers_host_tables.js",
+			barrier     = &barrier,
+		}
+		threads[i] = thread.create_and_start_with_data(&workers[i], worker_main, nil, .Normal, false)
+		if !testing.expect(t, threads[i] != nil, "thread create failed") do return
+	}
+	for th in threads {
+		thread.join(th)
+		thread.destroy(th)
+	}
+	// worker_main bumps the supervisor's exit tally; no supervisor ran, so hand it back.
+	sync.atomic_sub(&g_worker_exits, N)
+
+	for i in 0 ..< N {
+		// The workers really ran JS (and so really bound tables): a startup failure would make the
+		// count below pass vacuously.
+		testing.expectf(t, workers[i].reported && !barrier.any_failed, "worker %d did not reach the ready barrier", i)
+		testing.expectf(t, workers[i].result.exit_code == 0, "worker %d exit code %d", i, workers[i].result.exit_code)
+		result_destroy(&workers[i].result)
+	}
+	testing.expectf(t, host_native_tables_live() == baseline, "host-native tables live after workers exited: %d, want baseline %d", host_native_tables_live(), baseline)
+}
