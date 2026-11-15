@@ -201,3 +201,81 @@ buffer.INSPECT_MAX_BYTES = 50;
 const custom = util.inspect.custom;
 console.log(util.inspect({ x: { [custom]: (d, o, insp) => insp({ a: { b: { c: 1 } } }) } }));
 console.log(util.inspect({ x: { [custom]: (d, o, insp) => insp === util.inspect } }));
+
+// console.log must cut nested extras at node's depth too, not at the prelude's own
+// limit: the extras' values sit one level below the Buffer whatever its nesting.
+{
+  const x = bufOf(1);
+  x.o = { a: { b: { c: { d: { e: 1 } } } } };
+  console.log(x);
+  console.log([x]);
+  console.log({ k: { x } });
+  const m = bufOf(1);
+  m.meta = new Map([[1, { a: { b: { c: 1 } } }]]);
+  console.log(m);
+}
+
+// Called directly WITH a context object, the hook renders the extras as well; with no
+// context it prints the bytes only.
+{
+  const x = bufOf(3);
+  x.tag = 1;
+  Object.defineProperty(x, 'h', { value: 5, enumerable: false });
+  x.o = { a: { b: { c: 1 } } };
+  console.log('inspect(0, {}):', JSON.stringify(x.inspect(0, {})));
+  console.log('inspect(0, {depth: 0}):', JSON.stringify(x.inspect(0, { depth: 0 })));
+  console.log('[custom](0, {showHidden}):', JSON.stringify(x[custom](0, { showHidden: true })));
+  console.log(
+    'inspect():',
+    JSON.stringify(x.inspect()),
+    'inspect(0):',
+    JSON.stringify(x.inspect(0)),
+  );
+}
+
+// Key rendering: node's identifier test refuses a leading digit ('1a' is quoted, 'a1'
+// is not), and a non-enumerable SYMBOL key shows only under showHidden.
+{
+  const x = bufOf(3);
+  x['1a'] = 1;
+  x.a1 = 2;
+  Object.defineProperty(x, Symbol('h'), { value: 3, enumerable: false });
+  x[Symbol('v')] = 4;
+  console.log('keys:', JSON.stringify(util.inspect(x)));
+  console.log('keys showHidden:', JSON.stringify(util.inspect(x, { showHidden: true })));
+}
+
+// A Buffer whose extras lead back to itself recurses until the stack runs out. node
+// catches the overflow inside inspect and prints what it had, ending in
+// `Inspection interrupted prematurely. Maximum call stack size exceeded`; logging never
+// throws. Where the cut lands depends on the engine's stack size, so the lines print the
+// shape rather than the full string: it returned, how it starts, that the marker is
+// there, and how it ends.
+function cycleShape(label, fn) {
+  let s;
+  try {
+    s = fn();
+  } catch (e) {
+    console.log(label, 'THREW', e.name);
+    return;
+  }
+  console.log(
+    label,
+    JSON.stringify(s.slice(0, 40)),
+    s.includes('Inspection interrupted prematurely. Maximum call stack size exceeded'),
+    JSON.stringify(s.slice(-4)),
+  );
+}
+{
+  const a = Buffer.from([1]);
+  a.self = a;
+  cycleShape('cycle self:', () => util.inspect(a));
+  const b = Buffer.from([2]);
+  const c = Buffer.from([3]);
+  b.other = c;
+  c.other = b;
+  cycleShape('cycle pair:', () => util.inspect(b));
+  const d = Buffer.from([4]);
+  d.o = { back: d };
+  cycleShape('cycle via object:', () => util.inspect(d));
+}

@@ -12,7 +12,11 @@
     return "'" + s.replaceAll('\\', '\\\\').replaceAll("'", "\\'").replaceAll('\n', '\\n') + "'";
   }
 
-  function inspect(v, seen, depth) {
+  // `maxDepth` is the nesting cut-off. The prelude's own callers omit it and keep the
+  // historical 4 (node's console.log cuts at 2 — a pre-existing gap, not touched here);
+  // inspectWithOptions passes a caller's `depth` through.
+  function inspect(v, seen, depth, maxDepth) {
+    if (maxDepth === undefined) maxDepth = 4;
     var t = typeof v;
     if (v === null) return 'null';
     if (t === 'undefined') return 'undefined';
@@ -28,39 +32,47 @@
     // Honor the util.inspect custom hook (Buffer renders as "<Buffer ..>"). Node
     // passes (depth, options, inspect) and inspects a non-string result in place
     // (a string is used verbatim; returning the object itself falls through).
+    //
+    // The third argument mirrors internal/util.js: an inspect that starts again at
+    // depth 0 under the options it is given, as node's util.inspect does. It used to
+    // be a one-argument closure that dropped those options and continued this call's
+    // nesting, so Buffer's extra properties printed at the prelude's depth instead of
+    // node's (`console.log(b)` with `b.o` five levels deep showed four of them).
     if (customInspect && typeof v[customInspect] === 'function') {
-      var nested = seen.concat([v]);
-      var recurse = function (val) {
-        return inspect(val, nested, depth + 1);
-      };
-      var custom = v[customInspect](depth, {}, recurse);
+      var custom = v[customInspect](depth, {}, inspectWithOptions);
       if (custom !== v) {
-        return typeof custom === 'string' ? custom : inspect(custom, nested, depth);
+        return typeof custom === 'string'
+          ? custom
+          : inspect(custom, seen.concat([v]), depth, maxDepth);
       }
     }
     if (seen.indexOf(v) !== -1) return '[Circular *1]';
     if (v instanceof Error) return v.stack ? v.stack : v.name + ': ' + v.message;
     if (v instanceof Date) return isNaN(v.getTime()) ? 'Invalid Date' : v.toISOString();
     if (v instanceof RegExp) return v.toString();
-    if (depth > 4) return Array.isArray(v) ? '[Array]' : '[Object]';
+    if (depth > maxDepth) return Array.isArray(v) ? '[Array]' : '[Object]';
     seen = seen.concat([v]);
     if (Array.isArray(v)) {
       if (v.length === 0) return '[]';
       var arr = [];
-      for (var i = 0; i < v.length; i++) arr.push(inspect(v[i], seen, depth + 1));
+      for (var i = 0; i < v.length; i++) arr.push(inspect(v[i], seen, depth + 1, maxDepth));
       return '[ ' + arr.join(', ') + ' ]';
     }
     if (typeof Map !== 'undefined' && v instanceof Map) {
       var mp = [];
       v.forEach(function (val, key) {
-        mp.push(inspect(key, seen, depth + 1) + ' => ' + inspect(val, seen, depth + 1));
+        mp.push(
+          inspect(key, seen, depth + 1, maxDepth) +
+            ' => ' +
+            inspect(val, seen, depth + 1, maxDepth),
+        );
       });
       return 'Map(' + v.size + ') {' + (mp.length > 0 ? ' ' + mp.join(', ') + ' ' : '') + '}';
     }
     if (typeof Set !== 'undefined' && v instanceof Set) {
       var st = [];
       v.forEach(function (val) {
-        st.push(inspect(val, seen, depth + 1));
+        st.push(inspect(val, seen, depth + 1, maxDepth));
       });
       return 'Set(' + v.size + ') {' + (st.length > 0 ? ' ' + st.join(', ') + ' ' : '') + '}';
     }
@@ -72,9 +84,16 @@
     for (var k = 0; k < keys.length; k++) {
       var key = keys[k];
       var label = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? key : quote(key);
-      props.push(label + ': ' + inspect(v[key], seen, depth + 1));
+      props.push(label + ': ' + inspect(v[key], seen, depth + 1, maxDepth));
     }
     return prefix + '{ ' + props.join(', ') + ' }';
+  }
+
+  // The hook's inspect argument, util.inspect-shaped: (value, options) from depth 0, with
+  // node's default depth of 2 and `depth: null` meaning unbounded.
+  function inspectWithOptions(value, options) {
+    var d = options !== null && typeof options === 'object' ? options.depth : undefined;
+    return inspect(value, [], 0, d === undefined ? 2 : d === null ? Infinity : d);
   }
 
   function stringify(v) {

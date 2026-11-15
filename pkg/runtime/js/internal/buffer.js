@@ -823,18 +823,29 @@
    * JS has no way to list a typed array's NAMED own properties without first listing
    * every index: Object.getOwnPropertyNames / Object.keys / Reflect.ownKeys / for-in
    * all materialise one string per byte (node avoids this with its native
-   * getOwnNonIndexProperties). Measured on bin/lava, one launch per size: timed with
-   * performance.now() around max(20, 2e6/n) back-to-back Object.getOwnPropertyNames
-   * calls on one Buffer.alloc(n), reported as the mean per call — 1.2µs at n=16, 18µs
-   * at n=256, 86µs at n=1024, 13.8ms at n=65536 — against 2.6µs mean for the whole
-   * bytes-only util.inspect of the same Buffer timed the same way. A single
-   * Reflect.ownKeys on Buffer.alloc(1e7) took 11.1s (one call, Date.now()). Unbounded,
-   * `console.log(chunk)` on a 64 KiB read chunk would cost ~5000x what it does today,
-   * so the scan is bounded and the rest is a deviation, pinned Lava-only by
-   * cmd/lava/buffer_inspect_extras_test.odin (buffer_inspect_extras_cap).
+   * getOwnNonIndexProperties). So every util.inspect/console.log of a Buffer at or
+   * under this length pays that scan, extras or not.
+   *
+   * Cost of the scan alone, measured on bin/lava, one launch per size: performance.now()
+   * around max(20, 2e6/n) back-to-back Object.getOwnPropertyNames calls on one
+   * Buffer.alloc(n), mean per call — 1.2µs at n=16, 18µs at n=256, 86µs at n=1024,
+   * 13.8ms at n=65536; a single Reflect.ownKeys on Buffer.alloc(1e7) took 11.1s (one
+   * call, Date.now()). Unbounded, logging a 64 KiB read chunk would cost thousands of
+   * times what the bytes-only render does.
+   *
+   * Cost AT the cap, whole util.inspect(Buffer.alloc(n)) with no extras, head vs the
+   * base hook (this binary with the pre-#391 bytes-only hook swapped in), mean per call
+   * over max(20, 2e6/n) calls after 200 warm-ups, performance.now(), 3 interleaved
+   * launches per arm: n=64 head 9.0/9.9/10.0µs vs base 2.9/3.4/3.8µs (~2.8x); n=65
+   * (just past the cap) 4.1/4.5/4.7 vs 3.2/3.3/4.7µs; n=16 2.3/2.4/2.7 vs 1.0/1.2/1.6µs;
+   * n=0 0.35/0.35/0.38 vs 0.12/0.12/0.13µs. At the previous cap of 1024 the head cost
+   * was ~92µs against ~5µs.
+   *
+   * Past the cap, string-keyed extras are omitted — a deviation, pinned Lava-only by
+   * buffer_inspect_extras_cap in cmd/lava/buffer_inspect_extras_test.odin.
    * Symbol keys are always shown: Object.getOwnPropertySymbols lists no indices.
    */
-  var INSPECT_EXTRAS_MAX_LENGTH = 1024;
+  var INSPECT_EXTRAS_MAX_LENGTH = 64;
 
   /** @returns {boolean} Whether `key` is an own enumerable property of `obj`. */
   function isEnumerableOwn(obj, key) {
@@ -864,20 +875,27 @@
    *
    * Keys are formatted here rather than by building a null-prototype object and
    * inspecting that, which is what node does: Lava's util.inspect drops symbol keys
-   * and prints no `[Object: null prototype]` prefix to slice off. Values go through
-   * the hook's `inspect` argument one level down — node inspects the property bag at
-   * depth 0, so each VALUE sits at depth 1 under the caller's own `depth`; asking a
-   * fresh inspect for `depth - 1` is the same cut-off for those values. It is not the
-   * same for a Buffer nested in a property: that inner hook sees `depth - 1` where node
-   * hands it the caller's depth unchanged — a gap, not intended behaviour.
+   * and prints no `[Object: null prototype]` prefix to slice off.
+   *
+   * Each value is inspected wrapped in a one-element array and the `[ ` / ` ]` sliced
+   * off. Node inspects the property bag at depth 0, so a value sits at depth 1 under
+   * the caller's own `depth`, and a Buffer nested in a property receives that SAME
+   * depth for its own extras. The wrapper puts the value at depth 1 without touching
+   * `depth`; an earlier revision passed `depth - 1` instead, which got the values right
+   * but handed a nested Buffer one level less than node does.
+   *
+   * `opts` is rebuilt from ctx's OWN properties: ctx is the caller's options object, so
+   * an inherited read would let a polluted `Object.prototype.showHidden` list hidden
+   * properties of every logged Buffer, or `Object.prototype.depth = null` lift the
+   * depth bound (node copies only the caller's own keys). Pinned Lava-only by
+   * buffer_inspect_extras_pollution in cmd/lava/buffer_inspect_extras_test.odin.
    */
   function inspectExtras(buf, ctx, inspect) {
-    var showHidden = !!ctx.showHidden;
-    var depth = ctx.depth;
-    var valueOpts = {
+    var showHidden = ObjectPrototypeHasOwnProperty(ctx, 'showHidden') && !!ctx.showHidden;
+    var opts = {
       __proto__: null,
-      depth: depth === null ? null : (depth === undefined ? 2 : depth) - 1,
-      showHidden: ctx.showHidden,
+      depth: ObjectPrototypeHasOwnProperty(ctx, 'depth') ? ctx.depth : undefined,
+      showHidden: showHidden,
     };
     var out = '';
     var len = TypedArrayPrototypeGetLength(buf);
@@ -894,46 +912,94 @@
             (out === '' ? '' : ', ') +
             (isPlainKey(key) ? key : inspect(key)) +
             ': ' +
-            inspect(buf[key], valueOpts);
+            inspectValue(buf[key], opts, inspect);
       }
     }
     var syms = ObjectGetOwnPropertySymbols(buf);
     for (var s = 0; s < syms.length; s++) {
       key = syms[s];
       if (showHidden || isEnumerableOwn(buf, key))
-        out += (out === '' ? '' : ', ') + StringG(key) + ': ' + inspect(buf[key], valueOpts);
+        out +=
+          (out === '' ? '' : ', ') + StringG(key) + ': ' + inspectValue(buf[key], opts, inspect);
     }
     return out;
   }
+
+  /** @returns {string} `value` inspected one level down (see inspectExtras). */
+  function inspectValue(value, opts, inspect) {
+    var wrapped = inspect([value], opts);
+    // Both Lava inspectors render a one-element array as `[ x ]` on one line. Only a
+    // negative depth turns the wrapper itself into `[Array]`; fall back to the value.
+    if (
+      StringPrototypeSlice(wrapped, 0, 2) === '[ ' &&
+      StringPrototypeSlice(wrapped, wrapped.length - 2) === ' ]'
+    )
+      return StringPrototypeSlice(wrapped, 2, wrapped.length - 2);
+    return inspect(value, opts);
+  }
+
+  // JSC's stack-overflow RangeError text (node's V8 text is the same sentence).
+  var STACK_OVERFLOW_MESSAGE = 'Maximum call stack size exceeded.';
+
+  /** @type {((value: *, options?: object) => string)|null} util.inspect, once resolved. */
+  var utilInspect = null;
 
   /**
    * Buffer's util.inspect hook; also `buf.inspect`, the same function as in node.
    * @param {number} [recurseTimes] Unused; the depth that matters is `ctx.depth`.
    * @param {{showHidden?: boolean, depth?: number|null}} [ctx] util.inspect's options.
-   * @param {(value: *, options?: object) => string} [inspect] util.inspect itself.
+   * @param {(value: *, options?: object) => string} [inspect] The caller's inspect:
+   *        util.inspect from util.inspect, the prelude's own from console.log.
    * @returns {string} `<Buffer 00 01 02>`, plus `, key: value` per extra own property
-   *          when called from util.inspect/console.log.
+   *          whenever `ctx` is an object.
    * @node `<Buffer 00 01 02, foo: 'bar'>`: insertion order, then symbols
    *       (`Symbol(s): 1`); non-enumerables only with showHidden; an enumerable getter
    *       prints its value (`g: 7`); nested values honour `depth`
    *       (`o: { a: { b: [Object] } }`, depth 0 → `o: [Object]`); a zero-length buffer
-   *       prints `<Buffer foo: 'bar'>`; breakLength/compact change nothing. Called
-   *       directly with no context it returns the bytes only. Node 24.22.1, verified by
-   *       the #391 probe.
-   * @deviates (1) A Buffer longer than INSPECT_EXTRAS_MAX_LENGTH (1024) shows its
-   *           symbol-keyed extras but not its string-keyed ones — the cost bound recorded
-   *           at that constant. (2) Extras render only when an `inspect` function is
-   *           passed (util.inspect and console.log both pass one); node also renders
-   *           them for a bare `buf.inspect(0, {})`. Both pinned Lava-only by
-   *           buffer_inspect_extras_cap in cmd/lava/buffer_inspect_extras_test.odin.
-   *           Not deviations but util.inspect gaps this inherits: `colors: true` leaves
-   *           the extras uncoloured (gap, tracked in #104), and a Buffer held in another
-   *           Buffer's property renders its own extras one depth level short (gap).
+   *       prints `<Buffer foo: 'bar'>`; breakLength/compact change nothing. A direct
+   *       `buf.inspect(0, {})` renders the extras too; `buf.inspect()` with no context
+   *       prints the bytes only. A Buffer whose extras lead back to itself recurses until
+   *       the stack runs out and ends in `Inspection interrupted prematurely. Maximum
+   *       call stack size exceeded` instead of throwing. Node 24.22.1, verified by the
+   *       #391 probes.
+   * @deviates A Buffer longer than INSPECT_EXTRAS_MAX_LENGTH (64) shows its symbol-keyed
+   *           extras but not its string-keyed ones — the cost bound recorded at that
+   *           constant. Pinned Lava-only by buffer_inspect_extras_cap in
+   *           cmd/lava/buffer_inspect_extras_test.odin. Not a deviation but a util.inspect
+   *           gap this inherits: `colors: true` leaves the extras uncoloured (gap,
+   *           tracked in #104).
    */
   function inspectHook(recurseTimes, ctx, inspect) {
     var str = inspectBytes(this);
-    if (ctx !== null && typeof ctx === 'object' && typeof inspect === 'function') {
-      var extras = inspectExtras(this, ctx, inspect);
+    if (ctx !== null && typeof ctx === 'object') {
+      if (typeof inspect !== 'function') {
+        // A direct `buf.inspect(0, {})` passes no inspect function; node still renders
+        // the extras with its own. util is resolved HERE, on first such call, not at
+        // module eval: buffer is on the loader's eager list and util is not, so a
+        // module-eval require would instantiate util (and its dependencies) before user
+        // code on every start. The read goes through util's exports object, which user
+        // code can also reach — a replaced `util.inspect` steers this fallback alone;
+        // util.inspect and console.log hand the hook their own function.
+        if (utilInspect === null) utilInspect = require('util').inspect;
+        inspect = utilInspect;
+      }
+      var extras;
+      try {
+        extras = inspectExtras(this, ctx, inspect);
+      } catch (e) {
+        // Node catches a stack overflow inside inspect and prints what it had; a
+        // Buffer that reaches itself through its extras recurses until that happens.
+        // Logging must not throw. Any other error (a throwing getter) propagates, as
+        // in node.
+        if (
+          e === null ||
+          typeof e !== 'object' ||
+          e.name !== 'RangeError' ||
+          e.message !== STACK_OVERFLOW_MESSAGE
+        )
+          throw e;
+        extras = 'Inspection interrupted prematurely. Maximum call stack size exceeded';
+      }
       if (extras !== '') str += (TypedArrayPrototypeGetLength(this) !== 0 ? ', ' : '') + extras;
     }
     return '<Buffer ' + str + '>';
