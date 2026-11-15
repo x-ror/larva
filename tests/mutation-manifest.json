@@ -1054,6 +1054,26 @@
       "expect_detail": "Expected values to be strictly equal"
     },
     {
+      "name": "compare.sh dies when a non-numeric oracle major is not coerced to 0",
+      "why": "`[ banana -lt 26 ]` errors and `if` reads the error as false, so a NODE_BIN printing no integer major passed the floor.",
+      "source": "scripts/lib/compare.sh",
+      "find": "\tcase \"$_got\" in\n\t'' | *[!0-9]*) _got=0 ;;\n\tesac",
+      "replace": "\t:",
+      "gate": "node-test:runtime/gates/compare-integrity.test.mjs",
+      "test": "compare.sh refuses a NODE_BIN whose major is not an integer (#185)",
+      "expect_detail": "compare.sh refuses a NODE_BIN whose major is not an integer (#185)"
+    },
+    {
+      "name": "compare.sh dies when an .nvmrc with no numeric major is not refused",
+      "why": "An empty or `lts/*` pin leaves the floor empty, `[ N -lt '' ]` errors to false, and every oracle passes.",
+      "source": "scripts/lib/compare.sh",
+      "find": "\tif [ -z \"$_want\" ]; then",
+      "replace": "\tif false; then",
+      "gate": "node-test:runtime/gates/compare-integrity.test.mjs",
+      "test": "compare.sh refuses when .nvmrc carries no numeric major (#185)",
+      "expect_detail": "compare.sh refuses when .nvmrc carries no numeric major (#185)"
+    },
+    {
       "name": "compare.sh dies when compare_case ignores a node per-case timeout",
       "why": "A case that hangs both Node and Lava exits 124 on both sides with empty output, which compare_case would pass as 124 == 124 without the explicit timeout check (#399).",
       "source": "scripts/lib/compare.sh",
@@ -1658,6 +1678,15 @@
       "expect_detail": [
         "The \"size\" argument must be number"
       ]
+    },
+    {
+      "name": "03-buffer dies when node:buffer exports SlowBuffer again",
+      "why": "Node 26 removed SlowBuffer (DEP0030 end-of-life); `'SlowBuffer' in require('buffer')` is false there.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "    Buffer: Buffer,\n    Blob: Blob,",
+      "replace": "    Buffer: Buffer,\n    SlowBuffer: Buffer,\n    Blob: Blob,",
+      "gate": "compat:tests/node-compat/cases/03-buffer.js",
+      "expect_detail": "node:buffer has no SlowBuffer"
     },
     {
       "name": "70-buffer-size-inspect-parity dies when checkBounds splices a bare type name",

@@ -26,7 +26,7 @@ or tooling change), say so, skip Part 1, and do Part 2 only.
 2. Pin the oracle before trusting it. A diff against an unknown runtime is not
    evidence: the target is Node 26+ and CI runs the `.nvmrc` pin. Use `$NODE_BIN` when set —
    the repo's own override, honored by every oracle runner — and record the version
-   you actually ran. A major outside 22/24 makes the result advisory, not proof.
+   you actually ran. A major below the `.nvmrc` floor makes the result advisory, not proof.
 3. For each surface, write a small script and run it under both:
 
    ```sh

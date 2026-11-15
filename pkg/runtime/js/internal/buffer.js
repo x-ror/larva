@@ -1071,7 +1071,7 @@
   }
 
   /**
-   * Unpooled uninitialized allocation (allocUnsafe large path / SlowBuffer).
+   * Unpooled uninitialized allocation (allocUnsafe large path / allocUnsafeSlow).
    * @param {number} size
    * @returns {Buffer}
    */
@@ -1326,12 +1326,6 @@
   Buffer.poolSize = 262144;
 
   createPool();
-
-  /** @deprecated Use Buffer.allocUnsafeSlow. */
-  function SlowBuffer(size) {
-    assertSize(size);
-    return allocUnsafeNoZero(size);
-  }
 
   /** Base64 → latin1 (Node global atob polyfill surface). */
   function atob(data) {
@@ -1621,7 +1615,6 @@
 
   var exported = {
     Buffer: Buffer,
-    SlowBuffer: SlowBuffer,
     Blob: Blob,
     File: File,
     kMaxLength: K_MAX_LENGTH,

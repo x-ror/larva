@@ -51,7 +51,17 @@ _lava_gate_integrity_check || exit $?
 # 26 where 24 threw, so its expectations are wrong for us. Fail before any case.
 _lava_node_major_check() {
 	_want=$(cut -d. -f1 "$ROOT_DIR/.nvmrc" | tr -dc '0-9')
+	# `[ x -lt N ]` on a non-integer operand errors, and `if` reads that error as
+	# false — a pass. So a pin with no digits (`lts/*`, empty) refuses outright,
+	# and an oracle whose major is not all digits counts as 0, i.e. too old.
+	if [ -z "$_want" ]; then
+		printf '%s\n' "oracle check: .nvmrc has no numeric Node major ($ROOT_DIR/.nvmrc)" >&2
+		return 2
+	fi
 	_got=$("$NODE_BIN" -p 'process.versions.node.split(".")[0]' 2>/dev/null) || _got=0
+	case "$_got" in
+	'' | *[!0-9]*) _got=0 ;;
+	esac
 	if [ "$_got" -lt "$_want" ]; then
 		printf '%s\n' "oracle requires node >= $_want (.nvmrc), found $("$NODE_BIN" --version 2>/dev/null || echo none) ($NODE_BIN)" >&2
 		return 2

@@ -18,6 +18,8 @@ mkdirSync(PIN_BIN_DIR);
 const NODE_PIN = join(PIN_BIN_DIR, 'node');
 const NODE_OLD = join(SCRATCH, 'node-old');
 const NODE_NEW = join(SCRATCH, 'node-new');
+const NODE_JUNK = join(SCRATCH, 'node-junk');
+const BAD_PIN_ROOT = join(SCRATCH, 'bad-pin-root');
 const FAKE_LAVA = join(SCRATCH, 'fake-lava');
 const HANG_CASE = join(SCRATCH, 'hang.js');
 const OK_CASE = join(SCRATCH, 'ok.js');
@@ -54,6 +56,20 @@ writeFileSync(
   { mode: 0o755 },
 );
 
+// A NODE_BIN whose `-p` prints no integer: `[ x -lt N ]` errors, `if` reads the
+// error as false, and the floor check used to pass it.
+writeFileSync(
+  NODE_JUNK,
+  `#!/usr/bin/env sh
+[ "\${1:-}" = "-p" ] && echo banana || echo vbanana
+`,
+  { mode: 0o755 },
+);
+
+// A pin with no digits (`lts/*`) must refuse rather than compare against "".
+mkdirSync(BAD_PIN_ROOT);
+writeFileSync(join(BAD_PIN_ROOT, '.nvmrc'), 'lts/*\n');
+
 writeFileSync(
   FAKE_LAVA,
   `#!/usr/bin/env sh
@@ -74,11 +90,11 @@ after(() => {
   rmSync(SCRATCH, { recursive: true, force: true });
 });
 
-function sourceCompare(env, body = ':') {
+function sourceCompare(env, body = ':', root = ROOT) {
   const pathEnv = `${PIN_BIN_DIR}:${process.env.PATH || ''}`;
   return spawnSync(
     'sh',
-    ['-c', `ROOT_DIR="${ROOT}" TMP_DIR="${SCRATCH}" . "${ROOT}/scripts/lib/compare.sh"\n${body}`],
+    ['-c', `ROOT_DIR="${root}" TMP_DIR="${SCRATCH}" . "${ROOT}/scripts/lib/compare.sh"\n${body}`],
     {
       cwd: ROOT,
       encoding: 'utf8',
@@ -129,6 +145,22 @@ test('compare.sh refuses a NODE_BIN older than the .nvmrc major (#185)', () => {
     r.stderr || '',
     new RegExp(`oracle requires node >= ${PIN} \\(\\.nvmrc\\), found v${PIN - 2}\\.22\\.2`),
   );
+});
+
+test('compare.sh refuses a NODE_BIN whose major is not an integer (#185)', () => {
+  const r = sourceCompare({ NODE_BIN: NODE_JUNK, LAVA_BIN: FAKE_LAVA, RUN_LAVA: '1' });
+  assert.equal(r.status, 2, r.stderr || r.stdout);
+  assert.match(r.stderr || '', new RegExp(`oracle requires node >= ${PIN} \\(\\.nvmrc\\)`));
+});
+
+test('compare.sh refuses when .nvmrc carries no numeric major (#185)', () => {
+  const r = sourceCompare(
+    { NODE_BIN: NODE_PIN, LAVA_BIN: FAKE_LAVA, RUN_LAVA: '1' },
+    ':',
+    BAD_PIN_ROOT,
+  );
+  assert.equal(r.status, 2, r.stderr || r.stdout);
+  assert.match(r.stderr || '', /\.nvmrc has no numeric Node major/);
 });
 
 test('compare.sh accepts a NODE_BIN newer than the .nvmrc major', () => {

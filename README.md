@@ -9,7 +9,7 @@ Odin. The runtime target is JavaScriptCore (JSC).
 
 This repository is initialized with a small Odin CLI and the first package
 boundaries for the runtime, package manager, bundler, and JSC integration.
-Compatibility targets modern Node.js 22+ behavior rather than legacy Node APIs.
+Compatibility targets modern Node.js 26+ behavior (floor pinned in `.nvmrc`) rather than legacy Node APIs.
 
 ## Requirements
 

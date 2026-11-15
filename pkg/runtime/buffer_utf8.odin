@@ -178,7 +178,7 @@ buffer_utf8_decode_cb :: proc "c" (
 // allocUninit(size) -> Uint8Array | null. Hands back `size` bytes of native,
 // *uninitialized* memory (Node's allocUnsafe semantics) as a NoCopy Uint8Array
 // that the JS layer wraps as a Buffer view. Only the unpooled unsafe paths reach
-// here (large Buffer.allocUnsafe, Buffer.allocUnsafeSlow, SlowBuffer); the small
+// here (large Buffer.allocUnsafe, Buffer.allocUnsafeSlow); the small
 // pooled path stays in JS. Returns null for a non-positive size or an allocation
 // failure, so the JS layer falls back to a zero-filled own-backing Buffer (which
 // throws for an impossible size, matching Node). The size is already validated by
