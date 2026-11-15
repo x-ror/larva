@@ -275,6 +275,16 @@
   // once(emitter, name[, options]) — resolves with the emitted arguments on the next
   // matching event, or rejects if 'error' fires first or options.signal aborts.
   function once(emitter, name, options) {
+    // Node's validateObject(options, 'options'): undefined is the only non-object
+    // allowed; null, scalars, arrays and functions reject (node 26.13.0, probed;
+    // pinned by tests/node-compat/cases/72-events-parity.js). Rejects rather than
+    // throws because node's once is an async function.
+    if (
+      options !== undefined &&
+      (options === null || typeof options !== 'object' || P.ArrayIsArray(options))
+    ) {
+      return P.Promise.reject(errOptionsType(options));
+    }
     var signal = options && options.signal;
     if (signal !== undefined) {
       if (!isAbortSignal(signal)) {
@@ -333,6 +343,26 @@
     var e = new TypeError(
       'The "' + name + '" argument must be ' + expected + '. Received ' + typeof actual,
     );
+    e.code = 'ERR_INVALID_ARG_TYPE';
+    return e;
+  }
+
+  // The ERR_INVALID_ARG_TYPE "Received …" tail for once()'s options. typeError above
+  // prints a bare `typeof`, which is wrong for node's template; only the cases
+  // validateObject can reach here are rendered (no objects other than arrays).
+  function errOptionsType(v) {
+    var t = typeof v;
+    var got;
+    if (v === null) got = 'null';
+    else if (t === 'function') got = 'function ' + v.name;
+    else if (t === 'object') got = 'an instance of Array';
+    else if (t === 'string')
+      got =
+        "type string ('" + (v.length > 28 ? P.StringPrototypeSlice(v, 0, 25) + '...' : v) + "')";
+    else if (t === 'symbol') got = 'type symbol (' + P.String(v) + ')';
+    else
+      got = 'type ' + t + ' (' + (v === 0 && 1 / v < 0 ? '-0' : v) + (t === 'bigint' ? 'n)' : ')');
+    var e = new P.TypeError('The "options" argument must be of type object. Received ' + got);
     e.code = 'ERR_INVALID_ARG_TYPE';
     return e;
   }

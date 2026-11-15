@@ -1740,7 +1740,51 @@
       "replace": "      return Buffer.allocUnsafe(arg);",
       "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
       "expect_detail": [
-        "buf=8192"
+        "buf=262144"
+      ]
+    },
+    {
+      "name": "73-buffer-type-fill-bigint dies when compare bounds targetStart by the target length",
+      "why": "node bounds compare's *Start by kMaxLength only: Buffer.alloc(3).compare(Buffer.alloc(3), 100) is 1, not a RangeError.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "validateOffsetArg(targetStart, 'targetStart', K_MAX_LENGTH)",
+      "replace": "validateOffsetArg(targetStart, 'targetStart', target.length)",
+      "gate": "compat:tests/node-compat/cases/73-buffer-type-fill-bigint.js",
+      "expect_detail": [
+        "The value of \"targetStart\" is out of range"
+      ]
+    },
+    {
+      "name": "73-buffer-type-fill-bigint dies when write bounds length by the bytes remaining after offset",
+      "why": "node validates write's length against this.length and then clamps: Buffer.alloc(10).write('abcdef', 5, 8) is 5.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "max = validateOffsetArg(length, 'length', this.length);",
+      "replace": "max = validateOffsetArg(length, 'length', remaining);",
+      "gate": "compat:tests/node-compat/cases/73-buffer-type-fill-bigint.js",
+      "expect_detail": [
+        "It must be >= 0 && <= 5. Received 8"
+      ]
+    },
+    {
+      "name": "73-buffer-type-fill-bigint dies when write stops clamping length to the remaining bytes",
+      "why": "an in-range length past the end must be clamped; the hex path copies min(bytes, length) and overruns the view without it.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "        if (max > remaining) max = remaining;\n",
+      "replace": "",
+      "gate": "compat:tests/node-compat/cases/73-buffer-type-fill-bigint.js",
+      "expect_detail": [
+        "lava: write(hex, 5, 8, \"hex\") => THREW RangeError"
+      ]
+    },
+    {
+      "name": "72-events-parity dies when once() stops validating options",
+      "why": "node's events.once rejects a non-object options with ERR_INVALID_ARG_TYPE; without the check once(ee, 'foo', 5) just waits.",
+      "source": "pkg/runtime/js/internal/events.js",
+      "find": "      return P.Promise.reject(errOptionsType(options));",
+      "replace": "      options = undefined;",
+      "gate": "compat:tests/node-compat/cases/72-events-parity.js",
+      "expect_detail": [
+        "bad options 5: TypeError ERR_INVALID_ARG_TYPE"
       ]
     },
     {

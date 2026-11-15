@@ -118,16 +118,14 @@ jsc_buffer_deallocator :: proc "c" (bytes: rawptr, deallocator_context: rawptr) 
 make_uint8_array :: proc(ctx: jsc.JSContextRef, data: []byte) -> jsc.JSValueRef {
 	ptr := raw_data(data)
 	n := len(data)
-	pad: []byte
 	if ptr == nil {
-		pad = make([]byte, 1, runtime.heap_allocator())
+		pad := make([]byte, 1, runtime.heap_allocator())
 		ptr = raw_data(pad)
 		n = 0
 	}
+	// No free on a nil return: JSC already ran jsc_buffer_deallocator (see
+	// make_uint8_array_uninit).
 	array := jsc.make_uint8_nocopy_locked(ctx, ptr, c.size_t(n), jsc_buffer_deallocator)
-	if array == nil && len(pad) > 0 {
-		delete(pad, runtime.heap_allocator())
-	}
 	return cast(jsc.JSValueRef)array
 }
 
@@ -135,7 +133,12 @@ MAX_UNINIT_ALLOC :: 0x7fff_ffff // 2^31 - 1 bytes
 
 // make_uint8_array_uninit allocates `size` uninitialized bytes on runtime.heap_allocator()
 // (matching jsc_buffer_deallocator) and hands them to JavaScriptCore as a NoCopy Uint8Array.
-// Frees the backing slice if JSC declines to take ownership.
+// A nil return needs no free here: JSTypedArray.h documents for
+// JSObjectMakeTypedArrayWithBytesNoCopy that "If an exception is thrown during this
+// function the bytesDeallocator will always be called" (MacOSX.sdk JavaScriptCore
+// Headers/JSTypedArray.h:61) — the bytes are wrapped in ArrayBuffer::createFromBytes
+// with the deallocator as its destructor before the typed array is created, so a
+// failed create drops that buffer and frees them. Deleting again is a double free.
 make_uint8_array_uninit :: proc(ctx: jsc.JSContextRef, size: int) -> (jsc.JSValueRef, bool) {
 	if size <= 0 || size > MAX_UNINIT_ALLOC do return nil, false
 	heap := runtime.heap_allocator()
@@ -147,9 +150,6 @@ make_uint8_array_uninit :: proc(ctx: jsc.JSContextRef, size: int) -> (jsc.JSValu
 		c.size_t(size),
 		jsc_buffer_deallocator,
 	)
-	if array == nil {
-		delete(data, heap)
-		return nil, false
-	}
+	if array == nil do return nil, false
 	return cast(jsc.JSValueRef)array, true
 }

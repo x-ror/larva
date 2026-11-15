@@ -51,6 +51,22 @@ async function testOnceSignal() {
   } catch (e) {
     console.log('bad signal:', e.name, e.code);
   }
+
+  // options itself is validateObject'd: null, scalars, arrays and functions reject.
+  for (const [label, opts] of [
+    ['5', 5],
+    ['null', null],
+    ["'x'", 'x'],
+    ['[]', []],
+    ['function f', function f() {}],
+  ]) {
+    try {
+      await once(ee, 'foo', opts);
+      console.log('bad options', label, 'UNEXPECTED OK');
+    } catch (e) {
+      console.log('bad options', label + ':', e.name, e.code, e.message);
+    }
+  }
 }
 
 function testSetMaxListeners() {

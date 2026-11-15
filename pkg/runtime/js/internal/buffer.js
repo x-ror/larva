@@ -228,6 +228,13 @@
     return offset;
   }
 
+  // Node's validateOffset(value, name, 0, max) as write/compare/fill call it: a
+  // non-number is a type error (no ToNumber coercion), then the integer/range check.
+  function validateOffsetArg(value, name, max) {
+    if (typeof value !== 'number') throw errInvalidArgType(name, 'of type number', value);
+    return validateWriteOffset(value, max, name);
+  }
+
   function errUnknownEncoding(encoding) {
     var e = new TypeError('Unknown encoding: ' + encoding);
     e.code = 'ERR_UNKNOWN_ENCODING';
@@ -615,8 +622,7 @@
         offset = 0;
         length = this.length;
       } else {
-        if (typeof offset !== 'number') throw errInvalidArgType('offset', 'of type number', offset);
-        offset = validateWriteOffset(offset, this.length, 'offset');
+        offset = validateOffsetArg(offset, 'offset', this.length);
         if (typeof length === 'string') {
           encoding = length;
           length = undefined;
@@ -628,8 +634,10 @@
       if (length === undefined) {
         max = remaining;
       } else {
-        if (typeof length !== 'number') throw errInvalidArgType('length', 'of type number', length);
-        max = validateWriteOffset(length, remaining, 'length');
+        // Node bounds `length` by the whole buffer, not by what is left after
+        // `offset`, then clamps: write('abcdef', 5, 8) on 10 bytes writes 5.
+        max = validateOffsetArg(length, 'length', this.length);
+        if (max > remaining) max = remaining;
       }
       if (max <= 0) return 0;
       string = StringG(string);
@@ -661,30 +669,16 @@
     compare(target, targetStart, targetEnd, sourceStart, sourceEnd) {
       if (!(target instanceof Uint8Array))
         throw errInvalidArgType('target', 'an instance of Buffer or Uint8Array', target);
+      // Node bounds the *Start arguments by kMaxLength only, the *End ones by the
+      // buffer length: compare(b3, 100) is 1 (empty target range), not a RangeError.
       if (targetStart === undefined) targetStart = 0;
-      else {
-        if (typeof targetStart !== 'number')
-          throw errInvalidArgType('targetStart', 'of type number', targetStart);
-        targetStart = validateWriteOffset(targetStart, target.length, 'targetStart');
-      }
+      else targetStart = validateOffsetArg(targetStart, 'targetStart', K_MAX_LENGTH);
       if (targetEnd === undefined) targetEnd = target.length;
-      else {
-        if (typeof targetEnd !== 'number')
-          throw errInvalidArgType('targetEnd', 'of type number', targetEnd);
-        targetEnd = validateWriteOffset(targetEnd, target.length, 'targetEnd');
-      }
+      else targetEnd = validateOffsetArg(targetEnd, 'targetEnd', target.length);
       if (sourceStart === undefined) sourceStart = 0;
-      else {
-        if (typeof sourceStart !== 'number')
-          throw errInvalidArgType('sourceStart', 'of type number', sourceStart);
-        sourceStart = validateWriteOffset(sourceStart, this.length, 'sourceStart');
-      }
+      else sourceStart = validateOffsetArg(sourceStart, 'sourceStart', K_MAX_LENGTH);
       if (sourceEnd === undefined) sourceEnd = this.length;
-      else {
-        if (typeof sourceEnd !== 'number')
-          throw errInvalidArgType('sourceEnd', 'of type number', sourceEnd);
-        sourceEnd = validateWriteOffset(sourceEnd, this.length, 'sourceEnd');
-      }
+      else sourceEnd = validateOffsetArg(sourceEnd, 'sourceEnd', this.length);
       if (sourceStart >= sourceEnd && targetStart >= targetEnd) return 0;
       if (sourceStart >= sourceEnd) return -1;
       if (targetStart >= targetEnd) return 1;
@@ -704,15 +698,9 @@
         end = this.length;
       }
       if (start === undefined) start = 0;
-      else {
-        if (typeof start !== 'number') throw errInvalidArgType('offset', 'of type number', start);
-        start = validateWriteOffset(start, K_MAX_LENGTH, 'offset');
-      }
+      else start = validateOffsetArg(start, 'offset', K_MAX_LENGTH);
       if (end === undefined) end = this.length;
-      else {
-        if (typeof end !== 'number') throw errInvalidArgType('end', 'of type number', end);
-        end = validateWriteOffset(end, this.length, 'end');
-      }
+      else end = validateOffsetArg(end, 'end', this.length);
       if (end <= start) return this;
       var bytes;
       if (typeof value === 'string') {
