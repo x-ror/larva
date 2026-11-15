@@ -7,22 +7,12 @@
 
   var customInspect =
     typeof Symbol !== 'undefined' && Symbol.for ? Symbol.for('nodejs.util.inspect.custom') : null;
-  // Captured at prelude eval, before any user code runs.
-  var ObjectHasOwn = Object.hasOwn;
-  // Stack-overflow latch for custom hooks; the same design as internal/util.js
-  // callCustomInspect (copied, not shared: this prelude has no `require`).
-  var hookNesting = 0;
-  var hookOverflow = null;
 
   function quote(s) {
     return "'" + s.replaceAll('\\', '\\\\').replaceAll("'", "\\'").replaceAll('\n', '\\n') + "'";
   }
 
-  // `maxDepth` is the nesting cut-off. The prelude's own callers omit it and keep the
-  // historical 4 (node's console.log cuts at 2 — a pre-existing gap, not touched here);
-  // inspectWithOptions passes a caller's `depth` through.
-  function inspect(v, seen, depth, maxDepth) {
-    if (maxDepth === undefined) maxDepth = 4;
+  function inspect(v, seen, depth) {
     var t = typeof v;
     if (v === null) return 'null';
     if (t === 'undefined') return 'undefined';
@@ -38,53 +28,39 @@
     // Honor the util.inspect custom hook (Buffer renders as "<Buffer ..>"). Node
     // passes (depth, options, inspect) and inspects a non-string result in place
     // (a string is used verbatim; returning the object itself falls through).
-    //
-    // The third argument mirrors internal/util.js: an inspect that starts again at
-    // depth 0 under the options it is given, as node's util.inspect does. It used to
-    // be a one-argument closure that dropped those options and continued this call's
-    // nesting, so Buffer's extra properties printed at the prelude's depth instead of
-    // node's (`console.log(b)` with `b.o` five levels deep showed four of them). Like
-    // util.js it catches a stack overflow escaping a hook (a hook that inspects its own
-    // ancestor) and latches it, so console.log prints instead of throwing; see
-    // inspectWithOptions.
-    //
-    // A copy rather than a call into util.js because this prelude runs before the module
-    // loader and has no `require`; the two inspectors are to be unified under #104.
     if (customInspect && typeof v[customInspect] === 'function') {
-      var custom = callCustomInspect(v, depth);
+      var nested = seen.concat([v]);
+      var recurse = function (val) {
+        return inspect(val, nested, depth + 1);
+      };
+      var custom = v[customInspect](depth, {}, recurse);
       if (custom !== v) {
-        return typeof custom === 'string'
-          ? custom
-          : inspect(custom, seen.concat([v]), depth, maxDepth);
+        return typeof custom === 'string' ? custom : inspect(custom, nested, depth);
       }
     }
     if (seen.indexOf(v) !== -1) return '[Circular *1]';
     if (v instanceof Error) return v.stack ? v.stack : v.name + ': ' + v.message;
     if (v instanceof Date) return isNaN(v.getTime()) ? 'Invalid Date' : v.toISOString();
     if (v instanceof RegExp) return v.toString();
-    if (depth > maxDepth) return Array.isArray(v) ? '[Array]' : '[Object]';
+    if (depth > 4) return Array.isArray(v) ? '[Array]' : '[Object]';
     seen = seen.concat([v]);
     if (Array.isArray(v)) {
       if (v.length === 0) return '[]';
       var arr = [];
-      for (var i = 0; i < v.length; i++) arr.push(inspect(v[i], seen, depth + 1, maxDepth));
+      for (var i = 0; i < v.length; i++) arr.push(inspect(v[i], seen, depth + 1));
       return '[ ' + arr.join(', ') + ' ]';
     }
     if (typeof Map !== 'undefined' && v instanceof Map) {
       var mp = [];
       v.forEach(function (val, key) {
-        mp.push(
-          inspect(key, seen, depth + 1, maxDepth) +
-            ' => ' +
-            inspect(val, seen, depth + 1, maxDepth),
-        );
+        mp.push(inspect(key, seen, depth + 1) + ' => ' + inspect(val, seen, depth + 1));
       });
       return 'Map(' + v.size + ') {' + (mp.length > 0 ? ' ' + mp.join(', ') + ' ' : '') + '}';
     }
     if (typeof Set !== 'undefined' && v instanceof Set) {
       var st = [];
       v.forEach(function (val) {
-        st.push(inspect(val, seen, depth + 1, maxDepth));
+        st.push(inspect(val, seen, depth + 1));
       });
       return 'Set(' + v.size + ') {' + (st.length > 0 ? ' ' + st.join(', ') + ' ' : '') + '}';
     }
@@ -96,51 +72,9 @@
     for (var k = 0; k < keys.length; k++) {
       var key = keys[k];
       var label = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? key : quote(key);
-      props.push(label + ': ' + inspect(v[key], seen, depth + 1, maxDepth));
+      props.push(label + ': ' + inspect(v[key], seen, depth + 1));
     }
     return prefix + '{ ' + props.join(', ') + ' }';
-  }
-
-  // The hook's inspect argument, util.inspect-shaped: (value, options) from depth 0, with
-  // node's default depth of 2 and `depth: null` meaning unbounded. `depth` is read as an
-  // OWN option only, as node copies only the caller's own keys: an inherited read let a
-  // polluted Object.prototype.depth = null lift the bound for every hook's sub-inspect.
-  // Pinned Lava-only by buffer_inspect_extras_pollution
-  // (cmd/lava/buffer_inspect_extras_test.odin).
-  //
-  // It also catches a stack overflow, where internal/util.js hookInspect does and for the
-  // same reasons (node catches it while formatting, not around the hook call; the first
-  // one is latched so a cycle with several ways back throws in bounded time instead of
-  // re-descending per key).
-  function inspectWithOptions(value, options) {
-    var d =
-      options !== null && typeof options === 'object' && ObjectHasOwn(options, 'depth')
-        ? options.depth
-        : undefined;
-    if (hookOverflow !== null) throw hookOverflow;
-    try {
-      return inspect(value, [], 0, d === undefined ? 2 : d === null ? Infinity : d);
-    } catch (e) {
-      if (
-        e === hookOverflow ||
-        e === null ||
-        typeof e !== 'object' ||
-        e.name !== 'RangeError' ||
-        e.message !== 'Maximum call stack size exceeded.'
-      )
-        throw e;
-      hookOverflow = e;
-      return '[Object: Inspection interrupted prematurely. Maximum call stack size exceeded.]';
-    }
-  }
-
-  function callCustomInspect(v, depth) {
-    hookNesting++;
-    try {
-      return v[customInspect](depth, {}, inspectWithOptions);
-    } finally {
-      if (--hookNesting === 0) hookOverflow = null;
-    }
   }
 
   function stringify(v) {
