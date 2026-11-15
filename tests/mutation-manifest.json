@@ -1489,6 +1489,17 @@
       "replace": "",
       "gate": "odin:cmd/lava:main.eval_reports_a_top_level_throw_before_teardown",
       "expect_detail": "expected seen.calls to be 1, got 0"
+    },
+    {
+      "name": "uncaught-before-teardown dies when lava eval prints the result after eval returns",
+      "why": "`lava eval` wires the report hook separately from `lava run`; printing after runtime.eval returns waits for eval's teardown to join a worker blocked without bound, so a top-level throw hangs with empty stderr where `node -e` prints the error first (node v24.22.1, probe case H).",
+      "source": "cmd/lava/main.odin",
+      "find": "\tresult := lava_runtime.eval(args[0], \"<eval>\", &loop, true, report = print_result)\n",
+      "replace": "\tresult := lava_runtime.eval(args[0], \"<eval>\", &loop, true)\n\tprint_result(result, nil)\n",
+      "gate": "node-test:tests/stdio/uncaught-before-teardown.test.mjs",
+      "test": "lava eval reports a top-level throw while a pool worker is still blocked",
+      "expect_detail": "lava did not report the throw within",
+      "rebuild": true
     }
   ]
 }

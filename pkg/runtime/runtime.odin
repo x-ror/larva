@@ -79,16 +79,6 @@ release_global_context_after_eval :: proc(ctx: jsc.JSGlobalContextRef) {
 	}
 }
 
-// echo_result mirrors REPL behavior: when true (the `lava eval` path) the
-// script's completion value is returned for printing. `lava run` passes false so
-// running a file never echoes a trailing expression value, matching `node file`
-// (and avoiding JSC-version-dependent completion values like `[object Promise]`).
-//
-// OWNERSHIP: a non-nil `loop` is CONSUMED — eval destroys it before returning on
-// EVERY path (a pre-flight input rejection, a thrown top-level exception, or a
-// clean run), and for any path that created handles it does so while the context
-// they are GC-protected against is still alive. Callers must not destroy the loop
-// themselves (a double destroy closes fd 0); they only init it and pass it in.
 // Pre_Run_Hook fires once per eval, after top-level evaluation has succeeded (listeners bound,
 // context up) and BEFORE the event loop starts. It returns whether the loop should run: the
 // multi-worker supervisor uses it as the startup-barrier rendezvous (report ready, block until the
@@ -106,8 +96,10 @@ Pre_Run_Hook :: proc(user_data: rawptr) -> bool
 // Node:
 //   Node writes an uncaught top-level error to stderr before its exit-time teardown
 //   joins libuv's worker pool, so a script that throws with a worker blocked (a
-//   readFile on a FIFO nobody writes) prints its error and then hangs — verified on
-//   node v24.22.1 (probe case H). The CLI passes its printer here to keep that
+//   readFile on a FIFO nobody writes) prints its error and then hangs. Verified on
+//   node v24.22.1 (probe case H): fs.readFile on a mkfifo with no writer, a throw
+//   once a worker sat in the FIFO open, stderr watched while the process was stuck,
+//   then killed. The CLI passes its printer here to keep that
 //   order: eval's deferred eventloop.destroy joins the loop's pool workers, and
 //   printing after eval returned left Lava hanging with empty stderr. Pinned by
 //   tests/stdio/uncaught-before-teardown.test.mjs and
@@ -129,6 +121,20 @@ reported :: proc(result: Result, report: Result_Hook, report_data: rawptr) -> Re
 	return result
 }
 
+// echo_result mirrors REPL behavior: when true (the `lava eval` path) the
+// script's completion value is returned for printing. `lava run` passes false so
+// running a file never echoes a trailing expression value, matching `node file`
+// (and avoiding JSC-version-dependent completion values like `[object Promise]`).
+//
+// OWNERSHIP: a non-nil `loop` is CONSUMED — eval destroys it before returning on
+// EVERY path (a pre-flight input rejection, a thrown top-level exception, or a
+// clean run), and for any path that created handles it does so while the context
+// they are GC-protected against is still alive. Callers must not destroy the loop
+// themselves (a double destroy closes fd 0); they only init it and pass it in.
+//
+// REPORT: a non-nil `report` (Result_Hook) fires exactly once on every return —
+// pre-flight rejections included — with the Result being returned, before eval's
+// deferred loop teardown and context release run.
 eval :: proc(
 	source: string,
 	source_name := "<eval>",
