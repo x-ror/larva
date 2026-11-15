@@ -1,0 +1,253 @@
+{
+  "$comment": [
+    "Recorded mutations for the #391 work (branch claude/wizardly-cerf-eqzmwa, verified at 49bc489).",
+    "They belong in tests/mutation-manifest.json, which agent sessions may not edit: append these to its `mutations` array and delete this file.",
+    "Each `find` was checked unique in its source at 49bc489 and each mutant was run and went red.",
+    "Entry 6 carries the expect_detail corrected by the final review (the runner's first-diff window no longer reaches the old line).",
+    "Not included: the two hook-side rethrow-filter entries and the regate of the case-70 cycle entry — both depend on test changes tracked in the follow-up issues."
+  ],
+  "mutations": [
+    {
+      "name": "70-buffer-size-inspect-parity dies when assertSize splices a bare type name",
+      "why": "node prints `must be of type number` for Buffer.alloc('5'); a bare 'number' prints `must be number`.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "throw errInvalidArgType('size', 'of type number', size);",
+      "replace": "throw errInvalidArgType('size', 'number', size);",
+      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
+      "expect_detail": [
+        "The \"size\" argument must be number"
+      ]
+    },
+    {
+      "name": "70-buffer-size-inspect-parity dies when checkBounds splices a bare type name",
+      "why": "every fixed-width read/write reports its offset type error here; node says `must be of type number`.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "throw errInvalidArgType('offset', 'of type number', offset);",
+      "replace": "throw errInvalidArgType('offset', 'number', offset);",
+      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
+      "expect_detail": [
+        "The \"offset\" argument must be number"
+      ]
+    },
+    {
+      "name": "70-buffer-size-inspect-parity dies when Buffer.concat's length check splices a bare type name",
+      "why": "Buffer.concat(list, '5') must say `The \"length\" argument must be of type number`.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "throw errInvalidArgType('length', 'of type number', totalLength);",
+      "replace": "throw errInvalidArgType('length', 'number', totalLength);",
+      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
+      "expect_detail": [
+        "The \"length\" argument must be number"
+      ]
+    },
+    {
+      "name": "70-buffer-size-inspect-parity dies when the deprecated Buffer(n) skips assertSize",
+      "why": "Buffer(-1) would throw JSC's codeless 'length cannot be negative' and Buffer(NaN) return an empty Buffer; node throws ERR_OUT_OF_RANGE.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "      assertSize(arg);\n",
+      "replace": "",
+      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
+      "expect_detail": [
+        "length cannot be negative"
+      ]
+    },
+    {
+      "name": "70-buffer-size-inspect-parity dies when the more-bytes separator is dropped with no hex shown",
+      "why": "node prints `<Buffer  ... 3 more bytes>` (two spaces) when INSPECT_MAX_BYTES = 0.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "hex += ' ... ' + remaining",
+      "replace": "hex += (hex ? ' ' : '') + '... ' + remaining",
+      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
+      "expect_detail": [
+        "<Buffer ... 1 more byte>"
+      ]
+    },
+    {
+      "name": "70-buffer-size-inspect-parity dies when the Buffer inspect hook stops rendering extra own properties",
+      "why": "node shows a Buffer's extra own properties after the bytes.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "extras = inspectExtras(this, ctx, inspect);",
+      "replace": "extras = '';",
+      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
+      "expect_detail": [
+        "cycle 2 self-refs util.inspect: returned"
+      ]
+    },
+    {
+      "name": "70-buffer-size-inspect-parity dies when the symbol-key loop stops filtering non-enumerables",
+      "why": "node lists a non-enumerable symbol-keyed extra only under showHidden.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "      if (showHidden || isEnumerableOwn(buf, key)) {\n        if (opts === null) opts = extrasOptions(ctx, showHidden);\n        piece = inspectExtra(StringG(key)",
+      "replace": "      if (true) {\n        if (opts === null) opts = extrasOptions(ctx, showHidden);\n        piece = inspectExtra(StringG(key)",
+      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
+      "expect_detail": [
+        "keys: \"<Buffer 00 01 02, '1a': 1, a1: 2, Symbol(h): 3"
+      ]
+    },
+    {
+      "name": "70-buffer-size-inspect-parity dies when isPlainKey accepts a leading digit",
+      "why": "node's keyStrRegExp quotes '1a'.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "(i > 0 && c >= 0x30 && c <= 0x39)",
+      "replace": "(c >= 0x30 && c <= 0x39)",
+      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
+      "expect_detail": [
+        "1a: 1"
+      ]
+    },
+    {
+      "name": "70-buffer-size-inspect-parity dies when a context-only buf.inspect(0, {}) stops rendering extras",
+      "why": "node renders extras for a direct call with an options object and no inspect function.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "inspect = require('util').inspect;",
+      "replace": "return '<Buffer ' + str + '>';",
+      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
+      "expect_detail": [
+        "inspect(0, {}): \"<Buffer 00 01 02>\""
+      ]
+    },
+    {
+      "name": "70-buffer-size-inspect-parity dies when the Buffer overflow catch swallows non-overflow errors",
+      "why": "node lets a TypeError from a nested hook propagate out of inspect; a catch-all prints the interrupted marker instead.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "if (e === inspectOverflow || !isStackOverflow(e)) throw e;",
+      "replace": "if (e === inspectOverflow) throw e;",
+      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
+      "expect_detail": [
+        "nested hook TypeError util.inspect: returned"
+      ]
+    },
+    {
+      "name": "buffer_inspect_cycle_bounded dies when a Buffer hook re-swallows the overflow it already reported",
+      "why": "without the identity rethrow each enclosing Buffer hook swallows the latched overflow again, so a Buffer with two ways back returns instead of throwing like node.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "if (e === inspectOverflow || !isStackOverflow(e)) throw e;",
+      "replace": "if (!isStackOverflow(e)) throw e;",
+      "gate": "odin:cmd/lava:main.buffer_inspect_cycle_bounded",
+      "expect_detail": [
+        "2 refs inspect outcome: want threw got returned"
+      ]
+    },
+    {
+      "name": "buffer_inspect_cycle_bounded dies when util's hook-side overflow latch is removed",
+      "why": "without the latch every enclosing hook re-descends to the stack limit per key, so `b.k0 = b; b.k1 = b` does work like 2^depth and never finishes.",
+      "source": "pkg/runtime/js/internal/util.js",
+      "find": "    if (hookOverflow !== null) throw hookOverflow;",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.buffer_inspect_cycle_bounded",
+      "expect_detail": [
+        "timed out"
+      ]
+    },
+    {
+      "name": "buffer_inspect_cycle_bounded dies when console's hook-side overflow latch is removed",
+      "why": "console.log of a Buffer with two ways back to itself would never finish.",
+      "source": "pkg/runtime/js/console.js",
+      "find": "    if (hookOverflow !== null) throw hookOverflow;",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.buffer_inspect_cycle_bounded",
+      "expect_detail": [
+        "timed out"
+      ]
+    },
+    {
+      "name": "71-inspect-hook-ancestor-cycle dies when a hook's util.inspect stops catching the stack overflow",
+      "why": "a user hook inspecting its own ancestor made util.inspect throw RangeError; node catches and prints.",
+      "source": "pkg/runtime/js/internal/util.js",
+      "find": ": hookInspect(v, opts);",
+      "replace": ": inspect(v, opts, [], 0);",
+      "gate": "compat:tests/node-compat/cases/71-inspect-hook-ancestor-cycle.js",
+      "expect_detail": [
+        "util.inspect: threw RangeError"
+      ]
+    },
+    {
+      "name": "buffer_inspect_hook_ancestor_cycle dies when console's hook inspect stops catching the stack overflow",
+      "why": "console.log of a parent-pointer structure with a custom hook would throw RangeError and kill the process.",
+      "source": "pkg/runtime/js/console.js",
+      "find": "      hookOverflow = e;\n      return '[Object:",
+      "replace": "      throw e;\n      return '[Object:",
+      "gate": "odin:cmd/lava:main.buffer_inspect_hook_ancestor_cycle",
+      "expect_detail": [
+        "Maximum call stack size exceeded"
+      ]
+    },
+    {
+      "name": "70-buffer-size-inspect-parity dies when top-level util.inspect catches errors thrown by a hook's own getter",
+      "why": "node catches overflow only while formatting, so a getter throwing a forged overflow RangeError propagates; catching at the top swallows it and changes cycle outcomes.",
+      "source": "pkg/runtime/js/internal/util.js",
+      "find": "return hookNesting === 0 ? inspect(v, opts, [], 0) : hookInspect(v, opts);",
+      "replace": "return hookInspect(v, opts);",
+      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
+      "expect_detail": [
+        "cycle 2 self-refs util.inspect: returned"
+      ]
+    },
+    {
+      "name": "buffer_inspect_cycle_bounded dies when util passes hooks a depth-inheriting closure instead of util.inspect",
+      "why": "node passes util.inspect itself; the old closure also bypasses the overflow latch, so cycles stop terminating.",
+      "source": "pkg/runtime/js/internal/util.js",
+      "find": "return v[customInspect](depth, opts, inspectPublic);",
+      "replace": "return v[customInspect](depth, opts, function (val, o) { return inspect(val, o || opts, [v], depth + 1); });",
+      "gate": "odin:cmd/lava:main.buffer_inspect_cycle_bounded",
+      "expect_detail": [
+        "timed out"
+      ]
+    },
+    {
+      "name": "buffer_inspect_cycle_bounded dies when console hands hooks the old one-argument closure",
+      "why": "the closure dropped options (wrong depth for extras) and bypasses the overflow latch.",
+      "source": "pkg/runtime/js/console.js",
+      "find": "return v[customInspect](depth, {}, inspectWithOptions);",
+      "replace": "return v[customInspect](depth, {}, function (val) { return inspect(val, [v], depth + 1); });",
+      "gate": "odin:cmd/lava:main.buffer_inspect_cycle_bounded",
+      "expect_detail": [
+        "timed out"
+      ]
+    },
+    {
+      "name": "buffer_inspect_extras_cap dies when the Buffer extras string-key cap moves",
+      "why": "the string-key scan is O(length), capped at 64 (cost recorded in buffer.js).",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "var INSPECT_EXTRAS_MAX_LENGTH = 64;",
+      "replace": "var INSPECT_EXTRAS_MAX_LENGTH = 65;",
+      "gate": "odin:cmd/lava:main.buffer_inspect_extras_cap",
+      "expect_detail": [
+        "65 omits string key"
+      ]
+    },
+    {
+      "name": "buffer_inspect_extras_pollution dies when the hook reads showHidden through the prototype chain",
+      "why": "a polluted Object.prototype.showHidden would list hidden properties of every logged Buffer.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "var showHidden = ObjectPrototypeHasOwnProperty(ctx, 'showHidden') && !!ctx.showHidden;",
+      "replace": "var showHidden = !!ctx.showHidden;",
+      "gate": "odin:cmd/lava:main.buffer_inspect_extras_pollution",
+      "expect_detail": [
+        "inherited showHidden"
+      ]
+    },
+    {
+      "name": "buffer_inspect_extras_pollution dies when the hook reads depth through the prototype chain",
+      "why": "a polluted Object.prototype.depth = null would lift the depth bound on every logged Buffer's extras.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "depth: ObjectPrototypeHasOwnProperty(ctx, 'depth') ? ctx.depth : undefined,",
+      "replace": "depth: ctx.depth,",
+      "gate": "odin:cmd/lava:main.buffer_inspect_extras_pollution",
+      "expect_detail": [
+        "inherited depth"
+      ]
+    },
+    {
+      "name": "buffer_inspect_extras_pollution dies when console's hook inspect reads depth through the prototype chain",
+      "why": "a polluted Object.prototype.depth = null would lift the depth bound for every custom hook's sub-inspect under console.log.",
+      "source": "pkg/runtime/js/console.js",
+      "find": "options !== null && typeof options === 'object' && ObjectHasOwn(options, 'depth')",
+      "replace": "options !== null && typeof options === 'object'",
+      "gate": "odin:cmd/lava:main.buffer_inspect_extras_pollution",
+      "expect_detail": [
+        "console hook inherited depth"
+      ]
+    }
+  ]
+}
