@@ -140,24 +140,24 @@ native-deps:
 	$(RUNSCRIPT) ./scripts/build-native-deps.sh
 
 check-js:
-	vp run js:check
+	bun run js:check
 
 fix-js:
-	vp run js:fix
+	bun run js:fix
 
 # Markdown lint over the repo's own docs (config + rationale for the two disabled rules:
 # .markdownlint-cli2.jsonc). Catches MD040 and friends locally instead of in review.
 check-md:
-	vp run md:check
+	bun run md:check
 
 fix-md:
-	vp run md:fix
+	bun run md:fix
 
 # actionlint (WASM build, no Go toolchain) over .github/workflows. Catches the semantic
 # mistakes a YAML parse cannot: contexts used where they are not available, bad `needs`,
 # shellcheck errors inside `run:` blocks.
 check-actions:
-	vp run actions:check
+	bun run actions:check
 
 # Prototype-pollution ratchet over the embedded runtime JS (also part of check-js).
 # UPDATE=1 LOWERS the baseline after hardening a module; a RAISE is refused
