@@ -8,7 +8,7 @@
 
   // Captured for encodeValue, which replaced a global-flag replace reachable from a
   // remote Content-Type. This file is not otherwise hardened — see the ratchet baseline.
-  var P = require('primordials');
+  var P = require('internal/primordials');
   var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;
   var StringPrototypeSlice = P.StringPrototypeSlice;
   var RegExpMatches = P.RegExpMatches;

@@ -7,14 +7,14 @@ import "core:strconv"
 import jsc "lava:pkg/jsc"
 import sqlite "lava:pkg/std/sqlite"
 
-// node:sqlite bridge. js/internal/sqlite.js implements the DatabaseSync /
+// node:sqlite bridge. js/node/sqlite.js implements the DatabaseSync /
 // StatementSync classes on top of these native primitives; the heavy lifting
 // (the libsqlite3 calls) lives in pkg/std/sqlite. JS holds opaque integer handle
 // ids; the real ^sqlite.Database / ^sqlite.Statement live in the per-context
 // registries on Runtime_State, so they are closed/freed when the context is torn
 // down even if user code forgets to call db.close().
 
-// make_sqlite_bindings builds the `native` object handed to js/internal/sqlite.js.
+// make_sqlite_bindings builds the `native` object handed to js/node/sqlite.js.
 make_sqlite_bindings :: proc(ctx: jsc.JSContextRef) -> jsc.JSObjectRef {
 	bindings := jsc.JSObjectMake(ctx, nil, nil)
 	inject_native_function(ctx, bindings, "open", sqlite_open_cb)
@@ -293,7 +293,7 @@ sqlite_bind_cb :: proc "c" (
 	index := int(jsc.JSValueToNumber(ctx, args[1], nil))
 	value := args[2]
 
-	// js/internal/sqlite.js validates the value type before calling here, so the
+	// js/node/sqlite.js validates the value type before calling here, so the
 	// bridge only ever sees the bindable types (null/number/string/TypedArray) and
 	// routes BigInt through sqlite_bind_bigint_cb. The default branch stays as a
 	// defensive backstop: undefined, booleans, plain objects, etc. throw rather

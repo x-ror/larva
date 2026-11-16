@@ -12,7 +12,7 @@
 
   // Handles for the code added with the node 24 buffer binding. The rest of the file
   // still reads its globals live — see its pollution baseline.
-  var P = require('primordials');
+  var P = require('internal/primordials');
   var ArrayBufferGetByteLength = P.ArrayBufferPrototypeGetByteLength;
   var SharedArrayBufferGetByteLength = P.SharedArrayBufferPrototypeGetByteLength;
   var ObjectGetPrototypeOf = P.ObjectGetPrototypeOf;

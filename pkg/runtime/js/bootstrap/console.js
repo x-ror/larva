@@ -94,7 +94,7 @@
     // `%%` was folded unconditionally.
     // `typeof first === 'string'` matters: `format(5, '%%')` has no format string
     // at all, so node inspects and space-joins, leaving the later `%%` literal.
-    // Duplicated from internal/util.js rather than shared, and deliberately: this
+    // Duplicated from node/util.js rather than shared, and deliberately: this
     // prelude runs before the module loader, receives only the native write
     // functions, and has no `require` to reach util with.
     if (args.length === 1 && typeof first === 'string') return first;

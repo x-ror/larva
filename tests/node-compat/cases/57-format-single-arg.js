@@ -11,7 +11,7 @@
 // 31-row contract probe diverged, all of them `%%`.
 //
 // TWO implementations are covered on purpose. `util.format` runs
-// internal/util.js's formatWithOptions; `console.log` runs console.js's own
+// node/util.js's formatWithOptions; `console.log` runs console.js's own
 // formatArgs, because console.js is the bootstrap prelude — it receives native
 // write functions and has no `require`, so it cannot delegate. A test through
 // `util` alone would leave console.js unpinned, and the two are pinned by separate

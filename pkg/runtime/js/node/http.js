@@ -33,7 +33,7 @@
   var BufferPrototypeSlice = PristineBuffer.bufferSlice;
   var net = require('net');
   /** Pristine intrinsics — response head must not use overridable Buffer methods. */
-  var primordials = require('primordials');
+  var primordials = require('internal/primordials');
   // Every regex below decides FRAMING over attacker-controlled bytes, so none of
   // them may go through `re.test(...)`: `RegExp.prototype.exec` is a writable data
   // property, and the spec's RegExpExec re-reads it off the receiver, so a plain

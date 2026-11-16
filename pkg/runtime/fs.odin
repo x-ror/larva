@@ -39,7 +39,7 @@ fs_read_file_sync_cb :: proc "c" (
 	// BYTES ONLY. This native used to decode here when an encoding was supplied, and that
 	// branch was deleted rather than merely bypassed: it honored the PRESENCE of an
 	// encoding but never its value (every name decoded as UTF-8), and its conversion
-	// returned an empty string for input it could not decode. js/internal/fs.js owns
+	// returned an empty string for input it could not decode. js/node/fs.js owns
 	// decoding now, through Buffer's codecs. Leaving the branch in place would have left
 	// the defective implementation reachable-looking for the next reader (#329).
 	//
@@ -1295,7 +1295,7 @@ fs_exists_sync_cb :: proc "c" (
 }
 
 // make_fs_bindings returns the Odin-backed primitives behind `node:fs`, for
-// js/internal/fs.js to wrap.
+// js/node/fs.js to wrap.
 //
 // Returns:
 //   A fresh object carrying one native function per primitive; the loader hands it to the

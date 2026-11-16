@@ -165,7 +165,7 @@ global_dirname :: proc(ctx: jsc.JSContextRef) -> (string, bool) {
 }
 
 // is_absolute_path classifies module specifiers during resolution. (node:path's
-// own isAbsolute lives in js/internal/path.js.)
+// own isAbsolute lives in js/node/path.js.)
 is_absolute_path :: proc(path: string) -> bool {
 	when ODIN_OS == .Windows {
 		if len(path) == 0 do return false

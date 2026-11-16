@@ -51,11 +51,11 @@ test('every allowlisted site carries a reason and a stable key (not file:line)',
 test('allowKey prefers binding name over line (#337)', async () => {
   const { allowKey } = await import('./lib/global-replace-detect.mjs');
   const key = allowKey({
-    file: 'internal/util.js',
+    file: 'node/util.js',
     line: 9999,
     how: '.replace()',
     what: 'ansiRegex = /x/g',
     via: 'binding',
   });
-  assert.equal(key, 'internal/util.js:ansiRegex');
+  assert.equal(key, 'node/util.js:ansiRegex');
 });

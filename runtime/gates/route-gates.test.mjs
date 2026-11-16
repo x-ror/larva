@@ -8,7 +8,7 @@ test('ALWAYS is included for any path', () => {
 });
 
 test('loader.js routes strict + smokes (not silent drop of **.js)', () => {
-  const r = routePaths(['pkg/runtime/js/internal/loader.js']);
+  const r = routePaths(['pkg/runtime/js/bootstrap/loader.js']);
   assert.ok(r.targets.includes('make test-compat-lava-strict'));
   assert.ok(r.targets.includes('make test-fs-lava'));
   assert.ok(r.targets.includes('make check-js'));
@@ -29,6 +29,6 @@ test('bench path routes bench-gate', () => {
 });
 
 test('invalid **.js style is not required — **/* works', () => {
-  const r = routePaths(['pkg/runtime/js/console.js']);
+  const r = routePaths(['pkg/runtime/js/bootstrap/console.js']);
   assert.ok(r.targets.includes('make check-js'));
 });

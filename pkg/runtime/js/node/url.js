@@ -26,7 +26,7 @@
   // are pristine and cannot be re-pointed later (a poisoned Math.floor, String,
   // decodeURIComponent, or String.prototype.normalize otherwise silently
   // substitutes hosts / disables IPv4 normalization; see the URL vector audit).
-  var P = require('primordials');
+  var P = require('internal/primordials');
   // Every regex below runs over a caller-supplied URL, so none may go through
   // `re.test(...)`: `RegExp.prototype.exec` is a writable data property and the
   // spec's RegExpExec re-reads it off the receiver, so a plain assignment steers

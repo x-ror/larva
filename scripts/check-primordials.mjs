@@ -136,7 +136,7 @@ if (stale.length > 0) {
 if (failed) {
   console.error(
     '\nPollution ratchet FAILED: a module gained pollutable sites. The fix depends on\n' +
-      "the class:  method/invoke -> route through primordials (require('primordials'),\n" +
+      "the class:  method/invoke -> route through primordials (require('internal/primordials'),\n" +
       '            ReflectApply for .call/.apply)\n' +
       '            accessor     -> read via a captured getter, e.g.\n' +
       '                            TypedArrayPrototypeGetBuffer(view)\n' +

@@ -53,8 +53,9 @@ Tracked against the `tests/node-compat/cases` oracle. Every case in
 
 ### Internal JS module layer (done in this batch)
 
-Built-ins now live as embedded JS factories under `pkg/runtime/js/internal/`,
-wired by a small loader (`loader.js`) that native `require()` consults before
+Built-ins now live as embedded JS factories under `pkg/runtime/js/node/` (public,
+path == specifier) and `pkg/runtime/js/internal/` (helpers only builtins reach),
+wired by a small loader (`js/bootstrap/loader.js`) that native `require()` consults before
 the filesystem (`require_builtin` in `globals.odin`). Minimal, original
 implementations — a small internal `primordials` table for pollution hardening
 (§5.5 of [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)), no `internalBinding`
@@ -168,7 +169,7 @@ the index, the issue is the detail. Ordered by what it unblocks.
       bolted onto #326.
 - [x] **`node:fs` had no JS layer, and three read bugs lived in the gap**
       ([#329](https://github.com/x-ror/lava/issues/329)) — fixed by adding
-      `js/internal/fs.js` over `make_fs_bindings`, so `node:fs` is no longer the
+      `js/node/fs.js` over `make_fs_bindings`, so `node:fs` is no longer the
       native-direct outlier ARCHITECTURE.md §3.4 named. All three were pre-existing and
       none threw — each returned plausible-looking wrong output: 1. **Reads returned a bare `Uint8Array`, not a `Buffer`.** `Buffer.isBuffer` was
       false and `.toString('hex')` fell through to `Uint8Array.prototype.toString`,
@@ -316,7 +317,7 @@ the index, the issue is the detail. Ordered by what it unblocks.
       `Array.prototype.at` reads on the mode stack (`at(-1)` for the current frame,
       `at(-2)` for the `${}` close). The `charCodeAt` they moved onto is pinned too,
       because that is the same lesson `http.js` had already taught.
-      It cannot `require('primordials')` — the runtime evaluates it standalone and keeps
+      It cannot `require('internal/primordials')` — the runtime evaluates it standalone and keeps
       it off the module table precisely so user code cannot reach the transform — so it
       takes the table as a factory argument, handed out by `loader.js` and passed in by
       `globals.odin`, which fails closed when it is missing.
@@ -383,7 +384,7 @@ the index, the issue is the detail. Ordered by what it unblocks.
       them `%%` with one argument. The directive cases (`%s`, `%z`, `100%`) already
       matched by a different route — the "arguments exhausted" branch re-emits
       `'%' + spec` — which is why the guard belongs before the loop, not in it.
-      Both implementations were wrong: `internal/util.js` behind `util.format`, and
+      Both implementations were wrong: `node/util.js` behind `util.format`, and
       `console.js`'s own `formatArgs` behind `console.log`. The duplication stays,
       justified: `console.js` is the bootstrap prelude, takes the native write
       functions as arguments, and has no `require` to delegate with.
@@ -413,7 +414,7 @@ the index, the issue is the detail. Ordered by what it unblocks.
 - [x] **Promise ↔ event-loop ordering.** JSC drains its own promise microtask
       queue at every C-API boundary, so `Promise.then` used to run _before_
       `process.nextTick` (Node is the reverse). `queueMicrotask` lives in a JS shim
-      (`js/internal/microtasks.js`) that schedules a JSC microtask, so it shares one
+      (`js/bootstrap/microtasks.js`) that schedules a JSC microtask, so it shares one
       FIFO with promise jobs. `process.nextTick` keeps Node's **absolute** priority
       by _not_ living in JSC's queue: nextTick callbacks accumulate in a JS-owned
       queue, and native drains it at two checkpoints that recreate Node's
@@ -431,7 +432,7 @@ the index, the issue is the detail. Ordered by what it unblocks.
 - [x] **ESM** — `.mjs` files, static `import` / `export`, `import.meta.url`, and
       `node:url` `fileURLToPath` now work. JSC's classic C API
       (`JSEvaluateScript`) only runs script-goal source, so an ESM→CommonJS
-      source transform (`js/internal/esm.js`, stored on `Runtime_State` and
+      source transform (`js/bootstrap/esm.js`, stored on `Runtime_State` and
       applied by `native_require_cb` / the `.mjs` entrypoint) rewrites the static
       module syntax onto the existing native `require`, tagging the namespace with
       a non-enumerable `__esModule` for CJS↔ESM default interop. Handles only
@@ -511,7 +512,7 @@ the index, the issue is the detail. Ordered by what it unblocks.
       HTML clone algorithm in `js/internal/structured_clone.js`). _(cases `11`, `13`.)_
 - [x] **Full `node:path`** — `resolve`, `relative`, `normalize`, `dirname`, `sep`,
       `delimiter`, `parse`, `format`, and the `posix`/`win32` namespaces, ported to
-      JS (`js/internal/path.js`) so semantics match Node exactly; the partial native
+      JS (`js/node/path.js`) so semantics match Node exactly; the partial native
       implementation was retired. _(case `02`.)_
 - [x] **More `node:fs`** — `writeFileSync` (string/Uint8Array), `mkdirSync`
       (`recursive`), `statSync` (`Stats` with `size`/`*Ms` times + `isFile`/
@@ -522,7 +523,7 @@ the index, the issue is the detail. Ordered by what it unblocks.
       `exec`/`prepare`/`isOpen`/`close`, `StatementSync` with `get`/`all`/`run`
       and `?` parameter binding; INTEGER/REAL/TEXT/BLOB/NULL coercion). Native
       libsqlite3 bindings in `pkg/std/sqlite`; JSC bridge + handle registry in
-      `pkg/runtime/sqlite.odin`; JS surface in `js/internal/sqlite.js`. Needs the
+      `pkg/runtime/sqlite.odin`; JS surface in `js/node/sqlite.js`. Needs the
       sqlite3 dev package (Linux: `libsqlite3-dev`; macOS: system sqlite3). Runs
       the oracle through Lava via `make test-sqlite-lava`.
 
@@ -667,10 +668,10 @@ the index, the issue is the detail. Ordered by what it unblocks.
       ([#352](https://github.com/x-ror/lava/issues/352) · epic) — `primordials.js`
       plus the `make check-primordials` ratchet over
       `tests/node-compat/pollution-baseline.json`. Done in the `method` column:
-      `events.js`, `dns_promises.js`, and the encoding-name path of `buffer.js`;
+      `events.js`, `dns/promises.js`, and the encoding-name path of `buffer.js`;
       `encoding.js` sits at 1, not 0. Seven files are 0 in all four classes. Six of
       them are no evidence of hardening — each is a 6–19 line re-export shim
-      (`console.js`, `dns_promises.js`, `path_posix.js`, `path_win32.js`,
+      (`node/console.js`, `dns/promises.js`, `path/posix.js`, `path/win32.js`,
       `process.js`, `timers.js`). The seventh, `esm.js`, is 917 lines of real logic
       and is the first such file to reach 0 in all four.
       Remaining in `method`: `url.js` (the type-ambiguous

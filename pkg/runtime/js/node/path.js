@@ -8,7 +8,7 @@
 
   // Captured for matchesGlob, which replaced two global-flag replaces. This file is not
   // otherwise hardened — see the ratchet baseline.
-  var replaceCharAll = require('primordials').replaceCharAll;
+  var replaceCharAll = require('internal/primordials').replaceCharAll;
 
   var SLASH = 47; // '/'
   var BACKSLASH = 92; // '\'

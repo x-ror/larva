@@ -11,7 +11,7 @@
 (function (require, module, exports) {
   'use strict';
 
-  var replaceCharAll = require('primordials').replaceCharAll;
+  var replaceCharAll = require('internal/primordials').replaceCharAll;
 
   var hasOwn = Object.prototype.hasOwnProperty;
 

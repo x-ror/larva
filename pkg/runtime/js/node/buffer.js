@@ -53,7 +53,7 @@
   // `String.prototype.toLowerCase` reached a hardened TextDecoder through here and
   // turned a valid decode into `Unknown encoding: …`. The rest of buffer.js is not
   // yet converted (see tests/node-compat/pollution-baseline.json).
-  var P = require('primordials');
+  var P = require('internal/primordials');
   var StringG = String;
   var StringPrototypeToLowerCase = P.StringPrototypeToLowerCase;
   var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;

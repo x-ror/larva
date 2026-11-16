@@ -127,7 +127,7 @@
 // gated by `isIdent`/`RE_SPEC_AS` — which is why it is recorded here rather than
 // rewritten into a code-unit scan.
 //
-// This module cannot `require('primordials')`: the runtime evaluates it standalone
+// This module cannot `require('internal/primordials')`: the runtime evaluates it standalone
 // and keeps the result on Runtime_State rather than registering it as a requireable
 // module (globals.odin), precisely so user code cannot reach the transform. It
 // therefore takes the table as an argument — loader.js hands out the one already

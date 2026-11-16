@@ -1,7 +1,7 @@
 // Primordials — pristine references to the JS intrinsics the internal modules
 // rely on, captured once at startup *before any user code runs* (the loader
 // eager-requires this module first; see loader.js). Internal modules consume it
-// via `require('primordials')` so their behavior cannot be altered by a script
+// via `require('internal/primordials')` so their behavior cannot be altered by a script
 // that mutates a shared prototype (Array.prototype.push = …) or replaces a global
 // (globalThis.Object = …). Mirrors Node's lib/internal/primordials in spirit:
 // captured statics plus prototype methods callable as fn(thisArg, ...args).

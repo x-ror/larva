@@ -19,7 +19,7 @@
 
   var toString = Object.prototype.toString;
 
-  var P = require('primordials');
+  var P = require('internal/primordials');
   // Rebuilding a view through `value.constructor` is a configurable
   // prototype-chain read: poisoning `Uint8Array.prototype.constructor` made
   // structuredClone invoke attacker code with the internals' freshly cloned
