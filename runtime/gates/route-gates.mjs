@@ -224,6 +224,10 @@ const ROUTES = [
     targets: ['make test-property'],
   },
   {
+    re: globToRe('**/js/internal/buffer.js'),
+    targets: ['make test-property'],
+  },
+  {
     re: globToRe('scripts/**'),
     targets: ['make test-scripts'],
   },

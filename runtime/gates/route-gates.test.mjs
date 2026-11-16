@@ -49,6 +49,12 @@ test('crypto internals route the crypto gates, entry and split files alike', () 
   }
 });
 
+test('buffer internals route the property tests, entry and split file alike', () => {
+  for (const p of ['pkg/runtime/js/node/buffer.js', 'pkg/runtime/js/internal/buffer.js']) {
+    assert.ok(routePaths([p]).targets.includes('make test-property'), p);
+  }
+});
+
 test('invalid **.js style is not required — **/* works', () => {
   const r = routePaths(['pkg/runtime/js/bootstrap/console.js']);
   assert.ok(r.targets.includes('make check-js'));
