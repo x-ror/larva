@@ -434,7 +434,7 @@
     {
       "name": "regexp_pollution_immunity blob dies when native line endings go back to a global replace",
       "why": "new Blob([text], {endings:'native'}) runs this over caller text; the global replace spins under a forged exec. node hangs here too.",
-      "source": "pkg/runtime/js/node/buffer.js",
+      "source": "pkg/runtime/js/internal/blob.js",
       "find": "    if (nativeEndings) str = toNativeEndings(str);",
       "replace": "    if (nativeEndings) str = str.replace(/\\r?\\n/g, nativeEol());",
       "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
@@ -2408,6 +2408,24 @@
       "expect_detail": [
         "url invalid base | TypeError | ERR_INVALID_URL | TypeError [ERR_INVALID_URL]:"
       ]
+    },
+    {
+      "name": "77-blob-file-module blob dies when string parts stop being encoded as utf-8",
+      "why": "The split moved Blob's string encoder off the public Buffer onto the loader's pristine table; a wrong codec there changes every non-ASCII part's bytes and size.",
+      "source": "pkg/runtime/js/internal/blob.js",
+      "find": "    return new Uint8Array(require.pristineBuffer.from(str, 'utf8'));",
+      "replace": "    return new Uint8Array(require.pristineBuffer.from(str, 'latin1'));",
+      "gate": "compat:tests/node-compat/cases/77-blob-file-module.js",
+      "expect_detail": "node: blob 6 \"text/plain\""
+    },
+    {
+      "name": "blob_class_engine_traits dies when Blob.prototype methods lose their enumerability",
+      "why": "Class methods are non-enumerable; Blob's were enumerable as a function constructor, and the class conversion keeps that set by re-marking them.",
+      "source": "pkg/runtime/js/internal/blob.js",
+      "find": "    Object.defineProperty(Blob.prototype, ENUMERABLE_METHODS[m], { enumerable: true });",
+      "replace": "    Object.defineProperty(Blob.prototype, ENUMERABLE_METHODS[m], { enumerable: false });",
+      "gate": "odin:cmd/lava:main.blob_class_engine_traits",
+      "expect_detail": "keys: got , want arrayBuffer"
     }
   ]
 }

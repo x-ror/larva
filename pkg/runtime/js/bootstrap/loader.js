@@ -7,7 +7,8 @@
 // `require()` consults before touching the filesystem.
 //
 // A factory is compiled on its module's first require, not at context init, so a
-// script pays only for the eager closure below (13 of 39 files): `lava run
+// script pays only for the eager closure below (13 of 39 files when this landed;
+// cmd/lava/lazy_builtins_test.odin's STATIC_EAGER is the current list): `lava run
 // bench/micro/noop.js` went 16.85 -> 14.63 ms (medians of 50 interleaved
 // spawn-to-exit runs per arm after 5 warmups, darwin arm64, -o:speed, f106ab4 vs
 // this change; see install_internal_modules).

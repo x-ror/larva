@@ -2,8 +2,10 @@
  * @fileoverview node:buffer — `Buffer` as a `Uint8Array` subclass.
  *
  * Codecs and byte-ops are Odin natives (`pkg/runtime/buffer.odin`) injected via
- * the loader's fourth `native` argument. This file owns Node API glue, errors,
- * pooling, and Blob/File/object-URL helpers.
+ * the loader's fourth `native` argument. This file owns Node API glue, errors and
+ * pooling. Blob, File and the blob: URL registry live in internal/blob.js and
+ * internal/file.js (node's lib/internal layout); this module re-exports them and
+ * installs their globals, in the order it always has.
  *
  * @module lava/internal/buffer
  */
@@ -58,7 +60,6 @@
   var StringPrototypeToLowerCase = P.StringPrototypeToLowerCase;
   var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;
   var StringPrototypeSlice = P.StringPrototypeSlice;
-  var StringPrototypeIndexOf = P.StringPrototypeIndexOf;
   var StringFromCharCode = String.fromCharCode;
   var ObjectPrototypeHasOwnProperty = P.ObjectPrototypeHasOwnProperty;
   var TypedArrayPrototypeGetLength = P.TypedArrayPrototypeGetLength;
@@ -109,6 +110,13 @@
   var ERR_OUT_OF_RANGE = errors.ERR_OUT_OF_RANGE;
   var ERR_MISSING_ARGS = errors.ERR_MISSING_ARGS;
   var ERR_UNKNOWN_ENCODING = errors.ERR_UNKNOWN_ENCODING;
+
+  // Required here, at the top level, so both stay in the eager set: the globals and
+  // URL statics below are installed from this module, in the same order as before
+  // they were split out. Neither requires node:buffer back (see internal/blob.js).
+  var blobModule = require('internal/blob');
+  var Blob = blobModule.Blob;
+  var File = require('internal/file').File;
 
   function validateByteLength(byteLength) {
     if (typeof byteLength !== 'number')
@@ -1395,237 +1403,8 @@
     return Buffer.from(Buffer.from(source).toString(fromEnc), toEnc);
   }
 
-  function nativeEol() {
-    return globalThis.process && globalThis.process.platform === 'win32' ? '\r\n' : '\n';
-  }
-
-  // toNativeEndings is `str.replace(/\r?\n/g, nativeEol())` — every CRLF or lone LF
-  // becomes the platform terminator. No regex: a GLOBAL replace under a forged
-  // `RegExp.prototype.exec` never returns, so `new Blob([text], {endings:'native'})`
-  // spun on any text at all. node 24 hangs here too, so hardening it is a deviation in
-  // Lava's favour; pinned Lava-only by cmd/lava/regexp_pollution_test.odin.
-  //
-  // `\r?\n` means a CR is consumed only when an LF follows it: a lone CR is left alone,
-  // which is why this scans for LF and looks back rather than scanning for CR.
-  // Both early-outs are native scans, and they are the whole common case: text with no
-  // newline at all, and — on POSIX, where `eol` is '\n' — text with no CR, for which
-  // `\r?\n -> '\n'` is the identity. Without them this rebuilt the entire string as a
-  // rope even when the result was byte-identical to the input: measured at 1.6x and
-  // +54-70% peak RSS on a 64 KB body before they were added.
-  function toNativeEndings(str) {
-    var firstLF = StringPrototypeIndexOf(str, '\n', 0);
-    if (firstLF === -1) return str;
-    var eol = nativeEol();
-    if (eol === '\n' && StringPrototypeIndexOf(str, '\r', 0) === -1) return str;
-    var out = '';
-    var from = 0;
-    for (var i = firstLF; i !== -1; i = StringPrototypeIndexOf(str, '\n', from)) {
-      var cut = i > from && StringPrototypeCharCodeAt(str, i - 1) === 0x0d ? i - 1 : i; // CR
-      if (cut > from) out += StringPrototypeSlice(str, from, cut);
-      out += eol;
-      from = i + 1;
-    }
-    return from < str.length ? out + StringPrototypeSlice(str, from) : out;
-  }
-
-  function blobPartToChunks(part, nativeEndings) {
-    if (part instanceof Blob) return part._parts;
-    if (part instanceof ArrayBuffer) return [new Uint8Array(part.slice(0))];
-    if (ArrayBuffer.isView(part)) {
-      return [
-        new Uint8Array(part.buffer.slice(part.byteOffset, part.byteOffset + part.byteLength)),
-      ];
-    }
-    var str = StringG(part);
-    if (nativeEndings) str = toNativeEndings(str);
-    return [new Uint8Array(Buffer.from(str, 'utf8'))];
-  }
-
-  function blobJoin(parts, total) {
-    var merged = new Uint8Array(total),
-      off = 0;
-    for (var i = 0; i < parts.length; i++) {
-      merged.set(parts[i], off);
-      off += parts[i].length;
-    }
-    return merged;
-  }
-
-  function normalizeBlobType(options) {
-    if (!options || options.type === undefined) return '';
-    var type = StringG(options.type);
-    for (var i = 0; i < type.length; i++) {
-      var code = type.charCodeAt(i);
-      if (code < 0x20 || code > 0x7e) return '';
-    }
-    return type.toLowerCase();
-  }
-
-  /**
-   * Minimal Blob: stores parts without eager concat; materializes on demand.
-   * @param {Array<*>} parts
-   * @param {{type?: string, endings?: string}} [options]
-   */
-  function Blob(parts, options) {
-    if (!(this instanceof Blob)) throw new TypeError("Constructor Blob requires 'new'");
-    var chunks = [],
-      total = 0;
-    if (parts !== undefined && parts !== null) {
-      if (typeof parts !== 'object' || typeof parts[Symbol.iterator] !== 'function') {
-        throw new TypeError('The "parts" argument must be an iterable object');
-      }
-      var nativeEndings = !!(options && options.endings === 'native');
-      var list = Array.from(parts);
-      for (var i = 0; i < list.length; i++) {
-        var cs = blobPartToChunks(list[i], nativeEndings);
-        for (var j = 0; j < cs.length; j++) {
-          if (cs[j].length === 0) continue;
-          chunks.push(cs[j]);
-          total += cs[j].length;
-        }
-      }
-    }
-    Object.defineProperty(this, '_parts', { value: chunks });
-    Object.defineProperty(this, '_size', { value: total });
-    Object.defineProperty(this, '_type', { value: normalizeBlobType(options) });
-  }
-  Object.defineProperty(Blob.prototype, 'size', {
-    get: function () {
-      return this._size;
-    },
-    configurable: true,
-  });
-  Object.defineProperty(Blob.prototype, 'type', {
-    get: function () {
-      return this._type;
-    },
-    configurable: true,
-  });
-  Blob.prototype.arrayBuffer = function () {
-    return Promise.resolve(blobJoin(this._parts, this._size).buffer);
-  };
-  Blob.prototype.bytes = function () {
-    return Promise.resolve(blobJoin(this._parts, this._size));
-  };
-  Blob.prototype.stream = function () {
-    var parts = this._parts;
-    var ReadableStream = require('node:stream/web').ReadableStream;
-    return new ReadableStream({
-      start: function (controller) {
-        for (var i = 0; i < parts.length; i++) controller.enqueue(new Uint8Array(parts[i]));
-        controller.close();
-      },
-    });
-  };
-  Blob.prototype.text = function () {
-    return Promise.resolve(Buffer.from(blobJoin(this._parts, this._size)).toString('utf8'));
-  };
-  Blob.prototype.slice = function (start, end, contentType) {
-    var len = this._size;
-    var s = start === undefined ? 0 : start < 0 ? Math.max(len + start, 0) : Math.min(start, len);
-    var e = end === undefined ? len : end < 0 ? Math.max(len + end, 0) : Math.min(end, len);
-    if (e < s) e = s;
-    var out = [];
-    var pos = 0;
-    var parts = this._parts;
-    for (var i = 0; i < parts.length && pos < e; i++) {
-      var part = parts[i];
-      var pEnd = pos + part.length;
-      if (pEnd > s) {
-        out.push(part.subarray(pos < s ? s - pos : 0, pEnd > e ? e - pos : part.length));
-      }
-      pos = pEnd;
-    }
-    return new Blob(out, contentType === undefined ? undefined : { type: contentType });
-  };
-  Blob.prototype.toString = function () {
-    return '[object Blob]';
-  };
-
-  /** @extends Blob */
-  function File(parts, name, options) {
-    if (!(this instanceof File)) throw new TypeError("Constructor File requires 'new'");
-    if (arguments.length < 2)
-      throw new TypeError(
-        "Failed to construct 'File': 2 arguments required, but only " +
-          arguments.length +
-          ' present.',
-      );
-    Blob.call(this, parts, options);
-    Object.defineProperty(this, '_name', { value: StringG(name) });
-    var lm =
-      options && options.lastModified !== undefined ? Number(options.lastModified) : Date.now();
-    Object.defineProperty(this, '_lastModified', { value: lm });
-  }
-  File.prototype = Object.create(Blob.prototype);
-  File.prototype.constructor = File;
-  Object.defineProperty(File.prototype, 'name', {
-    get: function () {
-      return this._name;
-    },
-    configurable: true,
-  });
-  Object.defineProperty(File.prototype, 'lastModified', {
-    get: function () {
-      return this._lastModified;
-    },
-    configurable: true,
-  });
-
-  if (typeof Symbol !== 'undefined' && Symbol.toStringTag) {
-    Object.defineProperty(Blob.prototype, Symbol.toStringTag, {
-      value: 'Blob',
-      configurable: true,
-    });
-    Object.defineProperty(File.prototype, Symbol.toStringTag, {
-      value: 'File',
-      configurable: true,
-    });
-  }
-
-  var objectUrlRegistry = new Map();
-
-  function objectUrlId() {
-    var c = globalThis.crypto;
-    if (c && typeof c.randomUUID === 'function') return c.randomUUID();
-    var bytes = new Uint8Array(16);
-    if (c && typeof c.getRandomValues === 'function') c.getRandomValues(bytes);
-    else for (var i = 0; i < 16; i++) bytes[i] = (Math.random() * 256) & 0xff;
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    var s = '';
-    for (var j = 0; j < 16; j++) {
-      s += (bytes[j] + 0x100).toString(16).slice(1);
-      if (j === 3 || j === 5 || j === 7 || j === 9) s += '-';
-    }
-    return s;
-  }
-
-  /** @param {Blob|File} obj @returns {string} blob: URL */
-  function createObjectURL(obj) {
-    if (!(obj instanceof Blob)) {
-      throw ERR_INVALID_ARG_TYPE('obj', 'Blob', obj);
-    }
-    var id = 'blob:nodedata:' + objectUrlId();
-    objectUrlRegistry.set(id, obj);
-    return id;
-  }
-
-  /** @param {string} url */
-  function revokeObjectURL(url) {
-    if (url === undefined) {
-      throw ERR_MISSING_ARGS('url');
-    }
-    objectUrlRegistry.delete(StringG(url));
-  }
-
-  /** @param {string} id @returns {Blob|File|null} */
-  function resolveObjectURL(id) {
-    var blob = objectUrlRegistry.get(`${id}`);
-    if (blob === undefined) return;
-    return new Blob([blob], { type: blob.type });
-  }
-
+  var createObjectURL = blobModule.createObjectURL;
+  var revokeObjectURL = blobModule.revokeObjectURL;
   if (globalThis.URL === undefined) {
     globalThis.URL = { createObjectURL: createObjectURL, revokeObjectURL: revokeObjectURL };
   } else {
@@ -1663,7 +1442,7 @@
     isAscii: isAscii,
     isUtf8: isUtf8,
     transcode: transcode,
-    resolveObjectURL: resolveObjectURL,
+    resolveObjectURL: blobModule.resolveObjectURL,
   };
   Object.defineProperty(exported, 'INSPECT_MAX_BYTES', {
     get: function () {
