@@ -28,6 +28,16 @@ test('bench path routes bench-gate', () => {
   assert.ok(!r.nonCi.includes('make bench-gate'));
 });
 
+test('fetch internals route the fetch smoke, entry and split files alike', () => {
+  for (const p of [
+    'pkg/runtime/js/internal/fetch.js',
+    'pkg/runtime/js/internal/fetch/headers.js',
+    'pkg/runtime/js/internal/fetch/body.js',
+  ]) {
+    assert.ok(routePaths([p]).targets.includes('make test-fetch-smoke'), p);
+  }
+});
+
 test('invalid **.js style is not required — **/* works', () => {
   const r = routePaths(['pkg/runtime/js/bootstrap/console.js']);
   assert.ok(r.targets.includes('make check-js'));

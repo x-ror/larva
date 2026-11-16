@@ -184,8 +184,8 @@ factory, before the table exists, and a top-level `require('buffer')` back would
 
 The JS layer is substantial and high quality: `url.js` (2071 LOC, WHATWG URL),
 Web Streams (~2100 across `internal/webstreams/`), `buffer.js` (1456; `Blob`, `File` and the `blob:` URL registry
-live in `internal/blob.js` and `internal/file.js`, as in node's `lib/internal`), `fetch.js` (1054),
-`crypto.js` (917). `node/stream.js` only assembles the public module; the classic
+live in `internal/blob.js` and `internal/file.js`, as in node's `lib/internal`), fetch
+(~1160 across `internal/fetch.js` and `internal/fetch/`), `crypto.js` (917). `node/stream.js` only assembles the public module; the classic
 streams live in `internal/streams/` (`legacy`, `readable`, `writable`, `duplex`,
 `transform`, `passthrough`, `destroy`, `add-abort-signal`, `end-of-stream`, `pipeline`,
 `utils`) and the Web Streams bridges in `internal/webstreams/adapters.js`, the files node
@@ -202,7 +202,12 @@ only assembles exports and installs the globals; the implementation is in
 `internal/webstreams/` (`util`, `queuingstrategies`, `readablestream` — with tee, async
 iteration and pipeTo, as in node — `writablestream`, `transformstream`), all eager through
 `stream/web` and acyclic: `readablestream` requires `writablestream`, `transformstream`
-requires both, nothing requires back. Errors use Node-shaped coded errors (`ERR_INVALID_ARG_TYPE`,
+requires both, nothing requires back. Fetch follows undici's `lib/web/fetch` seams:
+`internal/fetch/headers`, `body` (the Body mixin plus the byte and transport-stream
+helpers), `request` and `response` (each requiring `headers` and `body`), while
+`internal/fetch` keeps the driver — body collection, redirects, the hand-off to
+`native.request` — because the loader keys natives by module id, and installs the globals.
+All five are eager through `internal/fetch`. Errors use Node-shaped coded errors (`ERR_INVALID_ARG_TYPE`,
 `ERR_OUT_OF_RANGE`, …), built in one place: `js/internal/errors.js` (eager, hardened)
 holds node's `determineSpecificType`, `ERR_INVALID_ARG_TYPE`/`_VALUE`, `ERR_OUT_OF_RANGE`,
 `ERR_MISSING_ARGS`, `ERR_UNKNOWN_ENCODING`, and two constructors for node's two shapes —

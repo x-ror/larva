@@ -149,6 +149,10 @@ const ROUTES = [
     targets: ['make test-fetch-smoke'],
   },
   {
+    re: globToRe('**/js/internal/fetch/*.js'),
+    targets: ['make test-fetch-smoke'],
+  },
+  {
     re: globToRe('pkg/runtime/eventloop/**'),
     targets: ['make test-eventloop-odin', 'make test-eventloop-lava'],
   },
