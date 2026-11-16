@@ -25,10 +25,17 @@
 // http/net/https sites are Linux-only natives and live in 77-coded-error-shape-net.js.
 'use strict';
 
+// One error prints as up to three SHORT lines — the shape (everything String(e) adds
+// around the message), the message up to its "Received" clause, and that clause alone —
+// so a difference in any one part stays inside the 140 characters the mutation runner
+// shows per differing line, instead of being cut off the end of one long line.
 function show(label, e) {
   const own = Object.getOwnPropertyNames(e).filter(
     (k) => !['stack', 'message', 'code', 'line', 'column', 'sourceURL'].includes(k),
   );
+  const str = String(e);
+  const msg = e.message;
+  const shape = str.endsWith(msg) ? str.slice(0, str.length - msg.length) : str;
   console.log(
     label +
       ' | ' +
@@ -36,9 +43,12 @@ function show(label, e) {
       ' | ' +
       e.code +
       ' | ' +
-      String(e) +
+      shape +
       (own.length ? ' | ' + own.map((k) => k + '=' + String(e[k])).join(',') : ''),
   );
+  const at = msg.lastIndexOf(' Received ');
+  console.log('  message: ' + (at === -1 ? msg : msg.slice(0, at)));
+  if (at !== -1) console.log('  received: ' + msg.slice(at + ' Received '.length));
 }
 function t(label, f) {
   try {

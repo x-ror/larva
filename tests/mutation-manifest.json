@@ -761,13 +761,13 @@
     },
     {
       "name": "62-fs-read-buffer dies when a function in the options slot is rejected",
-      "why": "node's getOptions treats a callback sitting in the options slot as absent; rejecting it turns readFileSync(p, fn) from a working binary read into a throw.",
+      "why": "node's getOptions treats a callback sitting in the options slot as absent; rejecting it turns readFileSync(p, fn) from a working binary read into a throw. The throw escapes the case uncaught (exit 1); its text renders the function the way node's determineSpecificType does (`function ` for an anonymous one), so the detail keys on the options message, not the old `type function (...)` rendering.",
       "source": "pkg/runtime/js/node/fs.js",
       "find": "    if (options === null || options === undefined || typeof options === 'function') {",
       "replace": "    if (options === null || options === undefined) {",
       "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
       "expect_detail": [
-        "Received type function"
+        "must be one of type string or object. Received function"
       ]
     },
     {
@@ -2351,7 +2351,7 @@
       "replace": "",
       "gate": "compat:tests/node-compat/cases/76-coded-error-shape.js",
       "expect_detail": [
-        "TypeError: The \"size\" argument must be of type number. Received type string ('5')"
+        "received string | TypeError | ERR_INVALID_ARG_TYPE | TypeError:"
       ]
     },
     {
@@ -2362,7 +2362,7 @@
       "replace": "",
       "gate": "compat:tests/node-compat/cases/76-coded-error-shape.js",
       "expect_detail": [
-        "('aaaaaaaaaaaaaaaaaaaaaaaaaaaaa')"
+        "received: type string ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaa')"
       ]
     },
     {
@@ -2373,7 +2373,7 @@
       "replace": "      return \"type string ('\" + value + \"')\";",
       "gate": "compat:tests/node-compat/cases/76-coded-error-shape.js",
       "expect_detail": [
-        "type string ('it's')"
+        "received: type string ('it's')"
       ]
     },
     {
@@ -2384,7 +2384,7 @@
       "replace": "",
       "gate": "compat:tests/node-compat/cases/76-coded-error-shape.js",
       "expect_detail": [
-        "Received [Array]"
+        "received: [Array]"
       ]
     },
     {
@@ -2395,7 +2395,7 @@
       "replace": "      received = StringP(input);",
       "gate": "compat:tests/node-compat/cases/76-coded-error-shape.js",
       "expect_detail": [
-        "Received 1099511627776"
+        "received: 1099511627776"
       ]
     },
     {
@@ -2406,7 +2406,7 @@
       "replace": "      if (baseRecord === FAILURE) throw invalidURL(nodeError, input, base);",
       "gate": "compat:tests/node-compat/cases/76-coded-error-shape.js",
       "expect_detail": [
-        "url invalid base | TypeError | ERR_INVALID_URL | TypeError [ERR_INVALID_URL]: Invalid URL"
+        "url invalid base | TypeError | ERR_INVALID_URL | TypeError [ERR_INVALID_URL]:"
       ]
     }
   ]
