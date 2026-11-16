@@ -27,8 +27,6 @@
   'use strict';
 
   var P = require('internal/primordials');
-  var TypeErrorG = P.TypeError;
-  var StringPrototypeSlice = P.StringPrototypeSlice;
   var ArrayBufferIsView = P.ArrayBufferIsView;
   var TypedArrayPrototypeGetBuffer = P.TypedArrayPrototypeGetBuffer;
   var TypedArrayPrototypeGetByteOffset = P.TypedArrayPrototypeGetByteOffset;
@@ -51,66 +49,14 @@
   var BufferIsEncoding = PristineBuffer.isEncoding;
   var BufferPrototypeToString = PristineBuffer.bufferToString;
 
-  // Node renders the offending value with util.inspect in BOTH templates, so a string
-  // comes out quoted and everything else bare. Verified against node 26.13.0 (probe,
-  // 2026-11-16):
-  //   'bogus' -> 'bogus'     123 -> 123        true -> true      1n -> 1n
-  //   {}      -> {}          {a:1} -> { a: 1 } [] -> []         Symbol(x) -> Symbol(x)
-  // An earlier version of this quoted everything, which was wrong for every non-string.
-  // NOT matched: node renders a null-prototype object as `[Object: null prototype] {}`
-  // where Lava's inspect gives `{}` — a util.inspect gap, listed in #331, so this line
-  // does not claim parity for it.
-  //
-  // Memoized on first use. `util` is not eager-loaded (instantiating it costs ~3.5 ms of
-  // startup for a string only ever built when a call is already failing), so this cannot
-  // get the loader-time guarantee the Buffer capture above has. The residual is bounded to
-  // MESSAGE TEXT — no file bytes flow through it — and reading it live per call, as an
-  // earlier revision did, was strictly worse. Tracked with the other live-module captures
-  // (http.js, net.js, stream.js, https.js, os.js all have the same shape).
-  var inspectFn = null;
-  function inspectValue(value) {
-    if (inspectFn === null) inspectFn = require('util').inspect;
-    return inspectFn(value);
-  }
-
-  // Node's ERR_INVALID_ARG_TYPE "Received" clause has THREE branches, not two
-  // (determineSpecificType). Measured on node 26.13.0 (probe, 2026-11-16):
-  //   null / undefined      -> named bare:            Received null
-  //   an object             -> its constructor:       Received an instance of Object
-  //                            (Array, Date, RegExp, Map, Buffer, a user class …;
-  //                             a null-prototype object has no constructor and falls
-  //                             back to the inspected form)
-  //   anything else         -> type + inspected:      Received type number (123)
-  //                            with a string longer than 28 chars cut to its first 25
-  //                            plus "..." BEFORE inspecting.
-  // An earlier revision implemented only the first and third and asserted in this comment
-  // that they were the whole rule. The object branch is the reachable one: it is what
-  // `fs.readFile(path, {encoding:'utf8'})` with a forgotten callback produces.
-  var RECEIVED_STR_MAX = 25;
-  function received(value) {
-    if (value === null) return 'null';
-    if (value === undefined) return 'undefined';
-    if (typeof value === 'object') {
-      // node's determineSpecificType reads the RECEIVER's own `.constructor.name` for this
-      // message, so reading it is what parity requires — a captured getter would answer for
-      // the wrong object. A forged constructor changes the text of an error already being
-      // thrown, nothing else.
-      var ctor = value.constructor; // primordials-ok: accessor
-      if (typeof ctor === 'function' && ctor.name) return 'an instance of ' + ctor.name;
-      return inspectValue(value);
-    }
-    var shown = value;
-    if (typeof shown === 'string' && shown.length > RECEIVED_STR_MAX + 3) {
-      shown = StringPrototypeSlice(shown, 0, RECEIVED_STR_MAX) + '...';
-    }
-    return 'type ' + typeof value + ' (' + inspectValue(shown) + ')';
-  }
-
-  function errInvalidArgType(message) {
-    var err = new TypeErrorG(message);
-    err.code = 'ERR_INVALID_ARG_TYPE';
-    return err;
-  }
+  // Node-shaped coded errors come from internal/errors (CLAUDE.md §5). Its describer is
+  // node's determineSpecificType in full — the object branch (`fs.readFile(path,
+  // {encoding:'utf8'})` with a forgotten callback answers "an instance of Object") and
+  // the 25-char string cut included — and ERR_INVALID_ARG_VALUE renders through
+  // util.inspect, so a string comes out quoted and everything else bare.
+  var errors = require('internal/errors');
+  var ERR_INVALID_ARG_TYPE = errors.ERR_INVALID_ARG_TYPE;
+  var ERR_INVALID_ARG_VALUE = errors.ERR_INVALID_ARG_VALUE;
 
   /**
    * Re-tags a native read result as a Buffer, sharing its backing store.
@@ -168,11 +114,7 @@
       var ctor = path.constructor; // primordials-ok: accessor
       if (typeof ctor === 'function' && ctor.name === 'URL') return;
     }
-    throw errInvalidArgType(
-      'The "path" argument must be of type string or an instance of Buffer or URL. ' +
-        'Received ' +
-        received(path),
-    );
+    throw ERR_INVALID_ARG_TYPE('path', ['string', 'Buffer', 'URL'], path);
   }
 
   /**
@@ -202,10 +144,7 @@
     } else if (typeof options === 'object') {
       encoding = options.encoding;
     } else {
-      throw errInvalidArgType(
-        'The "options" argument must be one of type string or object. Received ' +
-          received(options),
-      );
+      throw ERR_INVALID_ARG_TYPE('options', ['string', 'Object'], options);
     }
     // EVERY falsy encoding means binary, not just null/undefined: node's assertEncoding is
     // guarded `if (encoding && !Buffer.isEncoding(encoding))`, and readFileSync returns
@@ -219,11 +158,7 @@
     // ERR_UNKNOWN_ENCODING rather than ERR_INVALID_ARG_VALUE. Different code AND message,
     // on a name that legitimately appears in shared option objects.
     if (encoding !== 'buffer' && !BufferIsEncoding(encoding)) {
-      var e2 = new TypeErrorG(
-        "The argument 'encoding' is invalid encoding. Received " + inspectValue(encoding),
-      );
-      e2.code = 'ERR_INVALID_ARG_VALUE';
-      throw e2;
+      throw ERR_INVALID_ARG_VALUE('encoding', encoding, 'is invalid encoding');
     }
     return encoding;
   }
@@ -287,9 +222,7 @@
   function readFile(path, options, callback) {
     var cb = callback || options;
     if (typeof cb !== 'function') {
-      throw errInvalidArgType(
-        'The "cb" argument must be of type function. Received ' + received(cb),
-      );
+      throw ERR_INVALID_ARG_TYPE('cb', 'function', cb);
     }
     validatePath(path);
     var encoding = readEncoding(typeof options === 'function' ? null : options);

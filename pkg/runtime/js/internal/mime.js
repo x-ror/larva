@@ -61,12 +61,13 @@
     return from === 0 ? str : out + StringPrototypeSlice(str, from);
   }
 
+  var nodeError = require('internal/errors').nodeError;
+  var TypeErrorP = P.TypeError;
+
   function mimeError(production, input, index) {
     var msg = 'The MIME syntax for a ' + production + ' in "' + input + '" is invalid';
     if (index !== undefined && index !== -1) msg += ' at ' + index;
-    var e = new TypeError(msg);
-    e.code = 'ERR_INVALID_MIME_SYNTAX';
-    return e;
+    return nodeError(TypeErrorP, 'ERR_INVALID_MIME_SYNTAX', msg);
   }
 
   // Validate a token production (type/subtype/parameter name). `input` is the string shown

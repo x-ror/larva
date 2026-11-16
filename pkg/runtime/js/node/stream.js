@@ -15,9 +15,6 @@
   var EventEmitter = require('events');
   var bufferModule = require('buffer');
   var Buffer = bufferModule.Buffer;
-  // node's "Received …" clause, shared rather than re-derived — see the non-enumerable
-  // export in buffer.js for why this is not a seventh local copy.
-  var describeType = bufferModule.describeType;
   var BufferIsEncoding = Buffer.isEncoding;
 
   // Through primordials, NOT captured here: this module is lazy, so a module-eval capture
@@ -44,45 +41,41 @@
   // module loads, so there is nothing to capture here yet.
   var processRef = process;
 
-  // --- Node-shaped coded errors -------------------------------------------------
+  // --- Node-shaped coded errors (internal/errors, CLAUDE.md §5) -------------------
 
-  function codedError(Ctor, code, message) {
-    var err = new Ctor(message);
-    err.code = code;
-    return err;
-  }
+  var errors = require('internal/errors');
+  var nodeError = errors.nodeError;
+  var ERR_INVALID_ARG_TYPE = errors.ERR_INVALID_ARG_TYPE;
+  var ERR_UNKNOWN_ENCODING = errors.ERR_UNKNOWN_ENCODING;
   function errWriteAfterEnd() {
-    return codedError(ErrorG, 'ERR_STREAM_WRITE_AFTER_END', 'write after end');
+    return nodeError(ErrorG, 'ERR_STREAM_WRITE_AFTER_END', 'write after end');
   }
   function errDestroyed(what) {
-    return codedError(
-      Error,
+    return nodeError(
+      ErrorG,
       'ERR_STREAM_DESTROYED',
       'Cannot call ' + what + ' after a stream was destroyed',
     );
   }
   function errNullValues() {
-    return codedError(TypeErrorG, 'ERR_STREAM_NULL_VALUES', 'May not write null values to stream');
+    return nodeError(TypeErrorG, 'ERR_STREAM_NULL_VALUES', 'May not write null values to stream');
   }
   function errMethodNotImplemented(name) {
-    return codedError(
-      Error,
+    return nodeError(
+      ErrorG,
       'ERR_METHOD_NOT_IMPLEMENTED',
       'The ' + name + ' method is not implemented',
     );
   }
   function errPrematureClose() {
-    return codedError(ErrorG, 'ERR_STREAM_PREMATURE_CLOSE', 'Premature close');
+    return nodeError(ErrorG, 'ERR_STREAM_PREMATURE_CLOSE', 'Premature close');
   }
-  function errInvalidArg(name, expected, actual) {
-    return codedError(
-      TypeError,
-      'ERR_INVALID_ARG_TYPE',
-      'The "' + name + '" argument must be ' + expected + '. Received ' + describeType(actual),
-    );
-  }
-  function errUnknownEncoding(encoding) {
-    return codedError(TypeErrorG, 'ERR_UNKNOWN_ENCODING', 'Unknown encoding: ' + encoding);
+  // node's AbortError is its own class (name 'AbortError'); this keeps the plain-Error
+  // shape the module has always produced — not an ERR_* constructor, so not moved.
+  function abortError() {
+    var err = new ErrorG('The operation was aborted');
+    err.code = 'ABORT_ERR';
+    return err;
   }
 
   // node's chunk contract, verified on 24.18.1: a string, or ANY ArrayBuffer view —
@@ -90,7 +83,7 @@
   // directions: it rejects DataView and Int16Array, which node accepts, and it accepts
   // `Object.create(Uint8Array.prototype)`, which node rejects. ArrayBuffer.isView is the
   // whole test, and it also refuses a bare ArrayBuffer.
-  var CHUNK_EXPECTED = 'of type string or an instance of Buffer, TypedArray, or DataView';
+  var CHUNK_EXPECTED = ['string', 'Buffer', 'TypedArray', 'DataView'];
   function isBytesChunk(chunk) {
     return ArrayBufferIsView(chunk);
   }
@@ -133,7 +126,7 @@
   // `write(5, 'bogus')` reports the encoding and not the chunk type. 'buffer' is node's
   // internal marker and is always allowed through.
   function validateEncoding(encoding) {
-    if (encoding !== 'buffer' && !BufferIsEncoding(encoding)) throw errUnknownEncoding(encoding);
+    if (encoding !== 'buffer' && !BufferIsEncoding(encoding)) throw ERR_UNKNOWN_ENCODING(encoding);
   }
 
   // --- Stream base ---------------------------------------------------------------
@@ -250,7 +243,7 @@
       } else {
         // Unlike write(), a bad push is an ASYNC 'error' on node, not a throw. The
         // asymmetry is node's; do not "fix" it into a throw.
-        errorOrDestroy(this, errInvalidArg('chunk', CHUNK_EXPECTED, chunk));
+        errorOrDestroy(this, ERR_INVALID_ARG_TYPE('chunk', CHUNK_EXPECTED, chunk));
         return false;
       }
       if (s.decoder) chunk = s.decoder.write(chunk);
@@ -676,7 +669,7 @@
       } else if (iterable && typeof iterable[Symbol.iterator] === 'function') {
         iterator = iterable[Symbol.iterator]();
       } else {
-        throw errInvalidArg('iterable', 'an iterable', iterable);
+        throw ERR_INVALID_ARG_TYPE('iterable', 'Iterable', iterable);
       }
       return iterator;
     }
@@ -829,7 +822,7 @@
         chunk = bytesToBuffer(chunk);
         encoding = 'buffer';
       } else {
-        throw errInvalidArg('chunk', CHUNK_EXPECTED, chunk);
+        throw ERR_INVALID_ARG_TYPE('chunk', CHUNK_EXPECTED, chunk);
       }
     }
     if (w.ending) {
@@ -973,10 +966,10 @@
     if (w.ending || w.destroyed) {
       if (typeof cb === 'function') {
         var err = w.finished
-          ? codedError(
-              Error,
+          ? nodeError(
+              ErrorG,
               'ERR_STREAM_ALREADY_FINISHED',
-              'end() called after stream was finished',
+              'Cannot call end after a stream was finished',
             )
           : w.destroyed
             ? errDestroyed('end')
@@ -1141,12 +1134,12 @@
   function addAbortSignal(signal, stream) {
     if (signal.aborted) {
       nextTick(function () {
-        stream.destroy(codedError(ErrorG, 'ABORT_ERR', 'The operation was aborted'));
+        stream.destroy(abortError());
       });
       return;
     }
     signal.addEventListener('abort', function () {
-      stream.destroy(codedError(ErrorG, 'ABORT_ERR', 'The operation was aborted'));
+      stream.destroy(abortError());
     });
   }
 
@@ -1268,7 +1261,8 @@
       opts = {};
     }
     opts = opts || {};
-    if (!isStreamLike(stream)) throw errInvalidArg('stream', 'a Stream', stream);
+    if (!isStreamLike(stream))
+      throw ERR_INVALID_ARG_TYPE('stream', ['ReadableStream', 'WritableStream', 'Stream'], stream);
 
     var readable =
       opts.readable !== false && typeof stream.readable === 'boolean' ? stream.readable : false;
@@ -1321,14 +1315,29 @@
     return cleanup;
   }
 
+  // node's list for a pipeline stage. Lava accepts only the Stream arm so far (functions,
+  // iterables and web streams are not piped yet), but the error names what node accepts.
+  var PIPELINE_BODY = [
+    'function',
+    'Blob',
+    'ReadableStream',
+    'WritableStream',
+    'Stream',
+    'Iterable',
+    'AsyncIterable',
+    'Promise',
+    '{ readable, writable } pair',
+  ];
+
   function pipeline() {
     var args = [];
     for (var i = 0; i < arguments.length; i++) args[i] = arguments[i];
     var cb = args.pop();
-    if (typeof cb !== 'function') throw errInvalidArg('callback', 'of type function', cb);
+    if (typeof cb !== 'function')
+      throw ERR_INVALID_ARG_TYPE('streams[stream.length - 1]', 'function', cb);
     if (Array.isArray(args[0]) && args.length === 1) args = args[0];
     if (args.length < 2) {
-      throw codedError(ErrorG, 'ERR_MISSING_ARGS', 'The "streams" argument is required');
+      throw errors.ERR_MISSING_ARGS('streams');
     }
 
     var streams = args;
@@ -1346,7 +1355,7 @@
     }
 
     for (var k = 0; k < streams.length; k++) {
-      if (!isStreamLike(streams[k])) throw errInvalidArg('stream', 'a Stream', streams[k]);
+      if (!isStreamLike(streams[k])) throw ERR_INVALID_ARG_TYPE('body', PIPELINE_BODY, streams[k]);
       streams[k].on('error', done);
       if (k > 0) streams[k - 1].pipe(streams[k]);
     }

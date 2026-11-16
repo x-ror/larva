@@ -6,6 +6,8 @@
   // Pristine intrinsics (see primordials.js) so a script that mutates
   // Array.prototype/Object/etc. cannot alter EventEmitter's internal bookkeeping.
   var P = require('internal/primordials');
+  var errors = require('internal/errors');
+  var ERR_INVALID_ARG_TYPE = errors.ERR_INVALID_ARG_TYPE;
   var defaultMaxListeners = 10;
 
   // Species-free array helpers. Array.prototype.slice/map/splice consult
@@ -42,14 +44,10 @@
 
   function validateMaxListeners(n) {
     if (typeof n !== 'number') {
-      throw typeError('setMaxListeners', 'of type number', n);
+      throw ERR_INVALID_ARG_TYPE('setMaxListeners', 'number', n);
     }
     if (n < 0 || n !== n) {
-      var e = new RangeError(
-        'The value of "setMaxListeners" is out of range. It must be >= 0. Received ' + n,
-      );
-      e.code = 'ERR_OUT_OF_RANGE';
-      throw e;
+      throw errors.ERR_OUT_OF_RANGE('setMaxListeners', '>= 0', n);
     }
   }
 
@@ -283,12 +281,12 @@
       options !== undefined &&
       (options === null || typeof options !== 'object' || P.ArrayIsArray(options))
     ) {
-      return P.Promise.reject(errOptionsType(options));
+      return P.Promise.reject(ERR_INVALID_ARG_TYPE('options', 'object', options));
     }
     var signal = options && options.signal;
     if (signal !== undefined) {
       if (!isAbortSignal(signal)) {
-        return P.Promise.reject(typeError('options.signal', 'an instance of AbortSignal', signal));
+        return P.Promise.reject(ERR_INVALID_ARG_TYPE('options.signal', 'AbortSignal', signal));
       }
       if (signal.aborted) {
         return P.Promise.reject(makeAbortError());
@@ -332,40 +330,12 @@
         emitter.addEventListener(name, eventListener, { once: true });
       } else {
         cleanup();
-        reject(typeError('emitter', 'an EventEmitter or EventTarget', emitter));
+        reject(ERR_INVALID_ARG_TYPE('emitter', 'EventEmitter', emitter));
       }
     });
   }
 
   // --- static helpers (Node parity) ---
-
-  function typeError(name, expected, actual) {
-    var e = new TypeError(
-      'The "' + name + '" argument must be ' + expected + '. Received ' + typeof actual,
-    );
-    e.code = 'ERR_INVALID_ARG_TYPE';
-    return e;
-  }
-
-  // The ERR_INVALID_ARG_TYPE "Received …" tail for once()'s options. typeError above
-  // prints a bare `typeof`, which is wrong for node's template; only the cases
-  // validateObject can reach here are rendered (no objects other than arrays).
-  function errOptionsType(v) {
-    var t = typeof v;
-    var got;
-    if (v === null) got = 'null';
-    else if (t === 'function') got = 'function ' + v.name;
-    else if (t === 'object') got = 'an instance of Array';
-    else if (t === 'string')
-      got =
-        "type string ('" + (v.length > 28 ? P.StringPrototypeSlice(v, 0, 25) + '...' : v) + "')";
-    else if (t === 'symbol') got = 'type symbol (' + P.String(v) + ')';
-    else
-      got = 'type ' + t + ' (' + (v === 0 && 1 / v < 0 ? '-0' : v) + (t === 'bigint' ? 'n)' : ')');
-    var e = new P.TypeError('The "options" argument must be of type object. Received ' + got);
-    e.code = 'ERR_INVALID_ARG_TYPE';
-    return e;
-  }
 
   function isAbortSignal(s) {
     return s != null && typeof s.addEventListener === 'function' && 'aborted' in s;
@@ -416,8 +386,9 @@
   // events.addAbortListener(signal, listener) — once-listener for 'abort' that fires even
   // if the signal is already aborted; returns a { [Symbol.dispose]() } to remove it.
   function addAbortListener(signal, listener) {
-    if (!isAbortSignal(signal)) throw typeError('signal', 'an instance of AbortSignal', signal);
-    if (typeof listener !== 'function') throw typeError('listener', 'a function', listener);
+    if (!isAbortSignal(signal)) throw ERR_INVALID_ARG_TYPE('signal', 'AbortSignal', signal);
+    if (typeof listener !== 'function')
+      throw ERR_INVALID_ARG_TYPE('listener', 'function', listener);
     var removeEventListener;
     if (signal.aborted) {
       queueMicrotask(function () {
@@ -444,7 +415,7 @@
     options = options || {};
     var signal = options.signal;
     if (signal !== undefined && !isAbortSignal(signal)) {
-      throw typeError('options.signal', 'an instance of AbortSignal', signal);
+      throw ERR_INVALID_ARG_TYPE('options.signal', 'AbortSignal', signal);
     }
     if (signal && signal.aborted) throw makeAbortError();
 
@@ -455,7 +426,7 @@
 
     var useEmitter = typeof emitter.on === 'function' && typeof emitter.off === 'function';
     if (!useEmitter && typeof emitter.addEventListener !== 'function') {
-      throw typeError('emitter', 'an EventEmitter or EventTarget', emitter);
+      throw ERR_INVALID_ARG_TYPE('emitter', 'EventEmitter', emitter);
     }
     function addListener(name, h) {
       if (useEmitter) emitter.on(name, h);

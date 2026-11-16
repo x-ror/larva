@@ -30,58 +30,24 @@
   // ---- Node-parity argument validation -------------------------------------
   // dns.lookup is strict about option types/values: Node throws synchronously on
   // bad input (ERR_INVALID_ARG_TYPE / ERR_INVALID_ARG_VALUE, both TypeError) so
-  // mistakes surface instead of resolving as "any family". We mirror the codes and
-  // shapes; message text is close but the contract callers rely on is code + type.
-  function typeErr(code, message) {
-    var e = new TypeError(message);
-    e.code = code;
-    return e;
-  }
-  function show(value) {
-    return typeof value === 'string' ? "'" + value + "'" : String(value);
-  }
-  function propWord(name) {
-    return name.indexOf('.') !== -1 ? 'property' : 'argument';
-  }
-  function invalidArgType(name, expected, value) {
-    var kind = value === null ? 'null' : typeof value;
-    return typeErr(
-      'ERR_INVALID_ARG_TYPE',
-      'The "' +
-        name +
-        '" ' +
-        propWord(name) +
-        ' must be ' +
-        expected +
-        '. Received type ' +
-        kind +
-        ' (' +
-        show(value) +
-        ')',
-    );
-  }
-  function invalidArgValue(name, value, reason) {
-    return typeErr(
-      'ERR_INVALID_ARG_VALUE',
-      'The ' +
-        propWord(name) +
-        " '" +
-        name +
-        "' " +
-        (reason || 'is invalid') +
-        '. Received ' +
-        show(value),
-    );
+  // mistakes surface instead of resolving as "any family". The errors come from
+  // internal/errors (CLAUDE.md §5), so the text is node's as well as the code.
+  var errors = require('internal/errors');
+  var invalidArgType = errors.ERR_INVALID_ARG_TYPE;
+  var invalidArgValue = errors.ERR_INVALID_ARG_VALUE;
+  // node's validateOneOf quotes strings and prints everything else bare in its reason.
+  function quoteOne(value) {
+    return typeof value === 'string' ? "'" + value + "'" : P.String(value);
   }
   function validateBoolean(value, name) {
-    if (typeof value !== 'boolean') throw invalidArgType(name, 'of type boolean', value);
+    if (typeof value !== 'boolean') throw invalidArgType(name, 'boolean', value);
   }
   function validateNumber(value, name) {
-    if (typeof value !== 'number') throw invalidArgType(name, 'of type number', value);
+    if (typeof value !== 'number') throw invalidArgType(name, 'number', value);
   }
   function validateOneOf(value, name, list) {
     if (list.indexOf(value) === -1) {
-      var allowed = list.map(show).join(', ');
+      var allowed = P.ArrayPrototypeJoin(P.ArrayPrototypeMap(list, quoteOne), ', ');
       throw invalidArgValue(name, value, 'must be one of: ' + allowed);
     }
   }
@@ -114,13 +80,7 @@
   function validateHostname(name) {
     // Node accepts a falsy hostname (resolves to null); only a non-string truthy
     // value is a type error.
-    if (name && typeof name !== 'string') {
-      var e = new TypeError(
-        'The "hostname" argument must be of type string. Received ' + typeof name,
-      );
-      e.code = 'ERR_INVALID_ARG_TYPE';
-      throw e;
-    }
+    if (name && typeof name !== 'string') throw invalidArgType('hostname', 'string', name);
   }
 
   // dns.lookup(hostname[, options], callback)
@@ -130,7 +90,7 @@
       options = undefined;
     }
     if (typeof callback !== 'function') {
-      throw invalidArgType('callback', 'of type function', callback);
+      throw invalidArgType('callback', 'function', callback);
     }
     validateHostname(hostname);
 
@@ -142,7 +102,7 @@
       validateOneOf(options, 'family', [0, 4, 6]);
       family = options;
     } else if (options !== undefined && options !== null && typeof options !== 'object') {
-      throw invalidArgType('options', 'of type object or integer', options);
+      throw invalidArgType('options', ['integer', 'object'], options);
     } else if (options) {
       if (options.hints !== undefined && options.hints !== null) {
         validateNumber(options.hints, 'options.hints');
@@ -189,15 +149,7 @@
 
   var defaultResultOrder = 'verbatim';
   function setDefaultResultOrder(order) {
-    if (order !== 'ipv4first' && order !== 'ipv6first' && order !== 'verbatim') {
-      var e = new TypeError(
-        "The argument 'order' must be one of 'verbatim', 'ipv4first', 'ipv6first'. Received '" +
-          order +
-          "'",
-      );
-      e.code = 'ERR_INVALID_ARG_VALUE';
-      throw e;
-    }
+    validateOneOf(order, 'dnsOrder', ['verbatim', 'ipv4first', 'ipv6first']);
     defaultResultOrder = order;
   }
   function getDefaultResultOrder() {

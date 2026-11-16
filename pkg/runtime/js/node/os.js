@@ -622,32 +622,13 @@
 
   // ---- arg validation: Node's validateInt32, reproducing the ERR_* code/message
   // shapes so callers see the same TypeError/RangeError they do under Node.
-  function inspectReceived(value) {
-    if (typeof value === 'string') return "type string ('" + value + "')";
-    if (value === null) return 'null';
-    if (typeof value === 'number' || typeof value === 'boolean')
-      return 'type ' + typeof value + ' (' + value + ')';
-    if (typeof value === 'bigint') return 'type bigint (' + value + 'n)';
-    return 'type ' + typeof value;
-  }
-  function invalidArgType(name, expected, value) {
-    var err = new TypeError(
-      'The "' + name + '" argument must be ' + expected + '. Received ' + inspectReceived(value),
-    );
-    err.code = 'ERR_INVALID_ARG_TYPE';
-    return err;
-  }
-  function outOfRange(name, range, value) {
-    var err = new RangeError(
-      'The value of "' + name + '" is out of range. It must be ' + range + '. Received ' + value,
-    );
-    err.code = 'ERR_OUT_OF_RANGE';
-    return err;
-  }
+  var errors = require('internal/errors');
+  var invalidArgType = errors.ERR_INVALID_ARG_TYPE;
+  var outOfRange = errors.ERR_OUT_OF_RANGE;
   function validateInt32(value, name, min, max) {
     if (min === undefined) min = -0x80000000;
     if (max === undefined) max = 0x7fffffff;
-    if (typeof value !== 'number') throw invalidArgType(name, 'of type number', value);
+    if (typeof value !== 'number') throw invalidArgType(name, 'number', value);
     if (!Number.isInteger(value)) throw outOfRange(name, 'an integer', value);
     if (value < min || value > max) throw outOfRange(name, '>= ' + min + ' && <= ' + max, value);
     return value;

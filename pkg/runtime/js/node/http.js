@@ -19,6 +19,7 @@
   var primordials = require('internal/primordials');
   var ObjectCreate = primordials.ObjectCreate;
   var ObjectDefineProperty = primordials.ObjectDefineProperty;
+  var nodeError = require('internal/errors').nodeError;
 
   if (!native || typeof native.parseRequest !== 'function') {
     throw new primordials.Error('node:http is unavailable on this platform');
@@ -163,11 +164,11 @@
    */
   function assertHeaderName(name) {
     if (!isHttpToken(name)) {
-      var err = new TypeError(
+      throw nodeError(
+        primordials.TypeError,
+        'ERR_INVALID_HTTP_TOKEN',
         'Header name must be a valid HTTP token [' + JSON.stringify(name) + ']',
       );
-      err.code = 'ERR_INVALID_HTTP_TOKEN';
-      throw err;
     }
   }
 
@@ -184,9 +185,7 @@
       if (code === 9 || (code >= 0x20 && code <= 0x7e) || (code >= 0x80 && code <= 0xff)) {
         continue;
       }
-      var err = new TypeError('Invalid character in ' + what);
-      err.code = 'ERR_INVALID_CHAR';
-      throw err;
+      throw nodeError(primordials.TypeError, 'ERR_INVALID_CHAR', 'Invalid character in ' + what);
     }
   }
 
@@ -207,9 +206,11 @@
   function validateStatusCode(statusCode) {
     var code = NumberG(statusCode);
     if (!NumberIsInteger(code) || code < 100 || code > 999) {
-      var err = new RangeError('Invalid status code: ' + JSON.stringify(statusCode));
-      err.code = 'ERR_HTTP_INVALID_STATUS_CODE';
-      throw err;
+      throw nodeError(
+        primordials.RangeError,
+        'ERR_HTTP_INVALID_STATUS_CODE',
+        'Invalid status code: ' + JSON.stringify(statusCode),
+      );
     }
     return code;
   }

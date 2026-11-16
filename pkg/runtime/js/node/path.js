@@ -25,17 +25,11 @@
     return (code >= 65 && code <= 90) || (code >= 97 && code <= 122); // A-Z a-z
   }
 
-  function invalidArgType(name, expected, value) {
-    var err = new TypeError(
-      'The "' + name + '" argument must be of type ' + expected + '. Received type ' + typeof value,
-    );
-    err.code = 'ERR_INVALID_ARG_TYPE';
-    return err;
-  }
+  var ERR_INVALID_ARG_TYPE = require('internal/errors').ERR_INVALID_ARG_TYPE;
 
   function assertPath(path, name) {
     if (typeof path !== 'string') {
-      throw invalidArgType(name || 'path', 'string', path);
+      throw ERR_INVALID_ARG_TYPE(name || 'path', 'string', path);
     }
   }
 
@@ -132,7 +126,9 @@
       var resolvedAbsolute = false;
       for (var i = arguments.length - 1; i >= -1 && !resolvedAbsolute; i--) {
         var path = i >= 0 ? arguments[i] : posixCwd();
-        assertPath(path);
+        // node names the offending position; built only once the check has failed.
+        if (typeof path !== 'string')
+          throw ERR_INVALID_ARG_TYPE('paths[' + i + ']', 'string', path);
         if (path.length === 0) continue;
         resolvedPath = path + '/' + resolvedPath;
         resolvedAbsolute = path.charCodeAt(0) === SLASH;
@@ -209,7 +205,7 @@
 
     basename: function basename(path, suffix) {
       if (suffix !== undefined && typeof suffix !== 'string') {
-        throw invalidArgType('suffix', 'string', suffix);
+        throw ERR_INVALID_ARG_TYPE('suffix', 'string', suffix);
       }
       assertPath(path);
       return computeBasename(path, suffix, isPosixSep);
@@ -251,7 +247,8 @@
         var path;
         if (i >= 0) {
           path = arguments[i];
-          assertPath(path);
+          if (typeof path !== 'string')
+            throw ERR_INVALID_ARG_TYPE('paths[' + i + ']', 'string', path);
           if (path.length === 0) continue;
         } else if (resolvedDevice.length === 0) {
           path = win32Cwd();
@@ -495,7 +492,7 @@
 
     basename: function basename(path, suffix) {
       if (suffix !== undefined && typeof suffix !== 'string') {
-        throw invalidArgType('suffix', 'string', suffix);
+        throw ERR_INVALID_ARG_TYPE('suffix', 'string', suffix);
       }
       assertPath(path);
       var start = 0;
@@ -1244,18 +1241,10 @@
     return { segs: segs, absolute: absolute, trailing: trailing };
   }
 
-  function globArgError(name, value) {
-    var e = new TypeError(
-      'The "' + name + '" argument must be of type string. Received ' + typeof value,
-    );
-    e.code = 'ERR_INVALID_ARG_TYPE';
-    return e;
-  }
-
   function makeMatchesGlob(winSep) {
     return function matchesGlob(path, pattern) {
-      if (typeof path !== 'string') throw globArgError('path', path);
-      if (typeof pattern !== 'string') throw globArgError('pattern', pattern);
+      if (typeof path !== 'string') throw ERR_INVALID_ARG_TYPE('path', 'string', path);
+      if (typeof pattern !== 'string') throw ERR_INVALID_ARG_TYPE('pattern', 'string', pattern);
       // windowsPathsNoEscape: '\' is a separator. No regex — these were global-flag
       // replaces, and a global replace under a forged `RegExp.prototype.exec` never
       // returns (it only advances `lastIndex` on an empty match), so `matchesGlob` span

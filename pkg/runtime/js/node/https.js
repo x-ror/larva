@@ -14,6 +14,9 @@
   // The primordial, not the live global: this module is LAZY, so a module-eval read here
   // runs after user code could have replaced the global (#426).
   var P = require('internal/primordials');
+  // ERR_TLS_CERT / ERR_TLS_UNSUPPORTED_OPTION are Lava's own (M1 gaps, no node
+  // counterpart), so they keep the plain shape; the type error is node's.
+  var errors = require('internal/errors');
   if (!native || typeof native.createSecureContext !== 'function') {
     throw new P.Error('node:https is unavailable on this platform');
   }
@@ -27,13 +30,13 @@
   var BufferIsBuffer = PristineBuffer.isBuffer;
 
   function unsupported(name) {
-    var e = new Error(
+    throw errors.nativeError(
+      P.Error,
+      'ERR_TLS_UNSUPPORTED_OPTION',
       "node:https (M1) does not support the '" +
         name +
         "' option; it is rejected rather than ignored so the connection is never weaker than requested",
     );
-    e.code = 'ERR_TLS_UNSUPPORTED_OPTION';
-    throw e;
   }
 
   // Reject the deferred, security-sensitive options — but only when set to a behavior-changing value
@@ -66,9 +69,11 @@
   // key + one cert (the cert PEM may itself hold leaf+intermediates), so arrays are rejected.
   function toPem(value, field) {
     if (value == null || value === '') {
-      var e = new Error("node:https requires the '" + field + "' option");
-      e.code = 'ERR_TLS_CERT';
-      throw e;
+      throw errors.nativeError(
+        P.Error,
+        'ERR_TLS_CERT',
+        "node:https requires the '" + field + "' option",
+      );
     }
     if (typeof value === 'string') return value;
     // `value.toString('utf8')` would read the method off the INSTANCE, i.e. through the
@@ -79,29 +84,31 @@
     if (BufferIsBuffer(value)) return BufferPrototypeToString(value, 'utf8');
     if (value instanceof Uint8Array) return BufferPrototypeToString(BufferFrom(value), 'utf8');
     if (Array.isArray(value)) {
-      var ae = new Error(
+      throw errors.nativeError(
+        P.Error,
+        'ERR_TLS_UNSUPPORTED_OPTION',
         "node:https (M1) supports a single '" +
           field +
           "'; arrays (multiple contexts) are deferred",
       );
-      ae.code = 'ERR_TLS_UNSUPPORTED_OPTION';
-      throw ae;
     }
     // Anything else (a stray object/number) — throw a clear type error rather than feeding
     // String(value) (e.g. '[object Object]') to OpenSSL and surfacing a confusing ERR_TLS_CERT.
-    var te = new TypeError(
-      "node:https option '" + field + "' must be a string, Buffer, or Uint8Array (PEM)",
+    throw errors.ERR_INVALID_ARG_TYPE(
+      'options.' + field,
+      ['string', 'Buffer', 'TypedArray', 'DataView'],
+      value,
     );
-    te.code = 'ERR_INVALID_ARG_TYPE';
-    throw te;
   }
 
   function createServer(options, requestListener) {
     // Unlike http, https has no (requestListener)-only form: key+cert are mandatory.
     if (typeof options === 'function') {
-      var e = new Error('node:https requires an options object with `key` and `cert`');
-      e.code = 'ERR_TLS_CERT';
-      throw e;
+      throw errors.nativeError(
+        P.Error,
+        'ERR_TLS_CERT',
+        'node:https requires an options object with `key` and `cert`',
+      );
     }
     if (!options || typeof options !== 'object') options = {};
 
@@ -159,13 +166,13 @@
   // https.request(...) gets an actionable message (use fetch) instead of an opaque
   // "https.request is not a function" TypeError.
   function clientUnsupported(name) {
-    var e = new Error(
+    throw errors.nativeError(
+      P.Error,
+      'ERR_TLS_UNSUPPORTED_OPTION',
       'node:https client API `' +
         name +
         '` is not implemented; use the global `fetch()` for HTTPS requests',
     );
-    e.code = 'ERR_TLS_UNSUPPORTED_OPTION';
-    throw e;
   }
   function request() {
     clientUnsupported('https.request');

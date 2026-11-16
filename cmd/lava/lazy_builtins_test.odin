@@ -59,7 +59,7 @@ builtin_factories_compile_on_first_require :: proc(t: ^testing.T) {
 	)
 
 	// node:os is outside the eager closure and its only requires (primordials,
-	// buffer through require.pristineBuffer) are eager, so its first require
+	// internal/errors, buffer through require.pristineBuffer) are eager, so its first require
 	// compiles exactly one factory: its own.
 	testing.expect(t, run_bool(ctx, "typeof require('node:os').platform() === 'string'"), "node:os did not load")
 	testing.expect_value(t, state.builtin_compiles, at_init + 1)
@@ -103,7 +103,7 @@ builtin_factories_compile_on_first_require :: proc(t: ^testing.T) {
 // The static eager set, sorted. Must equal eagerModules() — asserted by
 // scripts/check-js-graph.test.mjs, which parses this literal.
 @(private = "file")
-STATIC_EAGER :: [?]string{"internal/abort", "internal/encoding", "internal/fetch", "internal/primordials", "internal/stdio", "internal/structured_clone", "node/buffer", "node/crypto", "node/events", "node/stream", "node/stream/web", "node/string_decoder", "node/url"}
+STATIC_EAGER :: [?]string{"internal/abort", "internal/encoding", "internal/errors", "internal/fetch", "internal/primordials", "internal/stdio", "internal/structured_clone", "node/buffer", "node/crypto", "node/events", "node/stream", "node/stream/web", "node/string_decoder", "node/url"}
 
 @(private = "file")
 run_bool :: proc(ctx: jsc.JSContextRef, src: string) -> bool {
