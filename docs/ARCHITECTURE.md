@@ -182,8 +182,8 @@ at its own top level, so the late edge is what keeps the graph acyclic), as node
 `internal/blob` is eager yet takes it too, at call time: `buffer` requires it from its own
 factory, before the table exists, and a top-level `require('buffer')` back would be a cycle.
 
-The JS layer is substantial and high quality: URL (~2350 across `node/url.js` and
-`internal/url.js`, WHATWG URL),
+The JS layer is substantial and high quality: URL (~2400 across `node/url.js`,
+`internal/url.js` and `internal/{idna,punycode}.js`, WHATWG URL),
 Web Streams (~2100 across `internal/webstreams/`), buffer (~1530 across `node/buffer.js` and
 `internal/buffer.js`; `Blob`, `File` and the `blob:` URL registry live in `internal/blob.js`
 and `internal/file.js`, as in node's `lib/internal`), fetch
@@ -246,7 +246,13 @@ node's `lib/url.js` defines and frames in `node:url`, installs the `URL`/`URLSea
 globals (after `buffer`, keeping its object-URL statics) and assembles the exports in their
 old order, borrowing the record slot, the path serializer and the Punycode decoder for
 `format`. Url calls no native, so there is no alias; `internal/url` is eager through
-`req('url')`, which keeps its module-eval captures pristine. Errors use Node-shaped
+`req('url')`, which keeps its module-eval captures pristine. The IDNA step takes node's
+`lib/internal/idna` seam: `internal/idna` (separator fold, UTS-46 approximation) and the
+`internal/punycode` codec under it return failure values instead of throwing, so the host
+parser and every throw it feeds stay in `internal/url` and no frame moves; both are eager
+through `internal/url`'s top-level require, and `internal/url` captures their functions at
+module-eval, so the parse path gains no call layer. `internal/punycode` is not node's public
+`punycode` (`node/punycode.js`, the userland punycode.js surface). Errors use Node-shaped
 coded errors (`ERR_INVALID_ARG_TYPE`,
 `ERR_OUT_OF_RANGE`, …), built in one place: `js/internal/errors.js` (eager, hardened)
 holds node's `determineSpecificType`, `ERR_INVALID_ARG_TYPE`/`_VALUE`, `ERR_OUT_OF_RANGE`,

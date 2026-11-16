@@ -216,7 +216,7 @@ const ROUTES = [
     targets: ['make bench-gate', 'make test-property'],
   },
   {
-    re: globToRe('**/js/internal/url.js'),
+    re: globToRe('**/js/internal/{url,idna,punycode}.js'),
     targets: ['make bench-gate', 'make test-property'],
   },
   {

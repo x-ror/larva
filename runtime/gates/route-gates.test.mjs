@@ -55,8 +55,13 @@ test('buffer internals route the property tests, entry and split file alike', ()
   }
 });
 
-test('url internals route the URL bench and property tests, entry and split file alike', () => {
-  for (const p of ['pkg/runtime/js/node/url.js', 'pkg/runtime/js/internal/url.js']) {
+test('url internals route the URL bench and property tests, entry and split files alike', () => {
+  for (const p of [
+    'pkg/runtime/js/node/url.js',
+    'pkg/runtime/js/internal/url.js',
+    'pkg/runtime/js/internal/idna.js',
+    'pkg/runtime/js/internal/punycode.js',
+  ]) {
     const t = routePaths([p]).targets;
     for (const g of ['make bench-gate', 'make test-property'])
       assert.ok(t.includes(g), p + ' ' + g);

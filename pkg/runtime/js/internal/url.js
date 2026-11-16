@@ -1,7 +1,10 @@
 // internal/url — node:url's WHATWG half, laid out like node's lib/internal/url.js:
-// the URL Standard parser (percent-encoding, host/IPv4/IPv6/IDNA, the state
-// machine), `URL`, `URLSearchParams`, `fileURLToPath`, `urlToHttpOptions` and the
-// validating `domainToASCII`/`domainToUnicode`. Implemented in JS (as Node does for
+// the URL Standard parser (percent-encoding, host/IPv4/IPv6, the state machine),
+// `URL`, `URLSearchParams`, `fileURLToPath`, `urlToHttpOptions` and the validating
+// `domainToASCII`/`domainToUnicode`. The IDNA mapping and its Punycode codec are
+// internal/idna and internal/punycode (node's lib/internal/idna.js); they throw
+// nothing, so the host parser that calls them stays here with every throw it
+// feeds, and no frame leaves node:internal/url. Implemented in JS (as Node does for
 // the parsing-heavy modules like node:path) so the fiddly state-machine semantics
 // match the URL Standard and Node byte-for-byte. JavaScriptCore's bare engine ships
 // no URL/URLSearchParams (those are WebCore APIs), so the whole surface lives here.
@@ -12,10 +15,8 @@
 // `node:internal/url`, as node's does (pinned by
 // tests/node-compat/cases/87-url-internal-modules.js). Not publicly requireable.
 //
-// Deliberate deviation from Node, documented in reference/node-compatibility.md:
-// IDNA/UTS-46 host processing is approximated (NFC + lowercase + Punycode) rather
-// than the full ICU mapping; common Unicode domains round-trip, but exotic
-// mapping/validation edge cases may differ.
+// The documented IDNA deviation (UTS-46 approximated, not the full ICU mapping) is
+// stated where the mapping lives, in internal/idna.js.
 (function (require, module, _exports) {
   'use strict';
 
@@ -110,9 +111,15 @@
     );
   }
 
-  // A unique sentinel distinct from any valid parser result; using a symbol means
-  // it can never collide with a legitimately-produced host string or number.
-  var FAILURE = { failure: true };
+  // The IDNA half (separator fold, UTS-46 approximation, Punycode) lives in
+  // internal/idna, as node's does in lib/internal/idna.js. Captured at module-eval
+  // so parseHost calls straight into it, with no wrapper on the URL parse path;
+  // FAILURE is the sentinel idna returns, so every `=== FAILURE` below stays one
+  // identity compare against the same object.
+  var idna = require('internal/idna');
+  var FAILURE = idna.FAILURE;
+  var domainToASCII = idna.domainToASCII;
+  var domainToUnicode = idna.domainToUnicode;
 
   // ------------------------------------------------------------------ //
   // Percent-encoding                                                    //
@@ -149,29 +156,6 @@
 
   function isTabOrNewline(c) {
     return c === 0x09 || c === 0x0a || c === 0x0d;
-  }
-
-  // U+3002 IDEOGRAPHIC FULL STOP, U+FF0E FULLWIDTH FULL STOP, U+FF61 HALFWIDTH
-  // IDEOGRAPHIC FULL STOP — the IDNA label separators that fold to '.'. Getting
-  // this wrong is host confusion, not a cosmetic difference.
-  function isIdnaSeparator(c) {
-    return c === 0x3002 || c === 0xff0e || c === 0xff61;
-  }
-
-  // The fold, not a strip: these three map TO '.', they are not removed.
-  function foldIdnaSeparators(s) {
-    var n = s.length;
-    var i = 0;
-    for (; i < n; i++) {
-      if (isIdnaSeparator(StringPrototypeCharCodeAt(s, i))) break;
-    }
-    if (i === n) return s;
-    var out = StringPrototypeSlice(s, 0, i);
-    for (; i < n; i++) {
-      var c = StringPrototypeCharCodeAt(s, i);
-      out += isIdnaSeparator(c) ? '.' : StringFromCharCode(c);
-    }
-    return out;
   }
 
   // The WHATWG percent-encode sets, each a predicate over a code point. Every set
@@ -306,190 +290,6 @@
     } catch {
       return FAILURE;
     }
-  }
-
-  // ------------------------------------------------------------------ //
-  // Punycode (RFC 3492) — used by the simplified IDNA host processing.  //
-  // ------------------------------------------------------------------ //
-
-  var PUNY_BASE = 36;
-  var PUNY_TMIN = 1;
-  var PUNY_TMAX = 26;
-  var PUNY_SKEW = 38;
-  var PUNY_DAMP = 700;
-  var PUNY_INITIAL_BIAS = 72;
-  var PUNY_INITIAL_N = 128;
-
-  function punyAdapt(delta, numPoints, firstTime) {
-    delta = firstTime ? MathFloor(delta / PUNY_DAMP) : delta >> 1;
-    delta += MathFloor(delta / numPoints);
-    var k = 0;
-    while (delta > ((PUNY_BASE - PUNY_TMIN) * PUNY_TMAX) >> 1) {
-      delta = MathFloor(delta / (PUNY_BASE - PUNY_TMIN));
-      k += PUNY_BASE;
-    }
-    return k + MathFloor(((PUNY_BASE - PUNY_TMIN + 1) * delta) / (delta + PUNY_SKEW));
-  }
-
-  function punyEncodeDigit(d) {
-    // 0..25 -> a..z, 26..35 -> 0..9
-    return d + 22 + (d < 26 ? 75 : 0);
-  }
-  function punyDecodeDigit(cp) {
-    if (cp - 48 < 10) return cp - 22; // 0..9
-    if (cp - 65 < 26) return cp - 65; // A..Z
-    if (cp - 97 < 26) return cp - 97; // a..z
-    return PUNY_BASE;
-  }
-
-  function punycodeEncode(input) {
-    var output = [];
-    var codePoints = [];
-    for (var s = 0; s < input.length; s++) {
-      var cp = StringPrototypeCodePointAt(input, s);
-      if (cp > 0xffff) s++;
-      ArrayPrototypePush(codePoints, cp);
-    }
-    var n = PUNY_INITIAL_N;
-    var delta = 0;
-    var bias = PUNY_INITIAL_BIAS;
-    var basicLength = 0;
-    var i;
-    for (i = 0; i < codePoints.length; i++) {
-      if (codePoints[i] < 0x80) {
-        ArrayPrototypePush(output, codePoints[i]);
-        basicLength++;
-      }
-    }
-    var handled = basicLength;
-    if (basicLength > 0) ArrayPrototypePush(output, 0x2d); // '-'
-    while (handled < codePoints.length) {
-      var m = 0x7fffffff;
-      for (i = 0; i < codePoints.length; i++) {
-        if (codePoints[i] >= n && codePoints[i] < m) m = codePoints[i];
-      }
-      delta += (m - n) * (handled + 1);
-      n = m;
-      for (i = 0; i < codePoints.length; i++) {
-        var c = codePoints[i];
-        if (c < n) delta++;
-        if (c === n) {
-          var q = delta;
-          for (var k = PUNY_BASE; ; k += PUNY_BASE) {
-            var t = k <= bias ? PUNY_TMIN : k >= bias + PUNY_TMAX ? PUNY_TMAX : k - bias;
-            if (q < t) break;
-            ArrayPrototypePush(output, punyEncodeDigit(t + ((q - t) % (PUNY_BASE - t))));
-            q = MathFloor((q - t) / (PUNY_BASE - t));
-          }
-          ArrayPrototypePush(output, punyEncodeDigit(q));
-          bias = punyAdapt(delta, handled + 1, handled === basicLength);
-          delta = 0;
-          handled++;
-        }
-      }
-      delta++;
-      n++;
-    }
-    var str = '';
-    for (i = 0; i < output.length; i++) str += StringFromCharCode(output[i]);
-    return str;
-  }
-
-  function punycodeDecode(input) {
-    var output = [];
-    var n = PUNY_INITIAL_N;
-    var bias = PUNY_INITIAL_BIAS;
-    var i = 0;
-    var basic = input.lastIndexOf('-');
-    if (basic < 0) basic = 0;
-    for (var j = 0; j < basic; j++) {
-      if (StringPrototypeCharCodeAt(input, j) >= 0x80) throw new RangeError('Invalid input');
-      ArrayPrototypePush(output, StringPrototypeCharCodeAt(input, j));
-    }
-    var index = basic > 0 ? basic + 1 : 0;
-    while (index < input.length) {
-      var oldi = i;
-      var w = 1;
-      for (var k = PUNY_BASE; ; k += PUNY_BASE) {
-        if (index >= input.length) throw new RangeError('Invalid input');
-        var digit = punyDecodeDigit(StringPrototypeCharCodeAt(input, index++));
-        if (digit >= PUNY_BASE) throw new RangeError('Invalid input');
-        i += digit * w;
-        var t = k <= bias ? PUNY_TMIN : k >= bias + PUNY_TMAX ? PUNY_TMAX : k - bias;
-        if (digit < t) break;
-        w *= PUNY_BASE - t;
-      }
-      var outLen = output.length + 1;
-      bias = punyAdapt(i - oldi, outLen, oldi === 0);
-      n += MathFloor(i / outLen);
-      i %= outLen;
-      ArrayPrototypeSplice(output, i, 0, n);
-      i++;
-    }
-    var str = '';
-    for (var o = 0; o < output.length; o++) str += StringFromCodePoint(output[o]);
-    return str;
-  }
-
-  function hasNonASCII(str) {
-    for (var i = 0; i < str.length; i++) {
-      if (StringPrototypeCharCodeAt(str, i) > 0x7f) return true;
-    }
-    return false;
-  }
-
-  // Simplified IDNA ToASCII. Approximates UTS-46 by: normalizing the three IDNA
-  // label separators to '.', applying NFKC + lowercasing each Unicode label (so
-  // fullwidth/compatibility characters fold the way ICU maps them), and emitting
-  // the Punycode "xn--…" form. ASCII labels are just lowercased. Not the full ICU
-  // mapping table, but round-trips the overwhelming majority of real domains.
-  function domainToASCII(domain) {
-    if (domain === '') return '';
-    // IDEOGRAPHIC FULL STOP, FULLWIDTH FULL STOP, HALFWIDTH IDEOGRAPHIC FULL STOP.
-    // Fold the three IDNA separators to '.', without a RegExp — see stripChars.
-    domain = foldIdnaSeparators(domain);
-    var labels = StringPrototypeSplit(domain, '.');
-    var out = [];
-    for (var i = 0; i < labels.length; i++) {
-      var label = labels[i];
-      if (hasNonASCII(label)) {
-        var mapped = (
-          label.normalize ? StringPrototypeNormalize(label, 'NFKC') : label
-        ).toLowerCase();
-        if (!hasNonASCII(mapped)) {
-          // The mapping folded the label to pure ASCII (e.g. fullwidth digits).
-          ArrayPrototypePush(out, mapped);
-          continue;
-        }
-        try {
-          ArrayPrototypePush(out, 'xn--' + punycodeEncode(mapped));
-        } catch {
-          return FAILURE;
-        }
-      } else {
-        ArrayPrototypePush(out, StringPrototypeToLowerCase(label));
-      }
-    }
-    return ArrayPrototypeJoin(out, '.');
-  }
-
-  function domainToUnicode(domain) {
-    if (domain === '') return '';
-    var labels = StringPrototypeSplit(domain, '.');
-    var out = [];
-    for (var i = 0; i < labels.length; i++) {
-      var label = labels[i];
-      if (label.slice(0, 4).toLowerCase() === 'xn--') {
-        try {
-          ArrayPrototypePush(out, punycodeDecode(label.slice(4)));
-        } catch {
-          ArrayPrototypePush(out, label);
-        }
-      } else {
-        ArrayPrototypePush(out, label);
-      }
-    }
-    return ArrayPrototypeJoin(out, '.');
   }
 
   // ------------------------------------------------------------------ //

@@ -149,6 +149,12 @@
     "accessor": 0,
     "global": 14
   },
+  "internal/idna.js": {
+    "method": 4,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 0
+  },
   "internal/mime.js": {
     "method": 24,
     "invoke": 0,
@@ -178,6 +184,12 @@
     "invoke": 9,
     "accessor": 0,
     "global": 1
+  },
+  "internal/punycode.js": {
+    "method": 1,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 3
   },
   "internal/stdio.js": {
     "method": 0,
@@ -258,10 +270,10 @@
     "global": 14
   },
   "internal/url.js": {
-    "method": 36,
+    "method": 31,
     "invoke": 2,
     "accessor": 0,
-    "global": 17
+    "global": 14
   },
   "internal/util.js": {
     "method": 1,
