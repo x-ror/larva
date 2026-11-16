@@ -28,7 +28,8 @@
   // `RegExp.prototype.exec` never returns, so `punycode.toASCII`/`toUnicode` on any
   // caller-supplied hostname wedged the process. node hangs on the same input, so this is
   // a deviation in Lava's favour; pinned Lava-only by cmd/lava/regexp_pollution_test.odin.
-  // (`new URL()` is unaffected — url.js carries its own IDNA path and does not call here.)
+  // (`new URL()` is unaffected — internal/idna carries its own IDNA path and does not
+  // call here.)
   function isRFC3490Separator(c) {
     return c === 0x2e || c === 0x3002 || c === 0xff0e || c === 0xff61;
   }

@@ -2590,6 +2590,24 @@
       "expect_detail": "node: format opts http://βόλοσ.com:8080/a%20b#f"
     },
     {
+      "name": "88-url-idna-modules dies when internal/idna stops folding the IDNA label separators",
+      "why": "U+3002/U+FF61 are label separators the URL Standard maps to '.'; without the fold in internal/idna the whole run is one label, Punycode-encoded, a different host from node's — the case must see the moved IDNA code, not just that the file loads.",
+      "source": "pkg/runtime/js/internal/idna.js",
+      "find": "    domain = foldIdnaSeparators(domain);\n",
+      "replace": "",
+      "gate": "compat:tests/node-compat/cases/88-url-idna-modules.js",
+      "expect_detail": "node: domain \"a。b｡c．d\" \"a.b.c.d\" \"a.b.c.d\""
+    },
+    {
+      "name": "88-url-idna-modules dies when internal/punycode decodes the wrong code point",
+      "why": "RFC 3492's decode advances n by floor(i / (len+1)); advancing by i decodes xn--maana-pta to another name. domainToUnicode and format's unicode option reach the codec only through internal/idna, so this proves the case watches the far end of the seam.",
+      "source": "pkg/runtime/js/internal/punycode.js",
+      "find": "      n += MathFloor(i / outLen);",
+      "replace": "      n += i;",
+      "gate": "compat:tests/node-compat/cases/88-url-idna-modules.js",
+      "expect_detail": "node: domain \"mañana.com\" \"xn--maana-pta.com\" \"mañana.com\""
+    },
+    {
       "name": "86-os-internal-modules dies when internal/os/constants drops a table from os.constants",
       "why": "os.constants is now assembled in internal/os/constants.js, outside node:os; the case's per-table lines are what show the moved object still carries every table node's does, so losing one in the move must turn it red.",
       "source": "pkg/runtime/js/internal/os/constants.js",
