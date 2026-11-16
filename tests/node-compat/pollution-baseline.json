@@ -13,7 +13,7 @@
   },
   "bootstrap/loader.js": {
     "method": 2,
-    "invoke": 1,
+    "invoke": 0,
     "accessor": 0,
     "global": 0
   },
