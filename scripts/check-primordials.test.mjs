@@ -21,7 +21,7 @@ import { SELF_TEST, E } from './lib/primordials-fixtures.mjs';
 test('detector fixtures', async (t) => {
   for (const fixture of SELF_TEST) {
     await t.test(fixture.name, () => {
-      const { hits } = countSource(fixture.src, fixture.name);
+      const { hits } = countSource(fixture.src, fixture.name, { eager: !fixture.lazy });
       const actual = E();
       for (const h of hits) actual[h.kind]++;
       // Exact per-class counts. An `includes`-style assertion passes while the

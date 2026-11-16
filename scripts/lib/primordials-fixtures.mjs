@@ -160,6 +160,43 @@ const SELF_TEST = [
     expect: E(),
   },
 
+  // --- ...and only in a module the loader instantiates BEFORE user code ---
+  // `lazy: true` scans the source as a module outside the eager set (see
+  // lib/js-graph.mjs eagerModules): its factory runs on the user's first require,
+  // after user code could have replaced `String`, so the capture IS the live read.
+  // #333 shipped exactly this — `var StringG = String` at the top of net.js scored 0.
+  // Every fixture without the flag is scanned as eager, which is what they pinned
+  // before the distinction existed.
+  {
+    name: 'eager module: the same capture is pristine',
+    src: WRAP('  var StringG = String;'),
+    expect: E(),
+  },
+  {
+    name: 'lazy module: module-eval capture is a live read',
+    src: WRAP('  var StringG = String;'),
+    lazy: true,
+    expect: E({ global: 1 }),
+  },
+  {
+    name: 'lazy module: module-eval globalThis capture is a live read',
+    src: WRAP('  var StringG = globalThis.String;'),
+    lazy: true,
+    expect: E({ global: 1 }),
+  },
+  // The FIX in a lazy module is the loader's handle, which is not a global read:
+  // the primordials table was captured before user code, and so was pristineBuffer.
+  {
+    name: 'lazy module: primordials and pristineBuffer are not global reads',
+    src: WRAP(
+      "  var P = require('internal/primordials');\n" +
+        '  var { StringPrototypeTrim, String: S } = P;\n' +
+        '  var BufferG = require.pristineBuffer.Buffer;',
+    ),
+    lazy: true,
+    expect: E(),
+  },
+
   // --- positions that are not reads at all ---
   { name: 'object key is not a read', src: 'var t = { __proto__: null, String: 1 };', expect: E() },
   {
@@ -356,7 +393,7 @@ function selfTest() {
   for (const t of SELF_TEST) {
     let got;
     try {
-      got = countSource(t.src, t.name);
+      got = countSource(t.src, t.name, { eager: !t.lazy });
     } catch (err) {
       failures.push(`${t.name}: ${err.message}`);
       continue;

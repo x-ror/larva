@@ -8,10 +8,11 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { checkJsGraph } from './check-js-graph.mjs';
+import { eagerModules } from './lib/js-graph.mjs';
 import { ROOT } from './lib/primordials-detect.mjs';
 
 const ODIN = `package runtime
@@ -59,6 +60,15 @@ function rules(overrides) {
   const root = tree(overrides);
   try {
     return checkJsGraph(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function eager(overrides) {
+  const root = tree(overrides);
+  try {
+    return eagerModules(root);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -137,4 +147,43 @@ test('cycle: two module-eval requires that close a loop', () => {
     vs[0].msg,
     /node\/stream -> node\/stream\/web -> node\/stream|node\/stream\/web -> node\/stream -> node\/stream\/web/,
   );
+});
+
+// --- the eager set the pollution ratchet reads (lib/js-graph.mjs eagerModules) ---
+//
+// A module-eval capture is pristine only in a module instantiated before user code,
+// so the ratchet exempts module-eval reads in exactly these ids. Getting the set too
+// LARGE is the bug direction: a lazy module called eager has its captures exempted.
+
+test('eager: closes over module-eval requires from the loader roots', () => {
+  // Roots are the loader's req() literals (primordials, fetch); buffer, stream and
+  // stream/web are eager only through fetch -> stream/web -> stream -> buffer.
+  assert.deepEqual(eager({}), [
+    'internal/fetch',
+    'internal/primordials',
+    'node/buffer',
+    'node/stream',
+    'node/stream/web',
+  ]);
+});
+
+test('eager: a function-body require does not make its target eager', () => {
+  const ids = eager({
+    'pkg/runtime/js/node/stream.js':
+      "(function (require, module) { require('buffer'); function late() { return require('os'); } module.exports = { late }; });",
+    'pkg/runtime/js/node/os.js': '(function (require, module) { module.exports = {}; });',
+  });
+  assert.ok(ids.includes('node/stream'), `stream is eager: ${ids}`);
+  assert.ok(!ids.includes('node/os'), `node/os is lazy, got eager: ${ids}`);
+});
+
+// The runtime side of the same set. cmd/lava/lazy_builtins_test.odin carries the list
+// as STATIC_EAGER and checks it against what context init actually compiles; this keeps
+// that list equal to what the ratchet computes, so neither can drift alone.
+test('eager: the Odin cross-check list matches the computed set', () => {
+  const odin = readFileSync(join(ROOT, 'cmd', 'lava', 'lazy_builtins_test.odin'), 'utf8');
+  const m = /STATIC_EAGER :: \[\?\]string\{([^}]*)\}/.exec(odin);
+  assert.ok(m, 'STATIC_EAGER not found in lazy_builtins_test.odin');
+  const listed = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]).sort();
+  assert.deepEqual(listed, eagerModules(ROOT));
 });

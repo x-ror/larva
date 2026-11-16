@@ -447,6 +447,12 @@ pollutable site, each baselined separately in
 | `accessor` | `view.buffer`   | a configurable prototype getter |
 | `global`   | `String(x)`     | a replaceable global, read live |
 
+A `global` read at module-eval is exempt only in a module instantiated before user
+code — the loader's `req()` roots closed over top-level requires, computed by
+`scripts/lib/js-graph.mjs` (the parser `check-js-graph.mjs` also uses). In a lazy
+module the factory runs on the user's first `require()`, so its capture counts (#333).
+`cmd/lava/lazy_builtins_test.odin` checks that set against what context init compiles.
+
 `make check-primordials` (part of `make check-js`) fails on any per-class
 increase, and `--update` refuses to raise a floor without `--allow-raise`. The
 detector self-tests against known-positive and known-negative fixtures on every
