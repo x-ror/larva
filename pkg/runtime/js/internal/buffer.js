@@ -145,7 +145,7 @@
    * @node `The "size" argument must be of type number. Received type string ('5')`
    *       for Buffer.alloc('5'); the same template for "offset" (readUInt8('5'),
    *       writeUInt16LE(0, '1')) and "length" (Buffer.concat([a], '5')). Node 24.22.1,
-   *       verified by the issue #391 probe.
+   *       verified by tests/node-compat/cases/70-buffer-size-inspect-parity.js.
    * @deviates none
    */
   function errInvalidArgType(name, expected, actual) {
@@ -228,6 +228,13 @@
     return offset;
   }
 
+  // Node's validateOffset(value, name, 0, max) as write/compare/fill call it: a
+  // non-number is a type error (no ToNumber coercion), then the integer/range check.
+  function validateOffsetArg(value, name, max) {
+    if (typeof value !== 'number') throw errInvalidArgType(name, 'of type number', value);
+    return validateWriteOffset(value, max, name);
+  }
+
   function errUnknownEncoding(encoding) {
     var e = new TypeError('Unknown encoding: ' + encoding);
     e.code = 'ERR_UNKNOWN_ENCODING';
@@ -250,9 +257,10 @@
    *         ceiling; the message quotes the ceiling and `Received <size>`.
    * @node -1/NaN/±Infinity/2**53 → `The value of "size" is out of range. It must be
    *       >= 0 && <= 9007199254740991. Received -1` (2**53 prints 9_007_199_254_740_992);
-   *       -0 and 1.5 pass (length 0 and 1). Node 24.22.1, verified by the #391 probe.
-   * @deviates The ceiling is K_MAX_LENGTH (4294967296, the JSC-family kMaxLength that
-   *           buffer.constants.MAX_LENGTH reports), not node's 2**53-1 — the documented
+   *       -0 and 1.5 pass (length 0 and 1). Node 24.22.1, verified by
+   *       tests/node-compat/cases/70-buffer-size-inspect-parity.js.
+   * @deviates The ceiling is K_MAX_LENGTH (4 GiB by default; LAVA_MAX_BUFFER_BYTES lowers it,
+   *           and buffer.constants.MAX_LENGTH reports it), not node's 2**53-1 — the documented
    *           kMaxLength deviation in reference/node-compatibility.md. The bound is pinned
    *           to MAX_LENGTH, not to a literal, by
    *           tests/node-compat/cases/70-buffer-size-inspect-parity.js and
@@ -267,6 +275,7 @@
   /** @returns {string} Canonical encoding name (default utf8). */
   function normalizeEncoding(encoding) {
     if (encoding === undefined || encoding === null || encoding === '') return 'utf8';
+    if (typeof encoding === 'symbol') return '' + encoding; // throws TypeError on Symbol, matching Node
     var key = StringPrototypeToLowerCase(StringG(encoding));
     var canon = ENCODING_ALIASES[key];
     return canon !== undefined ? canon : key;
@@ -274,9 +283,9 @@
 
   /** @returns {boolean} */
   function isEncodingName(encoding) {
-    return ObjectPrototypeHasOwnProperty(
-      ENCODING_ALIASES,
-      StringPrototypeToLowerCase(StringG(encoding)),
+    return (
+      typeof encoding === 'string' &&
+      ObjectPrototypeHasOwnProperty(ENCODING_ALIASES, StringPrototypeToLowerCase(encoding))
     );
   }
 
@@ -407,7 +416,11 @@
     if (typeof value === 'string') return strToBytes(value, encoding || 'utf8');
     if (value instanceof Uint8Array) return value;
     if (value instanceof ArrayBuffer) return new Uint8Array(value);
-    throw new TypeError('value must be string, number, Buffer, or Uint8Array');
+    throw errInvalidArgType(
+      'value',
+      'one of type number or string or an instance of Buffer or Uint8Array',
+      value,
+    );
   }
 
   /** indexOf / lastIndexOf implementation (native search). */
@@ -493,19 +506,24 @@
     return viewOf(buf).getBigInt64(offset, littleEndian);
   }
 
+  // Node's writeBigU_Int64* order (lib/internal/buffer.js checkInt): the range compare
+  // runs first on the raw value, then the offset bounds, and only then `value & mask`,
+  // whose mixed-type `&` is what throws "Cannot mix BigInt and other types". So a boxed
+  // BigInt (Object(5n)) writes, an out-of-range number reports ERR_OUT_OF_RANGE, a bad
+  // offset beats a non-BigInt value, and a Symbol throws from the compare. The mask
+  // also yields the two's-complement u64 for a negative signed value, so both widths
+  // store through setBigUint64. Pinned by tests/node-compat/cases/73-buffer-type-fill-bigint.js.
   function writeBigUInt(buf, value, offset, littleEndian) {
-    value = BigInt(value);
     checkValueInt(value, BIG_0, BIG_MAX_U64, 7);
     offset = checkBounds(buf, offset, 8);
-    viewOf(buf).setBigUint64(offset, value, littleEndian);
+    viewOf(buf).setBigUint64(offset, value & BIG_MAX_U64, littleEndian);
     return offset + 8;
   }
 
   function writeBigInt(buf, value, offset, littleEndian) {
-    value = BigInt(value);
     checkValueInt(value, -BIG_SIGN_I64, BIG_SIGN_I64 - BIG_1, 7);
     offset = checkBounds(buf, offset, 8);
-    viewOf(buf).setBigInt64(offset, value, littleEndian);
+    viewOf(buf).setBigUint64(offset, value & BIG_MAX_U64, littleEndian);
     return offset + 8;
   }
 
@@ -536,9 +554,9 @@
       var len = TypedArrayPrototypeGetLength(this);
       if (start === undefined || start <= 0) start = 0;
       else if (start >= len) return '';
-      else start |= 0;
-      if (end === undefined || end > len) end = len;
-      else end |= 0;
+      else start = +start | 0;
+      if (end === undefined || end >= len) end = len;
+      else end = +end | 0;
       if (end <= start) return '';
       // Full-range toString (the common case) skips the subarray view: the
       // codec natives read this buffer's bytes in place either way.
@@ -592,6 +610,11 @@
      * @returns {number} Bytes written
      */
     write(string, offset, length, encoding) {
+      if (typeof string !== 'string') {
+        var e = new TypeError('argument must be a string');
+        e.code = 'ERR_INVALID_ARG_TYPE';
+        throw e;
+      }
       if (offset === undefined) {
         offset = 0;
         length = this.length;
@@ -600,7 +623,7 @@
         offset = 0;
         length = this.length;
       } else {
-        offset = validateWriteOffset(+offset, this.length, 'offset');
+        offset = validateOffsetArg(offset, 'offset', this.length);
         if (typeof length === 'string') {
           encoding = length;
           length = undefined;
@@ -608,8 +631,15 @@
       }
       var enc = normalizeEncoding(encoding || 'utf8');
       var remaining = this.length - offset;
-      var max = length === undefined ? remaining : toInteger(length, 0);
-      if (max > remaining) max = remaining;
+      var max;
+      if (length === undefined) {
+        max = remaining;
+      } else {
+        // Node bounds `length` by the whole buffer, not by what is left after
+        // `offset`, then clamps: write('abcdef', 5, 8) on 10 bytes writes 5.
+        max = validateOffsetArg(length, 'length', this.length);
+        if (max > remaining) max = remaining;
+      }
       if (max <= 0) return 0;
       string = StringG(string);
       if (enc === 'utf8') return utf8WriteIntoNative(this, string, offset, max);
@@ -639,19 +669,17 @@
 
     compare(target, targetStart, targetEnd, sourceStart, sourceEnd) {
       if (!(target instanceof Uint8Array))
-        throw new TypeError('target must be a Buffer or Uint8Array');
-      targetStart = validateRange(targetStart, K_MAX_LENGTH, 'targetStart');
-      targetEnd = validateRange(
-        targetEnd === undefined ? target.length : targetEnd,
-        target.length,
-        'targetEnd',
-      );
-      sourceStart = validateRange(sourceStart, K_MAX_LENGTH, 'sourceStart');
-      sourceEnd = validateRange(
-        sourceEnd === undefined ? this.length : sourceEnd,
-        this.length,
-        'sourceEnd',
-      );
+        throw errInvalidArgType('target', 'an instance of Buffer or Uint8Array', target);
+      // Node bounds the *Start arguments by kMaxLength only, the *End ones by the
+      // buffer length: compare(b3, 100) is 1 (empty target range), not a RangeError.
+      if (targetStart === undefined) targetStart = 0;
+      else targetStart = validateOffsetArg(targetStart, 'targetStart', K_MAX_LENGTH);
+      if (targetEnd === undefined) targetEnd = target.length;
+      else targetEnd = validateOffsetArg(targetEnd, 'targetEnd', target.length);
+      if (sourceStart === undefined) sourceStart = 0;
+      else sourceStart = validateOffsetArg(sourceStart, 'sourceStart', K_MAX_LENGTH);
+      if (sourceEnd === undefined) sourceEnd = this.length;
+      else sourceEnd = validateOffsetArg(sourceEnd, 'sourceEnd', this.length);
       if (sourceStart >= sourceEnd && targetStart >= targetEnd) return 0;
       if (sourceStart >= sourceEnd) return -1;
       if (targetStart >= targetEnd) return 1;
@@ -670,31 +698,48 @@
         encoding = end;
         end = this.length;
       }
+      // validateOffsetArg's checks, inlined: the extra call layer per offset was the
+      // whole residual on fill(i, 0, 32) — 3e6 calls on a 64-byte buffer took 954 ms
+      // through validateOffsetArg and 496 inlined, base 8619888 738 (medians of 5
+      // interleaved launches per arm, darwin arm64, -o:speed). The valid case only compares; anything else (fraction, NaN, ±Infinity,
+      // out of range) goes to validateWriteOffset, which picks and builds the error.
+      // `% 1` rather than Math.floor keeps the live `Math` global read out (§5).
       if (start === undefined) start = 0;
-      else start = validateWriteOffset(+start, K_MAX_LENGTH, 'offset');
+      else if (typeof start !== 'number')
+        throw errInvalidArgType('offset', 'of type number', start);
+      else if (start % 1 !== 0 || start < 0 || start > K_MAX_LENGTH)
+        validateWriteOffset(start, K_MAX_LENGTH, 'offset');
       if (end === undefined) end = this.length;
-      else end = validateWriteOffset(+end, this.length, 'end');
+      else if (typeof end !== 'number') throw errInvalidArgType('end', 'of type number', end);
+      else if (end % 1 !== 0 || end < 0 || end > this.length)
+        validateWriteOffset(end, this.length, 'end');
       if (end <= start) return this;
-      if (typeof value === 'number') {
+      var bytes;
+      // Numbers skip the string and instanceof tests (the hot case) and land in the
+      // same `& 0xff` fill as every other non-string, non-Uint8Array value, so the order
+      // is unobservable. Behind those tests, 3e6 fill(i, 0, 32) on a 64-byte buffer took
+      // 1111 ms; ahead of them, 989 ms (medians of 5 interleaved launches per arm,
+      // darwin arm64, -o:speed). One shared fill site rather than an early-return copy,
+      // so the primordials invoke count does not grow.
+      if (typeof value !== 'number') {
+        if (typeof value === 'string') {
+          bytes = strToBytes(value, encoding || 'utf8');
+          if (bytes.length === 0) {
+            if (value.length !== 0) throw errInvalidArgValue('value', value);
+            u8Fill.call(this, 0, start, end);
+            return this;
+          }
+        } else if (value instanceof Uint8Array) {
+          if (value.length === 0) throw errInvalidArgValue('value', value);
+          bytes = value;
+        }
+      }
+      if (bytes === undefined) {
+        // Numbers and every other value (null, undefined, objects, booleans, BigInt,
+        // Symbol) coerce via ToNumber/ToInt32 (& 0xff), matching Node:
+        // null/undefined/{} -> 0, true -> 1, BigInt/Symbol -> TypeError.
         u8Fill.call(this, value & 0xff, start, end);
         return this;
-      }
-      if (typeof value === 'boolean') {
-        u8Fill.call(this, value ? 1 : 0, start, end);
-        return this;
-      }
-      var bytes;
-      if (value instanceof Uint8Array) {
-        if (value.length === 0) throw errInvalidArgValue('value', value);
-        bytes = value;
-      } else {
-        var str = StringG(value);
-        bytes = strToBytes(str, encoding || 'utf8');
-        if (bytes.length === 0) {
-          if (str.length !== 0) throw errInvalidArgValue('value', value);
-          u8Fill.call(this, 0, start, end);
-          return this;
-        }
       }
       if (bytes.length === 1) {
         u8Fill.call(this, bytes[0], start, end);
@@ -752,7 +797,8 @@
    *         ±Infinity or above kMaxLength (assertSize, the check Buffer.alloc runs).
    * @node `Buffer(n)` is `Buffer.alloc(n)`: -1, NaN, ±Infinity and 2**53 throw the
    *       coded "size" RangeError, -0 → length 0, 1.5 → length 1, 5 → five zero bytes;
-   *       identical with and without `new`. Node 24.22.1, verified by the #391 probe.
+   *       identical with and without `new`. Node 24.22.1, verified by
+   *       tests/node-compat/cases/70-buffer-size-inspect-parity.js.
    * @deviates The out-of-range bound is K_MAX_LENGTH (see assertSize), pinned by
    *           tests/node-compat/cases/70-buffer-size-inspect-parity.js.
    */
@@ -1260,8 +1306,10 @@
   };
 
   Buffer.compare = function (a, b) {
-    if (!(a instanceof Uint8Array) || !(b instanceof Uint8Array))
-      throw new TypeError('Arguments must be Buffers or Uint8Arrays');
+    if (!(a instanceof Uint8Array))
+      throw errInvalidArgType('buf1', 'an instance of Buffer or Uint8Array', a);
+    if (!(b instanceof Uint8Array))
+      throw errInvalidArgType('buf2', 'an instance of Buffer or Uint8Array', b);
     return compareBytes(a, b);
   };
 
@@ -1306,7 +1354,8 @@
   };
 
   Buffer.copyBytesFrom = function (view, offset, length) {
-    if (!ArrayBuffer.isView(view)) throw new TypeError('view must be a TypedArray');
+    if (!ArrayBuffer.isView(view))
+      throw errInvalidArgType('view', 'an instance of TypedArray', view);
     var bpe = view.BYTES_PER_ELEMENT || 1;
     offset = toInteger(offset, 0);
     length = length === undefined ? view.length - offset : toInteger(length, 0);
@@ -1327,14 +1376,102 @@
 
   createPool();
 
-  /** Base64 → latin1 (Node global atob polyfill surface). */
-  function atob(data) {
-    return Buffer.from(StringG(data), 'base64').toString('latin1');
+  function errMissingInput() {
+    var e = new TypeError('The "input" argument must be specified');
+    e.code = 'ERR_MISSING_ARGS';
+    return e;
   }
 
-  /** latin1 → Base64 (Node global btoa polyfill surface). */
-  function btoa(data) {
-    return Buffer.from(StringG(data), 'latin1').toString('base64');
+  // Node throws a DOMException here; Lava has no DOMException (same gap as
+  // structured_clone.js's DataCloneError), so this is an Error carrying the
+  // DOMException's name and legacy numeric code.
+  function errInvalidCharacter(message) {
+    var e = new Error(message);
+    e.name = 'InvalidCharacterError';
+    e.code = 5;
+    return e;
+  }
+
+  // One native regex scan instead of a per-char StringPrototypeCharCodeAt loop
+  // (~63 ns/char through the caller1 wrapper). 200 btoa calls on 48 KiB of latin1
+  // took 615 ms that way and 89 ms with the regex; 200 atob calls on 64 KiB of
+  // base64, 2542 vs 1579 ms (medians of 5 interleaved launches per arm, darwin
+  // arm64, -o:speed). Most of what is left is the Buffer round trip, not this
+  // check. Non-global, so RegExpMatches never touches lastIndex (§5).
+  // ATOB_SLOW_RE matches anything the fast path cannot take as-is: whitespace or a
+  // non-alphabet character, a '=' followed by anything but '=', or three '='; atob
+  // then falls back to the exact per-char loop, so error selection and messages
+  // are unchanged.
+  var ATOB_SLOW_RE = /[^A-Za-z0-9+/=]|=[^=]|===/;
+  var NON_LATIN1_RE = /[^\u0000-\u00ff]/;
+
+  /**
+   * Base64 → latin1 per the HTML forgiving-base64 decode (global atob and node:buffer's
+   * atob are the same function, as in Node).
+   * @param {*} input Stringified with a template literal, like Node (`${input}`).
+   * @returns {string}
+   * @throws {TypeError} ERR_MISSING_ARGS — called with no argument.
+   * @throws {Error} name InvalidCharacterError, code 5 — a character outside
+   *         A-Za-z0-9+/= and ASCII whitespace, '=' not at the end or more than two,
+   *         '=' when the length is not a multiple of 4, or a lone trailing character.
+   * @node Mirrors lib/buffer.js atob: whitespace is TAB LF FF CR SPACE (not VT); the
+   *       messages are 'Invalid character' and 'The string to be decoded is not
+   *       correctly encoded.' (node 26.13.0, tests/node-compat/cases/03-buffer.js).
+   * @deviates The error is an Error, not a DOMException (Lava has none); name, code
+   *           and message match. Pinned by cmd/lava/atob_invalid_character_test.odin.
+   */
+  function atob(input) {
+    if (arguments.length === 0) throw errMissingInput();
+    input = `${input}`;
+    var nonWhitespace = 0;
+    var equals = 0;
+    if (!P.RegExpMatches(ATOB_SLOW_RE, input)) {
+      // Fast path: only alphabet characters and at most two trailing '='. The
+      // remainder rules below still apply.
+      nonWhitespace = input.length;
+      if (nonWhitespace > 0 && StringPrototypeCharCodeAt(input, nonWhitespace - 1) === 0x3d) {
+        equals = 1;
+        if (nonWhitespace > 1 && StringPrototypeCharCodeAt(input, nonWhitespace - 2) === 0x3d)
+          equals = 2;
+      }
+    } else
+      for (var i = 0; i < input.length; i++) {
+        var c = StringPrototypeCharCodeAt(input, i);
+        if (c === 0x09 || c === 0x0a || c === 0x0c || c === 0x0d || c === 0x20) continue;
+        var alnum =
+          (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) || (c >= 0x30 && c <= 0x39);
+        if (!alnum && c !== 0x2b && c !== 0x2f && c !== 0x3d)
+          throw errInvalidCharacter('Invalid character');
+        nonWhitespace++;
+        if (c === 0x3d) equals++;
+        else if (equals) throw errInvalidCharacter('Invalid character'); // '=' only at the end
+        if (equals > 2) throw errInvalidCharacter('Invalid character');
+      }
+    // The lone-trailing-character test runs on the length WITHOUT the '=' and wins
+    // over the padding test: node 26.13.0 answers 'not correctly encoded' for 'a=',
+    // 'a==' and 'abcde=', and 'Invalid character' for 'ab=', 'abc==' and 'Zm9v='
+    // (probed; pinned by tests/node-compat/cases/03-buffer.js).
+    if ((nonWhitespace - equals) % 4 === 1)
+      throw errInvalidCharacter('The string to be decoded is not correctly encoded.');
+    if (equals && nonWhitespace % 4) throw errInvalidCharacter('Invalid character');
+    return Buffer.from(input, 'base64').toString('latin1');
+  }
+
+  /**
+   * latin1 → Base64 (global btoa and node:buffer's btoa are the same function).
+   * @param {*} input Stringified with a template literal, like Node.
+   * @returns {string}
+   * @throws {TypeError} ERR_MISSING_ARGS — called with no argument.
+   * @throws {Error} name InvalidCharacterError, code 5 — a code unit above 0xFF.
+   * @node lib/buffer.js btoa (node 26.13.0, tests/node-compat/cases/03-buffer.js).
+   * @deviates Not a DOMException, as for atob; pinned by
+   *           cmd/lava/atob_invalid_character_test.odin.
+   */
+  function btoa(input) {
+    if (arguments.length === 0) throw errMissingInput();
+    input = `${input}`;
+    if (P.RegExpMatches(NON_LATIN1_RE, input)) throw errInvalidCharacter('Invalid character');
+    return Buffer.from(input, 'latin1').toString('base64');
   }
 
   /** @param {ArrayBuffer|Uint8Array} input @returns {boolean} */
@@ -1611,6 +1748,12 @@
   }
   if (globalThis.File === undefined) {
     globalThis.File = File;
+  }
+  if (globalThis.atob === undefined) {
+    globalThis.atob = atob;
+  }
+  if (globalThis.btoa === undefined) {
+    globalThis.btoa = btoa;
   }
 
   var exported = {

@@ -398,14 +398,43 @@
     return true;
   }
 
-  function collectionEqual(aEntries, bEntries, withValue, aStack, bStack) {
-    var used = new Array(bEntries.length);
-    for (var i = 0; i < aEntries.length; i++) {
+  // Map/Set equality as node's comparisons.js does it in strict mode: a primitive key
+  // (or Set member) can only deep-equal the identical primitive, so it is looked up
+  // directly with b.has/b.get — O(n). Only object keys/members need the pairwise
+  // deepStrict scan, and only against b's object keys. The pairwise scan over every
+  // entry was O(n^2): one assert.deepStrictEqual on two equal 16k int->int Maps took
+  // 2179 ms that way and 4 ms this way (medians of 5 interleaved launches, darwin arm64).
+  // Sizes are already known equal, and Map/Set normalize -0 and match NaN via
+  // SameValueZero, which is what deepStrict answers for those keys anyway.
+  function collectionEqual(a, b, isMap, aStack, bStack) {
+    var aObjects = [];
+    var ok = true;
+    a.forEach(function (v, k) {
+      if (!ok) return;
+      var key = isMap ? k : v;
+      if (typeof key === 'object' && key !== null) {
+        aObjects.push([key, v]);
+      } else if (!b.has(key)) {
+        ok = false;
+      } else if (isMap && !deepStrict(v, b.get(key), aStack, bStack)) {
+        ok = false;
+      }
+    });
+    if (!ok) return false;
+    if (aObjects.length === 0) return true;
+    var bObjects = [];
+    b.forEach(function (v, k) {
+      var key = isMap ? k : v;
+      if (typeof key === 'object' && key !== null) bObjects.push([key, v]);
+    });
+    if (aObjects.length !== bObjects.length) return false;
+    var used = new Array(bObjects.length);
+    for (var i = 0; i < aObjects.length; i++) {
       var found = false;
-      for (var j = 0; j < bEntries.length; j++) {
+      for (var j = 0; j < bObjects.length; j++) {
         if (used[j]) continue;
-        var keyOk = deepStrict(aEntries[i][0], bEntries[j][0], aStack, bStack);
-        var valOk = !withValue || deepStrict(aEntries[i][1], bEntries[j][1], aStack, bStack);
+        var keyOk = deepStrict(aObjects[i][0], bObjects[j][0], aStack, bStack);
+        var valOk = !isMap || deepStrict(aObjects[i][1], bObjects[j][1], aStack, bStack);
         if (keyOk && valOk) {
           used[j] = true;
           found = true;
@@ -475,34 +504,8 @@
     bStack.push(b);
 
     var result;
-    if (tag === '[object Map]') {
-      if (a.size !== b.size) {
-        result = false;
-      } else {
-        var aME = [];
-        var bME = [];
-        a.forEach(function (v, k) {
-          aME.push([k, v]);
-        });
-        b.forEach(function (v, k) {
-          bME.push([k, v]);
-        });
-        result = collectionEqual(aME, bME, true, aStack, bStack);
-      }
-    } else if (tag === '[object Set]') {
-      if (a.size !== b.size) {
-        result = false;
-      } else {
-        var aSE = [];
-        var bSE = [];
-        a.forEach(function (v) {
-          aSE.push([v]);
-        });
-        b.forEach(function (v) {
-          bSE.push([v]);
-        });
-        result = collectionEqual(aSE, bSE, false, aStack, bStack);
-      }
+    if (tag === '[object Map]' || tag === '[object Set]') {
+      result = a.size === b.size && collectionEqual(a, b, tag === '[object Map]', aStack, bStack);
     } else {
       result = keysEqual(a, b, aStack, bStack);
     }

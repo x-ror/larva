@@ -12,16 +12,16 @@
     "global": 9
   },
   "internal/assert.js": {
-    "method": 19,
-    "invoke": 8,
+    "method": 14,
+    "invoke": 5,
     "accessor": 8,
-    "global": 52
+    "global": 40
   },
   "internal/buffer.js": {
     "method": 41,
-    "invoke": 7,
+    "invoke": 6,
     "accessor": 22,
-    "global": 130
+    "global": 127
   },
   "internal/console.js": {
     "method": 0,
@@ -246,7 +246,7 @@
     "global": 24
   },
   "internal/util.js": {
-    "method": 50,
+    "method": 46,
     "invoke": 14,
     "accessor": 15,
     "global": 72

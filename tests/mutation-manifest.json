@@ -1733,6 +1733,138 @@
       ]
     },
     {
+      "name": "70-buffer-size-inspect-parity dies when Buffer(n) routes through allocUnsafe instead of a fresh zero-filled FastBuffer",
+      "why": "Buffer(n) returns a fresh zero-filled non-pooled Buffer, not a pool slice (#408).",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "      return new FastBuffer(arg); // zero-filled, matching the old `super(number)`",
+      "replace": "      return Buffer.allocUnsafe(arg);",
+      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
+      "expect_detail": [
+        "buf=262144"
+      ]
+    },
+    {
+      "name": "73-buffer-type-fill-bigint dies when compare bounds targetStart by the target length",
+      "why": "node bounds compare's *Start by kMaxLength only: Buffer.alloc(3).compare(Buffer.alloc(3), 100) is 1, not a RangeError.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "validateOffsetArg(targetStart, 'targetStart', K_MAX_LENGTH)",
+      "replace": "validateOffsetArg(targetStart, 'targetStart', target.length)",
+      "gate": "compat:tests/node-compat/cases/73-buffer-type-fill-bigint.js",
+      "expect_detail": [
+        "The value of \"targetStart\" is out of range"
+      ]
+    },
+    {
+      "name": "73-buffer-type-fill-bigint dies when write bounds length by the bytes remaining after offset",
+      "why": "node validates write's length against this.length and then clamps: Buffer.alloc(10).write('abcdef', 5, 8) is 5.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "max = validateOffsetArg(length, 'length', this.length);",
+      "replace": "max = validateOffsetArg(length, 'length', remaining);",
+      "gate": "compat:tests/node-compat/cases/73-buffer-type-fill-bigint.js",
+      "expect_detail": [
+        "It must be >= 0 && <= 5. Received 8"
+      ]
+    },
+    {
+      "name": "73-buffer-type-fill-bigint dies when write stops clamping length to the remaining bytes",
+      "why": "an in-range length past the end must be clamped; the hex path copies min(bytes, length) and overruns the view without it.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "        if (max > remaining) max = remaining;\n",
+      "replace": "",
+      "gate": "compat:tests/node-compat/cases/73-buffer-type-fill-bigint.js",
+      "expect_detail": [
+        "lava: write(hex, 5, 8, \"hex\") => THREW RangeError"
+      ]
+    },
+    {
+      "name": "72-events-parity dies when once() stops validating options",
+      "why": "node's events.once rejects a non-object options with ERR_INVALID_ARG_TYPE; without the check once(ee, 'foo', 5) just waits.",
+      "source": "pkg/runtime/js/internal/events.js",
+      "find": "      return P.Promise.reject(errOptionsType(options));",
+      "replace": "      options = undefined;",
+      "gate": "compat:tests/node-compat/cases/72-events-parity.js",
+      "expect_detail": [
+        "bad options 5: TypeError ERR_INVALID_ARG_TYPE"
+      ]
+    },
+    {
+      "name": "73-buffer-type-fill-bigint dies when writeBigInt rejects non-BigInt values before the range and offset checks",
+      "why": "node runs checkInt (range, then offset bounds) before the BigInt mask, so Object(5n) writes and a bad range/offset is reported as ERR_OUT_OF_RANGE / ERR_INVALID_ARG_TYPE rather than 'Cannot mix BigInt'.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "    checkValueInt(value, -BIG_SIGN_I64, BIG_SIGN_I64 - BIG_1, 7);\n",
+      "replace": "    if (typeof value !== 'bigint') throw new TypeError('Cannot mix BigInt and other types, use explicit conversions');\n    checkValueInt(value, -BIG_SIGN_I64, BIG_SIGN_I64 - BIG_1, 7);\n",
+      "gate": "compat:tests/node-compat/cases/73-buffer-type-fill-bigint.js",
+      "expect_detail": [
+        "lava: writeBigInt64LE(Object(5n)) => THREW TypeError"
+      ]
+    },
+    {
+      "name": "03-buffer dies when atob stops rejecting characters outside the forgiving-base64 alphabet",
+      "why": "node's atob throws InvalidCharacterError 'Invalid character' for '!' and for VT; without the alphabet check they fall through to the length check.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "      if (!alnum && c !== 0x2b && c !== 0x2f && c !== 0x3d)",
+      "replace": "      if (false)",
+      "gate": "compat:tests/node-compat/cases/03-buffer.js",
+      "expect_detail": [
+        "lava: atob [\"!\"] InvalidCharacterError 5 The string to be decoded is not correctly encoded."
+      ]
+    },
+    {
+      "name": "03-buffer dies when btoa stops rejecting code units above 0xFF",
+      "why": "node's btoa throws InvalidCharacterError for 'Ā'; latin1 encoding would silently truncate it to 0x00.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "  var NON_LATIN1_RE = /[^\\u0000-\\u00ff]/;",
+      "replace": "  var NON_LATIN1_RE = /[^\\u0000-\\uffff]/;",
+      "gate": "compat:tests/node-compat/cases/03-buffer.js",
+      "expect_detail": [
+        "lava: btoa [\"Ā\"] \"AA==\""
+      ]
+    },
+    {
+      "name": "71-assert-deep-strict-equal dies when a primitive Map key's values are not compared",
+      "why": "the O(n) b.get fast path must still deep-compare the values; skipping it makes Maps with equal keys and different values equal.",
+      "source": "pkg/runtime/js/internal/util.js",
+      "find": "} else if (isMap && !deepStrict(v, b.get(key), aStack, bStack)) {",
+      "replace": "} else if (false) {",
+      "gate": "compat:tests/node-compat/cases/71-assert-deep-strict-equal.js",
+      "expect_detail": [
+        "lava: Map prim key, value diff: eq=true"
+      ]
+    },
+    {
+      "name": "atob_invalid_character_shape dies when the InvalidCharacterError code stops being the number 5",
+      "why": "Lava has no DOMException, so atob/btoa throw an Error carrying DOMException's name and legacy NUMERIC code 5; console.log prints '5' and 5 alike, so only the Lava-only test sees the type.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "    e.code = 5;\n",
+      "replace": "    e.code = '5';\n",
+      "gate": "odin:cmd/lava:main.atob_invalid_character_shape",
+      "expect_detail": [
+        "code=string:5"
+      ]
+    },
+    {
+      "name": "03-buffer dies when the atob fast-path regex lets a non-alphabet character through",
+      "why": "the regex fast path skips the per-char loop; if it admits '!' or VT, atob reports the length error instead of node's 'Invalid character'.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "  var ATOB_SLOW_RE = /[^A-Za-z0-9+/=]|=[^=]|===/;",
+      "replace": "  var ATOB_SLOW_RE = /=[^=]|===/;",
+      "gate": "compat:tests/node-compat/cases/03-buffer.js",
+      "expect_detail": [
+        "lava: atob [\"!\"] InvalidCharacterError 5 The string to be decoded is not correctly encoded."
+      ]
+    },
+    {
+      "name": "03-buffer dies when atob checks '=' padding before the lone-trailing-character rule",
+      "why": "node 26 reports 'not correctly encoded' for 'a=', 'a==' and 'abcde=': the remainder without '=' is tested first.",
+      "source": "pkg/runtime/js/internal/buffer.js",
+      "find": "    if ((nonWhitespace - equals) % 4 === 1)\n      throw errInvalidCharacter('The string to be decoded is not correctly encoded.');\n    if (equals && nonWhitespace % 4) throw errInvalidCharacter('Invalid character');\n",
+      "replace": "    if (equals && nonWhitespace % 4) throw errInvalidCharacter('Invalid character');\n    if ((nonWhitespace - equals) % 4 === 1)\n      throw errInvalidCharacter('The string to be decoded is not correctly encoded.');\n",
+      "gate": "compat:tests/node-compat/cases/03-buffer.js",
+      "expect_detail": [
+        "lava: atob [\"a=\"] InvalidCharacterError 5 Invalid character"
+      ]
+    },
+    {
       "name": "run-gates dies when a failing gate no longer sets a non-zero exit code",
       "why": "make gates exists so a red gate cannot be hidden by a pipe's exit status (#360); returning status 0 on failure defeats the runner.",
       "source": "scripts/run-gates.mjs",

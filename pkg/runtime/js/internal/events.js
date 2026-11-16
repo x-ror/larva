@@ -40,7 +40,21 @@
   EventEmitter.prototype._events = undefined;
   EventEmitter.prototype._maxListeners = undefined;
 
+  function validateMaxListeners(n) {
+    if (typeof n !== 'number') {
+      throw typeError('setMaxListeners', 'of type number', n);
+    }
+    if (n < 0 || n !== n) {
+      var e = new RangeError(
+        'The value of "setMaxListeners" is out of range. It must be >= 0. Received ' + n,
+      );
+      e.code = 'ERR_OUT_OF_RANGE';
+      throw e;
+    }
+  }
+
   EventEmitter.prototype.setMaxListeners = function (n) {
+    validateMaxListeners(n);
     this._maxListeners = n;
     return this;
   };
@@ -57,6 +71,14 @@
     }
     if (target._events === undefined) EventEmitter.init.call(target);
     var events = target._events;
+    if (events.newListener !== undefined) {
+      target.emit(
+        'newListener',
+        type,
+        listener.listener !== undefined ? listener.listener : listener,
+      );
+      events = target._events;
+    }
     var existing = events[type];
     if (existing === undefined) {
       events[type] = listener;
@@ -114,11 +136,17 @@
 
   EventEmitter.prototype.removeListener = function (type, listener) {
     if (this._events === undefined) return this;
-    var list = this._events[type];
+    var events = this._events;
+    var list = events[type];
     if (list === undefined) return this;
     if (list === listener || list.listener === listener) {
       if (--this._eventsCount === 0) this._events = P.ObjectCreate(null);
-      else delete this._events[type];
+      else {
+        delete events[type];
+        if (events.removeListener !== undefined) {
+          this.emit('removeListener', type, list.listener || listener);
+        }
+      }
     } else if (typeof list !== 'function') {
       var position = -1;
       for (var i = list.length - 1; i >= 0; i--) {
@@ -128,21 +156,49 @@
         }
       }
       if (position < 0) return this;
+      var removed = list[position];
       spliceOne(list, position);
-      if (list.length === 1) this._events[type] = list[0];
+      if (list.length === 1) events[type] = list[0];
+      if (events.removeListener !== undefined) {
+        this.emit('removeListener', type, removed.listener || listener);
+      }
     }
     return this;
   };
   EventEmitter.prototype.off = EventEmitter.prototype.removeListener;
 
   EventEmitter.prototype.removeAllListeners = function (type) {
-    if (this._events === undefined) return this;
+    var events = this._events;
+    if (events === undefined) return this;
+    if (events.removeListener === undefined) {
+      if (arguments.length === 0) {
+        this._events = P.ObjectCreate(null);
+        this._eventsCount = 0;
+      } else if (events[type] !== undefined) {
+        if (--this._eventsCount === 0) this._events = P.ObjectCreate(null);
+        else delete events[type];
+      }
+      return this;
+    }
     if (arguments.length === 0) {
+      var keys = P.ReflectOwnKeys(events);
+      for (var k = 0; k < keys.length; k++) {
+        var key = keys[k];
+        if (key === 'removeListener') continue;
+        this.removeAllListeners(key);
+      }
+      this.removeAllListeners('removeListener');
       this._events = P.ObjectCreate(null);
       this._eventsCount = 0;
-    } else if (this._events[type] !== undefined) {
-      if (--this._eventsCount === 0) this._events = P.ObjectCreate(null);
-      else delete this._events[type];
+      return this;
+    }
+    var listeners = events[type];
+    if (typeof listeners === 'function') {
+      this.removeListener(type, listeners);
+    } else if (listeners !== undefined) {
+      for (var i = listeners.length - 1; i >= 0; i--) {
+        this.removeListener(type, listeners[i]);
+      }
     }
     return this;
   };
@@ -191,35 +247,93 @@
     return typeof handler === 'function' ? [handler] : arrayClone(handler);
   };
 
-  EventEmitter.prototype.listenerCount = function (type) {
+  EventEmitter.prototype.listenerCount = function (type, listener) {
     var events = this._events;
     if (events === undefined) return 0;
     var handler = events[type];
     if (handler === undefined) return 0;
-    return typeof handler === 'function' ? 1 : handler.length;
+    if (typeof handler === 'function') {
+      if (listener !== undefined) {
+        return handler === listener || handler.listener === listener ? 1 : 0;
+      }
+      return 1;
+    }
+    if (listener !== undefined) {
+      var count = 0;
+      for (var i = 0; i < handler.length; i++) {
+        if (handler[i] === listener || handler[i].listener === listener) count++;
+      }
+      return count;
+    }
+    return handler.length;
   };
 
   EventEmitter.prototype.eventNames = function () {
     return this._eventsCount > 0 ? P.ReflectOwnKeys(this._events) : [];
   };
 
-  // once(emitter, name) — resolves with the emitted arguments on the next
-  // matching event, or rejects if 'error' fires first.
-  function once(emitter, name) {
+  // once(emitter, name[, options]) — resolves with the emitted arguments on the next
+  // matching event, or rejects if 'error' fires first or options.signal aborts.
+  function once(emitter, name, options) {
+    // Node's validateObject(options, 'options'): undefined is the only non-object
+    // allowed; null, scalars, arrays and functions reject (node 26.13.0, probed;
+    // pinned by tests/node-compat/cases/72-events-parity.js). Rejects rather than
+    // throws because node's once is an async function.
+    if (
+      options !== undefined &&
+      (options === null || typeof options !== 'object' || P.ArrayIsArray(options))
+    ) {
+      return P.Promise.reject(errOptionsType(options));
+    }
+    var signal = options && options.signal;
+    if (signal !== undefined) {
+      if (!isAbortSignal(signal)) {
+        return P.Promise.reject(typeError('options.signal', 'an instance of AbortSignal', signal));
+      }
+      if (signal.aborted) {
+        return P.Promise.reject(makeAbortError());
+      }
+    }
     return new P.Promise(function (resolve, reject) {
+      var errorListener;
+      var abortListener;
+      function cleanup() {
+        if (typeof emitter.removeListener === 'function') {
+          emitter.removeListener(name, eventListener);
+          if (errorListener !== undefined) emitter.removeListener('error', errorListener);
+        } else if (typeof emitter.removeEventListener === 'function') {
+          emitter.removeEventListener(name, eventListener);
+        }
+        if (abortListener !== undefined) {
+          signal.removeEventListener('abort', abortListener);
+        }
+      }
       function eventListener() {
-        if (errorListener !== undefined) emitter.removeListener('error', errorListener);
+        cleanup();
         resolve(P.ArrayPrototypeSlice(arguments));
       }
-      var errorListener;
-      if (name !== 'error') {
-        errorListener = function (err) {
-          emitter.removeListener(name, eventListener);
-          reject(err);
+      if (signal !== undefined) {
+        abortListener = function () {
+          cleanup();
+          reject(makeAbortError());
         };
-        emitter.once('error', errorListener);
+        signal.addEventListener('abort', abortListener, { once: true });
       }
-      emitter.once(name, eventListener);
+      if (typeof emitter.once === 'function') {
+        if (name !== 'error') {
+          errorListener = function (err) {
+            cleanup();
+            reject(err);
+          };
+          emitter.once('error', errorListener);
+        }
+        emitter.once(name, eventListener);
+      } else if (typeof emitter.addEventListener === 'function') {
+        emitter.addEventListener(name, eventListener, { once: true });
+      } else {
+        cleanup();
+        reject(typeError('emitter', 'an EventEmitter or EventTarget', emitter));
+      }
     });
   }
 
@@ -229,6 +343,26 @@
     var e = new TypeError(
       'The "' + name + '" argument must be ' + expected + '. Received ' + typeof actual,
     );
+    e.code = 'ERR_INVALID_ARG_TYPE';
+    return e;
+  }
+
+  // The ERR_INVALID_ARG_TYPE "Received …" tail for once()'s options. typeError above
+  // prints a bare `typeof`, which is wrong for node's template; only the cases
+  // validateObject can reach here are rendered (no objects other than arrays).
+  function errOptionsType(v) {
+    var t = typeof v;
+    var got;
+    if (v === null) got = 'null';
+    else if (t === 'function') got = 'function ' + v.name;
+    else if (t === 'object') got = 'an instance of Array';
+    else if (t === 'string')
+      got =
+        "type string ('" + (v.length > 28 ? P.StringPrototypeSlice(v, 0, 25) + '...' : v) + "')";
+    else if (t === 'symbol') got = 'type symbol (' + P.String(v) + ')';
+    else
+      got = 'type ' + t + ' (' + (v === 0 && 1 / v < 0 ? '-0' : v) + (t === 'bigint' ? 'n)' : ')');
+    var e = new P.TypeError('The "options" argument must be of type object. Received ' + got);
     e.code = 'ERR_INVALID_ARG_TYPE';
     return e;
   }
@@ -263,13 +397,7 @@
   // events.setMaxListeners(n[, ...targets]) — with no targets, sets the global default.
   function setMaxListeners(n) {
     n = n === undefined ? EventEmitter.defaultMaxListeners : n;
-    if (typeof n !== 'number' || n < 0 || n !== n) {
-      var e = new RangeError(
-        'The value of "n" is out of range. It must be a non-negative number. Received ' + n,
-      );
-      e.code = 'ERR_OUT_OF_RANGE';
-      throw e;
-    }
+    validateMaxListeners(n);
     var targets = P.ArrayPrototypeSlice(arguments, 1);
     if (targets.length === 0) {
       EventEmitter.defaultMaxListeners = n;
