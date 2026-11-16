@@ -170,7 +170,7 @@
     {
       "name": "54-url-pollution X1 dies when endsInANumber goes back to a live re.test",
       "why": "Steered true, '4x' reads as numeric and parseInt gives 4, so http://1.2.3.4x/ silently becomes http://1.2.3.4/ — a host substitution.",
-      "source": "pkg/runtime/js/node/url.js",
+      "source": "pkg/runtime/js/internal/url.js",
       "find": "    if (allChars(last, isAsciiDigit)) return true;",
       "replace": "    if (last !== '' && /^[0-9]+$/.test(last)) return true;",
       "gate": "compat:tests/node-compat/cases/54-url-pollution.js",
@@ -179,7 +179,7 @@
     {
       "name": "54-url-pollution X2 dies when the %2f check goes back to a live re.test",
       "why": "The path-traversal guard, in the direction that discriminates: a steered validator makes a legitimate path look encoded and throws where node returns one.",
-      "source": "pkg/runtime/js/node/url.js",
+      "source": "pkg/runtime/js/internal/url.js",
       "find": "if (reTest(PERCENT_2F_RE, rest) || (isWindows && reTest(PERCENT_5C_RE, rest))) {",
       "replace": "if (/%2f/i.test(rest) || (isWindows && /%5c/i.test(rest))) {",
       "gate": "compat:tests/node-compat/cases/54-url-pollution.js",
@@ -247,7 +247,7 @@
     {
       "name": "the Lava-only test dies when toUSVString goes back to the global regex",
       "why": "The surrogate pre-scan is not a guard against this: a VALID pair — any emoji in a remote query — sets hasSurrogate too, and the global replace then spins (or throws RangeError from runaway growth). new URLSearchParams(remoteQuery) is on the network path. Hang vs throw is runner-dependent; expect_detail lists both.",
-      "source": "pkg/runtime/js/node/url.js",
+      "source": "pkg/runtime/js/internal/url.js",
       "find": "    if (!hasSurrogate) return str;\n    var out = StringPrototypeSlice(str, 0, i);",
       "replace": "    if (!hasSurrogate) return str;\n    var SPOL = /([\\uD800-\\uDBFF])([\\uDC00-\\uDFFF])?|([\\uDC00-\\uDFFF])/g;\n    return StringPrototypeReplace(str, SPOL, function (m, h, l, lone) {\n      return lone !== undefined || l === undefined ? '\\uFFFD' : m;\n    });\n    var out = StringPrototypeSlice(str, 0, i);",
       "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
@@ -2419,7 +2419,7 @@
     {
       "name": "76-coded-error-shape dies when the URL constructor throws the JS shape",
       "why": "node parses URLs in C++, so `new URL('nope')` stringifies as `TypeError: Invalid URL` with no [code]; only the href setter throws the JS shape.",
-      "source": "pkg/runtime/js/node/url.js",
+      "source": "pkg/runtime/js/internal/url.js",
       "find": "      if (baseRecord === FAILURE) throw invalidURL(nativeError, input, base);",
       "replace": "      if (baseRecord === FAILURE) throw invalidURL(nodeError, input, base);",
       "gate": "compat:tests/node-compat/cases/76-coded-error-shape.js",
@@ -2570,6 +2570,24 @@
       "replace": "  internalBuffer.addBufferPrototypeMethods(p);\n  p.readUInt8 = p.readUint8 = function (offset) {\n    if (offset < 0 || offset >= this.length) throw ERR_OUT_OF_RANGE('offset', '>= 0', offset);\n    return this[offset];\n  };\n",
       "gate": "compat:tests/node-compat/cases/85-buffer-internal-modules.js",
       "expect_detail": "lava: readUInt8 offset: internal/buffer got node:buffer"
+    },
+    {
+      "name": "87-url-internal-modules dies when fileURLToPath is defined back in node:url",
+      "why": "node frames a fileURLToPath argument error in node:internal/url; a wrapper in node/url.js (the pre-split layout) throws from node:url again, and the case reads the frame, not the message.",
+      "source": "pkg/runtime/js/node/url.js",
+      "find": "    fileURLToPath: internalURL.fileURLToPath,\n",
+      "replace": "    fileURLToPath: function fileURLToPath(input) {\n      if (typeof input !== 'string' && !(input instanceof URL)) {\n        throw ERR_INVALID_ARG_TYPE('path', ['string', 'URL'], input);\n      }\n      return internalURL.fileURLToPath(input);\n    },\n",
+      "gate": "compat:tests/node-compat/cases/87-url-internal-modules.js",
+      "expect_detail": "lava: fileURLToPath type: internal/url got node:url"
+    },
+    {
+      "name": "87-url-internal-modules dies when internal/url hands format the wrong host decoder",
+      "why": "format({unicode: true}) reaches the Punycode decoder only through internal/url's exports; an identity function there prints the xn-- host where node prints the Unicode one.",
+      "source": "pkg/runtime/js/internal/url.js",
+      "find": "    hostToUnicode: domainToUnicode,\n",
+      "replace": "    hostToUnicode: function (host) {\n      return host;\n    },\n",
+      "gate": "compat:tests/node-compat/cases/87-url-internal-modules.js",
+      "expect_detail": "node: format opts http://βόλοσ.com:8080/a%20b#f"
     },
     {
       "name": "86-os-internal-modules dies when internal/os/constants drops a table from os.constants",

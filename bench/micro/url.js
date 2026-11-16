@@ -12,7 +12,7 @@
 // decode-utf8-stream at 17.0. So these numbers are a measuring instrument for work
 // that has not been done yet, and only secondarily a regression net.
 //
-// SHAPES. Each is a distinct code path in js/node/url.js, not a variation in
+// SHAPES. Each is a distinct code path in js/internal/url.js, not a variation in
 // input length:
 //   special   the common case — scheme, host, path, query, fragment
 //   ipv4      dotted-quad host, which runs endsInANumber + parseIPv4Number per label
