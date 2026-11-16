@@ -2140,7 +2140,7 @@
       "name": "75-lazy-global-capture dies when util.js reads Symbol.for live for promisify.custom",
       "why": "`Symbol.for` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
       "source": "pkg/runtime/js/node/util.js",
-      "find": "  var kCustomPromisify = SymbolFor('nodejs.util.promisify.custom');",
+      "find": "  var kCustomPromisify = SymbolFor ? SymbolFor('nodejs.util.promisify.custom') : null;",
       "replace": "  var kCustomPromisify = Symbol.for('nodejs.util.promisify.custom');",
       "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
       "expect_detail": "util: ok [\"Symbol.for\"]"

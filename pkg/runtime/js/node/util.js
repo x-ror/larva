@@ -259,7 +259,10 @@
   // util.promisify — wrap a (…args, callback(err, value)) function as one returning a
   // Promise. Honors the util.promisify.custom symbol and copies the original's own
   // properties / prototype, matching Node (the multi-arg `customArgs` form is omitted).
-  var kCustomPromisify = SymbolFor('nodejs.util.promisify.custom');
+  // Guarded like customInspect above, on the same capture: an unguarded call here made a
+  // missing SymbolFor throw inside util's factory and masked what the 57-format-single-arg
+  // mutation pins (the inspect hook rendering a Buffer).
+  var kCustomPromisify = SymbolFor ? SymbolFor('nodejs.util.promisify.custom') : null;
 
   function promisify(original) {
     if (typeof original !== 'function') {
