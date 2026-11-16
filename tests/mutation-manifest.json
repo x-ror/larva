@@ -207,7 +207,7 @@
     {
       "name": "57-format-single-arg dies when util.js drops the single-argument guard",
       "why": "Without it util.format folds %% even with one argument, where node returns the string verbatim. Pinned separately from console.js because the two are different implementations and one entry would fake coverage of both.",
-      "source": "pkg/runtime/js/node/util.js",
+      "source": "pkg/runtime/js/internal/util/inspect.js",
       "find": "    if (args.length === 1 && typeof first === 'string') return first;\n",
       "replace": "",
       "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
@@ -447,7 +447,7 @@
     {
       "name": "regexp_pollution_immunity debuglog dies when NODE_DEBUG is compiled by chained global replaces",
       "why": "Three global replaces run on the FIRST debuglog call, so the process wedges at the point it tries to emit a diagnostic. Lava-only because Lava has no process.stderr, so the outputs cannot match node however the spin is fixed.",
-      "source": "pkg/runtime/js/node/util.js",
+      "source": "pkg/runtime/js/internal/util/debuglog.js",
       "find": "    return StringPrototypeToUpperCase(out);",
       "replace": "    return env.replace(/[|\\\\{}()[\\]^$+?.]/g, '\\\\$&').replace(/\\*/g, '.*').replace(/,/g, '$|^').toUpperCase();",
       "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
@@ -486,7 +486,7 @@
     {
       "name": "regexp_pollution_immunity dbg-nodot dies when the NODE_DEBUG escaper stops escaping '.'",
       "why": "Nothing observed debugEnvPattern's OUTPUT before: the poisoned probe passes with NODE_DEBUG unset, i.e. when the function is never called. Dropping the '.' branch makes 'a.b' enable 'axb', which is the escape the compile exists to do.",
-      "source": "pkg/runtime/js/node/util.js",
+      "source": "pkg/runtime/js/internal/util/debuglog.js",
       "find": "      c === 0x2e //    .",
       "replace": "      false //    .",
       "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
@@ -639,7 +639,7 @@
     {
       "name": "57-format-single-arg dies when util.inspect stops quoting a top-level string",
       "why": "node's util.inspect QUOTES a top-level string ('x' -> \"'x'\") while console.log/format print a string ARGUMENT raw — format goes through stringify(), which short-circuits strings before inspect is reached, so the depth-0 raw arm had no caller left and was deleted. Restoring it un-quotes every message built with util.inspect, which is how fs.js's ERR_INVALID_ARG_VALUE read `Received bogus`.",
-      "source": "pkg/runtime/js/node/util.js",
+      "source": "pkg/runtime/js/internal/util/inspect.js",
       "find": "    if (t === 'string') return quote(v);",
       "replace": "    if (t === 'string') return depth === 0 ? v : quote(v);",
       "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
@@ -650,7 +650,7 @@
     {
       "name": "57-format-single-arg dies when inspect stops choosing the quote character",
       "why": "node picks the delimiter to avoid escaping — a string containing a single quote is rendered with DOUBLE quotes (\"it's\", not 'it\\'s'). Always using single quotes escapes where node does not, so any inspected value containing an apostrophe differs.",
-      "source": "pkg/runtime/js/node/util.js",
+      "source": "pkg/runtime/js/internal/util/inspect.js",
       "find": "    if (StringPrototypeIndexOf(s, \"'\") !== -1) {\n      if (StringPrototypeIndexOf(s, '\"') === -1) q = '\"';\n      else if (StringPrototypeIndexOf(s, '`') === -1 && StringPrototypeIndexOf(s, '${') === -1)\n        q = '`';\n    }\n",
       "replace": "",
       "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
@@ -773,7 +773,7 @@
     {
       "name": "57-format-single-arg dies when inspect drops node's ${ guard",
       "why": "node's strEscape refuses the backtick delimiter when the string contains '${', because inspect output is meant to read back as a literal and a backtick-delimited '${' is a live template substitution. Omitting the guard also regressed output that was CORRECT before the delimiter rule was introduced.",
-      "source": "pkg/runtime/js/node/util.js",
+      "source": "pkg/runtime/js/internal/util/inspect.js",
       "find": "      else if (StringPrototypeIndexOf(s, '`') === -1 && StringPrototypeIndexOf(s, '${') === -1)\n        q = '`';",
       "replace": "      else if (StringPrototypeIndexOf(s, '`') === -1) q = '`';",
       "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
@@ -784,7 +784,7 @@
     {
       "name": "57-format-single-arg dies when the backtick branch is removed",
       "why": "A string containing both quote characters is backtick-delimited on node. The earlier manifest entry deleted the whole delimiter block, so it only proved the double-quote arm; deleting just this line survived the case.",
-      "source": "pkg/runtime/js/node/util.js",
+      "source": "pkg/runtime/js/internal/util/inspect.js",
       "find": "      else if (StringPrototypeIndexOf(s, '`') === -1 && StringPrototypeIndexOf(s, '${') === -1)\n        q = '`';\n",
       "replace": "",
       "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
@@ -795,7 +795,7 @@
     {
       "name": "57-format-single-arg dies when inspect stops escaping control characters",
       "why": "node's strEscape escapes the whole C0 range, DEL and C1. Leaving them raw makes an unescaped \\x1B in any inspected value an ANSI-injection vector through the log line, which is why this is a security fix and not a rendering nicety.",
-      "source": "pkg/runtime/js/node/util.js",
+      "source": "pkg/runtime/js/internal/util/inspect.js",
       "find": "      else if (c < 0x20 || (c >= 0x7f && c <= 0x9f)) esc = escByte(c);",
       "replace": "",
       "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
@@ -806,7 +806,7 @@
     {
       "name": "57-format-single-arg dies when a lone surrogate is not escaped",
       "why": "node escapes an unpaired surrogate as \\\\udXXX; Lava used to hand it to the string conversion, which replaced it with U+FFFD — the value came back LOSSY, not merely rendered differently.",
-      "source": "pkg/runtime/js/node/util.js",
+      "source": "pkg/runtime/js/internal/util/inspect.js",
       "find": "        if (next >= 0xdc00 && next <= 0xdfff) {\n          i++; // consume the pair\n        } else {\n          esc = escUnit(c);\n        }",
       "replace": "        if (next >= 0xdc00 && next <= 0xdfff) {\n          i++; // consume the pair\n        }",
       "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
@@ -1823,7 +1823,7 @@
     {
       "name": "71-assert-deep-strict-equal dies when a primitive Map key's values are not compared",
       "why": "the O(n) b.get fast path must still deep-compare the values; skipping it makes Maps with equal keys and different values equal.",
-      "source": "pkg/runtime/js/node/util.js",
+      "source": "pkg/runtime/js/internal/util/comparisons.js",
       "find": "} else if (isMap && !deepStrict(v, b.get(key), aStack, bStack)) {",
       "replace": "} else if (false) {",
       "gate": "compat:tests/node-compat/cases/71-assert-deep-strict-equal.js",
@@ -2139,7 +2139,7 @@
     {
       "name": "75-lazy-global-capture dies when util.js reads Symbol.for live for promisify.custom",
       "why": "`Symbol.for` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/util.js",
+      "source": "pkg/runtime/js/internal/util.js",
       "find": "  var kCustomPromisify = SymbolFor ? SymbolFor('nodejs.util.promisify.custom') : null;",
       "replace": "  var kCustomPromisify = Symbol.for('nodejs.util.promisify.custom');",
       "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
@@ -2148,7 +2148,7 @@
     {
       "name": "75-lazy-global-capture dies when util.js builds the ANSI matcher through the live RegExp",
       "why": "`RegExp` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/util.js",
+      "source": "pkg/runtime/js/internal/util/inspect.js",
       "find": "  var ansiRegex = /",
       "replace": "  var ansiRegex = new RegExp('(?:)') && /",
       "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
@@ -2534,6 +2534,24 @@
       "replace": "",
       "gate": "compat:tests/node-compat/cases/83-crypto-internal-modules.js",
       "expect_detail": "node: globalThis.crypto object true function function true true"
+    },
+    {
+      "name": "84-util-internal-modules dies when util.debug stops being util.debuglog",
+      "why": "debuglog now lives in internal/util/debuglog and node/util exports it twice; an entry that wraps one of the two spellings hands user code a util.debug that is not util.debuglog, where node exports the one function under both names.",
+      "source": "pkg/runtime/js/node/util.js",
+      "find": "    debug: debuglog, // Node aliases util.debug to util.debuglog",
+      "replace": "    debug: function debug(set, cb) {\n      return debuglog(set, cb);\n    }, // Node aliases util.debug to util.debuglog",
+      "gate": "compat:tests/node-compat/cases/84-util-internal-modules.js",
+      "expect_detail": "lava: identities false true true true"
+    },
+    {
+      "name": "84-util-internal-modules dies when styleText reads a copy of util.inspect.colors",
+      "why": "styleText (node/util) and the colors table (internal/util/inspect) now meet across a file seam; a copied table freezes the style set at util load, so a style a caller adds to util.inspect.colors is rejected by styleText instead of applied, as node applies it.",
+      "source": "pkg/runtime/js/node/util.js",
+      "find": "  var inspectColors = inspectModule.inspectColors;",
+      "replace": "  var inspectColors = Object.assign({ __proto__: null }, inspectModule.inspectColors);",
+      "gate": "compat:tests/node-compat/cases/84-util-internal-modules.js",
+      "expect_detail": "node: identities true true true true"
     }
   ]
 }
