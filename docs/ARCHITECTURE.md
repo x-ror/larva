@@ -124,7 +124,7 @@ Thin, per-platform `foreign` declarations of JSC's C API. Highlights:
   failure the same way — by setting `exception^`, never by its return value —
   with two audited exceptions recorded at the dispatcher comment in
   `host_natives.odin`: `net.write` returns a backpressure bool (not a failure
-  signal), and `crypto.randomFill` returns the view it filled, which `crypto.js`
+  signal), and `crypto.randomFill` returns the view it filled, which `internal/crypto/random.js`
   identity-checks as its second fail-closed layer.
 
 - The host-call path itself is reached by `dlsym`ing a C++ mangled symbol
@@ -185,7 +185,8 @@ factory, before the table exists, and a top-level `require('buffer')` back would
 The JS layer is substantial and high quality: `url.js` (2071 LOC, WHATWG URL),
 Web Streams (~2100 across `internal/webstreams/`), `buffer.js` (1456; `Blob`, `File` and the `blob:` URL registry
 live in `internal/blob.js` and `internal/file.js`, as in node's `lib/internal`), fetch
-(~1160 across `internal/fetch.js` and `internal/fetch/`), `crypto.js` (917). `node/stream.js` only assembles the public module; the classic
+(~1160 across `internal/fetch.js` and `internal/fetch/`), crypto (~1070 across `node/crypto.js`
+and `internal/crypto/`). `node/stream.js` only assembles the public module; the classic
 streams live in `internal/streams/` (`legacy`, `readable`, `writable`, `duplex`,
 `transform`, `passthrough`, `destroy`, `add-abort-signal`, `end-of-stream`, `pipeline`,
 `utils`) and the Web Streams bridges in `internal/webstreams/adapters.js`, the files node
@@ -207,7 +208,15 @@ requires both, nothing requires back. Fetch follows undici's `lib/web/fetch` sea
 helpers), `request` and `response` (each requiring `headers` and `body`), while
 `internal/fetch` keeps the driver — body collection, redirects, the hand-off to
 `native.request` — because the loader keys natives by module id, and installs the globals.
-All five are eager through `internal/fetch`. Errors use Node-shaped coded errors (`ERR_INVALID_ARG_TYPE`,
+All five are eager through `internal/fetch`. Crypto follows node's `lib/internal/crypto`
+seams, so its frames read `node:internal/crypto/pbkdf2` exactly as node's do:
+`internal/crypto/util` (validators, byte coercion, the digest table and `getHashes`),
+`hash` (`Hash`, `Hmac`, one-shot `hash`), `random`, `pbkdf2`, `hkdf` and `scrypt`, each
+requiring only `util`. `node/crypto` keeps `createHash`/`createHmac` and `timingSafeEqual`
+where node's `lib/crypto.js` has them, assembles the exports in their old order and
+installs `globalThis.crypto`; the five files that call into Odin get the `node/crypto`
+bindings through the same `loader.js` aliasing as http. All seven are eager through the one
+`req('crypto')` root. Errors use Node-shaped coded errors (`ERR_INVALID_ARG_TYPE`,
 `ERR_OUT_OF_RANGE`, …), built in one place: `js/internal/errors.js` (eager, hardened)
 holds node's `determineSpecificType`, `ERR_INVALID_ARG_TYPE`/`_VALUE`, `ERR_OUT_OF_RANGE`,
 `ERR_MISSING_ARGS`, `ERR_UNKNOWN_ENCODING`, and two constructors for node's two shapes —

@@ -38,6 +38,17 @@ test('fetch internals route the fetch smoke, entry and split files alike', () =>
   }
 });
 
+test('crypto internals route the crypto gates, entry and split files alike', () => {
+  for (const p of [
+    'pkg/runtime/js/node/crypto.js',
+    'pkg/runtime/js/internal/crypto/hash.js',
+    'pkg/runtime/js/internal/crypto/scrypt.js',
+  ]) {
+    const t = routePaths([p]).targets;
+    for (const g of ['make test-odin', 'make api-surface']) assert.ok(t.includes(g), p + ' ' + g);
+  }
+});
+
 test('invalid **.js style is not required — **/* works', () => {
   const r = routePaths(['pkg/runtime/js/bootstrap/console.js']);
   assert.ok(r.targets.includes('make check-js'));
