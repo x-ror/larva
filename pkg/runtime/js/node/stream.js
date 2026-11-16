@@ -24,7 +24,7 @@
   // runs after user code and is steerable (#333). `ArrayBuffer.isView` in particular is a
   // security decision — read live, `globalThis.ArrayBuffer = {isView: () => true}` walks a
   // plain object straight into the byte path.
-  var StreamPrimordials = require('primordials');
+  var StreamPrimordials = require('internal/primordials');
   var ArrayBufferIsView = StreamPrimordials.ArrayBufferIsView;
   var ErrorG = StreamPrimordials.Error;
   var TypeErrorG = StreamPrimordials.TypeError;

@@ -80,7 +80,7 @@ Use the `odin-sdk-scout` agent for this search — it reads the real SDK source.
 
 ```sh
 make check            # Odin type-check (incl. windows/darwin cross-target front-end)
-make check-js         # bun fmt --check + orphan-JS + node:test over scripts/ + primordials ratchet
+make check-js         # bun fmt --check + JS module graph + node:test over scripts/ + primordials ratchet
 make check-md         # bun fmt + markdownlint over the repo's docs (make fix-md auto-fixes)
 make check-actions    # actionlint over .github/workflows
 make build            # ./scripts/build.sh → bin/lava
@@ -191,16 +191,26 @@ Rules that keep this from becoming ceremony:
 - Internal helpers with no Node counterpart keep the plain why-comment. Do not
   retrofit existing code; this applies to new and changed surfaces.
 
-## 5. Embedded JS conventions (`pkg/runtime/js`, incl. the top-level preludes)
+## 5. Embedded JS conventions (`pkg/runtime/js`, incl. the bootstrap preludes)
 
-- Route through `require('primordials')` — internal modules run alongside user
+- **The directory decides visibility.** `js/node/` holds every module user code may
+  `require`, at the path of its specifier (`node/stream/web.js`); `js/internal/`
+  holds what only builtins may require (`require('internal/mime')`); `js/bootstrap/`
+  holds the loader, microtasks, `esm.js` and the console prelude, which are not
+  modules. A new file is embedded and wired by existing in the right directory —
+  there is no file list to edit. `scripts/check-js-graph.mjs` fails on a non-literal
+  or unresolvable `require`, an unreachable file, an unembedded directory, or a
+  top-level require cycle (a `require` inside a function is the sanctioned late
+  binding).
+
+- Route through `require('internal/primordials')` — internal modules run alongside user
   code that can poison prototypes. `make check-primordials` is a **ratchet**: a
   hardened file (baseline 0) rejects any new pollutable call. `UPDATE=1` only to
   _lower_ a baseline.
-  One exception, and do not add a second: `js/internal/esm.js` is evaluated
+  One exception, and do not add a second: `js/bootstrap/esm.js` is evaluated
   standalone and deliberately kept off the module table, so user code cannot reach
   the transform — which also denies it a `require`. It takes the table as a factory
-  argument instead (`loader.js` publishes it on the resolver, `globals.odin` passes
+  argument instead (`bootstrap/loader.js` publishes it on the resolver, `globals.odin` passes
   it in and fails closed without it). The exception is affordable there because the
   file emits executed source and had to be hardened regardless.
 - The ratchet parses with acorn and counts **four** classes, each baselined
@@ -212,10 +222,10 @@ Rules that keep this from becoming ceremony:
   global read live instead of captured at module-eval, which the loader runs
   before user code).
   **Module-eval capture is pristine only in a module the loader instantiates BEFORE user
-  code** — the eager list in `loader.js`, plus `stream`/`stdio` via `installStdio`. A LAZY
+  code** — the eager list in `bootstrap/loader.js`, plus `stream`/`stdio` via `installStdio`. A LAZY
   module's factory runs on the user's first `require()`, so a capture there is a live read
   in disguise: `var StringG = String` at the top of `net.js` scores 0 and is still
-  steerable. Take the handle from the loader instead (`require('primordials')`,
+  steerable. Take the handle from the loader instead (`require('internal/primordials')`,
   `require.pristineBuffer`). The ratchet cannot see this — it exempts every module-eval
   capture, which is why #333 shipped. Computed and destructured forms count the same as the dot
   form, so `view['buffer']` is not a way to lower a number.

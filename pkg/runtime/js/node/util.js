@@ -7,7 +7,7 @@
 
   // Captured for debugEnvPattern below, which replaced three global-flag replaces on the
   // NODE_DEBUG path. This file is not otherwise hardened — see the ratchet baseline.
-  var UtilPrimordials = require('primordials');
+  var UtilPrimordials = require('internal/primordials');
   var StringPrototypeCharCodeAt = UtilPrimordials.StringPrototypeCharCodeAt;
   var StringPrototypeSlice = UtilPrimordials.StringPrototypeSlice;
   var StringPrototypeToUpperCase = UtilPrimordials.StringPrototypeToUpperCase;
@@ -904,10 +904,10 @@
     debuglog: debuglog,
     debug: debuglog, // Node aliases util.debug to util.debuglog
     aborted: aborted,
-    parseArgs: require('parse_args').parseArgs,
-    parseEnv: require('parse_env').parseEnv,
-    MIMEType: require('mime').MIMEType,
-    MIMEParams: require('mime').MIMEParams,
+    parseArgs: require('internal/parse_args').parseArgs,
+    parseEnv: require('internal/parse_env').parseEnv,
+    MIMEType: require('internal/mime').MIMEType,
+    MIMEParams: require('internal/mime').MIMEParams,
     styleText: styleText,
     stripVTControlCharacters: stripVTControlCharacters,
     toUSVString: toUSVString,

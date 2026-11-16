@@ -26,7 +26,7 @@
 (function (require, module, exports, native) {
   'use strict';
 
-  var P = require('primordials');
+  var P = require('internal/primordials');
   var TypeErrorG = P.TypeError;
   var StringPrototypeSlice = P.StringPrototypeSlice;
   var ArrayBufferIsView = P.ArrayBufferIsView;

@@ -40,7 +40,7 @@ Verified against `odin version dev-2026-07`. Packages prefixed with `_`
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | TCP/UDP sockets, addresses, options  | `core:net` (`socket.odin`, `addr.odin`)                                                                                                      |
 | DNS resolution without `getaddrinfo` | `core:net` (`dns.odin` — parses `/etc/resolv.conf` + `/etc/hosts`, speaks DNS itself; already used by `pkg/runtime/dns.odin`)                |
-| URL split/join/query                 | `core:net/url.odin` (byte-level; WHATWG URL semantics stay in `js/internal/url.js`)                                                          |
+| URL split/join/query                 | `core:net/url.odin` (byte-level; WHATWG URL semantics stay in `js/node/url.js`)                                                              |
 | Network interface enumeration        | `core:net` (`interface.odin`)                                                                                                                |
 | Async I/O abstraction                | `core:nbio` — read before adding a backend; Lava's own loop already covers the same ground, so treat it as a design reference, not a drop-in |
 | io_uring                             | `core:sys/linux/uring` (used by the loop's Linux proactor)                                                                                   |

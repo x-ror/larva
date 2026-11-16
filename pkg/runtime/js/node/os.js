@@ -16,7 +16,7 @@
   // every call, so `require('buffer').Buffer = shim` steered it at any time, not merely
   // before the first require of this module (#333).
   // Through primordials, not captured here: this module is lazy (#333).
-  var OsPrimordials = require('primordials');
+  var OsPrimordials = require('internal/primordials');
   var StringG = OsPrimordials.String;
   var StringPrototypeToLowerCase = OsPrimordials.StringPrototypeToLowerCase;
   var PristineBuffer = require.pristineBuffer;

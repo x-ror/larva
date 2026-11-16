@@ -154,7 +154,7 @@ err_invalid_arg_type :: proc(
 // determine_received_type renders the "Received …" clause of an
 // ERR_INVALID_ARG_TYPE message the way Node's lib/internal/errors
 // determineSpecificType does — and identically to this repo's JS-side validators
-// (inspectReceived in js/internal/crypto.js), so native and JS errors agree:
+// (inspectReceived in js/node/crypto.js), so native and JS errors agree:
 //
 //	null / undefined        -> "null" / "undefined"
 //	number / boolean        -> "type number (5)" / "type boolean (true)"

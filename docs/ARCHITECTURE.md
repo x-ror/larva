@@ -46,8 +46,9 @@ Two design decisions shape the whole system:
 │   module_resolution native resolver (file/dir/node_modules/main)       │
 │   fs / buffer / crypto / dns / sqlite / fetch*  native primitives      │
 │                                                                        │
-│   js/internal/*.js  embedded spec surface (Buffer, fetch, streams, …)  │
-│   js/console.js     console implemented in JS over two write prims     │
+│   js/node/**.js     public builtins; path == specifier (stream/web)    │
+│   js/internal/*.js  helpers only builtins may require (primordials, …) │
+│   js/bootstrap/*.js loader, microtasks, esm transform, console prelude │
 └───────────────┬───────────────────────────────────┬──────────────────┘
                 │                                     │
 ┌───────────────▼─────────────┐      ┌────────────────▼─────────────────┐
@@ -136,9 +137,24 @@ Thin, per-platform `foreign` declarations of JSC's C API. Highlights:
 
 ### 3.3 Standard library: native + embedded JS
 
-Built-ins are JS factories `#load`-embedded at compile time (the `EMBEDDED_*`
-constants in `globals.odin`) and instantiated by `loader.js`. Each factory
-receives `(require, module, exports,
+Built-ins are JS factories embedded at compile time and instantiated by
+`js/bootstrap/loader.js`. The directory layout under `pkg/runtime/js` is the module
+table — there is no second list of files:
+
+| Directory    | Holds                                    | Module id / visibility                                               |
+| ------------ | ---------------------------------------- | -------------------------------------------------------------------- |
+| `node/`      | every module user code may `require`     | `node/<specifier>`; file path == specifier (`node/stream/web.js`)    |
+| `internal/`  | helpers (`primordials`, `fetch`, `mime`) | `internal/<name>`; only the factories' own `require` reaches them    |
+| `bootstrap/` | loader, microtasks, `esm.js`, console    | not modules — evaluated standalone by Odin through explicit `#load`s |
+
+`globals.odin` embeds each module directory whole with `#load_directory`
+(`EMBEDDED_JS_DIRS`, one row per directory because the directive is not recursive) and
+derives the id and the JSC source name from directory + basename: stack frames read
+`node:buffer`, `node:stream/web`, `node:internal/encoding`. The public resolver answers
+`node/` ids only, so the directory a file lives in decides whether user code can reach
+it; `scripts/check-js-graph.mjs` (`make check-js`) fails on an unembedded directory, an
+unresolvable or non-literal `require`, an unreachable file, or a top-level require
+cycle. Each factory receives `(require, module, exports,
 native)`; the native fourth argument carries Odin-backed bindings (crypto, buffer,
 fetch, sqlite, dns, fs, net, http(s), os, tty, stdio — twelve today, see
 `install_internal_modules`) so **nothing transient lands on `globalThis`**
@@ -158,7 +174,7 @@ require of that module — after user code, and therefore steerable (#333). `fs`
 instantiates them during bootstrap.
 
 The JS layer is substantial and high quality: `url.js` (2071 LOC, WHATWG URL),
-`streams.js` (2027, Web Streams), `buffer.js` (1646), `fetch.js` (1054),
+`stream/web.js` (2027, Web Streams), `buffer.js` (1646), `fetch.js` (1054),
 `crypto.js` (917). Errors use Node-shaped coded errors (`ERR_INVALID_ARG_TYPE`,
 `ERR_OUT_OF_RANGE`, …). Native byte ops are gated by a size threshold
 so small inputs avoid FFI overhead — except that the threshold this sentence used to
@@ -171,18 +187,19 @@ native codec at every size. Removed rather than left as folklore steering review
   cache → JS internal builtins (`require_builtin`) → filesystem resolution.
   `node:fs` used to sit between the last two as a natively-assembled object, the one
   built-in with no JS layer; it is now an ordinary internal builtin
-  (`js/internal/fs.js` over `make_fs_bindings`). Nothing may rebuild it in
+  (`js/node/fs.js` over `make_fs_bindings`). Nothing may rebuild it in
   `native_require_cb`: `require_builtin` runs first, so a second construction would be
   dead code silently disagreeing with the live one. Circular requires terminate via a pre-registered partial-exports
   entry (`__lava_precache`), and a module that throws while loading is _removed_
   from the cache so a later require re-runs it (Node parity).
 - `.mjs`/static `import`/`export` are handled by a **source transform**
-  (`esm.js`) that rewrites ESM onto the CommonJS `require`, not by JSC's native
+  (`js/bootstrap/esm.js`) that rewrites ESM onto the CommonJS `require`, not by JSC's native
   module records (the classic C API only runs script-goal source). This is
   pragmatic and works, with documented divergences (named imports from CJS).
-  Its output is _executed source_, which is why it is the one internal module the
-  runtime hands `primordials` as a factory argument: it is deliberately not
-  registered as a requireable module (so user code cannot reach the transform),
+  Its output is _executed source_, which is why it is the one internal file the
+  runtime hands `primordials` as a factory argument: it lives in `bootstrap/`, which
+  no `#load_directory` reads, so it is never a requireable module (user code cannot
+  reach the transform),
   and that also denies it a `require`, so `loader.js` exposes the already-built
   table on the resolver object and `globals.odin` passes it in — failing closed if
   it is absent, since a forged match group here is code injection into the module
@@ -398,7 +415,7 @@ routing a per-code-unit codec loop through it cost 1.43x — hence
 into a null-prototype array where the loop is the inner loop.
 The loader **eager-loads it first**, before any
 other internal module and before user code, so the captured references are
-pristine; modules consume it via `require('primordials')` and get the cached table
+pristine; modules consume it via `require('internal/primordials')` and get the cached table
 (one exception — `esm.js`, which has no `require`; see §3.4).
 This is the JS-layer analog of the native error-intrinsic capture (§4.3/§5.1).
 
@@ -469,13 +486,13 @@ member expression in the source to see. So the explicit half is gated and only t
 assimilation half is blind, which is why the guidance is a code convention rather
 than a counter: never `await` a caller-supplied value directly.
 
-`primordials` is internal-only: the loader serves it to internal factories but
-hides it from the public resolver native `require()` consults, so it neither
-shadows a user package named `primordials` nor answers `require('node:primordials')`
-(which Node rejects). The _specifier_ is what is hidden — the table itself also hangs
-off that resolver object as `publicReq.primordials`, which is how `esm.js` receives it
-(§3.4); the resolver is reachable only from Odin and never reaches user code. Gating
-the other internal helper modules the same way is a future follow-up.
+`primordials` is internal-only by living in `js/internal/`: the public resolver native
+`require()` consults answers `node/` ids only, so it neither shadows a user package
+named `primordials` nor answers `require('node:primordials')` (which Node rejects). The
+same holds for every file under `internal/`. The _specifier_ is what is hidden — the
+table itself also hangs off that resolver object as `publicReq.primordials`, which is
+how `esm.js` receives it (§3.4); the resolver is reachable only from Odin and never
+reaches user code.
 
 ### 5.6 [P2] Documentation & process gaps
 

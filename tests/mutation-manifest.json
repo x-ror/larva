@@ -112,7 +112,7 @@
     {
       "name": "the poisoned http-smoke phases die when a framing validator goes back to re.test",
       "why": "Content-Length framing. With the check on a live regex, a poisoned exec answered 200 OK for `Content-Length: abc` — parseInt gives NaN and the body framing desyncs. The charCode form has no regex to poison at all.",
-      "source": "pkg/runtime/js/internal/http.js",
+      "source": "pkg/runtime/js/node/http.js",
       "find": "        if (!allChars(contentLengthHeader, isAsciiDigit)) return sendErrorAndClose(400);",
       "replace": "        if (!/^\\d+$/.test(contentLengthHeader)) return sendErrorAndClose(400);",
       "gate": "make:test-http-smoke",
@@ -121,7 +121,7 @@
     {
       "name": "the poisoned http-smoke phases die when the chunked check goes back to re.test",
       "why": "Transfer-Encoding framing. A steered check accepted `gzip` as chunked, which is the other half of the smuggling pair.",
-      "source": "pkg/runtime/js/internal/http.js",
+      "source": "pkg/runtime/js/node/http.js",
       "find": "        if (!reTest(TE_CHUNKED_RE, transferEncoding)) return sendErrorAndClose(501);",
       "replace": "        if (!/^\\s*chunked\\s*$/i.test(transferEncoding)) return sendErrorAndClose(501);",
       "gate": "make:test-http-smoke",
@@ -170,7 +170,7 @@
     {
       "name": "54-url-pollution X1 dies when endsInANumber goes back to a live re.test",
       "why": "Steered true, '4x' reads as numeric and parseInt gives 4, so http://1.2.3.4x/ silently becomes http://1.2.3.4/ — a host substitution.",
-      "source": "pkg/runtime/js/internal/url.js",
+      "source": "pkg/runtime/js/node/url.js",
       "find": "    if (allChars(last, isAsciiDigit)) return true;",
       "replace": "    if (last !== '' && /^[0-9]+$/.test(last)) return true;",
       "gate": "compat:tests/node-compat/cases/54-url-pollution.js",
@@ -179,7 +179,7 @@
     {
       "name": "54-url-pollution X2 dies when the %2f check goes back to a live re.test",
       "why": "The path-traversal guard, in the direction that discriminates: a steered validator makes a legitimate path look encoded and throws where node returns one.",
-      "source": "pkg/runtime/js/internal/url.js",
+      "source": "pkg/runtime/js/node/url.js",
       "find": "if (reTest(PERCENT_2F_RE, rest) || (isWindows && reTest(PERCENT_5C_RE, rest))) {",
       "replace": "if (/%2f/i.test(rest) || (isWindows && /%5c/i.test(rest))) {",
       "gate": "compat:tests/node-compat/cases/54-url-pollution.js",
@@ -207,7 +207,7 @@
     {
       "name": "57-format-single-arg dies when util.js drops the single-argument guard",
       "why": "Without it util.format folds %% even with one argument, where node returns the string verbatim. Pinned separately from console.js because the two are different implementations and one entry would fake coverage of both.",
-      "source": "pkg/runtime/js/internal/util.js",
+      "source": "pkg/runtime/js/node/util.js",
       "find": "    if (args.length === 1 && typeof first === 'string') return first;\n",
       "replace": "",
       "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
@@ -216,7 +216,7 @@
     {
       "name": "57-format-single-arg dies when console.js drops the single-argument guard",
       "why": "console.js has its own formatter — it is the bootstrap prelude and has no require to delegate with — so removing util.js's guard leaves console.log correct and vice versa. This entry moves the raw console.log rows, a different line range from the util entry.",
-      "source": "pkg/runtime/js/console.js",
+      "source": "pkg/runtime/js/bootstrap/console.js",
       "find": "    if (args.length === 1 && typeof first === 'string') return first;\n",
       "replace": "",
       "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
@@ -234,7 +234,7 @@
     {
       "name": "the Lava-only test dies when normalizeBase64 goes back to a global replace",
       "why": "A global replace under a forged exec never terminates (or, on some runners, blows up as RangeError from runaway string growth). Buffer.from(x,'base64') is the Basic-auth/JWT path. Either RED detail proves the reintroduced global replace; hang vs throw is runner-dependent, so expect_detail is an alternatives list.",
-      "source": "pkg/runtime/js/internal/buffer.js",
+      "source": "pkg/runtime/js/node/buffer.js",
       "find": "    var src = StringG(str);\n    var n = src.length;\n    var out = '';",
       "replace": "    return StringG(str)\n      .replaceAll('-', '+')\n      .replaceAll('_', '/')\n      .replaceAll(/[^A-Za-z0-9+/]/g, '');\n    var src = StringG(str);\n    var n = src.length;\n    var out = '';",
       "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
@@ -247,7 +247,7 @@
     {
       "name": "the Lava-only test dies when toUSVString goes back to the global regex",
       "why": "The surrogate pre-scan is not a guard against this: a VALID pair — any emoji in a remote query — sets hasSurrogate too, and the global replace then spins (or throws RangeError from runaway growth). new URLSearchParams(remoteQuery) is on the network path. Hang vs throw is runner-dependent; expect_detail lists both.",
-      "source": "pkg/runtime/js/internal/url.js",
+      "source": "pkg/runtime/js/node/url.js",
       "find": "    if (!hasSurrogate) return str;\n    var out = StringPrototypeSlice(str, 0, i);",
       "replace": "    if (!hasSurrogate) return str;\n    var SPOL = /([\\uD800-\\uDBFF])([\\uDC00-\\uDFFF])?|([\\uDC00-\\uDFFF])/g;\n    return StringPrototypeReplace(str, SPOL, function (m, h, l, lone) {\n      return lone !== undefined || l === undefined ? '\\uFFFD' : m;\n    });\n    var out = StringPrototypeSlice(str, 0, i);",
       "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
@@ -260,7 +260,7 @@
     {
       "name": "the poisoned http-smoke phases die when the header-char scan reads charCodeAt live",
       "why": "assertValidHeaderChar guards the response path. Live, a CR/LF-lying gadget splits the response, and the exec/test phases pass throughout because they never touch that carrier.",
-      "source": "pkg/runtime/js/internal/http.js",
+      "source": "pkg/runtime/js/node/http.js",
       "find": "      var code = StringPrototypeCharCodeAt(value, i);\n      if (code === 9 || (code >= 0x20 && code <= 0x7e) || (code >= 0x80 && code <= 0xff)) {",
       "replace": "      var code = value.charCodeAt(i);\n      if (code === 9 || (code >= 0x20 && code <= 0x7e) || (code >= 0x80 && code <= 0xff)) {",
       "gate": "make:test-http-smoke",
@@ -269,7 +269,7 @@
     {
       "name": "the poisoned http-smoke phases die when isHttpToken reads charCodeAt live",
       "why": "isHttpToken guards header NAMES. Live, a CR/LF-lying gadget accepts a name that still carries real CR/LF on the wire. The value-path mutation does not cover this site.",
-      "source": "pkg/runtime/js/internal/http.js",
+      "source": "pkg/runtime/js/node/http.js",
       "find": "      var code = StringPrototypeCharCodeAt(value, i);\n      if (code >= 128 || !HTTP_TCHAR[code]) return false;",
       "replace": "      var code = value.charCodeAt(i);\n      if (code >= 128 || !HTTP_TCHAR[code]) return false;",
       "gate": "make:test-http-smoke",
@@ -278,7 +278,7 @@
     {
       "name": "the poisoned http-smoke phases die when Content-Length conversion reads live parseInt",
       "why": "A sound allChars digit check next to live parseInt still desyncs framing: contentLengthRemaining becomes the gadget value. Poison-before-require is the realistic order; bootstrap capture on primordials is the fix. The Odin pi= pin covers the eager URL port path; this entry covers the lazy http framing path.",
-      "source": "pkg/runtime/js/internal/http.js",
+      "source": "pkg/runtime/js/node/http.js",
       "find": "        contentLengthRemaining = parseIntG(contentLengthHeader, 10);",
       "replace": "        contentLengthRemaining = parseInt(contentLengthHeader, 10);",
       "gate": "make:test-http-smoke",
@@ -287,7 +287,7 @@
     {
       "name": "58-esm-pollution targeted dies when the export-default name comes back through .match",
       "why": "String.prototype.match re-reads R.exec off the receiver, so the declared name is attacker-chosen and the transform interpolates it into the emitted module body as an identifier — code injection, not a wrong answer.",
-      "source": "pkg/runtime/js/internal/esm.js",
+      "source": "pkg/runtime/js/bootstrap/esm.js",
       "find": "        var fn = RegExpPrototypeExec(RE_DEFAULT_FUNCTION, expr);",
       "replace": "        var fn = expr.match(/^(?:async\\s+)?function\\b\\s*\\*?\\s*([A-Za-z_$][\\w$]*)/);",
       "gate": "compat:tests/node-compat/cases/58-esm-pollution.js",
@@ -296,7 +296,7 @@
     {
       "name": "58-esm-pollution blunt dies when the keyword boundary test goes back to a regex",
       "why": "A forged exec makes /[\\w$]/.test answer true for every character, so keywordAt rejects every import and export and the emitted source keeps raw module syntax JSC cannot parse.",
-      "source": "pkg/runtime/js/internal/esm.js",
+      "source": "pkg/runtime/js/bootstrap/esm.js",
       "find": "      if (after >= 0 && isIdentPart(after)) return null;",
       "replace": "      if (after >= 0 && /[\\w$]/.test(String.fromCharCode(after))) return null;",
       "gate": "compat:tests/node-compat/cases/58-esm-pollution.js",
@@ -305,7 +305,7 @@
     {
       "name": "58-esm-pollution charcodeat dies when the mask reads code units live",
       "why": "Routing the scanner off charAt onto charCodeAt is only a fix if the read is captured: a gadget lying about quote characters makes a string body scan as code, so text the module wrote as DATA is spliced out and re-emitted.",
-      "source": "pkg/runtime/js/internal/esm.js",
+      "source": "pkg/runtime/js/bootstrap/esm.js",
       "find": "      var c = StringPrototypeCharCodeAt(src, i);",
       "replace": "      var c = src.charCodeAt(i);",
       "gate": "compat:tests/node-compat/cases/58-esm-pollution.js",
@@ -314,7 +314,7 @@
     {
       "name": "58-esm-pollution arrayat dies when the mask stack is read through Array.prototype.at",
       "why": "The mode stack decides whether the scanner is inside a template literal; a forged at(-1) answering 'code' means it never enters template mode and statement-shaped template text becomes code.",
-      "source": "pkg/runtime/js/internal/esm.js",
+      "source": "pkg/runtime/js/bootstrap/esm.js",
       "find": "      var top = stack[stack.length - 1];",
       "replace": "      var top = stack.at(-1);",
       "gate": "compat:tests/node-compat/cases/58-esm-pollution.js",
@@ -323,7 +323,7 @@
     {
       "name": "58-esm-pollution json dies when emitted literals go back through the live JSON.stringify",
       "why": "Every string literal in the generated CommonJS — require specifiers, export keys, __filename/__dirname/import.meta.url — is produced here, so a replaced stringify writes the emitted source directly.",
-      "source": "pkg/runtime/js/internal/esm.js",
+      "source": "pkg/runtime/js/bootstrap/esm.js",
       "find": "    return JSONStringify(StringG(value));",
       "replace": "    return JSON.stringify(String(value));",
       "gate": "compat:tests/node-compat/cases/58-esm-pollution.js",
@@ -332,7 +332,7 @@
     {
       "name": "58-esm-pollution tail dies when the export result object inherits from Object.prototype",
       "why": "transformExport carries an own `tail` on one of eight return shapes; without a null prototype the other seven read Object.prototype.tail and join it into the emitted source, so a data-only merge gadget is code execution in the module body.",
-      "source": "pkg/runtime/js/internal/esm.js",
+      "source": "pkg/runtime/js/bootstrap/esm.js",
       "find": "        return { __proto__: null, body: decl + ';' + assigns, tail: null };",
       "replace": "        return { body: decl + ';' + assigns };",
       "gate": "compat:tests/node-compat/cases/58-esm-pollution.js",
@@ -341,7 +341,7 @@
     {
       "name": "58-esm-pollution join dies when the wrapper is assembled with a live Array.prototype.join",
       "why": "The joins assemble the emitted module, so a gadget lying only for the '\\n' separator replaces the WHOLE output rather than one interpolated identifier — a strictly larger win than the export-default carrier. Mutating the capture rather than one call site keeps esm.js syntactically valid, so the gate measures the carrier and not a bootstrap parse error.",
-      "source": "pkg/runtime/js/internal/esm.js",
+      "source": "pkg/runtime/js/bootstrap/esm.js",
       "find": "  var ArrayPrototypeJoin = primordials.ArrayPrototypeJoin;",
       "replace": "  var ArrayPrototypeJoin = function (a, s) {\n    return a.join(s);\n  };",
       "gate": "compat:tests/node-compat/cases/58-esm-pollution.js",
@@ -350,7 +350,7 @@
     {
       "name": "58-esm-pollution strglobal dies when the source coercion reads the live String global",
       "why": "transform() coerces its `source` argument with String(); the existing json entry reverts JSONStringify and StringG on one line, so the String capture on this line was never proven on its own.",
-      "source": "pkg/runtime/js/internal/esm.js",
+      "source": "pkg/runtime/js/bootstrap/esm.js",
       "find": "    source = StringG(source);",
       "replace": "    source = String(source);",
       "gate": "compat:tests/node-compat/cases/58-esm-pollution.js",
@@ -359,7 +359,7 @@
     {
       "name": "29-esm-transform-edge dies when findStmtEnd drops the seenMeaningful flag",
       "why": "The old code got this from `'+-*/%=<>&|^,.?:('.indexOf('')` returning 0, so a newline before any meaningful character continued the statement; without the flag an import whose clause starts on the next line ends early and reports an unsupported form.",
-      "source": "pkg/runtime/js/internal/esm.js",
+      "source": "pkg/runtime/js/bootstrap/esm.js",
       "find": "          if (!seenMeaningful || isContinuation(lastMeaningful)) continue;",
       "replace": "          if (isContinuation(lastMeaningful)) continue;",
       "gate": "compat:tests/node-compat/cases/29-esm-transform-edge.mjs",
@@ -368,7 +368,7 @@
     {
       "name": "29-esm-transform-edge dies when import.meta is rewritten by searching the source, not the mask",
       "why": "The mask blanks strings and comments, so searching it leaves an `import.meta` written inside a string literal alone; searching the source rewrites it to __import_meta and silently corrupts module data.",
-      "source": "pkg/runtime/js/internal/esm.js",
+      "source": "pkg/runtime/js/bootstrap/esm.js",
       "find": "    var at = StringPrototypeIndexOf(mask, IMPORT_META);",
       "replace": "    var at = StringPrototypeIndexOf(src, IMPORT_META);",
       "gate": "compat:tests/node-compat/cases/29-esm-transform-edge.mjs",
@@ -377,7 +377,7 @@
     {
       "name": "29-esm-transform-edge dies when isSpace narrows to ASCII",
       "why": "The `\\s*` strips these helpers replace accept the full ES whitespace set; narrowing to ASCII makes `export const<NBSP>name` emit the key \"const\", which is a silent behavior change the comment explicitly warns against.",
-      "source": "pkg/runtime/js/internal/esm.js",
+      "source": "pkg/runtime/js/bootstrap/esm.js",
       "find": "      c === 0xa0 ||",
       "replace": "      false ||",
       "gate": "compat:tests/node-compat/cases/29-esm-transform-edge.mjs",
@@ -386,7 +386,7 @@
     {
       "name": "29-esm-transform-edge dies when the identifier class drops `$`",
       "why": "No other fixture uses `$`, `_` or digits in a binding name, so the `$` arm of the code-unit predicate that replaced [A-Za-z_$] was unexercised and could be dropped without any test noticing.",
-      "source": "pkg/runtime/js/internal/esm.js",
+      "source": "pkg/runtime/js/bootstrap/esm.js",
       "find": "    return (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) || c === 0x5f || c === 0x24;",
       "replace": "    return (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) || c === 0x5f;",
       "gate": "compat:tests/node-compat/cases/29-esm-transform-edge.mjs",
@@ -395,7 +395,7 @@
     {
       "name": "59-global-replace-hangs dies when querystring's '+' decode goes back to a global replace",
       "why": "parse is public node:querystring and a single '+' in a query string reaches it, so a server doing parse(req.url.split('?')[1]) wedges on a crafted request: a global replace under a forged exec only advances lastIndex on an empty match and never returns. node answers correctly under the same poison, so this is a Lava-only defect.",
-      "source": "pkg/runtime/js/internal/querystring.js",
+      "source": "pkg/runtime/js/node/querystring.js",
       "find": "    s = replaceCharAll(s, '+', '%20');",
       "replace": "    if (s.indexOf('+') !== -1) s = s.replace(/\\+/g, '%20');",
       "gate": "compat:tests/node-compat/cases/59-global-replace-hangs.js",
@@ -408,7 +408,7 @@
     {
       "name": "regexp_pollution_immunity glob dies when matchesGlob strips backslashes with a global replace",
       "why": "Both arguments are caller-supplied, and the global replace spins under a forged exec. node hangs here too, so this is a deviation in Lava's favour and cannot be an oracle case.",
-      "source": "pkg/runtime/js/internal/path.js",
+      "source": "pkg/runtime/js/node/path.js",
       "find": "      pattern = replaceCharAll(pattern, '\\\\', '/');",
       "replace": "      pattern = pattern.replace(/\\\\/g, '/');",
       "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
@@ -421,7 +421,7 @@
     {
       "name": "regexp_pollution_immunity inspect dies when the Buffer hex grouping goes back to a global replace",
       "why": "console.log(buf) on a Buffer holding remote bytes reaches this; the global replace spins under a forged exec. node hangs here too.",
-      "source": "pkg/runtime/js/internal/buffer.js",
+      "source": "pkg/runtime/js/node/buffer.js",
       "find": "        hex += StringPrototypeSlice(raw, h, h + 2);",
       "replace": "        hex += raw.replaceAll(/(.{2})/g, '$1 ').trim();",
       "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
@@ -434,7 +434,7 @@
     {
       "name": "regexp_pollution_immunity blob dies when native line endings go back to a global replace",
       "why": "new Blob([text], {endings:'native'}) runs this over caller text; the global replace spins under a forged exec. node hangs here too.",
-      "source": "pkg/runtime/js/internal/buffer.js",
+      "source": "pkg/runtime/js/node/buffer.js",
       "find": "    if (nativeEndings) str = toNativeEndings(str);",
       "replace": "    if (nativeEndings) str = str.replace(/\\r?\\n/g, nativeEol());",
       "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
@@ -447,7 +447,7 @@
     {
       "name": "regexp_pollution_immunity debuglog dies when NODE_DEBUG is compiled by chained global replaces",
       "why": "Three global replaces run on the FIRST debuglog call, so the process wedges at the point it tries to emit a diagnostic. Lava-only because Lava has no process.stderr, so the outputs cannot match node however the spin is fixed.",
-      "source": "pkg/runtime/js/internal/util.js",
+      "source": "pkg/runtime/js/node/util.js",
       "find": "    return StringPrototypeToUpperCase(out);",
       "replace": "    return env.replace(/[|\\\\{}()[\\]^$+?.]/g, '\\\\$&').replace(/\\*/g, '.*').replace(/,/g, '$|^').toUpperCase();",
       "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
@@ -473,7 +473,7 @@
     {
       "name": "regexp_pollution_immunity puny dies when the RFC 3490 separator fold goes back to a global replace",
       "why": "punycode.toASCII on a caller-supplied hostname spun; node hangs identically so it cannot be an oracle case. Pins availability only, because other live .test reads in punycode.js still steer the per-label encode decision.",
-      "source": "pkg/runtime/js/internal/punycode.js",
+      "source": "pkg/runtime/js/node/punycode.js",
       "find": "    domain = foldSeparators(domain);",
       "replace": "    domain = domain.replace(/[\\x2E\\u3002\\uFF0E\\uFF61]/g, '\\x2E');",
       "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
@@ -486,7 +486,7 @@
     {
       "name": "regexp_pollution_immunity dbg-nodot dies when the NODE_DEBUG escaper stops escaping '.'",
       "why": "Nothing observed debugEnvPattern's OUTPUT before: the poisoned probe passes with NODE_DEBUG unset, i.e. when the function is never called. Dropping the '.' branch makes 'a.b' enable 'axb', which is the escape the compile exists to do.",
-      "source": "pkg/runtime/js/internal/util.js",
+      "source": "pkg/runtime/js/node/util.js",
       "find": "      c === 0x2e //    .",
       "replace": "      false //    .",
       "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
@@ -511,7 +511,7 @@
     {
       "name": "61-stdio-lifecycle dies when pipe() stops excluding the stdio singletons",
       "why": "Without node's `dest !== process.stdout/stderr` exclusion, `src.pipe(process.stdout)` calls end() on a process-lifetime singleton. Note what the assertion keys off: since `_destroy` undoes the teardown, the stream RECOVERS a tick later, so `writable` reads true either way and only the spurious 'finish' event proves end() was reached. Before that half existed this dropped every later write and raised 'write after end'.",
-      "source": "pkg/runtime/js/internal/stream.js",
+      "source": "pkg/runtime/js/node/stream.js",
       "find": "    var doEnd =\n      (!pipeOpts || pipeOpts.end !== false) &&\n      dest !== processRef.stdout &&\n      dest !== processRef.stderr;",
       "replace": "    var doEnd = !pipeOpts || pipeOpts.end !== false;",
       "gate": "compat:tests/node-compat/cases/61-stdio-lifecycle.js",
@@ -522,7 +522,7 @@
     {
       "name": "stdio-lifecycle dies when pipe() stops excluding the stdio singletons (pipe shape)",
       "why": "Same defect as the compat entry, gated on the node:test so both fd shapes are covered — node's stdout is a different class on a pipe. The script counts 'finish' events rather than comparing bytes, because the recovery makes the bytes identical with the exclusion deleted; a byte-only version of this test SURVIVED this mutation.",
-      "source": "pkg/runtime/js/internal/stream.js",
+      "source": "pkg/runtime/js/node/stream.js",
       "find": "    var doEnd =\n      (!pipeOpts || pipeOpts.end !== false) &&\n      dest !== processRef.stdout &&\n      dest !== processRef.stderr;",
       "replace": "    var doEnd = !pipeOpts || pipeOpts.end !== false;",
       "gate": "node-test:tests/stdio/stdio-lifecycle.test.mjs",
@@ -548,7 +548,7 @@
     {
       "name": "stdio-lifecycle dies when _undestroy stops clearing the ending flag",
       "why": "The `writable` getter is `!destroyed && !ending`, so leaving `ending` set makes the stream report unwritable forever even though destroyed was cleared — the recovery looks applied and is not. Pins the individual field, not just the presence of the call.",
-      "source": "pkg/runtime/js/internal/stream.js",
+      "source": "pkg/runtime/js/node/stream.js",
       "find": "      w.ended = false;\n      w.ending = false;\n      w.finished = false;",
       "replace": "      w.ended = false;\n      w.finished = false;",
       "gate": "node-test:tests/stdio/stdio-lifecycle.test.mjs",
@@ -606,7 +606,7 @@
     {
       "name": "62-fs-read-buffer dies when the read result is not re-tagged as a Buffer",
       "why": "The native returns a plain Uint8Array where node returns a Buffer. Without the re-tag, Buffer.isBuffer is false and `.toString('hex')` falls through to Uint8Array.prototype.toString — comma-joined decimals instead of hex, with no throw. That shipped for a year.",
-      "source": "pkg/runtime/js/internal/fs.js",
+      "source": "pkg/runtime/js/node/fs.js",
       "find": "    return BufferFrom(\n      TypedArrayPrototypeGetBuffer(value),\n      TypedArrayPrototypeGetByteOffset(value),\n      TypedArrayPrototypeGetByteLength(value),\n    );",
       "replace": "    return value;",
       "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
@@ -617,7 +617,7 @@
     {
       "name": "62-fs-read-buffer dies when the encoding is dropped instead of decoded in JS",
       "why": "Reads must be decoded through Buffer's codecs here, because the native ignored the encoding argument entirely and decoded everything as UTF-8 — readFileSync(p,'hex') returned the file's text instead of its hex. expect_detail keys off a UNIQUE assertion message: an earlier version used ['strictEqual','string'], which appears in the red output of every failing assert.equal in the file and would have accepted a break of the Buffer re-tag instead.",
-      "source": "pkg/runtime/js/internal/fs.js",
+      "source": "pkg/runtime/js/node/fs.js",
       "find": "    return encoding === null ? buf : BufferPrototypeToString(buf, encoding);",
       "replace": "    return buf;",
       "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
@@ -628,7 +628,7 @@
     {
       "name": "62-fs-read-buffer dies when an unknown encoding is not rejected",
       "why": "node throws ERR_INVALID_ARG_VALUE for an unrecognized encoding. Without the check the name reaches Buffer#toString, which throws a differently-coded error, and a caller catching by code sees the wrong one. expect_detail keys off the error that ESCAPES (Buffer#toString's uncoded 'Unknown encoding: bogus'), not the code the case asserts: assert.throws swallows the mismatch into an AssertionError, so the coded name never reaches the diff.",
-      "source": "pkg/runtime/js/internal/fs.js",
+      "source": "pkg/runtime/js/node/fs.js",
       "find": "    if (encoding !== 'buffer' && !BufferIsEncoding(encoding)) {",
       "replace": "    if (false) {",
       "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
@@ -639,7 +639,7 @@
     {
       "name": "57-format-single-arg dies when util.inspect stops quoting a top-level string",
       "why": "node's util.inspect QUOTES a top-level string ('x' -> \"'x'\") while console.log/format print a string ARGUMENT raw — format goes through stringify(), which short-circuits strings before inspect is reached, so the depth-0 raw arm had no caller left and was deleted. Restoring it un-quotes every message built with util.inspect, which is how fs.js's ERR_INVALID_ARG_VALUE read `Received bogus`.",
-      "source": "pkg/runtime/js/internal/util.js",
+      "source": "pkg/runtime/js/node/util.js",
       "find": "    if (t === 'string') return quote(v);",
       "replace": "    if (t === 'string') return depth === 0 ? v : quote(v);",
       "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
@@ -650,7 +650,7 @@
     {
       "name": "57-format-single-arg dies when inspect stops choosing the quote character",
       "why": "node picks the delimiter to avoid escaping — a string containing a single quote is rendered with DOUBLE quotes (\"it's\", not 'it\\'s'). Always using single quotes escapes where node does not, so any inspected value containing an apostrophe differs.",
-      "source": "pkg/runtime/js/internal/util.js",
+      "source": "pkg/runtime/js/node/util.js",
       "find": "    if (StringPrototypeIndexOf(s, \"'\") !== -1) {\n      if (StringPrototypeIndexOf(s, '\"') === -1) q = '\"';\n      else if (StringPrototypeIndexOf(s, '`') === -1 && StringPrototypeIndexOf(s, '${') === -1)\n        q = '`';\n    }\n",
       "replace": "",
       "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
@@ -661,7 +661,7 @@
     {
       "name": "62-fs-read-buffer dies when the pristine Buffer capture moves back into fs.js",
       "why": "fs.js is a LAZY module, so a `require('buffer').Buffer` capture at its module-eval reads whatever user code left there — a dependency's top-level `require('buffer').Buffer = shim` then steers and discloses every fs read. loader.js snapshots it right after buffer is instantiated, where the ordering is provable.",
-      "source": "pkg/runtime/js/internal/fs.js",
+      "source": "pkg/runtime/js/node/fs.js",
       "find": "  var PristineBuffer = require.pristineBuffer;",
       "replace": "  var PristineBuffer = require('buffer').Buffer;",
       "gate": "compat:tests/node-compat/cases/63-fs-buffer-capture.js",
@@ -673,7 +673,7 @@
     {
       "name": "62-fs-read-buffer dies when falsy encodings stop meaning binary",
       "why": "node's assertEncoding is guarded `if (encoding && ...)`, so '', false, 0 and NaN all return a Buffer. Rejecting them broke code that worked before the JS layer existed, because the native treated a non-string encoding as binary and returned data.",
-      "source": "pkg/runtime/js/internal/fs.js",
+      "source": "pkg/runtime/js/node/fs.js",
       "find": "    if (!encoding) return null;",
       "replace": "    if (encoding === null || encoding === undefined) return null;",
       "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
@@ -684,7 +684,7 @@
     {
       "name": "62-fs-read-buffer dies when 'buffer' is validated like an ordinary encoding",
       "why": "node's getOptions skips assertEncoding for 'buffer' so it reaches Buffer#toString and throws ERR_UNKNOWN_ENCODING. Validating it yields ERR_INVALID_ARG_VALUE — a different code AND message on a documented fs option value.",
-      "source": "pkg/runtime/js/internal/fs.js",
+      "source": "pkg/runtime/js/node/fs.js",
       "find": "    if (encoding !== 'buffer' && !BufferIsEncoding(encoding)) {",
       "replace": "    if (!BufferIsEncoding(encoding)) {",
       "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
@@ -695,7 +695,7 @@
     {
       "name": "62-fs-read-buffer dies when ERR_INVALID_ARG_TYPE loses node's object branch",
       "why": "node's determineSpecificType renders an object receiver as `an instance of <Ctor>`, not `type object (<inspected>)`. The reachable trigger is fs.readFile(path, options) with a forgotten callback. expect_detail keys on the ESCAPING text (Received {}), not the case assertion: assert.throws re-surfaces the original TypeError on a message mismatch here, so the assertion text never reaches the diff.",
-      "source": "pkg/runtime/js/internal/fs.js",
+      "source": "pkg/runtime/js/node/fs.js",
       "find": "      if (typeof ctor === 'function' && ctor.name) return 'an instance of ' + ctor.name;",
       "replace": "",
       "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
@@ -706,7 +706,7 @@
     {
       "name": "62-fs-read-buffer dies when the Received string stops being truncated",
       "why": "node cuts a string longer than 28 chars to its first 25 plus '...' before inspecting it into the Received clause.",
-      "source": "pkg/runtime/js/internal/fs.js",
+      "source": "pkg/runtime/js/node/fs.js",
       "find": "    if (typeof shown === 'string' && shown.length > RECEIVED_STR_MAX + 3) {\n      shown = StringPrototypeSlice(shown, 0, RECEIVED_STR_MAX) + '...';\n    }",
       "replace": "",
       "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
@@ -717,7 +717,7 @@
     {
       "name": "62-fs-read-buffer dies when the read result is copied instead of shared",
       "why": "The zero-copy re-tag is a rank-2 memory claim on the hottest fs call there is. A copying Buffer.from(view) lands in the Buffer pool, so the result is an offset into a 256 KB store instead of an exact-size view. Before this entry the claim had NO test: the copying form left the whole case green.",
-      "source": "pkg/runtime/js/internal/fs.js",
+      "source": "pkg/runtime/js/node/fs.js",
       "find": "    return BufferFrom(\n      TypedArrayPrototypeGetBuffer(value),\n      TypedArrayPrototypeGetByteOffset(value),\n      TypedArrayPrototypeGetByteLength(value),\n    );",
       "replace": "    return BufferFrom(value);",
       "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
@@ -729,7 +729,7 @@
     {
       "name": "62-fs-read-buffer dies when path type validation is dropped",
       "why": "node rejects a non string/Buffer/URL/fd path with ERR_INVALID_ARG_TYPE; without the check an object is stringified and read as the filename '[object Object]'.",
-      "source": "pkg/runtime/js/internal/fs.js",
+      "source": "pkg/runtime/js/node/fs.js",
       "find": "    validatePath(path);\n    var encoding = readEncoding(options);",
       "replace": "    var encoding = readEncoding(options);",
       "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
@@ -740,7 +740,7 @@
     {
       "name": "62-fs-read-buffer dies when the error callback regains its second argument",
       "why": "node calls the readFile error callback with exactly one argument; the native's completion always builds a 2-slot array, so passing data through makes arguments.length 2.",
-      "source": "pkg/runtime/js/internal/fs.js",
+      "source": "pkg/runtime/js/node/fs.js",
       "find": "      if (err) {\n        cb(err);\n        return;\n      }",
       "replace": "      if (err) {\n        cb(err, data);\n        return;\n      }",
       "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
@@ -751,7 +751,7 @@
     {
       "name": "62-fs-read-buffer dies when cb validation moves after options validation",
       "why": "node validates `callback || options` BEFORE the options, so readFile(p,'bogus') reports the string as a bad callback. The reverse order reports a plausible but different error for a forgotten callback.",
-      "source": "pkg/runtime/js/internal/fs.js",
+      "source": "pkg/runtime/js/node/fs.js",
       "find": "    var cb = callback || options;\n    if (typeof cb !== 'function') {",
       "replace": "    var cb = callback || options;\n    readEncoding(typeof options === 'function' ? null : options);\n    if (typeof cb !== 'function') {",
       "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
@@ -762,7 +762,7 @@
     {
       "name": "62-fs-read-buffer dies when a function in the options slot is rejected",
       "why": "node's getOptions treats a callback sitting in the options slot as absent; rejecting it turns readFileSync(p, fn) from a working binary read into a throw.",
-      "source": "pkg/runtime/js/internal/fs.js",
+      "source": "pkg/runtime/js/node/fs.js",
       "find": "    if (options === null || options === undefined || typeof options === 'function') {",
       "replace": "    if (options === null || options === undefined) {",
       "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
@@ -773,7 +773,7 @@
     {
       "name": "57-format-single-arg dies when inspect drops node's ${ guard",
       "why": "node's strEscape refuses the backtick delimiter when the string contains '${', because inspect output is meant to read back as a literal and a backtick-delimited '${' is a live template substitution. Omitting the guard also regressed output that was CORRECT before the delimiter rule was introduced.",
-      "source": "pkg/runtime/js/internal/util.js",
+      "source": "pkg/runtime/js/node/util.js",
       "find": "      else if (StringPrototypeIndexOf(s, '`') === -1 && StringPrototypeIndexOf(s, '${') === -1)\n        q = '`';",
       "replace": "      else if (StringPrototypeIndexOf(s, '`') === -1) q = '`';",
       "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
@@ -784,7 +784,7 @@
     {
       "name": "57-format-single-arg dies when the backtick branch is removed",
       "why": "A string containing both quote characters is backtick-delimited on node. The earlier manifest entry deleted the whole delimiter block, so it only proved the double-quote arm; deleting just this line survived the case.",
-      "source": "pkg/runtime/js/internal/util.js",
+      "source": "pkg/runtime/js/node/util.js",
       "find": "      else if (StringPrototypeIndexOf(s, '`') === -1 && StringPrototypeIndexOf(s, '${') === -1)\n        q = '`';\n",
       "replace": "",
       "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
@@ -795,7 +795,7 @@
     {
       "name": "57-format-single-arg dies when inspect stops escaping control characters",
       "why": "node's strEscape escapes the whole C0 range, DEL and C1. Leaving them raw makes an unescaped \\x1B in any inspected value an ANSI-injection vector through the log line, which is why this is a security fix and not a rendering nicety.",
-      "source": "pkg/runtime/js/internal/util.js",
+      "source": "pkg/runtime/js/node/util.js",
       "find": "      else if (c < 0x20 || (c >= 0x7f && c <= 0x9f)) esc = escByte(c);",
       "replace": "",
       "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
@@ -806,7 +806,7 @@
     {
       "name": "57-format-single-arg dies when a lone surrogate is not escaped",
       "why": "node escapes an unpaired surrogate as \\\\udXXX; Lava used to hand it to the string conversion, which replaced it with U+FFFD — the value came back LOSSY, not merely rendered differently.",
-      "source": "pkg/runtime/js/internal/util.js",
+      "source": "pkg/runtime/js/node/util.js",
       "find": "        if (next >= 0xdc00 && next <= 0xdfff) {\n          i++; // consume the pair\n        } else {\n          esc = escUnit(c);\n        }",
       "replace": "        if (next >= 0xdc00 && next <= 0xdfff) {\n          i++; // consume the pair\n        }",
       "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
@@ -828,7 +828,7 @@
     {
       "name": "64-stream-write dies when write() reports errors async instead of throwing",
       "why": "node throws ERR_STREAM_NULL_VALUES and ERR_INVALID_ARG_TYPE synchronously from write(). Routing them through writeErrorNextTick delivers the right code on the wrong turn, so `assert.throws(() => s.write(null))` passes under node and fails here.",
-      "source": "pkg/runtime/js/internal/stream.js",
+      "source": "pkg/runtime/js/node/stream.js",
       "find": "    if (chunk === null) throw errNullValues();",
       "replace": "    if (chunk === null) { writeErrorNextTick(this, errNullValues(), cb); return false; }",
       "gate": "compat:tests/node-compat/cases/64-stream-write-validation.js",
@@ -839,7 +839,7 @@
     {
       "name": "64-stream-write dies when the accept set goes back to instanceof Uint8Array",
       "why": "`instanceof Uint8Array` is wrong in BOTH directions: it rejects DataView and Int16Array, which node accepts, and it accepts Object.create(Uint8Array.prototype), which node rejects. ArrayBuffer.isView is the whole test.",
-      "source": "pkg/runtime/js/internal/stream.js",
+      "source": "pkg/runtime/js/node/stream.js",
       "find": "  function isBytesChunk(chunk) {\n    return ArrayBufferIsView(chunk);\n  }",
       "replace": "  function isBytesChunk(chunk) {\n    return chunk instanceof Uint8Array;\n  }",
       "gate": "compat:tests/node-compat/cases/64-stream-write-validation.js",
@@ -851,7 +851,7 @@
     {
       "name": "64-stream-write dies when a view is not normalized to a Buffer",
       "why": "THE regression that got #326's attempt reverted. node hands _write a Buffer with encoding 'buffer' for every view; without the conversion `chunk.length` is undefined for a DataView, writableLength goes NaN, and 'drain' can never fire again because NaN === 0 is false.",
-      "source": "pkg/runtime/js/internal/stream.js",
+      "source": "pkg/runtime/js/node/stream.js",
       "find": "        chunk = bytesToBuffer(chunk);\n        encoding = 'buffer';\n      } else {\n        throw errInvalidArg('chunk', CHUNK_EXPECTED, chunk);",
       "replace": "        encoding = 'buffer';\n      } else {\n        throw errInvalidArg('chunk', CHUNK_EXPECTED, chunk);",
       "gate": "compat:tests/node-compat/cases/64-stream-write-validation.js",
@@ -862,7 +862,7 @@
     {
       "name": "64-stream-write dies when Readable.push does not accept what write does",
       "why": "Widening only the writable half makes a PassThrough take a view on one side and error on the other — which is how the first attempt shipped. The replacement KEEPS the normalization so the entry pins the brand widening alone — changing both at once would leave a kill ambiguous about which half the case detects.",
-      "source": "pkg/runtime/js/internal/stream.js",
+      "source": "pkg/runtime/js/node/stream.js",
       "find": "      } else if (isBytesChunk(chunk)) {\n        // The readable half must accept exactly what the writable half does, or a\n        // PassThrough takes a view on one side and errors on the other — which is how the\n        // first attempt at this shipped.\n        chunk = bytesToBuffer(chunk);",
       "replace": "      } else if (chunk instanceof Uint8Array) {\n        chunk = bytesToBuffer(chunk);",
       "gate": "compat:tests/node-compat/cases/64-stream-write-validation.js",
@@ -873,7 +873,7 @@
     {
       "name": "64-stream-write dies when the encoding is not validated before the chunk type",
       "why": "node validates an explicit encoding first, which is observable: write(5, 'bogus') reports ERR_UNKNOWN_ENCODING, not the chunk type.",
-      "source": "pkg/runtime/js/internal/stream.js",
+      "source": "pkg/runtime/js/node/stream.js",
       "find": "    if (encoding) validateEncoding(encoding);\n",
       "replace": "",
       "gate": "compat:tests/node-compat/cases/64-stream-write-validation.js",
@@ -884,7 +884,7 @@
     {
       "name": "64-stream-write dies when setDefaultEncoding accepts an unknown name",
       "why": "node throws ERR_UNKNOWN_ENCODING; accepting it silently poisons every later string write on the stream.",
-      "source": "pkg/runtime/js/internal/stream.js",
+      "source": "pkg/runtime/js/node/stream.js",
       "find": "    validateEncoding(encoding);\n    this._writableState.defaultEncoding = encoding;",
       "replace": "    this._writableState.defaultEncoding = encoding;",
       "gate": "compat:tests/node-compat/cases/64-stream-write-validation.js",
@@ -895,7 +895,7 @@
     {
       "name": "65-lazy-buffer-capture dies when a module resolves Buffer itself instead of taking the loader's",
       "why": "net.js is a LAZY module, so its own require('buffer') runs on the user's first require of net — after user code. Node is not steerable this way; measured, sock.write('PAYLOAD') delivered \"PAYLOAD\" on node and \"TAMPERED\" here.",
-      "source": "pkg/runtime/js/internal/net.js",
+      "source": "pkg/runtime/js/node/net.js",
       "find": "  var PristineBuffer = require.pristineBuffer;",
       "replace": "  var PristineBuffer = { Buffer: require('buffer').Buffer, from: require('buffer').Buffer.from, alloc: require('buffer').Buffer.alloc, concat: require('buffer').Buffer.concat, isBuffer: require('buffer').Buffer.isBuffer };",
       "gate": "compat:tests/node-compat/cases/65-lazy-buffer-capture.js",
@@ -906,7 +906,7 @@
     {
       "name": "65-lazy-buffer-capture dies when Buffer.from is read off the constructor at call time",
       "why": "Capturing the CONSTRUCTOR is not enough: `.from` is a writable member read off it at call time, so `Buffer.from = evil` steers a module holding a pristine constructor. This is the half the first version of the fix missed — the object is not the method, the same lesson as Symbol.for in util.js.",
-      "source": "pkg/runtime/js/internal/net.js",
+      "source": "pkg/runtime/js/node/net.js",
       "find": "  var BufferFrom = PristineBuffer.from;",
       "replace": "  var BufferFrom = function (v, a, b) { return PristineBuffer.Buffer.from(v, a, b); };",
       "gate": "compat:tests/node-compat/cases/65-lazy-buffer-capture.js",
@@ -917,7 +917,7 @@
     {
       "name": "65-lazy-buffer-capture dies when os.userInfo reads Buffer.from at call time",
       "why": "os.userInfo originally re-read the live export on EVERY call, so it was steerable at any time — a case that only swaps things before the first require cannot see it. This mutation restores a call-time read while leaving the module-eval capture intact, so it pins the call-time half alone.",
-      "source": "pkg/runtime/js/internal/os.js",
+      "source": "pkg/runtime/js/node/os.js",
       "find": "  var BufferFrom = PristineBuffer.from;",
       "replace": "  var BufferFrom = function (v, a, b) { return PristineBuffer.Buffer.from(v, a, b); };",
       "gate": "compat:tests/node-compat/cases/65-lazy-buffer-capture.js",
@@ -928,7 +928,7 @@
     {
       "name": "65-lazy-buffer-capture dies when http.js resolves Buffer itself",
       "why": "http.js was migrated with NO test behind it: reverting this one line left every gate green while the measured divergence returned. Two of five migrated modules were unpinned until this entry.",
-      "source": "pkg/runtime/js/internal/http.js",
+      "source": "pkg/runtime/js/node/http.js",
       "find": "  var PristineBuffer = require.pristineBuffer;",
       "replace": "  var PristineBuffer = { Buffer: require('buffer').Buffer, from: require('buffer').Buffer.from, alloc: require('buffer').Buffer.alloc, concat: require('buffer').Buffer.concat, isBuffer: require('buffer').Buffer.isBuffer, bufferToString: function (b, e, a, c) { return b.toString(e, a, c); }, bufferIndexOf: function (b, n) { return b.indexOf(n); }, bufferSlice: function (b, a, c) { return b.slice(a, c); } };",
       "gate": "compat:tests/node-compat/cases/65-lazy-buffer-capture.js",
@@ -939,7 +939,7 @@
     {
       "name": "65-lazy-buffer-capture dies when the chunked reassembly reads Buffer.concat live",
       "why": "http.js's chunked decoder reassembles across TCP segments with concat; a poisoned concat that reorders the parts desynchronises the size line from its body. This is framing over network-controlled bytes, not a cosmetic read.",
-      "source": "pkg/runtime/js/internal/http.js",
+      "source": "pkg/runtime/js/node/http.js",
       "find": "  var BufferConcat = PristineBuffer.concat;",
       "replace": "  var BufferConcat = function (l, t) { return require('buffer').Buffer.concat(l, t); };",
       "gate": "compat:tests/node-compat/cases/65-lazy-buffer-capture.js",
@@ -950,7 +950,7 @@
     {
       "name": "65-lazy-buffer-capture dies when the chunk size is read through a live toString",
       "why": "The size line is read with buffer.toString('latin1', 0, lineEnd). A replacement that INFLATES the size is a request-smuggling primitive; node frames HTTP in C (llhttp) and is not steerable at all.",
-      "source": "pkg/runtime/js/internal/http.js",
+      "source": "pkg/runtime/js/node/http.js",
       "find": "  var BufferPrototypeToString = PristineBuffer.bufferToString;",
       "replace": "  var BufferPrototypeToString = function (b, e, a, c) { return b.toString(e, a, c); };",
       "gate": "compat:tests/node-compat/cases/65-lazy-buffer-capture.js",
@@ -961,7 +961,7 @@
     {
       "name": "65-lazy-buffer-capture dies when the framing cursor advances through a live slice",
       "why": "The decoder advances past each size line and body with slice; a corrupted cursor leaves a stray byte and desynchronises every later chunk.",
-      "source": "pkg/runtime/js/internal/http.js",
+      "source": "pkg/runtime/js/node/http.js",
       "find": "  var BufferPrototypeSlice = PristineBuffer.bufferSlice;",
       "replace": "  var BufferPrototypeSlice = function (b, a, c) { return b.slice(a, c); };",
       "gate": "compat:tests/node-compat/cases/65-lazy-buffer-capture.js",
@@ -972,7 +972,7 @@
     {
       "name": "65-lazy-buffer-capture dies when net's INBOUND wrap reads Buffer live",
       "why": "net's asBuffer wraps every 'data' chunk — the DISCLOSURE direction. The write-side assertion alone leaves it green while a shim reads every inbound byte.",
-      "source": "pkg/runtime/js/internal/net.js",
+      "source": "pkg/runtime/js/node/net.js",
       "find": "  var BufferFrom = PristineBuffer.from;",
       "replace": "  var BufferFrom = function (v, a, b) { return require('buffer').Buffer.from(v, a, b); };",
       "gate": "compat:tests/node-compat/cases/65-lazy-buffer-capture.js",
@@ -983,7 +983,7 @@
     {
       "name": "66-process-console-intrinsic dies when node:process re-reads the global",
       "why": "The factory used to export the free-var process, so a pre-first-require reassignment of globalThis.process poisoned every later require('node:process'). Node returns the intrinsic regardless (#247).",
-      "source": "pkg/runtime/js/internal/process.js",
+      "source": "pkg/runtime/js/node/process.js",
       "find": "  module.exports = intrinsic;",
       "replace": "  module.exports = process;",
       "gate": "compat:tests/node-compat/cases/66-process-console-intrinsic.js",
@@ -992,7 +992,7 @@
     {
       "name": "66-process-console-intrinsic dies when node:console re-reads the global",
       "why": "Same bug on the console factory: a pre-first-require reassignment of globalThis.console was captured as the module export. Console is a separate source file, so a single process entry would leave it unpinned.",
-      "source": "pkg/runtime/js/internal/console.js",
+      "source": "pkg/runtime/js/node/console.js",
       "find": "  module.exports = intrinsic;",
       "replace": "  module.exports = console;",
       "gate": "compat:tests/node-compat/cases/66-process-console-intrinsic.js",
@@ -1002,8 +1002,8 @@
       "name": "66-process-console-intrinsic dies when natives stop handing process the intrinsic",
       "why": "If install_internal_modules stops putting the process object on natives, the factory fail-closes. This pins the Odin wiring half, not just the JS export line.",
       "source": "pkg/runtime/globals.odin",
-      "find": "\tif process_val := get_named(ctx, global, \"process\"); process_val != nil {\n\t\tset_named(ctx, natives, \"process\", process_val)\n\t}",
-      "replace": "\tif false {\n\t\tif process_val := get_named(ctx, global, \"process\"); process_val != nil {\n\t\t\tset_named(ctx, natives, \"process\", process_val)\n\t\t}\n\t}",
+      "find": "\tif process_val := get_named(ctx, global, \"process\"); process_val != nil {\n\t\tset_named(ctx, natives, \"node/process\", process_val)\n\t}",
+      "replace": "\tif false {\n\t\tif process_val := get_named(ctx, global, \"process\"); process_val != nil {\n\t\t\tset_named(ctx, natives, \"node/process\", process_val)\n\t\t}\n\t}",
       "gate": "compat:tests/node-compat/cases/66-process-console-intrinsic.js",
       "expect_detail": "node:process intrinsic missing at context init"
     },
@@ -1011,8 +1011,8 @@
       "name": "66-process-console-intrinsic dies when natives stop handing console the intrinsic",
       "why": "Symmetric to the process natives entry: console is a separate set_named, and leaving only the process one green-washes a console wiring regression.",
       "source": "pkg/runtime/globals.odin",
-      "find": "\tif console_val := get_named(ctx, global, \"console\"); console_val != nil {\n\t\tset_named(ctx, natives, \"console\", console_val)\n\t}",
-      "replace": "\tif false {\n\t\tif console_val := get_named(ctx, global, \"console\"); console_val != nil {\n\t\t\tset_named(ctx, natives, \"console\", console_val)\n\t\t}\n\t}",
+      "find": "\tif console_val := get_named(ctx, global, \"console\"); console_val != nil {\n\t\tset_named(ctx, natives, \"node/console\", console_val)\n\t}",
+      "replace": "\tif false {\n\t\tif console_val := get_named(ctx, global, \"console\"); console_val != nil {\n\t\t\tset_named(ctx, natives, \"node/console\", console_val)\n\t\t}\n\t}",
       "gate": "compat:tests/node-compat/cases/66-process-console-intrinsic.js",
       "expect_detail": "node:console intrinsic missing at context init"
     },
@@ -1138,7 +1138,7 @@
       "expect_detail": [
         "allowKey prefers binding",
         "must not be keyed by line number",
-        "internal/util.js:ansiRegex",
+        "node/util.js:ansiRegex",
         "Expected values to be strictly equal"
       ]
     },
@@ -1154,7 +1154,7 @@
     {
       "name": "68-resizable-view-bytes dies when Buffer.from copies an out-of-bounds view with set()",
       "why": "%TypedArray%.prototype.set throws on an out-of-bounds SOURCE even at length 0, where node returns an empty Buffer.",
-      "source": "pkg/runtime/js/internal/buffer.js",
+      "source": "pkg/runtime/js/node/buffer.js",
       "find": "        if (viewLength > 0) copy.set(value);\n",
       "replace": "        copy.set(value);\n",
       "gate": "compat:tests/node-compat/cases/68-resizable-view-bytes.js",
@@ -1671,7 +1671,7 @@
     {
       "name": "70-buffer-size-inspect-parity dies when assertSize splices a bare type name",
       "why": "node prints `must be of type number` for Buffer.alloc('5'); a bare 'number' prints `must be number`.",
-      "source": "pkg/runtime/js/internal/buffer.js",
+      "source": "pkg/runtime/js/node/buffer.js",
       "find": "throw errInvalidArgType('size', 'of type number', size);",
       "replace": "throw errInvalidArgType('size', 'number', size);",
       "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
@@ -1682,7 +1682,7 @@
     {
       "name": "03-buffer dies when node:buffer exports SlowBuffer again",
       "why": "Node 26 removed SlowBuffer (DEP0030 end-of-life); `'SlowBuffer' in require('buffer')` is false there.",
-      "source": "pkg/runtime/js/internal/buffer.js",
+      "source": "pkg/runtime/js/node/buffer.js",
       "find": "    Buffer: Buffer,\n    Blob: Blob,",
       "replace": "    Buffer: Buffer,\n    SlowBuffer: Buffer,\n    Blob: Blob,",
       "gate": "compat:tests/node-compat/cases/03-buffer.js",
@@ -1691,7 +1691,7 @@
     {
       "name": "70-buffer-size-inspect-parity dies when checkBounds splices a bare type name",
       "why": "every fixed-width read/write reports its offset type error here; node says `must be of type number`.",
-      "source": "pkg/runtime/js/internal/buffer.js",
+      "source": "pkg/runtime/js/node/buffer.js",
       "find": "throw errInvalidArgType('offset', 'of type number', offset);",
       "replace": "throw errInvalidArgType('offset', 'number', offset);",
       "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
@@ -1702,7 +1702,7 @@
     {
       "name": "70-buffer-size-inspect-parity dies when Buffer.concat's length check splices a bare type name",
       "why": "Buffer.concat(list, '5') must say `The \"length\" argument must be of type number`.",
-      "source": "pkg/runtime/js/internal/buffer.js",
+      "source": "pkg/runtime/js/node/buffer.js",
       "find": "throw errInvalidArgType('length', 'of type number', totalLength);",
       "replace": "throw errInvalidArgType('length', 'number', totalLength);",
       "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
@@ -1713,7 +1713,7 @@
     {
       "name": "70-buffer-size-inspect-parity dies when the deprecated Buffer(n) skips assertSize",
       "why": "Buffer(-1) would throw JSC's codeless 'length cannot be negative' and Buffer(NaN) return an empty Buffer; node throws ERR_OUT_OF_RANGE.",
-      "source": "pkg/runtime/js/internal/buffer.js",
+      "source": "pkg/runtime/js/node/buffer.js",
       "find": "      assertSize(arg);\n",
       "replace": "",
       "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
@@ -1724,7 +1724,7 @@
     {
       "name": "70-buffer-size-inspect-parity dies when the more-bytes separator is dropped with no hex shown",
       "why": "node prints `<Buffer  ... 3 more bytes>` (two spaces) when INSPECT_MAX_BYTES = 0.",
-      "source": "pkg/runtime/js/internal/buffer.js",
+      "source": "pkg/runtime/js/node/buffer.js",
       "find": "hex += ' ... ' + remaining",
       "replace": "hex += (hex ? ' ' : '') + '... ' + remaining",
       "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
@@ -1735,7 +1735,7 @@
     {
       "name": "70-buffer-size-inspect-parity dies when Buffer(n) routes through allocUnsafe instead of a fresh zero-filled FastBuffer",
       "why": "Buffer(n) returns a fresh zero-filled non-pooled Buffer, not a pool slice (#408).",
-      "source": "pkg/runtime/js/internal/buffer.js",
+      "source": "pkg/runtime/js/node/buffer.js",
       "find": "      return new FastBuffer(arg); // zero-filled, matching the old `super(number)`",
       "replace": "      return Buffer.allocUnsafe(arg);",
       "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
@@ -1746,7 +1746,7 @@
     {
       "name": "73-buffer-type-fill-bigint dies when compare bounds targetStart by the target length",
       "why": "node bounds compare's *Start by kMaxLength only: Buffer.alloc(3).compare(Buffer.alloc(3), 100) is 1, not a RangeError.",
-      "source": "pkg/runtime/js/internal/buffer.js",
+      "source": "pkg/runtime/js/node/buffer.js",
       "find": "validateOffsetArg(targetStart, 'targetStart', K_MAX_LENGTH)",
       "replace": "validateOffsetArg(targetStart, 'targetStart', target.length)",
       "gate": "compat:tests/node-compat/cases/73-buffer-type-fill-bigint.js",
@@ -1757,7 +1757,7 @@
     {
       "name": "73-buffer-type-fill-bigint dies when write bounds length by the bytes remaining after offset",
       "why": "node validates write's length against this.length and then clamps: Buffer.alloc(10).write('abcdef', 5, 8) is 5.",
-      "source": "pkg/runtime/js/internal/buffer.js",
+      "source": "pkg/runtime/js/node/buffer.js",
       "find": "max = validateOffsetArg(length, 'length', this.length);",
       "replace": "max = validateOffsetArg(length, 'length', remaining);",
       "gate": "compat:tests/node-compat/cases/73-buffer-type-fill-bigint.js",
@@ -1768,7 +1768,7 @@
     {
       "name": "73-buffer-type-fill-bigint dies when write stops clamping length to the remaining bytes",
       "why": "an in-range length past the end must be clamped; the hex path copies min(bytes, length) and overruns the view without it.",
-      "source": "pkg/runtime/js/internal/buffer.js",
+      "source": "pkg/runtime/js/node/buffer.js",
       "find": "        if (max > remaining) max = remaining;\n",
       "replace": "",
       "gate": "compat:tests/node-compat/cases/73-buffer-type-fill-bigint.js",
@@ -1779,7 +1779,7 @@
     {
       "name": "72-events-parity dies when once() stops validating options",
       "why": "node's events.once rejects a non-object options with ERR_INVALID_ARG_TYPE; without the check once(ee, 'foo', 5) just waits.",
-      "source": "pkg/runtime/js/internal/events.js",
+      "source": "pkg/runtime/js/node/events.js",
       "find": "      return P.Promise.reject(errOptionsType(options));",
       "replace": "      options = undefined;",
       "gate": "compat:tests/node-compat/cases/72-events-parity.js",
@@ -1790,7 +1790,7 @@
     {
       "name": "73-buffer-type-fill-bigint dies when writeBigInt rejects non-BigInt values before the range and offset checks",
       "why": "node runs checkInt (range, then offset bounds) before the BigInt mask, so Object(5n) writes and a bad range/offset is reported as ERR_OUT_OF_RANGE / ERR_INVALID_ARG_TYPE rather than 'Cannot mix BigInt'.",
-      "source": "pkg/runtime/js/internal/buffer.js",
+      "source": "pkg/runtime/js/node/buffer.js",
       "find": "    checkValueInt(value, -BIG_SIGN_I64, BIG_SIGN_I64 - BIG_1, 7);\n",
       "replace": "    if (typeof value !== 'bigint') throw new TypeError('Cannot mix BigInt and other types, use explicit conversions');\n    checkValueInt(value, -BIG_SIGN_I64, BIG_SIGN_I64 - BIG_1, 7);\n",
       "gate": "compat:tests/node-compat/cases/73-buffer-type-fill-bigint.js",
@@ -1801,7 +1801,7 @@
     {
       "name": "03-buffer dies when atob stops rejecting characters outside the forgiving-base64 alphabet",
       "why": "node's atob throws InvalidCharacterError 'Invalid character' for '!' and for VT; without the alphabet check they fall through to the length check.",
-      "source": "pkg/runtime/js/internal/buffer.js",
+      "source": "pkg/runtime/js/node/buffer.js",
       "find": "      if (!alnum && c !== 0x2b && c !== 0x2f && c !== 0x3d)",
       "replace": "      if (false)",
       "gate": "compat:tests/node-compat/cases/03-buffer.js",
@@ -1812,7 +1812,7 @@
     {
       "name": "03-buffer dies when btoa stops rejecting code units above 0xFF",
       "why": "node's btoa throws InvalidCharacterError for 'Ā'; latin1 encoding would silently truncate it to 0x00.",
-      "source": "pkg/runtime/js/internal/buffer.js",
+      "source": "pkg/runtime/js/node/buffer.js",
       "find": "  var NON_LATIN1_RE = /[^\\u0000-\\u00ff]/;",
       "replace": "  var NON_LATIN1_RE = /[^\\u0000-\\uffff]/;",
       "gate": "compat:tests/node-compat/cases/03-buffer.js",
@@ -1823,7 +1823,7 @@
     {
       "name": "71-assert-deep-strict-equal dies when a primitive Map key's values are not compared",
       "why": "the O(n) b.get fast path must still deep-compare the values; skipping it makes Maps with equal keys and different values equal.",
-      "source": "pkg/runtime/js/internal/util.js",
+      "source": "pkg/runtime/js/node/util.js",
       "find": "} else if (isMap && !deepStrict(v, b.get(key), aStack, bStack)) {",
       "replace": "} else if (false) {",
       "gate": "compat:tests/node-compat/cases/71-assert-deep-strict-equal.js",
@@ -1834,7 +1834,7 @@
     {
       "name": "atob_invalid_character_shape dies when the InvalidCharacterError code stops being the number 5",
       "why": "Lava has no DOMException, so atob/btoa throw an Error carrying DOMException's name and legacy NUMERIC code 5; console.log prints '5' and 5 alike, so only the Lava-only test sees the type.",
-      "source": "pkg/runtime/js/internal/buffer.js",
+      "source": "pkg/runtime/js/node/buffer.js",
       "find": "    e.code = 5;\n",
       "replace": "    e.code = '5';\n",
       "gate": "odin:cmd/lava:main.atob_invalid_character_shape",
@@ -1845,7 +1845,7 @@
     {
       "name": "03-buffer dies when the atob fast-path regex lets a non-alphabet character through",
       "why": "the regex fast path skips the per-char loop; if it admits '!' or VT, atob reports the length error instead of node's 'Invalid character'.",
-      "source": "pkg/runtime/js/internal/buffer.js",
+      "source": "pkg/runtime/js/node/buffer.js",
       "find": "  var ATOB_SLOW_RE = /[^A-Za-z0-9+/=]|=[^=]|===/;",
       "replace": "  var ATOB_SLOW_RE = /=[^=]|===/;",
       "gate": "compat:tests/node-compat/cases/03-buffer.js",
@@ -1856,7 +1856,7 @@
     {
       "name": "03-buffer dies when atob checks '=' padding before the lone-trailing-character rule",
       "why": "node 26 reports 'not correctly encoded' for 'a=', 'a==' and 'abcde=': the remainder without '=' is tested first.",
-      "source": "pkg/runtime/js/internal/buffer.js",
+      "source": "pkg/runtime/js/node/buffer.js",
       "find": "    if ((nonWhitespace - equals) % 4 === 1)\n      throw errInvalidCharacter('The string to be decoded is not correctly encoded.');\n    if (equals && nonWhitespace % 4) throw errInvalidCharacter('Invalid character');\n",
       "replace": "    if (equals && nonWhitespace % 4) throw errInvalidCharacter('Invalid character');\n    if ((nonWhitespace - equals) % 4 === 1)\n      throw errInvalidCharacter('The string to be decoded is not correctly encoded.');\n",
       "gate": "compat:tests/node-compat/cases/03-buffer.js",
@@ -1904,7 +1904,7 @@
     {
       "name": "05-coercion dies when undefined is no longer bound as NULL",
       "why": "node 26 binds undefined as SQL NULL; node 24 threw ERR_INVALID_ARG_TYPE. Dropping the branch falls through to the unbindable throw.",
-      "source": "pkg/runtime/js/internal/sqlite.js",
+      "source": "pkg/runtime/js/node/sqlite.js",
       "find": "    if (value === undefined) {\n      native.bind(stmtId, index, null); // primordials-ok: method\n    } else if (value === null",
       "replace": "    if (value === null",
       "gate": "compat:tests/std/sqlite/cases/05-coercion.js",
@@ -1919,6 +1919,104 @@
       "gate": "compat:tests/std/sqlite/cases/04-bigint.js",
       "expect_detail": "unsafe rowid: RangeError",
       "rebuild": true
+    },
+    {
+      "name": "74-builtin-visibility dies when the public resolver answers internal/ ids",
+      "why": "The directory is the visibility rule: publicReq answers node/ ids only. Without the prefix test, require('internal/primordials') and every other internal/ module reach user code (and shadow npm packages of those names).",
+      "source": "pkg/runtime/js/bootstrap/loader.js",
+      "find": "    if (!hasPrefix(id, 'node/')) return undefined;\n",
+      "replace": "",
+      "gate": "compat:tests/node-compat/cases/74-builtin-visibility.js",
+      "expect_detail": "bare internal/primordials RESOLVED"
+    },
+    {
+      "name": "74-builtin-visibility dies when builtin source names lose the node: scheme",
+      "why": "Stack frames in builtin code read `fn@node:url:N:N`, the shape node's own frames take (`node:internal/url`). Dropping the scheme brings back bare `url`/`encoding` source names that no frame-filtering tool recognizes as a builtin.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "strings.concatenate({\"node:\", spec}, context.temp_allocator)",
+      "replace": "strings.concatenate({\"\", spec}, context.temp_allocator)",
+      "gate": "compat:tests/node-compat/cases/74-builtin-visibility.js",
+      "expect_detail": "stack has node: false"
+    },
+    {
+      "name": "check-js-graph fixtures die when a non-literal require is accepted",
+      "why": "A computed require id is how an internal module gets reached by a name nobody can grep for, and it leaves the graph below incomplete.",
+      "source": "scripts/check-js-graph.mjs",
+      "find": "add('dynamic', where(mod, call.line), 'require() argument is not a string literal');",
+      "replace": "",
+      "gate": "node-test:scripts/check-js-graph.test.mjs",
+      "test": "dynamic: a non-literal require argument",
+      "expect_detail": "dynamic: a non-literal require argument"
+    },
+    {
+      "name": "check-js-graph fixtures die when an unresolvable require is accepted",
+      "why": "With #load_directory nothing checks a spelling at compile time: require('internal/mim') builds and returns undefined at run time.",
+      "source": "scripts/check-js-graph.mjs",
+      "find": "add('unresolved', where(mod, call.line), `require('${spec}') -> ${id} has no file`);",
+      "replace": "",
+      "gate": "node-test:scripts/check-js-graph.test.mjs",
+      "test": "unresolved: a require literal with no file",
+      "expect_detail": "unresolved: a require literal with no file"
+    },
+    {
+      "name": "check-js-graph fixtures die when natives keys are not resolved",
+      "why": "natives is keyed by module id; a key left on the old spelling (\"buffer\") hands the module undefined and the factory fails closed or worse.",
+      "source": "scripts/check-js-graph.mjs",
+      "find": "/set_named\\(ctx, natives, \"([^\"]+)\"/g",
+      "replace": "/NEVER_MATCH_([^\"]+)/g",
+      "gate": "node-test:scripts/check-js-graph.test.mjs",
+      "test": "unresolved: a natives key naming no module",
+      "expect_detail": "unresolved: a natives key naming no module"
+    },
+    {
+      "name": "check-js-graph fixtures die when unreachable modules pass",
+      "why": "A file nothing reaches is dead code that still ships and still gets evaluated at every context init.",
+      "source": "scripts/check-js-graph.mjs",
+      "find": "if (!seen.has(id)) add(",
+      "replace": "if (false) add(",
+      "gate": "node-test:scripts/check-js-graph.test.mjs",
+      "test": "unreachable: an internal module nothing requires",
+      "expect_detail": "unreachable: an internal module nothing requires"
+    },
+    {
+      "name": "check-js-graph fixtures die when an unembedded directory passes",
+      "why": "#load_directory is not recursive, so a new subdirectory under node/ silently never ships without its own row.",
+      "source": "scripts/check-js-graph.mjs",
+      "find": "if (!loadDirs.has(dir) && !loadFiles.has(rel)) {",
+      "replace": "if (false) {",
+      "gate": "node-test:scripts/check-js-graph.test.mjs",
+      "test": "unembedded: a directory of .js no #load_directory reads",
+      "expect_detail": "unembedded: a directory of .js no #load_directory reads"
+    },
+    {
+      "name": "check-js-graph fixtures die when #load_directory may read bootstrap/",
+      "why": "esm.js is kept off the module table on purpose (CLAUDE.md §5); a #load_directory over bootstrap/ would hand it to the loader as a factory.",
+      "source": "scripts/check-js-graph.mjs",
+      "find": "if (!MODULE_DIRS.some((d) => inside === d || inside.startsWith(d + '/'))) {",
+      "replace": "if (false) {",
+      "gate": "node-test:scripts/check-js-graph.test.mjs",
+      "test": "unembedded: #load_directory of bootstrap/ would put esm.js on the module table",
+      "expect_detail": "unembedded: #load_directory of bootstrap/ would put esm.js on the module table"
+    },
+    {
+      "name": "check-js-graph fixtures die when module-eval cycles pass",
+      "why": "A module-eval cycle hands one side the other's PARTIAL exports, which reads as undefined members at run time.",
+      "source": "scripts/check-js-graph.mjs",
+      "find": "add('cycle', where(modules.get(id), e.line), cycle.join(' -> '));",
+      "replace": "",
+      "gate": "node-test:scripts/check-js-graph.test.mjs",
+      "test": "cycle: two module-eval requires that close a loop",
+      "expect_detail": "cycle: two module-eval requires that close a loop"
+    },
+    {
+      "name": "check-js-graph fixtures die when late-bound requires count as cycle edges",
+      "why": "A require inside a function runs after both factories returned; counting it would forbid the sanctioned late binding stream <-> stream/web uses.",
+      "source": "scripts/check-js-graph.mjs",
+      "find": "topLevel: fns.length <= 1",
+      "replace": "topLevel: true",
+      "gate": "node-test:scripts/check-js-graph.test.mjs",
+      "test": "clean fixture has no violations (late-bound stream <-> stream/web is not a cycle)",
+      "expect_detail": "clean fixture has no violations (late-bound stream <-> stream/web is not a cycle)"
     }
   ]
 }

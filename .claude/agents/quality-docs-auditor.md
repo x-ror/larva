@@ -43,7 +43,7 @@ Ask of each structural change: _is there a version of this with zero new concept
 ## Lens 3 — altitude and size
 
 - **Layer**: engine/string/view/host ABI → `pkg/jsc`; Node Buffer codecs →
-  `pkg/runtime/buffer*.odin`; HTTP → `http.odin` + `js/internal/http.js`; loop
+  `pkg/runtime/buffer*.odin`; HTTP → `http.odin` + `js/node/http.js`; loop
   mechanics → `pkg/runtime/eventloop`. Logic in the wrong package is a P1 even if
   it works — `environment.odin` accumulating a UTF-16 bridge is the standing example.
 - **Size**: `pkg/runtime/buffer.odin` stays under ~1000 lines; any file crossing

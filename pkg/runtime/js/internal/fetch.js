@@ -7,7 +7,7 @@
 (function (require, module, exports, native) {
   'use strict';
 
-  // The public Web Streams implementation (js/internal/streams.js). fetch builds
+  // The public Web Streams implementation (js/node/stream/web.js). fetch builds
   // response bodies and consumes request bodies through this same ReadableStream
   // type, so `response.body` is a real, standard ReadableStream — not a fetch-only
   // fork. The `_internal` helpers let the transport drive a stream's controller
@@ -63,7 +63,7 @@
   // now a charCode trim rather than a global `replaceAll`, because a global regex
   // does not merely answer wrongly under a forged `exec` — it never terminates.
   // `assertValidHeaderValue` was already a hand-rolled charCode scan.
-  var P = require('primordials');
+  var P = require('internal/primordials');
   var reTest = P.RegExpMatches;
   var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;
   var StringPrototypeSlice = P.StringPrototypeSlice;

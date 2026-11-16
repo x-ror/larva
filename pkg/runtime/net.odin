@@ -15,7 +15,7 @@ import eventloop "lava:pkg/runtime/eventloop"
 // is the inbound mirror of fetch's outbound socket transport (fetch_transport.odin /
 // fetch_linux.odin): a listening fd is watched for readability (== a pending accept),
 // each accepted connection becomes a watched fd advanced by the same IO_Watcher the
-// fetch client uses. js/internal/net.js builds the public net.Server / net.Socket
+// fetch client uses. js/node/net.js builds the public net.Server / net.Socket
 // (EventEmitter) surface on top of the flat primitives exposed by make_net_bindings.
 //
 // Lifetime: the listener and every connection are watched fds, so watch_fd's
@@ -113,7 +113,7 @@ Net_Server :: struct {
 }
 
 // Net_Connection owns one accepted socket. The per-connection handlers are registered
-// (and GC-protected) by net_start_cb once js/internal/net.js has built its Socket, then
+// (and GC-protected) by net_start_cb once js/node/net.js has built its Socket, then
 // the read watcher is armed. They are payload-only (the JS handler is already bound to
 // its own Socket), so on_data(buf), on_end(), on_close(hadError), on_error(message).
 Net_Connection :: struct {
@@ -180,7 +180,7 @@ Net_Connection :: struct {
 	starved_prev:        ^Net_Connection,
 }
 
-// make_net_bindings builds the `native` object passed to js/internal/net.js.
+// make_net_bindings builds the `native` object passed to js/node/net.js.
 make_net_bindings :: proc(ctx: jsc.JSContextRef) -> jsc.JSObjectRef {
 	bindings := jsc.JSObjectMake(ctx, nil, nil)
 	inject_native_function(ctx, bindings, "listen", net_listen_cb)

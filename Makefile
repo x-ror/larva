@@ -43,7 +43,7 @@ help:
 	@printf '%s\n' '  make check              Type-check Odin packages (incl. windows/darwin front-ends)'
 	@printf '%s\n' '  make check-cli          Type-check cmd/lava only'
 	@printf '%s\n' '  make check-runtime      Type-check runtime packages only'
-	@printf '%s\n' '  make check-js           Vite+ fmt/lint + orphan-JS + scripts tests + primordials + global-replace'
+	@printf '%s\n' '  make check-js           Vite+ fmt/lint + JS module graph + scripts tests + primordials + global-replace'
 	@printf '%s\n' '  make fix-js             Auto-fix JS formatting/lint'
 	@printf '%s\n' '  make check-md           Markdown fmt + lint + node-compat matrix drift check'
 	@printf '%s\n' '  make fix-md             Auto-fix markdown lint'

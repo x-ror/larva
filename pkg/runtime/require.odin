@@ -86,7 +86,7 @@ native_require_cb :: proc "c" (
 	// node:path is served by the JS internal-module loader above (require_builtin).
 
 	// node:fs is served by the JS internal-module loader above (require_builtin), like
-	// node:path — js/internal/fs.js wraps the Odin primitives from make_fs_bindings. It
+	// node:path — js/node/fs.js wraps the Odin primitives from make_fs_bindings. It
 	// used to be assembled here instead, the one built-in with no JS layer, and that is
 	// what let fs.readFileSync return a bare Uint8Array where node returns a Buffer for a
 	// year (issue #329). Nothing may rebuild it here: require_builtin runs FIRST, so a

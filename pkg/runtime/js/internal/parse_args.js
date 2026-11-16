@@ -10,7 +10,7 @@
 (function (require, module) {
   'use strict';
 
-  var P = require('primordials');
+  var P = require('internal/primordials');
   var TypeError = P.TypeError;
   var ObjectKeys = P.ObjectKeys;
   var ObjectPrototypeHasOwnProperty = P.ObjectPrototypeHasOwnProperty;

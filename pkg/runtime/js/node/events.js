@@ -5,7 +5,7 @@
 
   // Pristine intrinsics (see primordials.js) so a script that mutates
   // Array.prototype/Object/etc. cannot alter EventEmitter's internal bookkeeping.
-  var P = require('primordials');
+  var P = require('internal/primordials');
   var defaultMaxListeners = 10;
 
   // Species-free array helpers. Array.prototype.slice/map/splice consult

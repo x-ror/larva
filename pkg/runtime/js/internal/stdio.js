@@ -28,7 +28,7 @@
 (function (require, module, exports, native) {
   'use strict';
 
-  var P = require('primordials');
+  var P = require('internal/primordials');
   var ObjectDefineProperty = P.ObjectDefineProperty;
   var ObjectSetPrototypeOf = P.ObjectSetPrototypeOf;
   var TypeErrorG = P.TypeError;

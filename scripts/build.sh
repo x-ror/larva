@@ -33,6 +33,12 @@ compute_native_stamp() {
 		find "$ROOT_DIR/cmd" "$ROOT_DIR/pkg" \( -name '*.odin' -o -name '*.c' -o -name '*.h' \) -print |
 			LC_ALL=C sort |
 			xargs cksum
+		# The SET of embedded JS files is native input: globals.odin takes its module
+		# table from #load_directory, so adding or removing a file changes what is
+		# compiled in. Names only — a content edit stays JS-only, which the override
+		# build may serve from disk; a new file it cannot, since the override path only
+		# reads files the binary already knows.
+		find "$ROOT_DIR/pkg/runtime/js" -name '*.js' -print | LC_ALL=C sort
 	} | cksum
 }
 

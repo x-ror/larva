@@ -197,7 +197,7 @@ os_set_priority :: proc(pid: int, value: int) -> (err: int) {
 // address. A first pass caches each interface's hardware MAC from its link-layer
 // entry (AF_PACKET/AF_LINK); a second pass builds the address records and attaches
 // the cached MAC (all-zero when the interface exposes no link-layer address, as in
-// Node). js/internal/os.js groups them by name and adds the family string + CIDR.
+// Node). js/node/os.js groups them by name and adds the family string + CIDR.
 os_network_interfaces :: proc() -> []Os_Net_Iface {
 	head: ^ifaddrs
 	if getifaddrs(&head) != 0 || head == nil {

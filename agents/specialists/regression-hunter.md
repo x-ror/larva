@@ -43,7 +43,7 @@ to ship, because the diff shows what arrived and hides what left.
   refactor — a dual path that outlives its migration becomes permanent.
 - **JS ↔ Odin contract drift**: shared constants, array index layouts, property
   names, encoding assumptions must move together
-  (`pkg/runtime/http.odin` ↔ `js/internal/http.js` parse layouts are the classic
+  (`pkg/runtime/http.odin` ↔ `js/node/http.js` parse layouts are the classic
   case; `ORDER_*` in `dns.odin` ↔ `dns.js` is another).
 - A registration/inject path that misses a platform branch or a backend
   (proactor vs readiness; io_uring vs epoll).

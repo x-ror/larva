@@ -1,9 +1,14 @@
-// Internal built-in module loader. Given a map of module name -> factory
-// function `(require, module, exports) => exports?`, it returns a `require`
+// Internal built-in module loader. Given a map of module id -> factory function
+// `(require, module, exports, native) => exports?`, it returns a `require`
 // implementation that instantiates each module lazily, caches it, strips the
 // `node:` prefix, and lets internal modules require one another (with the usual
 // CommonJS partial-exports behavior on cycles). The resolver is what native
 // `require()` consults before touching the filesystem.
+//
+// A module id is its path under pkg/runtime/js without `.js` — `node/buffer`,
+// `node/stream/web`, `internal/primordials` — so the DIRECTORY decides visibility:
+// the public resolver answers `node/` ids only, and everything under `internal/`
+// is reachable solely through the `require` handed to the factories.
 (function (factories, natives) {
   'use strict';
 
@@ -11,31 +16,50 @@
   natives = natives || Object.create(null);
   var hasOwn = Object.prototype.hasOwnProperty;
 
-  function normalize(name) {
+  // Prefix test by code unit. The specifier comes from user code on the public path,
+  // so a String.prototype method here would be a live, replaceable read deciding
+  // whether an internal module is handed out.
+  function hasPrefix(s, prefix) {
+    if (s.length < prefix.length) return false;
+    for (var i = 0; i < prefix.length; i++) {
+      if (s[i] !== prefix[i]) return false;
+    }
+    return true;
+  }
+
+  // Specifier -> module id. `internal/x` names the internal module; anything else is
+  // a public builtin under `node/`. A specifier that already reads `node/buffer`
+  // becomes `node/node/buffer` and resolves to nothing, so the id is not a second
+  // public spelling.
+  function toId(name) {
     var key = name.indexOf('node:') === 0 ? name.slice(5) : name;
     // assert/strict shares assert's (already strict) implementation.
     if (key === 'assert/strict') key = 'assert';
-    return key;
+    return hasPrefix(key, 'internal/') ? key : 'node/' + key;
   }
 
-  function req(name) {
-    var key = normalize(name);
-    if (key in cache) return cache[key];
+  function load(id) {
+    if (id in cache) return cache[id];
     // Look up own properties only: `factories` may inherit from Object.prototype,
-    // so a bracket lookup of 'constructor'/'toString' would otherwise return an
-    // inherited function and mis-resolve those specifiers instead of yielding the
-    // "not a builtin" (undefined) that lets native_require_cb fall through.
-    if (!hasOwn.call(factories, key)) return;
-    var factory = factories[key];
+    // so a bracket lookup of 'node/constructor' or a polluted prototype key would
+    // otherwise return an inherited function and mis-resolve that specifier instead
+    // of yielding the "not a builtin" (undefined) that lets native_require_cb fall
+    // through.
+    if (!hasOwn.call(factories, id)) return;
+    var factory = factories[id];
     var module = { exports: {} };
     // Seed the cache before running the factory so a require cycle resolves
     // to the partially-built exports object instead of looping forever.
-    cache[key] = module.exports;
-    // natives[key] (or undefined) carries any Odin-backed primitives for this
+    cache[id] = module.exports;
+    // natives[id] (or undefined) carries any Odin-backed primitives for this
     // module — e.g. crypto's CSPRNG and one-shot hash/hmac/pbkdf2.
-    var result = factory(req, module, module.exports, natives[key]);
-    cache[key] = result !== undefined ? result : module.exports;
-    return cache[key];
+    var result = factory(req, module, module.exports, natives[id]);
+    cache[id] = result !== undefined ? result : module.exports;
+    return cache[id];
+  }
+
+  function req(name) {
+    return load(toId(name));
   }
 
   // Eagerly instantiate modules that install globals (Buffer; the Web Streams
@@ -49,8 +73,8 @@
   // codecs, so the order is belt-and-suspenders rather than load-bearing.
   // primordials is eager-loaded FIRST, before any other internal module and well
   // before user code, so it captures pristine intrinsics (see primordials.js).
-  // Other modules require('primordials') and get this cached, pristine table.
-  req('primordials');
+  // Other modules require('internal/primordials') and get this cached, pristine table.
+  req('internal/primordials');
   req('buffer');
 
   // Hand the LAZY internal modules a PRISTINE Buffer.
@@ -96,27 +120,27 @@
     // primordials table sets this convention (`ArrayPrototypeSlice: caller2(...)`) — a raw
     // unbound method invites each consumer to re-derive it, and two consumers deriving it
     // differently is how the six copies of describeType happened.
-    bufferToString: req('primordials').uncurryThis(PristineBufferCtor.prototype.toString),
+    bufferToString: req('internal/primordials').uncurryThis(PristineBufferCtor.prototype.toString),
     // The rest of the framing path in http.js's chunked decoder: it reads the chunk-size
     // line, finds the CRLF boundary and advances the cursor through these three. Every one
     // was a live `Buffer.prototype` read, i.e. a request-smuggling gadget — a replaced
     // `toString` that INFLATES the size is the sharp version. Node frames HTTP in C
     // (llhttp) and is not steerable here at all.
-    bufferIndexOf: req('primordials').uncurryThis(PristineBufferCtor.prototype.indexOf),
-    bufferSlice: req('primordials').uncurryThis(PristineBufferCtor.prototype.slice),
+    bufferIndexOf: req('internal/primordials').uncurryThis(PristineBufferCtor.prototype.indexOf),
+    bufferSlice: req('internal/primordials').uncurryThis(PristineBufferCtor.prototype.slice),
   };
 
   req('stream/web');
-  req('fetch');
-  req('abort');
-  req('encoding');
+  req('internal/fetch');
+  req('internal/abort');
+  req('internal/encoding');
   req('url');
-  req('structured_clone');
+  req('internal/structured_clone');
   req('crypto');
 
-  // Internal-only modules: internal factories require() them through `req` above,
-  // but they must NOT be reachable through the public resolver native require()
-  // consults, and publicReq hides them. Two reasons a name lands here:
+  // The public resolver: what native require() consults. It answers `node/` ids only,
+  // so nothing under internal/ is reachable from user code, for two reasons a module
+  // lives there:
   //   1. It has no Node builtin at all — require('node:primordials') is
   //      ERR_UNKNOWN_BUILTIN_MODULE; util.parseArgs / util.MIMEType are the public
   //      surfaces for parse_args / mime.
@@ -124,34 +148,19 @@
   //      TextEncoder/TextDecoder, and structuredClone are installed on globalThis
   //      by the eager loads above. `encoding` in particular is a real npm package
   //      (a transitive dep of node-fetch), so answering require('encoding') from
-  //      here would shadow it and break the ecosystem. Hiding the specifier leaves
-  //      the globals intact while letting the filesystem resolver find the package.
-  // `__proto__: null` because this literal is indexed by a CALLER-SUPPLIED specifier
-  // (`INTERNAL_ONLY[normalize(name)]` below) — §5's one vector the ratchet cannot
-  // count. Inherited truthiness makes publicReq answer `undefined` for a real builtin,
-  // so `require('node:http')` falls through to filesystem resolution: a denial, or a
-  // shadow when an npm package of that name is installed (`os`, `path`, `url`, `util`
-  // and `events` all exist on the registry). The sibling lookup at `factories` above
-  // already guards this with hasOwn; this table was missed.
-  var INTERNAL_ONLY = {
-    __proto__: null,
-    primordials: true,
-    parse_args: true,
-    parse_env: true,
-    mime: true,
-    fetch: true,
-    abort: true,
-    encoding: true,
-    structured_clone: true,
-    stdio: true,
-  };
+  //      here would shadow it and break the ecosystem. Not answering leaves the
+  //      globals intact while letting the filesystem resolver find the package.
+  // `require('fetch')` maps to `node/fetch`, which has no factory; `internal/fetch`
+  // fails the prefix test below. Both return undefined and fall through to the
+  // filesystem, never a shadow of an installed package.
   function publicReq(name) {
-    if (INTERNAL_ONLY[normalize(name)]) return undefined;
-    return req(name);
+    var id = toId(name);
+    if (!hasPrefix(id, 'node/')) return undefined;
+    return load(id);
   }
 
   // The ESM source transform is the one internal module that cannot
-  // require('primordials'): the runtime evaluates js/internal/esm.js standalone and
+  // require('internal/primordials'): the runtime evaluates js/bootstrap/esm.js standalone and
   // keeps the resulting function on Runtime_State, deliberately NOT registering it
   // as a requireable module (see globals.odin), so it never gets a `require`. It
   // still needs the pristine table — it emits executed source, so a live intrinsic
@@ -164,7 +173,7 @@
   // This is not a new user-visible surface: the resolver object never reaches user
   // code. What user code calls is the native require callback, which consults this
   // function through Runtime_State.builtin_require and returns only module exports.
-  publicReq.primordials = req('primordials');
+  publicReq.primordials = req('internal/primordials');
 
   // stdio installs process.stdout/process.stderr. It cannot be eager-required here:
   // install_process runs before the loader (so natives['process'] can capture the
@@ -172,7 +181,7 @@
   // the loader returns, and stdio/stream need nextTick. Exposed as a closure so
   // globals.odin can call it at the right moment, after microtasks are wired.
   publicReq.installStdio = function (proc) {
-    req('stdio').install(proc);
+    req('internal/stdio').install(proc);
   };
 
   return publicReq;

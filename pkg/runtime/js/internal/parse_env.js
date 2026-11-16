@@ -12,7 +12,7 @@
 (function (require, module) {
   'use strict';
 
-  var P = require('primordials');
+  var P = require('internal/primordials');
   var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;
   var StringPrototypeSlice = P.StringPrototypeSlice;
   var StringPrototypeTrim = P.StringPrototypeTrim;

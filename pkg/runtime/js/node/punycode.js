@@ -7,7 +7,7 @@
 
   // Captured for foldSeparators below, which replaced a global-flag replace. This file is
   // not otherwise hardened — see the ratchet baseline.
-  var P = require('primordials');
+  var P = require('internal/primordials');
   var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;
   var StringPrototypeSlice = P.StringPrototypeSlice;
 

@@ -21,7 +21,7 @@
   // chance to replace globalThis.Error. The ratchet cannot see this (it exempts
   // every read at module-eval depth, which is what a factory body is), so the same
   // blind spot that shipped #333 applies to the fail-closed branch below.
-  var ErrorG = require('primordials').Error;
+  var ErrorG = require('internal/primordials').Error;
   if (intrinsic == null) {
     throw new ErrorG('node:process intrinsic missing at context init');
   }

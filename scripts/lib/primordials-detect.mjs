@@ -7,7 +7,7 @@
 // can mutate shared prototypes (Array.prototype.push = …) or replace globals.
 // A call like `arr.push(x)` or `s.charCodeAt(i)` resolves the method through the
 // live (pollutable) prototype at call time, so a poisoned prototype silently
-// corrupts a built-in. The fix is `require('primordials')` — captured, pristine
+// corrupts a built-in. The fix is `require('internal/primordials')` — captured, pristine
 // methods invoked as `ArrayPrototypePush(arr, x)` (see primordials.js).
 //
 // FOUR classes are counted, each baselined separately (see KINDS):
@@ -86,11 +86,11 @@ import { parse } from 'acorn';
 import * as walk from 'acorn-walk';
 
 const ROOT = join(import.meta.dirname, '..', '..');
-// The PARENT of internal/: console.js sits directly in pkg/runtime/js, is
-// #load-embedded by globals.odin, and runs before user code exactly like the
-// internal modules — it was outside the scan while the baseline's "console.js"
-// entry described the 7-line internal re-export, so the report read as "console
-// is hardened". check-orphan-js.mjs already walks this directory.
+// The whole embedded tree — bootstrap/, node/ and internal/ — not one directory:
+// the bootstrap preludes (console.js, loader.js, esm.js) run before user code exactly
+// like the modules do. The console prelude was once outside the scan while the
+// baseline's "console.js" entry described a 7-line re-export, so the report read as
+// "console is hardened". Keys are paths relative to this directory.
 const JS_DIR = join(ROOT, 'pkg', 'runtime', 'js');
 const BASELINE = join(ROOT, 'tests', 'node-compat', 'pollution-baseline.json');
 

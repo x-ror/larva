@@ -23,7 +23,7 @@
   // all — see the note on pushCodePoint. Routing those per-code-unit loops
   // through the variadic ArrayPrototypePush measured 1.43x on the JS decode
   // path (callerN's arguments switch is ~7x a direct call).
-  var P = require('primordials');
+  var P = require('internal/primordials');
   var StringPrototypeSlice = P.StringPrototypeSlice;
   var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;
   var StringPrototypeCodePointAt = P.StringPrototypeCodePointAt;
