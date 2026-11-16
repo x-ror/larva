@@ -259,7 +259,10 @@
   // util.promisify — wrap a (…args, callback(err, value)) function as one returning a
   // Promise. Honors the util.promisify.custom symbol and copies the original's own
   // properties / prototype, matching Node (the multi-arg `customArgs` form is omitted).
-  var kCustomPromisify = Symbol.for('nodejs.util.promisify.custom');
+  // Guarded like customInspect above, on the same capture: an unguarded call here made a
+  // missing SymbolFor throw inside util's factory and masked what the 57-format-single-arg
+  // mutation pins (the inspect hook rendering a Buffer).
+  var kCustomPromisify = SymbolFor ? SymbolFor('nodejs.util.promisify.custom') : null;
 
   function promisify(original) {
     if (typeof original !== 'function') {
@@ -646,13 +649,13 @@
   // ST in either form (ESC \ = \, or the C1 byte ) — Node accepts all
   // three, so we do too. Reproduced so the stripped output is byte-identical to Node's.
   // Built once; String.prototype.replace with a global regex resets lastIndex per call.
-  var ansiRegex = new RegExp(
-    '[\\u001B\\u009B][[\\]()#;?]*' +
-      '(?:(?:(?:(?:;[-a-zA-Z\\d/#&.:=?%@~_]+)*' +
-      '|[a-zA-Z\\d]+(?:;[-a-zA-Z\\d/#&.:=?%@~_]*)*)?(?:\\u0007|\\u001B\\u005C|\\u009C))' +
-      '|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-nq-uy=><~]))',
-    'g',
-  );
+  // A literal, not `new RegExp(...)`: util is LAZY, so a module-eval `RegExp` read here
+  // takes whatever user code left on globalThis (#426). Same pattern as Node's string
+  // form, its U+005C escape spelled as an escaped backslash (the same one character).
+  // Not `new P.RegExp` either: scripts/check-global-replace.mjs only recognises a bare
+  // `RegExp` callee or a literal, so that spelling hides the binding from that gate.
+  // prettier-ignore
+  var ansiRegex = /[\u001B\u009B][[\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\d/#&.:=?%@~_]+)*|[a-zA-Z\d]+(?:;[-a-zA-Z\d/#&.:=?%@~_]*)*)?(?:\u0007|\u001B\\|\u009C))|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
 
   function stripVTControlCharacters(str) {
     if (typeof str !== 'string') {

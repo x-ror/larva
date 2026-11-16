@@ -11,8 +11,11 @@
 (function (require, module, exports, native) {
   'use strict';
 
+  // The primordial, not the live global: this module is LAZY, so a module-eval read here
+  // runs after user code could have replaced the global (#426).
+  var P = require('internal/primordials');
   if (!native || typeof native.createSecureContext !== 'function') {
-    throw new Error('node:https is unavailable on this platform');
+    throw new P.Error('node:https is unavailable on this platform');
   }
 
   var http = require('http');

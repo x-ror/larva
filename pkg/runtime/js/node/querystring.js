@@ -11,9 +11,11 @@
 (function (require, module, exports) {
   'use strict';
 
-  var replaceCharAll = require('internal/primordials').replaceCharAll;
-
-  var hasOwn = Object.prototype.hasOwnProperty;
+  var P = require('internal/primordials');
+  var replaceCharAll = P.replaceCharAll;
+  // Not `Object.prototype.hasOwnProperty` read here: this module is LAZY, so its module-eval
+  // runs after user code could have replaced `Object` (#426).
+  var hasOwn = P.ObjectHasOwn;
 
   function escape(str) {
     return encodeURIComponent(String(str));
@@ -91,7 +93,7 @@
       key = decodeComponent(key, decode);
       val = decodeComponent(val, decode);
 
-      if (!hasOwn.call(obj, key)) {
+      if (!hasOwn(obj, key)) {
         obj[key] = val;
       } else if (Array.isArray(obj[key])) {
         obj[key].push(val);

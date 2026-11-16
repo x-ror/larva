@@ -47,8 +47,12 @@
   }
 
   var baseMinusTMin = base - tMin;
-  var floor = Math.floor;
-  var stringFromCharCode = String.fromCharCode;
+  // Read live, on purpose, although this module is LAZY (#426): node's punycode is the
+  // userland punycode.js and does exactly this at its own module-eval, so a Math.floor or
+  // String.fromCharCode replaced before the first require steers node too (verified node
+  // 26.13.0, spy on both globals). Capturing the intrinsics would harden past the oracle.
+  var floor = Math.floor; // primordials-ok: global
+  var stringFromCharCode = String.fromCharCode; // primordials-ok: global
 
   // Node-exact error messages (the standalone punycode.js strings).
   var errors = {

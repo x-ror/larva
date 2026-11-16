@@ -25,13 +25,20 @@
   var BufferIsEncoding = PristineBuffer.isEncoding;
 
   if (!native) {
-    throw new Error('node:os is unavailable: native bindings missing');
+    throw new OsPrimordials.Error('node:os is unavailable: native bindings missing');
   }
 
   var isWindows = process.platform === 'win32';
 
   // ---- endianness: probe the host byte order once (cheap, deterministic) -----
-  var _endianness = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1 ? 'LE' : 'BE';
+  // Intrinsics, not the live globals — this module is LAZY (#426). The getter rather than
+  // `.buffer` for the same reason: it is a configurable prototype accessor.
+  var _endianness =
+    new OsPrimordials.Uint8Array(
+      OsPrimordials.TypedArrayPrototypeGetBuffer(new OsPrimordials.Uint16Array([1])),
+    )[0] === 1
+      ? 'LE'
+      : 'BE';
 
   // ---- pure constants --------------------------------------------------------
   var EOL = isWindows ? '\r\n' : '\n';

@@ -8,8 +8,13 @@
 (function (require, module, exports, native) {
   'use strict';
 
+  // From primordials, not the live globals: this module is LAZY, so a
+  // module-eval read here runs after user code could have replaced the global (#426).
+  var P = require('internal/primordials');
+  var ObjectCreate = P.ObjectCreate;
+
   if (!native || typeof native.listen !== 'function') {
-    throw new Error('node:net is unavailable on this platform');
+    throw new P.Error('node:net is unavailable on this platform');
   }
 
   var EventEmitter = require('events');
@@ -41,7 +46,7 @@
     // TLSSocket is deferred — this is the one property the http layer actually needs.
     this.encrypted = false;
   }
-  Socket.prototype = Object.create(EventEmitter.prototype);
+  Socket.prototype = ObjectCreate(EventEmitter.prototype);
   Socket.prototype.constructor = Socket;
 
   Socket.prototype.write = function (data, encoding, cb) {
@@ -123,7 +128,7 @@
     this._tlsContext = options && typeof options === 'object' ? options.tls : undefined;
     if (typeof connectionListener === 'function') this.on('connection', connectionListener);
   }
-  Server.prototype = Object.create(EventEmitter.prototype);
+  Server.prototype = ObjectCreate(EventEmitter.prototype);
   Server.prototype.constructor = Server;
 
   // Native invokes this with the accepted connection's id. Register the native handlers

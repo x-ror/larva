@@ -7,8 +7,12 @@
 (function (require, module, exports, native) {
   'use strict';
 
+  // From primordials, not the live globals: this module is LAZY, so a
+  // module-eval read here runs after user code could have replaced the global (#426).
+  var P = require('internal/primordials');
+
   if (!native) {
-    throw new Error('node:dns is unavailable: native bindings missing');
+    throw new P.Error('node:dns is unavailable: native bindings missing');
   }
 
   // getaddrinfo hint flags. These mirror Node's numeric values, which come from
@@ -305,7 +309,7 @@
   exports.ADDRCONFIG = ADDRCONFIG;
   exports.V4MAPPED = V4MAPPED;
   exports.ALL = ALL;
-  Object.keys(CODES).forEach(function (k) {
+  P.ObjectKeys(CODES).forEach(function (k) {
     exports[k] = CODES[k];
   });
   TIER2.forEach(function (m) {
