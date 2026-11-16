@@ -1638,4 +1638,6 @@ EMBEDDED_JS_DIRS := [?]Embedded_JS_Dir {
 	{"node/timers", #load_directory("js/node/timers")},
 	{"node/util", #load_directory("js/node/util")},
 	{"internal", #load_directory("js/internal")},
+	{"internal/streams", #load_directory("js/internal/streams")},
+	{"internal/webstreams", #load_directory("js/internal/webstreams")},
 }

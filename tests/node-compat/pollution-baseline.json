@@ -89,11 +89,83 @@
     "accessor": 0,
     "global": 0
   },
+  "internal/streams/add-abort-signal.js": {
+    "method": 0,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 0
+  },
+  "internal/streams/destroy.js": {
+    "method": 0,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 0
+  },
+  "internal/streams/duplex.js": {
+    "method": 0,
+    "invoke": 2,
+    "accessor": 0,
+    "global": 4
+  },
+  "internal/streams/end-of-stream.js": {
+    "method": 0,
+    "invoke": 1,
+    "accessor": 0,
+    "global": 0
+  },
+  "internal/streams/legacy.js": {
+    "method": 0,
+    "invoke": 1,
+    "accessor": 0,
+    "global": 0
+  },
+  "internal/streams/passthrough.js": {
+    "method": 0,
+    "invoke": 1,
+    "accessor": 0,
+    "global": 0
+  },
+  "internal/streams/pipeline.js": {
+    "method": 1,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 1
+  },
+  "internal/streams/readable.js": {
+    "method": 27,
+    "invoke": 2,
+    "accessor": 25,
+    "global": 14
+  },
+  "internal/streams/transform.js": {
+    "method": 4,
+    "invoke": 1,
+    "accessor": 0,
+    "global": 0
+  },
+  "internal/streams/utils.js": {
+    "method": 0,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 2
+  },
+  "internal/streams/writable.js": {
+    "method": 3,
+    "invoke": 1,
+    "accessor": 0,
+    "global": 1
+  },
   "internal/structured_clone.js": {
     "method": 5,
     "invoke": 1,
     "accessor": 0,
     "global": 14
+  },
+  "internal/webstreams/adapters.js": {
+    "method": 7,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 6
   },
   "node/assert.js": {
     "method": 14,
@@ -216,10 +288,10 @@
     "global": 12
   },
   "node/stream.js": {
-    "method": 42,
-    "invoke": 9,
-    "accessor": 25,
-    "global": 28
+    "method": 0,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 0
   },
   "node/stream/promises.js": {
     "method": 1,

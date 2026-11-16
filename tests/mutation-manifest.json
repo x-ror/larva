@@ -511,7 +511,7 @@
     {
       "name": "61-stdio-lifecycle dies when pipe() stops excluding the stdio singletons",
       "why": "Without node's `dest !== process.stdout/stderr` exclusion, `src.pipe(process.stdout)` calls end() on a process-lifetime singleton. Note what the assertion keys off: since `_destroy` undoes the teardown, the stream RECOVERS a tick later, so `writable` reads true either way and only the spurious 'finish' event proves end() was reached. Before that half existed this dropped every later write and raised 'write after end'.",
-      "source": "pkg/runtime/js/node/stream.js",
+      "source": "pkg/runtime/js/internal/streams/readable.js",
       "find": "    var doEnd =\n      (!pipeOpts || pipeOpts.end !== false) &&\n      dest !== processRef.stdout &&\n      dest !== processRef.stderr;",
       "replace": "    var doEnd = !pipeOpts || pipeOpts.end !== false;",
       "gate": "compat:tests/node-compat/cases/61-stdio-lifecycle.js",
@@ -522,7 +522,7 @@
     {
       "name": "stdio-lifecycle dies when pipe() stops excluding the stdio singletons (pipe shape)",
       "why": "Same defect as the compat entry, gated on the node:test so both fd shapes are covered — node's stdout is a different class on a pipe. The script counts 'finish' events rather than comparing bytes, because the recovery makes the bytes identical with the exclusion deleted; a byte-only version of this test SURVIVED this mutation.",
-      "source": "pkg/runtime/js/node/stream.js",
+      "source": "pkg/runtime/js/internal/streams/readable.js",
       "find": "    var doEnd =\n      (!pipeOpts || pipeOpts.end !== false) &&\n      dest !== processRef.stdout &&\n      dest !== processRef.stderr;",
       "replace": "    var doEnd = !pipeOpts || pipeOpts.end !== false;",
       "gate": "node-test:tests/stdio/stdio-lifecycle.test.mjs",
@@ -548,7 +548,7 @@
     {
       "name": "stdio-lifecycle dies when _undestroy stops clearing the ending flag",
       "why": "The `writable` getter is `!destroyed && !ending`, so leaving `ending` set makes the stream report unwritable forever even though destroyed was cleared — the recovery looks applied and is not. Pins the individual field, not just the presence of the call.",
-      "source": "pkg/runtime/js/node/stream.js",
+      "source": "pkg/runtime/js/internal/streams/destroy.js",
       "find": "      w.ended = false;\n      w.ending = false;\n      w.finished = false;",
       "replace": "      w.ended = false;\n      w.finished = false;",
       "gate": "node-test:tests/stdio/stdio-lifecycle.test.mjs",
@@ -828,7 +828,7 @@
     {
       "name": "64-stream-write dies when write() reports errors async instead of throwing",
       "why": "node throws ERR_STREAM_NULL_VALUES and ERR_INVALID_ARG_TYPE synchronously from write(). Routing them through writeErrorNextTick delivers the right code on the wrong turn, so `assert.throws(() => s.write(null))` passes under node and fails here.",
-      "source": "pkg/runtime/js/node/stream.js",
+      "source": "pkg/runtime/js/internal/streams/writable.js",
       "find": "    if (chunk === null) throw errNullValues();",
       "replace": "    if (chunk === null) { writeErrorNextTick(this, errNullValues(), cb); return false; }",
       "gate": "compat:tests/node-compat/cases/64-stream-write-validation.js",
@@ -839,7 +839,7 @@
     {
       "name": "64-stream-write dies when the accept set goes back to instanceof Uint8Array",
       "why": "`instanceof Uint8Array` is wrong in BOTH directions: it rejects DataView and Int16Array, which node accepts, and it accepts Object.create(Uint8Array.prototype), which node rejects. ArrayBuffer.isView is the whole test.",
-      "source": "pkg/runtime/js/node/stream.js",
+      "source": "pkg/runtime/js/internal/streams/utils.js",
       "find": "  function isBytesChunk(chunk) {\n    return ArrayBufferIsView(chunk);\n  }",
       "replace": "  function isBytesChunk(chunk) {\n    return chunk instanceof Uint8Array;\n  }",
       "gate": "compat:tests/node-compat/cases/64-stream-write-validation.js",
@@ -851,7 +851,7 @@
     {
       "name": "64-stream-write dies when a view is not normalized to a Buffer",
       "why": "THE regression that got #326's attempt reverted. node hands _write a Buffer with encoding 'buffer' for every view; without the conversion `chunk.length` is undefined for a DataView, writableLength goes NaN, and 'drain' can never fire again because NaN === 0 is false.",
-      "source": "pkg/runtime/js/node/stream.js",
+      "source": "pkg/runtime/js/internal/streams/writable.js",
       "find": "        chunk = bytesToBuffer(chunk);\n        encoding = 'buffer';\n      } else {\n        throw ERR_INVALID_ARG_TYPE('chunk', CHUNK_EXPECTED, chunk);",
       "replace": "        encoding = 'buffer';\n      } else {\n        throw ERR_INVALID_ARG_TYPE('chunk', CHUNK_EXPECTED, chunk);",
       "gate": "compat:tests/node-compat/cases/64-stream-write-validation.js",
@@ -862,7 +862,7 @@
     {
       "name": "64-stream-write dies when Readable.push does not accept what write does",
       "why": "Widening only the writable half makes a PassThrough take a view on one side and error on the other — which is how the first attempt shipped. The replacement KEEPS the normalization so the entry pins the brand widening alone — changing both at once would leave a kill ambiguous about which half the case detects.",
-      "source": "pkg/runtime/js/node/stream.js",
+      "source": "pkg/runtime/js/internal/streams/readable.js",
       "find": "      } else if (isBytesChunk(chunk)) {\n        // The readable half must accept exactly what the writable half does, or a\n        // PassThrough takes a view on one side and errors on the other — which is how the\n        // first attempt at this shipped.\n        chunk = bytesToBuffer(chunk);",
       "replace": "      } else if (chunk instanceof Uint8Array) {\n        chunk = bytesToBuffer(chunk);",
       "gate": "compat:tests/node-compat/cases/64-stream-write-validation.js",
@@ -873,7 +873,7 @@
     {
       "name": "64-stream-write dies when the encoding is not validated before the chunk type",
       "why": "node validates an explicit encoding first, which is observable: write(5, 'bogus') reports ERR_UNKNOWN_ENCODING, not the chunk type.",
-      "source": "pkg/runtime/js/node/stream.js",
+      "source": "pkg/runtime/js/internal/streams/writable.js",
       "find": "    if (encoding) validateEncoding(encoding);\n",
       "replace": "",
       "gate": "compat:tests/node-compat/cases/64-stream-write-validation.js",
@@ -884,7 +884,7 @@
     {
       "name": "64-stream-write dies when setDefaultEncoding accepts an unknown name",
       "why": "node throws ERR_UNKNOWN_ENCODING; accepting it silently poisons every later string write on the stream.",
-      "source": "pkg/runtime/js/node/stream.js",
+      "source": "pkg/runtime/js/internal/streams/writable.js",
       "find": "    validateEncoding(encoding);\n    this._writableState.defaultEncoding = encoding;",
       "replace": "    this._writableState.defaultEncoding = encoding;",
       "gate": "compat:tests/node-compat/cases/64-stream-write-validation.js",
@@ -2426,6 +2426,24 @@
       "replace": "    Object.defineProperty(Blob.prototype, ENUMERABLE_METHODS[m], { enumerable: false });",
       "gate": "odin:cmd/lava:main.blob_class_engine_traits",
       "expect_detail": "keys: got , want arrayBuffer"
+    },
+    {
+      "name": "79-stream-internal-modules dies when the fromWeb wrapper returns in tail position",
+      "why": "JSC elides a strict-mode `return f()` frame (proper tail calls), so node's readable frame above the adapters frame would silently vanish.",
+      "source": "pkg/runtime/js/internal/streams/readable.js",
+      "find": "    var bridged = lazyAdapters().newStreamReadableFromReadableStream(webStream, options);\n    return bridged;",
+      "replace": "    return lazyAdapters().newStreamReadableFromReadableStream(webStream, options);",
+      "gate": "compat:tests/node-compat/cases/79-stream-internal-modules.js",
+      "expect_detail": "node: Readable.fromWeb(5) wrapper: node:internal/streams/readable true false"
+    },
+    {
+      "name": "79-stream-internal-modules dies when Duplex stops mixing in the Writable API",
+      "why": "The split put Duplex in its own file, reading Writable.prototype across a module seam; a mixin that copies nothing leaves a Duplex without write/end.",
+      "source": "pkg/runtime/js/internal/streams/duplex.js",
+      "find": "      if (k === 'constructor') continue;",
+      "replace": "      if (k !== 'writable') continue;",
+      "gate": "compat:tests/node-compat/cases/79-stream-internal-modules.js",
+      "expect_detail": "node: Duplex has write function"
     }
   ]
 }
