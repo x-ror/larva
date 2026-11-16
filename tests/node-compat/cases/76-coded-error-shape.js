@@ -22,7 +22,7 @@
 //   - util.styleText's invalid-format list — it is built from inspect.colors, whose key
 //     set differs between the runtimes;
 //   - fs.writeFileSync(path, 5) — Lava does not validate `data` at all yet.
-// http/net/https sites are Linux-only natives and live in 77-coded-error-shape-net.js.
+// http/net/https sites are Linux-only natives and have no oracle case yet.
 'use strict';
 
 // One error prints as up to three SHORT lines — the shape (everything String(e) adds

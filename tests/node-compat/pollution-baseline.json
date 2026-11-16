@@ -29,6 +29,12 @@
     "accessor": 0,
     "global": 9
   },
+  "internal/blob.js": {
+    "method": 9,
+    "invoke": 0,
+    "accessor": 5,
+    "global": 22
+  },
   "internal/encoding.js": {
     "method": 0,
     "invoke": 0,
@@ -46,6 +52,12 @@
     "invoke": 1,
     "accessor": 6,
     "global": 75
+  },
+  "internal/file.js": {
+    "method": 0,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 5
   },
   "internal/mime.js": {
     "method": 24,
@@ -90,10 +102,10 @@
     "global": 40
   },
   "node/buffer.js": {
-    "method": 33,
-    "invoke": 6,
-    "accessor": 20,
-    "global": 112
+    "method": 23,
+    "invoke": 5,
+    "accessor": 15,
+    "global": 81
   },
   "node/console.js": {
     "method": 0,

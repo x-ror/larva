@@ -103,7 +103,7 @@ builtin_factories_compile_on_first_require :: proc(t: ^testing.T) {
 // The static eager set, sorted. Must equal eagerModules() — asserted by
 // scripts/check-js-graph.test.mjs, which parses this literal.
 @(private = "file")
-STATIC_EAGER :: [?]string{"internal/abort", "internal/encoding", "internal/errors", "internal/fetch", "internal/primordials", "internal/stdio", "internal/structured_clone", "node/buffer", "node/crypto", "node/events", "node/stream", "node/stream/web", "node/string_decoder", "node/url"}
+STATIC_EAGER :: [?]string{"internal/abort", "internal/blob", "internal/encoding", "internal/errors", "internal/fetch", "internal/file", "internal/primordials", "internal/stdio", "internal/structured_clone", "node/buffer", "node/crypto", "node/events", "node/stream", "node/stream/web", "node/string_decoder", "node/url"}
 
 @(private = "file")
 run_bool :: proc(ctx: jsc.JSContextRef, src: string) -> bool {
