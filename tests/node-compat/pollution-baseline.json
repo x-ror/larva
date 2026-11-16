@@ -59,6 +59,30 @@
     "accessor": 0,
     "global": 0
   },
+  "internal/http/common.js": {
+    "method": 5,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 0
+  },
+  "internal/http/incoming.js": {
+    "method": 2,
+    "invoke": 1,
+    "accessor": 0,
+    "global": 3
+  },
+  "internal/http/outgoing.js": {
+    "method": 1,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 1
+  },
+  "internal/http/server.js": {
+    "method": 13,
+    "invoke": 4,
+    "accessor": 0,
+    "global": 14
+  },
   "internal/mime.js": {
     "method": 24,
     "invoke": 0,
@@ -222,10 +246,10 @@
     "global": 0
   },
   "node/http.js": {
-    "method": 21,
-    "invoke": 5,
+    "method": 0,
+    "invoke": 0,
     "accessor": 0,
-    "global": 18
+    "global": 0
   },
   "node/https.js": {
     "method": 0,

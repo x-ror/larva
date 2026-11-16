@@ -24,6 +24,13 @@
 
   var cache = Object.create(null);
   natives = natives || Object.create(null);
+  // node:http's implementation is split across js/internal/http/ (laid out like node's
+  // _http_* files); the two that call into Odin take node:http's OWN bindings object as
+  // their fourth argument, exactly as http.js did before the split — aliased here, not a
+  // second binding set, so there is one parseRequest per context. node/http.js checks
+  // the bindings before requiring either file.
+  natives['internal/http/outgoing'] = natives['node/http'];
+  natives['internal/http/server'] = natives['node/http'];
 
   // Prefix test by code unit. The specifier comes from user code on the public path,
   // so a String.prototype method here would be a live, replaceable read deciding

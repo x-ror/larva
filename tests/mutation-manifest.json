@@ -112,7 +112,7 @@
     {
       "name": "the poisoned http-smoke phases die when a framing validator goes back to re.test",
       "why": "Content-Length framing. With the check on a live regex, a poisoned exec answered 200 OK for `Content-Length: abc` — parseInt gives NaN and the body framing desyncs. The charCode form has no regex to poison at all.",
-      "source": "pkg/runtime/js/node/http.js",
+      "source": "pkg/runtime/js/internal/http/server.js",
       "find": "        if (!allChars(contentLengthHeader, isAsciiDigit)) return sendErrorAndClose(400);",
       "replace": "        if (!/^\\d+$/.test(contentLengthHeader)) return sendErrorAndClose(400);",
       "gate": "make:test-http-smoke",
@@ -121,7 +121,7 @@
     {
       "name": "the poisoned http-smoke phases die when the chunked check goes back to re.test",
       "why": "Transfer-Encoding framing. A steered check accepted `gzip` as chunked, which is the other half of the smuggling pair.",
-      "source": "pkg/runtime/js/node/http.js",
+      "source": "pkg/runtime/js/internal/http/server.js",
       "find": "        if (!reTest(TE_CHUNKED_RE, transferEncoding)) return sendErrorAndClose(501);",
       "replace": "        if (!/^\\s*chunked\\s*$/i.test(transferEncoding)) return sendErrorAndClose(501);",
       "gate": "make:test-http-smoke",
@@ -260,7 +260,7 @@
     {
       "name": "the poisoned http-smoke phases die when the header-char scan reads charCodeAt live",
       "why": "assertValidHeaderChar guards the response path. Live, a CR/LF-lying gadget splits the response, and the exec/test phases pass throughout because they never touch that carrier.",
-      "source": "pkg/runtime/js/node/http.js",
+      "source": "pkg/runtime/js/internal/http/outgoing.js",
       "find": "      var code = StringPrototypeCharCodeAt(value, i);\n      if (code === 9 || (code >= 0x20 && code <= 0x7e) || (code >= 0x80 && code <= 0xff)) {",
       "replace": "      var code = value.charCodeAt(i);\n      if (code === 9 || (code >= 0x20 && code <= 0x7e) || (code >= 0x80 && code <= 0xff)) {",
       "gate": "make:test-http-smoke",
@@ -269,7 +269,7 @@
     {
       "name": "the poisoned http-smoke phases die when isHttpToken reads charCodeAt live",
       "why": "isHttpToken guards header NAMES. Live, a CR/LF-lying gadget accepts a name that still carries real CR/LF on the wire. The value-path mutation does not cover this site.",
-      "source": "pkg/runtime/js/node/http.js",
+      "source": "pkg/runtime/js/internal/http/common.js",
       "find": "      var code = StringPrototypeCharCodeAt(value, i);\n      if (code >= 128 || !HTTP_TCHAR[code]) return false;",
       "replace": "      var code = value.charCodeAt(i);\n      if (code >= 128 || !HTTP_TCHAR[code]) return false;",
       "gate": "make:test-http-smoke",
@@ -278,7 +278,7 @@
     {
       "name": "the poisoned http-smoke phases die when Content-Length conversion reads live parseInt",
       "why": "A sound allChars digit check next to live parseInt still desyncs framing: contentLengthRemaining becomes the gadget value. Poison-before-require is the realistic order; bootstrap capture on primordials is the fix. The Odin pi= pin covers the eager URL port path; this entry covers the lazy http framing path.",
-      "source": "pkg/runtime/js/node/http.js",
+      "source": "pkg/runtime/js/internal/http/server.js",
       "find": "        contentLengthRemaining = parseIntG(contentLengthHeader, 10);",
       "replace": "        contentLengthRemaining = parseInt(contentLengthHeader, 10);",
       "gate": "make:test-http-smoke",
@@ -926,9 +926,9 @@
       ]
     },
     {
-      "name": "65-lazy-buffer-capture dies when http.js resolves Buffer itself",
+      "name": "65-lazy-buffer-capture dies when internal/http/server.js resolves Buffer itself",
       "why": "http.js was migrated with NO test behind it: reverting this one line left every gate green while the measured divergence returned. Two of five migrated modules were unpinned until this entry.",
-      "source": "pkg/runtime/js/node/http.js",
+      "source": "pkg/runtime/js/internal/http/server.js",
       "find": "  var PristineBuffer = require.pristineBuffer;",
       "replace": "  var PristineBuffer = { Buffer: require('buffer').Buffer, from: require('buffer').Buffer.from, alloc: require('buffer').Buffer.alloc, concat: require('buffer').Buffer.concat, isBuffer: require('buffer').Buffer.isBuffer, bufferToString: function (b, e, a, c) { return b.toString(e, a, c); }, bufferIndexOf: function (b, n) { return b.indexOf(n); }, bufferSlice: function (b, a, c) { return b.slice(a, c); } };",
       "gate": "compat:tests/node-compat/cases/65-lazy-buffer-capture.js",
@@ -939,7 +939,7 @@
     {
       "name": "65-lazy-buffer-capture dies when the chunked reassembly reads Buffer.concat live",
       "why": "http.js's chunked decoder reassembles across TCP segments with concat; a poisoned concat that reorders the parts desynchronises the size line from its body. This is framing over network-controlled bytes, not a cosmetic read.",
-      "source": "pkg/runtime/js/node/http.js",
+      "source": "pkg/runtime/js/internal/http/common.js",
       "find": "  var BufferConcat = PristineBuffer.concat;",
       "replace": "  var BufferConcat = function (l, t) { return require('buffer').Buffer.concat(l, t); };",
       "gate": "compat:tests/node-compat/cases/65-lazy-buffer-capture.js",
@@ -950,7 +950,7 @@
     {
       "name": "65-lazy-buffer-capture dies when the chunk size is read through a live toString",
       "why": "The size line is read with buffer.toString('latin1', 0, lineEnd). A replacement that INFLATES the size is a request-smuggling primitive; node frames HTTP in C (llhttp) and is not steerable at all.",
-      "source": "pkg/runtime/js/node/http.js",
+      "source": "pkg/runtime/js/internal/http/common.js",
       "find": "  var BufferPrototypeToString = PristineBuffer.bufferToString;",
       "replace": "  var BufferPrototypeToString = function (b, e, a, c) { return b.toString(e, a, c); };",
       "gate": "compat:tests/node-compat/cases/65-lazy-buffer-capture.js",
@@ -961,7 +961,7 @@
     {
       "name": "65-lazy-buffer-capture dies when the framing cursor advances through a live slice",
       "why": "The decoder advances past each size line and body with slice; a corrupted cursor leaves a stray byte and desynchronises every later chunk.",
-      "source": "pkg/runtime/js/node/http.js",
+      "source": "pkg/runtime/js/internal/http/common.js",
       "find": "  var BufferPrototypeSlice = PristineBuffer.bufferSlice;",
       "replace": "  var BufferPrototypeSlice = function (b, a, c) { return b.slice(a, c); };",
       "gate": "compat:tests/node-compat/cases/65-lazy-buffer-capture.js",
@@ -2209,49 +2209,67 @@
       "expect_detail": "dns: ok [\"Object.keys\"]"
     },
     {
-      "name": "75-lazy-global-capture dies when http.js allocates the tchar table with the live Uint8Array",
+      "name": "75-lazy-global-capture dies when internal/http/common.js allocates the tchar table with the live Uint8Array",
       "why": "`Uint8Array` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/http.js",
+      "source": "pkg/runtime/js/internal/http/common.js",
       "find": "  var HTTP_TCHAR = new primordials.Uint8Array(128);",
       "replace": "  var HTTP_TCHAR = new Uint8Array(128);",
       "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
       "expect_detail": "http: ok [\"new Uint8Array\""
     },
     {
-      "name": "75-lazy-global-capture dies when http.js builds IncomingMessage.prototype with the live Object",
+      "name": "75-lazy-global-capture dies when internal/http/incoming.js builds IncomingMessage.prototype with the live Object",
       "why": "`Object.create` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/http.js",
+      "source": "pkg/runtime/js/internal/http/incoming.js",
       "find": "  IncomingMessage.prototype = ObjectCreate(EventEmitter.prototype);",
       "replace": "  IncomingMessage.prototype = Object.create(EventEmitter.prototype);",
       "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
       "expect_detail": "http: ok [\"Object.create\"]"
     },
     {
-      "name": "75-lazy-global-capture dies when http.js defines IncomingMessage#rawHeaders through the live Object",
+      "name": "75-lazy-global-capture dies when internal/http/incoming.js defines IncomingMessage#rawHeaders through the live Object",
       "why": "`Object.defineProperty` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/http.js",
+      "source": "pkg/runtime/js/internal/http/incoming.js",
       "find": "  ObjectDefineProperty(IncomingMessage.prototype, 'rawHeaders', {",
       "replace": "  Object.defineProperty(IncomingMessage.prototype, 'rawHeaders', {",
       "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
       "expect_detail": "http: ok [\"Object.defineProperty\"]"
     },
     {
-      "name": "75-lazy-global-capture dies when http.js builds ServerResponse.prototype with the live Object",
+      "name": "75-lazy-global-capture dies when internal/http/server.js builds ServerResponse.prototype with the live Object",
       "why": "`Object.create` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/http.js",
+      "source": "pkg/runtime/js/internal/http/server.js",
       "find": "  ServerResponse.prototype = ObjectCreate(EventEmitter.prototype);",
       "replace": "  ServerResponse.prototype = Object.create(EventEmitter.prototype);",
       "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
       "expect_detail": "http: ok [\"Object.create\"]"
     },
     {
-      "name": "75-lazy-global-capture dies when http.js builds Server.prototype with the live Object",
+      "name": "75-lazy-global-capture dies when internal/http/server.js builds Server.prototype with the live Object",
       "why": "`Object.create` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/http.js",
+      "source": "pkg/runtime/js/internal/http/server.js",
       "find": "  Server.prototype = ObjectCreate(EventEmitter.prototype);",
       "replace": "  Server.prototype = Object.create(EventEmitter.prototype);",
       "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
       "expect_detail": "http: ok [\"Object.create\"]"
+    },
+    {
+      "name": "81-http-internal-modules dies when the loader stops handing internal/http/server node:http's bindings",
+      "why": "server.js calls native.parseRequest for every request head; the split moved it out of node/http.js, the only id Odin keys the http bindings by, so the loader alias is the one thing connecting it. Without it every request fails.",
+      "source": "pkg/runtime/js/bootstrap/loader.js",
+      "find": "  natives['internal/http/server'] = natives['node/http'];",
+      "replace": "",
+      "gate": "compat:tests/node-compat/cases/81-http-internal-modules.js",
+      "expect_detail": ["parseRequest", "no complete response"]
+    },
+    {
+      "name": "81-http-internal-modules dies when the loader stops handing internal/http/outgoing node:http's bindings",
+      "why": "outgoing.js reads native.latin1WriteInto at module-eval for the response head encoder; without the alias require('http') itself throws.",
+      "source": "pkg/runtime/js/bootstrap/loader.js",
+      "find": "  natives['internal/http/outgoing'] = natives['node/http'];",
+      "replace": "",
+      "gate": "compat:tests/node-compat/cases/81-http-internal-modules.js",
+      "expect_detail": "latin1WriteInto"
     },
     {
       "name": "75-lazy-global-capture dies when net.js builds Socket.prototype with the live Object",

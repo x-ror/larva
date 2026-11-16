@@ -189,7 +189,15 @@ live in `internal/blob.js` and `internal/file.js`, as in node's `lib/internal`),
 streams live in `internal/streams/` (`legacy`, `readable`, `writable`, `duplex`,
 `transform`, `passthrough`, `destroy`, `add-abort-signal`, `end-of-stream`, `pipeline`,
 `utils`) and the Web Streams bridges in `internal/webstreams/adapters.js`, the files node
-keeps them in, so their frames read `node:internal/streams/readable`. Errors use Node-shaped coded errors (`ERR_INVALID_ARG_TYPE`,
+keeps them in, so their frames read `node:internal/streams/readable`. `node/http.js` is
+likewise only the public entry (and `createServer`): the server lives in `internal/http/`
+(`common`, `incoming`, `outgoing`, `server`), split the way node splits `_http_common`,
+`_http_incoming`, `_http_outgoing` and `_http_server`. Unlike streams the names differ from
+node's — node publishes `require('_http_server')` and friends with a parser/agent surface
+Lava does not have, so a public file under that name would answer with the wrong keys —
+and frames read `node:internal/http/server` where node's read `node:_http_server`. Odin
+keys the http bindings by `node/http` only, so `loader.js` aliases that one object to
+`internal/http/outgoing` and `internal/http/server`. Errors use Node-shaped coded errors (`ERR_INVALID_ARG_TYPE`,
 `ERR_OUT_OF_RANGE`, …), built in one place: `js/internal/errors.js` (eager, hardened)
 holds node's `determineSpecificType`, `ERR_INVALID_ARG_TYPE`/`_VALUE`, `ERR_OUT_OF_RANGE`,
 `ERR_MISSING_ARGS`, `ERR_UNKNOWN_ENCODING`, and two constructors for node's two shapes —
