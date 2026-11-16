@@ -58,15 +58,16 @@ builtin_factories_compile_on_first_require :: proc(t: ^testing.T) {
 		embedded,
 	)
 
-	// node:os is outside the eager closure and its only requires (primordials,
-	// internal/errors, buffer through require.pristineBuffer) are eager, so its first require
-	// compiles exactly one factory: its own.
+	// node:os is outside the eager closure and its requires (primordials, internal/errors,
+	// buffer through require.pristineBuffer) are eager except internal/os/constants, which
+	// only os requires, so its first require compiles exactly two factories: its own and
+	// the constants table.
 	testing.expect(t, run_bool(ctx, "typeof require('node:os').platform() === 'string'"), "node:os did not load")
-	testing.expect_value(t, state.builtin_compiles, at_init + 1)
+	testing.expect_value(t, state.builtin_compiles, at_init + 2)
 
 	// Cached by the loader: a second require compiles nothing.
 	testing.expect(t, run_bool(ctx, "require('os') === require('node:os')"), "node:os was re-instantiated")
-	testing.expect_value(t, state.builtin_compiles, at_init + 1)
+	testing.expect_value(t, state.builtin_compiles, at_init + 2)
 
 	// Ids outside the embedded set stay unknown, compile nothing, and never reach
 	// an inherited property or a path outside js/.
@@ -78,7 +79,7 @@ builtin_factories_compile_on_first_require :: proc(t: ^testing.T) {
   return true;
 })()`
 	testing.expect(t, run_bool(ctx, UNKNOWN), "an id outside the embedded set resolved")
-	testing.expect_value(t, state.builtin_compiles, at_init + 1)
+	testing.expect_value(t, state.builtin_compiles, at_init + 2)
 
 	// The ratchet's static eager set (scripts/lib/js-graph.mjs eagerModules) against what
 	// init really compiled. Static ⊆ runtime is the property that matters: a module the
