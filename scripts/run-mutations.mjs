@@ -647,7 +647,7 @@ function gateNodeTest(relPath, test) {
   const text = r.stdout + r.stderr;
   if (r.status === 0) {
     // A name that matches NOTHING still exits 0: node reports the file itself as
-    // one passing test (verified on node 24: `ℹ tests 1`, `ℹ pass 1`). So status
+    // one passing test (verified on node 26.13.0: `ℹ tests 1`, `ℹ pass 1`). So status
     // and counts cannot tell "the named test passed" from "no such test" — only
     // the named test's own pass line can. Without this check a typo in `test`, or
     // a renamed test, gives a green baseline and then SURVIVED for a mutation that

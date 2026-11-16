@@ -82,7 +82,7 @@ insertOne(null);
 assert.equal(db.prepare('SELECT x FROM t').get().x, null);
 
 // --- TEXT with an embedded NUL round-trips intact (no truncation) ---
-// SQLite TEXT may legally contain NULs; the Node 24 CI baseline and Lava preserve
+// SQLite TEXT may legally contain NULs; the Node 26 CI baseline and Lava preserve
 // them (the #91 fix). (Node 22 truncated at the first NUL, but it is no longer the
 // oracle — see #167.)
 insertOne('a\0b');

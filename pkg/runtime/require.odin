@@ -265,11 +265,12 @@ make_module_not_found :: proc(ctx: jsc.JSContextRef, specifier: string) -> jsc.J
 // `.length` IS user-visible and Node is the oracle.
 //
 // THE TWO CREATION PATHS ARE NOT OBSERVABLY EQUIVALENT, which earlier comments
-// left the reader to assume. Measured on setTimeout (2026-07-28):
+// left the reader to assume. Measured on setTimeout (2026-07-28; node row re-probed
+// 2026-11-16):
 //
 //	host path (jsc.host_function_create): .length == arity, constructible
 //	C-API fallback:                       .length == 0,     `new` throws TypeError
-//	node 24:                              .length == 2,     constructible
+//	node 26.13.0:                         .length == 2,     constructible
 //
 // "Constructible" on the host path is itself only half of Node: create_raw
 // reuses the call callback as the constructor slot, so `new setTimeout(fn)`

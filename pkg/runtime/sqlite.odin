@@ -304,7 +304,7 @@ sqlite_bind_cb :: proc "c" (
 		res = sqlite.bind_null(stmt, index)
 	case .Number:
 		// Node binds EVERY JS number with sqlite3_bind_double, whole ones included
-		// (verified against node 24: `SELECT typeof(?)` with 42 reports "real").
+		// (verified against node 26.13.0: `SELECT typeof(?)` with 42 reports "real").
 		// Binding a whole number as INTEGER changed results, not just the type tag:
 		// SQLite divides integers with integer division, so `SELECT ? / 2` with 5
 		// returned 2 instead of 2.5, and a value written into a typeless column came
@@ -379,7 +379,7 @@ sqlite_bind_bigint_cb :: proc "c" (
 // Node:
 //   node:sqlite stamps ERR_SQLITE_ERROR on EVERY library-originated error — a bad
 //   path in the constructor, a syntax error from exec/prepare, a constraint
-//   violation surfaced from step, a rejected bind — verified against node 24
+//   violation surfaced from step, a rejected bind — verified against node 26.13.0
 //   (`new DatabaseSync('/nonexistent/x.db')`, `db.exec('NOT SQL')`, a UNIQUE
 //   violation). Only the bind path used to set it here, so the documented
 //   `err.code === 'ERR_SQLITE_ERROR'` branch silently missed every other error.

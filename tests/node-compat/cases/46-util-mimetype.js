@@ -80,7 +80,7 @@ assert.throws(() => new MIMEType('/plain'), { code: 'ERR_INVALID_MIME_SYNTAX' })
 assert.throws(() => p.set('bad name', 'v'), { code: 'ERR_INVALID_MIME_SYNTAX' });
 assert.throws(() => p.set('a', 'bad\x01'), { code: 'ERR_INVALID_MIME_SYNTAX' });
 // a type/subtype error's index is relative to that component, not the whole input, and
-// the message quotes the input as given — leading whitespace included (node 24)
+// the message quotes the input as given — leading whitespace included (node 26.13.0)
 assert.throws(() => new MIMEType('text/p@in;a=b'), {
   message: 'The MIME syntax for a subtype in "text/p@in;a=b" is invalid at 1',
 });

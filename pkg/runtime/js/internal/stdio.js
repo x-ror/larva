@@ -2,7 +2,7 @@
 //
 // Built on the real `stream.Writable` rather than a lookalike object, because node's
 // streams are Writables in every fd case and libraries feature-detect with
-// `x instanceof stream.Writable` (measured on node 24.18.1: true for the tty, pipe and
+// `x instanceof stream.Writable` (measured on node 26.13.0: true for the tty, pipe and
 // file shapes alike). A hand-rolled object with a `write` method would answer false and
 // silently take the wrong branch in a logger.
 //
@@ -74,7 +74,7 @@
    *       recovers from end()/destroy() (see the header on _destroy) and this stream
    *       matches it exactly. On a PIPE node's stdout is a net.Socket, so end() closes
    *       the write side and the next write raises an unhandled EPIPE and exits 1;
-   *       verified on node 24.18.1 (`node x.js | cat` prints A, B and dies where
+   *       verified on node 26.13.0 (`node x.js | cat` prints A, B and dies where
    *       `node x.js > f` prints A, B, C, D). This stream recovers in both cases: it
    *       holds no socket, writes go straight to the fd, and there is nothing an end()
    *       could half-close. Deliberate — the alternative is closing fd 1 and losing
@@ -93,7 +93,7 @@
     this.fd = fd;
     // node sets an own `_isStdio` on both singletons, and its own stream/net code
     // feature-detects on it, so ecosystem code reads it too. Own, not inherited, matching
-    // `hasOwnProperty(process.stdout, '_isStdio') === true` on node 24.18.1.
+    // `hasOwnProperty(process.stdout, '_isStdio') === true` on node 26.13.0.
     this._isStdio = true;
     // `_isTTY` rather than a stored `isTTY`: the public one is a getter below so that a
     // non-terminal answers undefined instead of false, which is what node reports.
@@ -110,7 +110,7 @@
   // stdout is a process-lifetime singleton, so a teardown that stuck would be permanent:
   // one `process.stdout.end()` anywhere in a dependency and every later write on it is
   // dropped for the rest of the run. Node treats the stdio streams as un-closable for
-  // exactly that reason, and this is the mechanism it uses (verified: node 24.18.1's
+  // exactly that reason, and this is the mechanism it uses (verified: node 26.13.0's
   // `process.stdout._destroy.name === 'dummyDestroy'`).
   StdioWriteStream.prototype._destroy = function (err, cb) {
     cb(err);
@@ -153,7 +153,7 @@
 
   // Attach as LAZY getters with NO setter, which is node's descriptor exactly:
   // `Object.getOwnPropertyDescriptor(process, 'stdout')` reports
-  // `{get: fn, set: undefined, configurable: true, enumerable: true}` on node 24.18.1.
+  // `{get: fn, set: undefined, configurable: true, enumerable: true}` on node 26.13.0.
   // A setter was here briefly and was wrong three ways — sloppy-mode `process.stdout = x`
   // is DISCARDED by node (identity preserved) where it took effect here, and strict mode
   // throws there and silently succeeded here. Harnesses swap stdout with

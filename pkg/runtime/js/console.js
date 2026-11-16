@@ -87,7 +87,8 @@
     // Node's short circuit, and it must come BEFORE the substitution loop rather
     // than inside it: a lone string argument is the answer, directives and all.
     // `format('%s')`, `format('%z')`, `format('100%')` and `format('%%')` all come
-    // back untouched on node 24 (verified, not read off the docs).
+    // back untouched on node 26.13.0 (verified by
+    // tests/node-compat/cases/57-format-single-arg.js, not read off the docs).
     // Only `%%` used to get this wrong here — `%s` and friends were saved further
     // down by the "arguments exhausted" branch, which re-emits the directive, while
     // `%%` was folded unconditionally.

@@ -10,7 +10,7 @@
 // own case rather than a second swap. A factory that exported the free variable
 // `process` reads an undeclared identifier under 'use strict' once the global is
 // gone, so it dies with ReferenceError instead of quietly exporting the wrong
-// object. Node returns the intrinsic through either shape (node 24, verified).
+// object. Node returns the intrinsic through either shape (node 26.13.0, verified by this case).
 //
 // NOTHING under test may be required above the delete, and `assert` is required
 // only AFTER the globals are restored: assert pulls in util, and a transitive

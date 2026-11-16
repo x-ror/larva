@@ -97,7 +97,7 @@ Pre_Run_Hook :: proc(user_data: rawptr) -> bool
 //   Node writes an uncaught top-level error to stderr before its exit-time teardown
 //   joins libuv's worker pool, so a script that throws with a worker blocked (a
 //   readFile on a FIFO nobody writes) prints its error and then hangs. Verified on
-//   node v24.22.1 (probe case H): fs.readFile on a mkfifo with no writer, a throw
+//   node v26.13.0 (probe case H): fs.readFile on a mkfifo with no writer, a throw
 //   once a worker sat in the FIFO open, stderr watched while the process was stuck,
 //   then killed. The CLI passes its printer here to keep that
 //   order: eval's deferred eventloop.destroy joins the loop's pool workers, and

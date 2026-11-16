@@ -210,7 +210,7 @@
     if (value instanceof Error) {
       // Node NORMALIZES an unrecognized name to Error rather than carrying it
       // over: `e.name = 'NotAnError'` clones to `name === 'Error'` (verified
-      // against node 24). Preserving it was a quiet divergence, and reapplying
+      // against node 26.13.0). Preserving it was a quiet divergence, and reapplying
       // it unconditionally is also what made `e.name = 'toString'` interesting —
       // the un-nulled table reached Object.prototype and `new` on the result
       // threw.

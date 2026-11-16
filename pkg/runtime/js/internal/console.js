@@ -5,7 +5,8 @@
 //   code runs.
 // Returns: the console object (same reference as the original globalThis.console).
 // Node: require('node:console') is the intrinsic regardless of global mutation
-//   (node 24, verified). When the global is untouched, require === console.
+//   (node 26.13.0, verified by tests/node-compat/cases/66 and 67). When the global is
+//   untouched, require === console.
 // Deviates: none. The Console constructor for custom-stream consoles is not yet
 //   provided on either the global or the module (pre-existing gap, not this fix).
 //

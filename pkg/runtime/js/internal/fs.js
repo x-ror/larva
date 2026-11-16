@@ -17,7 +17,7 @@
 // brand check).
 //
 // ZERO COPY. `Buffer.from(arrayBuffer, byteOffset, length)` shares memory by spec — it
-// does NOT copy, verified on node 24.18.1 and here (mutating the Buffer is visible through
+// does NOT copy, verified on node 26.13.0 and here (mutating the Buffer is visible through
 // the original view). A copy would be a per-file-size regression on the hottest fs call
 // there is, and CLAUDE.md ranks memory second only to conformance.
 //
@@ -52,7 +52,8 @@
   var BufferPrototypeToString = PristineBuffer.bufferToString;
 
   // Node renders the offending value with util.inspect in BOTH templates, so a string
-  // comes out quoted and everything else bare. Verified against node 24.18.1:
+  // comes out quoted and everything else bare. Verified against node 26.13.0 (probe,
+  // 2026-11-16):
   //   'bogus' -> 'bogus'     123 -> 123        true -> true      1n -> 1n
   //   {}      -> {}          {a:1} -> { a: 1 } [] -> []         Symbol(x) -> Symbol(x)
   // An earlier version of this quoted everything, which was wrong for every non-string.
@@ -73,7 +74,7 @@
   }
 
   // Node's ERR_INVALID_ARG_TYPE "Received" clause has THREE branches, not two
-  // (determineSpecificType). Measured on node 24.18.1:
+  // (determineSpecificType). Measured on node 26.13.0 (probe, 2026-11-16):
   //   null / undefined      -> named bare:            Received null
   //   an object             -> its constructor:       Received an instance of Object
   //                            (Array, Date, RegExp, Map, Buffer, a user class …;
@@ -117,7 +118,7 @@
    *                  string when an encoding was supplied, or an error/undefined.
    * @returns {*} A Buffer for the Uint8Array case; `value` untouched otherwise.
    * @node readFileSync/readFile return a Buffer with no encoding and a string with one
-   *       (verified on node 24.18.1, including `{encoding: null}` -> Buffer).
+   *       (verified on node 26.13.0, including `{encoding: null}` -> Buffer).
    * @deviates none
    */
   function asBuffer(value) {
@@ -140,7 +141,7 @@
    * @param {*} path
    * @throws {TypeError} ERR_INVALID_ARG_TYPE — anything but a string, a Buffer/Uint8Array
    *         or a URL.
-   * @node Message verified on node 24.18.1: `The "path" argument must be of type string
+   * @node Message verified on node 26.13.0: `The "path" argument must be of type string
    *       or an instance of Buffer or URL. Received an instance of Object`.
    * @deviates Two values are accepted here that the native then mishandles, because
    *       rejecting them would be a NEW divergence: a `file:` URL is stringified rather
@@ -180,7 +181,7 @@
    * @returns {string|null} The encoding name, or null for a binary (Buffer) read.
    * @throws {TypeError} ERR_INVALID_ARG_TYPE — options is neither a string nor an object.
    * @throws {TypeError} ERR_INVALID_ARG_VALUE — the encoding name is not recognized.
-   * @node Messages verified against node 24.18.1:
+   * @node Messages verified against node 26.13.0:
    *       `readFileSync(p, 123)` -> 'The "options" argument must be one of type string or
    *       object. Received type number (123)'; `readFileSync(p, 'bogus')` -> "The argument
    *       'encoding' is invalid encoding. Received 'bogus'". `{}`, `null` and `undefined`
@@ -191,7 +192,7 @@
     // node's getOptions treats null, undefined AND a function as "no options" — a callback
     // sitting in the options slot is not an error, and neither is an array (it takes the
     // object branch and has no `.encoding`). Verified: readFileSync(p, function(){}) and
-    // readFileSync(p, []) both return a Buffer on node 24.18.1.
+    // readFileSync(p, []) both return a Buffer on node 26.13.0.
     if (options === null || options === undefined || typeof options === 'function') {
       return null;
     }
@@ -252,7 +253,7 @@
    * @throws {TypeError} ERR_UNKNOWN_ENCODING — the name is `'buffer'`, which node lets
    *         through validation so Buffer#toString rejects it.
    * @node Returns a Buffer, not a bare Uint8Array; decoding is lossy for invalid UTF-8
-   *       (U+FFFD), never `""`. Verified against node 24.18.1.
+   *       (U+FFFD), never `""`. Verified against node 26.13.0.
    * @deviates A `file:` URL path is not resolved — it reaches the native as its string
    *       form and fails ENOENT where node reads the file. Pre-existing; see the fs entry
    *       in ROADMAP.
@@ -276,7 +277,7 @@
    * @throws {TypeError} ERR_INVALID_ARG_TYPE — cb is not a function. Validated BEFORE the
    *         options, and against `callback || options`, so `readFile(p, 'bogus')` reports
    *         the STRING as the bad callback rather than complaining about the encoding.
-   *         Verified on node 24.18.1; the reverse order would report a plausible but
+   *         Verified on node 26.13.0; the reverse order would report a plausible but
    *         different error for the commonest mistake there is, a forgotten callback.
    * @throws {TypeError} Both encoding errors above, thrown SYNCHRONOUSLY — they do not
    *         surface in the callback.

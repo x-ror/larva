@@ -4,7 +4,7 @@
 // require after a dependency reassigned (or deleted) globalThis.process /
 // globalThis.console captured the shim. Node's require('node:process') /
 // require('node:console') always return the intrinsic module object regardless
-// of global mutation (node 24, verified). Found in Codex review of #246; #247.
+// of global mutation (node 26.13.0, verified by this case). Found in Codex review of #246; #247.
 //
 // NOTHING under test may be required above the swaps — a prior require would
 // populate the module cache with the real object and this case would pass with

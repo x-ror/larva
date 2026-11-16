@@ -209,8 +209,9 @@
 
   // Node's validateObject(value, 'options', kValidateObjectAllowObjects) as it is
   // called from TextDecoder — nullable, and arrays and functions allowed. Verified
-  // against node 24 rather than read off the docs: `null`, `[1,2]` and `()=>{}`
-  // are accepted; every scalar including `-0`, `NaN`, `''` and `false` throws.
+  // against node 26.13.0 (probe, 2026-11-16) rather than read off the docs: `null`,
+  // `[1,2]` and `()=>{}` are accepted; every scalar including `-0`, `NaN`, `''` and
+  // `false` throws.
   // It runs BEFORE the label is looked at (see the constructor), which is why it
   // exists as a function instead of being folded into the `options || kEmptyObject`
   // line — the order is observable when both arguments are bad.
@@ -232,9 +233,10 @@
   // NOT `instanceof`, on any of the three arms. `instanceof` dispatches through
   // `Ctor[Symbol.hasInstance]`, a configurable own property, so a caller flips the
   // brand in either direction and steers the value into the wrong arm. Measured
-  // against node 24, which is native here and immune on every cell: forging
-  // `DataView[Symbol.hasInstance]` to false made `decode(dataView)` THROW
-  // TypeError; forging `ArrayBuffer`'s to false made `decode(arrayBuffer)` throw;
+  // against node 26.13.0 (probe, 2026-11-16), which is native here and immune on
+  // every cell: forging `DataView[Symbol.hasInstance]` to false made
+  // `decode(dataView)` THROW TypeError; forging `ArrayBuffer`'s to false made
+  // `decode(arrayBuffer)` throw;
   // and forging `Uint8Array`'s or `ArrayBuffer`'s to TRUE made `decode()` return
   // "" — a silent empty decode of valid input, which is the worse half. Six
   // diverging cells in all, of which a review flagged one.
