@@ -13,23 +13,25 @@
   var StringPrototypeSlice = P.StringPrototypeSlice;
   var RegExpMatches = P.RegExpMatches;
 
-  var kData = Symbol('data'); // MIMEParams: the Map of name -> value
-  var kType = Symbol('type');
-  var kSubtype = Symbol('subtype');
-  var kParams = Symbol('params');
+  // Taken off the primordials table, not the live globals: this module is LAZY (its factory
+  // runs on the user's first require of util), so a module-eval `Symbol(...)` here reads
+  // whatever user code left on globalThis — #426, pinned by
+  // tests/node-compat/cases/75-lazy-global-capture.js.
+  var SymbolG = P.Symbol;
+  var ObjectDefineProperties = P.ObjectDefineProperties;
+
+  var kData = SymbolG('data'); // MIMEParams: the Map of name -> value
+  var kType = SymbolG('type');
+  var kSubtype = SymbolG('subtype');
+  var kParams = SymbolG('params');
 
   // An HTTP token code point (RFC 9110): the chars allowed unquoted in a type/subtype/name.
   var NotHTTPTokenCodePoint = /[^!#$%&'*+\-.^_`|~A-Za-z0-9]/;
   // An HTTP quoted-string code point: tab, the printable ASCII range (U+0020..U+007E), and
   // the Latin-1 high range (U+0080..U+00FF). Anything else (other controls, newline) cannot
-  // appear even inside quotes.
-  var NotHTTPQuotedStringCodePoint = new RegExp(
-    String.fromCharCode(91, 94, 9) +
-      String.fromCharCode(32) +
-      String.fromCharCode(45, 126) +
-      String.fromCharCode(128) +
-      String.fromCharCode(45, 255, 93),
-  );
+  // appear even inside quotes. A literal with escapes rather than the `new RegExp(String.
+  // fromCharCode(...))` it used to be: same class, and no read of a replaceable global.
+  var NotHTTPQuotedStringCodePoint = /[^\t\x20-\x7E\x80-\xFF]/;
   // Node's HTTP whitespace is tab, LF, CR and space — NOT form-feed (U+000C), unlike the
   // looser WHATWG set: a leading/trailing `\f` makes the type invalid rather than being
   // stripped, and a `\f` in a value keeps it (so the value fails the quoted-string check).
@@ -263,7 +265,7 @@
     return serializeParams(this[kData]);
   };
   MIMEParams.prototype.toJSON = MIMEParams.prototype.toString;
-  MIMEParams.prototype[Symbol.iterator] = MIMEParams.prototype.entries;
+  MIMEParams.prototype[SymbolG.iterator] = MIMEParams.prototype.entries;
 
   function MIMEType(string) {
     if (new.target === undefined) {
@@ -277,7 +279,7 @@
     this[kParams] = params;
   }
 
-  Object.defineProperties(MIMEType.prototype, {
+  ObjectDefineProperties(MIMEType.prototype, {
     type: {
       configurable: true,
       enumerable: true,

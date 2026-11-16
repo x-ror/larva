@@ -6,9 +6,12 @@
 (function (require, module, exports) {
   'use strict';
 
-  var toString = Object.prototype.toString;
+  // The primordial, not `Object.prototype.toString` read at module-eval: this module is
+  // LAZY, so that read runs after user code could have replaced `Object` (#426). The caller0
+  // form: a per-call predicate, where a forged tag only answers wrongly.
+  var ObjectPrototypeToString = require('internal/primordials').ObjectPrototypeToStringFast;
   function tag(v) {
-    return toString.call(v); // e.g. "[object Date]"
+    return ObjectPrototypeToString(v); // e.g. "[object Date]"
   }
   function tagged(v, name) {
     return tag(v) === '[object ' + name + ']';

@@ -13,8 +13,15 @@
 (function (require, module, exports, native) {
   'use strict';
 
+  /** Pristine intrinsics — response head must not use overridable Buffer methods. */
+  // Also every module-eval constructor/static below: this module is LAZY, so a read of the
+  // live global here runs after user code could have replaced it (#426).
+  var primordials = require('internal/primordials');
+  var ObjectCreate = primordials.ObjectCreate;
+  var ObjectDefineProperty = primordials.ObjectDefineProperty;
+
   if (!native || typeof native.parseRequest !== 'function') {
-    throw new Error('node:http is unavailable on this platform');
+    throw new primordials.Error('node:http is unavailable on this platform');
   }
 
   var EventEmitter = require('events');
@@ -32,8 +39,6 @@
   var BufferPrototypeIndexOf = PristineBuffer.bufferIndexOf;
   var BufferPrototypeSlice = PristineBuffer.bufferSlice;
   var net = require('net');
-  /** Pristine intrinsics — response head must not use overridable Buffer methods. */
-  var primordials = require('internal/primordials');
   // Every regex below decides FRAMING over attacker-controlled bytes, so none of
   // them may go through `re.test(...)`: `RegExp.prototype.exec` is a writable data
   // property, and the spec's RegExpExec re-reads it off the receiver, so a plain
@@ -133,7 +138,7 @@
    * RFC 7230 tchar bitmap for field-names (setHeader + chunked trailers).
    * @type {Uint8Array}
    */
-  var HTTP_TCHAR = new Uint8Array(128);
+  var HTTP_TCHAR = new primordials.Uint8Array(128);
   (function initHttpTchar() {
     var chars = "!#$%&'*+-.0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ^_`abcdefghijklmnopqrstuvwxyz|~";
     for (var i = 0; i < chars.length; i++) HTTP_TCHAR[StringPrototypeCharCodeAt(chars, i)] = 1;
@@ -367,12 +372,12 @@
     this.complete = false;
     this._ended = false;
   }
-  IncomingMessage.prototype = Object.create(EventEmitter.prototype);
+  IncomingMessage.prototype = ObjectCreate(EventEmitter.prototype);
   IncomingMessage.prototype.constructor = IncomingMessage;
 
   // Lazy rawHeaders: first get materializes an own data property (Node shape:
   // hasOwnProperty / Object.keys include rawHeaders after access).
-  Object.defineProperty(IncomingMessage.prototype, 'rawHeaders', {
+  ObjectDefineProperty(IncomingMessage.prototype, 'rawHeaders', {
     configurable: true,
     enumerable: true,
     get: function () {
@@ -436,7 +441,7 @@
       socket.on('drain', this._drainForwarder);
     }
   }
-  ServerResponse.prototype = Object.create(EventEmitter.prototype);
+  ServerResponse.prototype = ObjectCreate(EventEmitter.prototype);
   ServerResponse.prototype.constructor = ServerResponse;
 
   /**
@@ -1103,7 +1108,7 @@
     });
     if (typeof requestListener === 'function') this.on('request', requestListener);
   }
-  Server.prototype = Object.create(EventEmitter.prototype);
+  Server.prototype = ObjectCreate(EventEmitter.prototype);
   Server.prototype.constructor = Server;
 
   Server.prototype.listen = function () {

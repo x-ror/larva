@@ -6,13 +6,16 @@
 (function (require, module, exports, native) {
   'use strict';
 
+  // Handles for the code added with the node 24 buffer binding, and for every module-eval
+  // read below: this module is LAZY, so a read of the live global here runs after user code
+  // could have replaced it (#426). Function bodies still read their globals live — see the
+  // pollution baseline.
+  var P = require('internal/primordials');
+
   if (!native) {
-    throw new Error('node:sqlite is unavailable: Lava was built without libsqlite3');
+    throw new P.Error('node:sqlite is unavailable: Lava was built without libsqlite3');
   }
 
-  // Handles for the code added with the node 24 buffer binding. The rest of the file
-  // still reads its globals live — see its pollution baseline.
-  var P = require('internal/primordials');
   var ArrayBufferGetByteLength = P.ArrayBufferPrototypeGetByteLength;
   var SharedArrayBufferGetByteLength = P.SharedArrayBufferPrototypeGetByteLength;
   var ObjectGetPrototypeOf = P.ObjectGetPrototypeOf;
@@ -26,14 +29,20 @@
   // methods below are reachable for manual cleanup now (`obj[Symbol.dispose]()`)
   // and participate in `using` automatically once the engine supports it.
   // Idempotent: a real engine/global polyfill takes precedence.
-  if (typeof Symbol === 'function' && !Symbol.dispose) {
+  //
+  // On the INTRINSIC Symbol, not the global binding: reading `Symbol` live wrote the
+  // polyfill onto whatever object user code had left there, and keyed the dispose
+  // methods off that object's property — so `db[Symbol.dispose]` was missing once the
+  // real Symbol was put back.
+  var SymbolG = P.Symbol;
+  if (!SymbolG.dispose) {
     try {
-      Symbol.dispose = Symbol('Symbol.dispose');
+      SymbolG.dispose = SymbolG('Symbol.dispose');
     } catch {
       // Symbol is non-extensible here; dispose-by-symbol is simply unavailable.
     }
   }
-  var disposeSymbol = typeof Symbol === 'function' ? Symbol.dispose : null;
+  var disposeSymbol = SymbolG.dispose || null;
 
   // GC backstops so that wrappers dropped without an explicit close/finalize still
   // release their native handle instead of leaking until context teardown. The
@@ -376,7 +385,7 @@
     if (dbFinalizers) dbFinalizers.register(this, this._id, this);
   }
 
-  Object.defineProperty(DatabaseSync.prototype, 'isOpen', {
+  P.ObjectDefineProperty(DatabaseSync.prototype, 'isOpen', {
     get: function () {
       return this._open;
     },

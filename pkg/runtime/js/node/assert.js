@@ -101,15 +101,18 @@
     }
   }
 
-  var hasOwn = Object.prototype.hasOwnProperty;
-  var isEnum = Object.prototype.propertyIsEnumerable;
+  // From primordials, not `Object.prototype.*` read at module-eval: assert is LAZY, so that
+  // read happens after user code could have replaced `Object` or the methods (#426).
+  var P = require('internal/primordials');
+  var hasOwn = P.ObjectPrototypeHasOwnProperty;
+  var isEnum = P.ObjectPrototypePropertyIsEnumerable;
 
   // Own enumerable keys, strings then enumerable symbols (matching strict deep equality).
   function ownEnumKeys(obj) {
     var keys = Object.keys(obj);
     var syms = Object.getOwnPropertySymbols(obj);
     for (var i = 0; i < syms.length; i++) {
-      if (isEnum.call(obj, syms[i])) keys.push(syms[i]);
+      if (isEnum(obj, syms[i])) keys.push(syms[i]);
     }
     return keys;
   }
@@ -237,7 +240,7 @@
     for (var i = 0; i < keysE.length; i++) {
       var key = keysE[i];
       if (Array.isArray(expected) && isArrayIndex(key)) continue; // matched as a subsequence
-      if (!hasOwn.call(actual, key) || !isEnum.call(actual, key)) return false;
+      if (!hasOwn(actual, key) || !isEnum(actual, key)) return false;
       if (!partialMatch(actual[key], expected[key], seen)) return false;
     }
     return true;

@@ -7,6 +7,9 @@
   'use strict';
 
   var EventEmitter = require('events');
+  // The primordial, not the live global: this module is LAZY, so a
+  // module-eval read here runs after user code could have replaced the global (#426).
+  var ObjectCreate = require('internal/primordials').ObjectCreate;
   var nativeIsatty = native && typeof native.isatty === 'function' ? native.isatty : null;
 
   function isatty(fd) {
@@ -84,7 +87,7 @@
     this.isTTY = isatty(fd);
     this.isRaw = false;
   }
-  ReadStream.prototype = Object.create(EventEmitter.prototype);
+  ReadStream.prototype = ObjectCreate(EventEmitter.prototype);
   ReadStream.prototype.constructor = ReadStream;
   ReadStream.prototype.setRawMode = function (mode) {
     this.isRaw = !!mode;
@@ -100,7 +103,7 @@
     this.columns = size[0];
     this.rows = size[1];
   }
-  WriteStream.prototype = Object.create(EventEmitter.prototype);
+  WriteStream.prototype = ObjectCreate(EventEmitter.prototype);
   WriteStream.prototype.constructor = WriteStream;
   WriteStream.prototype.getColorDepth = function (env) {
     return getColorDepth(env);

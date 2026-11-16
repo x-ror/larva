@@ -291,6 +291,10 @@
     ObjectGetOwnPropertyDescriptor: Object.getOwnPropertyDescriptor,
     ObjectGetOwnPropertyDescriptors: Object.getOwnPropertyDescriptors,
     ObjectGetOwnPropertySymbols: Object.getOwnPropertySymbols,
+    // The static, not a wrapper: a direct call with no `.call` read, so it costs a per-key
+    // loop nothing. ObjectPrototypeHasOwnProperty (caller1) measured +5% on a 20-key
+    // querystring.parse (14.3 -> 15.0 us, medians of 7 interleaved launches, bin/lava darwin).
+    ObjectHasOwn: Object.hasOwn,
 
     // --- Array / Reflect / JSON / Math / Number statics ---
     ArrayIsArray: Array.isArray,
@@ -312,9 +316,18 @@
 
     // --- Object.prototype.* (call as fn(obj, ...)) ---
     ObjectPrototypeHasOwnProperty: caller1(ObjectProto.hasOwnProperty),
-    // safeGetter, not caller0: structured_clone keys its view-constructor table
-    // off this result, so a forged answer selects the wrong constructor.
+    ObjectPrototypePropertyIsEnumerable: caller1(ObjectProto.propertyIsEnumerable),
+    // safeGetter (Reflect.apply, immune to a forged Function.prototype.call), for a caller
+    // whose tag SELECTS something — a constructor, a memory window. No consumer today:
+    // structured_clone, the one it was written for, now brands by prototype identity
+    // (TypedArrayPrototypes below) and no longer reads the tag at all.
     ObjectPrototypeToString: safeGetter(ObjectProto.toString),
+    // caller0, for a hot per-call predicate where a forged tag can only answer the predicate
+    // wrongly (util/types.js). Measured isDate+isUint8Array pair, medians of 7 interleaved
+    // launches, 5e6 iterations, bin/lava darwin: 516 ns with the pre-#426 live `toString.call`,
+    // 666 via safeGetter, 573 via caller0. +10% accepted as the cost of dropping the
+    // lazy-time `Object` read. A dedicated non-shared wrapper measured the same (572).
+    ObjectPrototypeToStringFast: caller0(ObjectProto.toString),
 
     // --- Function.prototype.* ---
     FunctionPrototypeApply: caller2(apply),

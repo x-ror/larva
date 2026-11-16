@@ -2072,6 +2072,276 @@
       "replace": "  publicReq.lateCrypto = function () {\n    req('crypto');\n  };\n",
       "gate": "odin:cmd/lava:main.builtin_factories_compile_on_first_require",
       "expect_detail": "is listed eager but compiled on first require"
+    },
+    {
+      "name": "75-lazy-global-capture dies when internal/mime.js mints kData from the live Symbol",
+      "why": "`Symbol` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/internal/mime.js",
+      "find": "  var kData = SymbolG('data'); // MIMEParams: the Map of name -> value",
+      "replace": "  var kData = Symbol('data'); // MIMEParams: the Map of name -> value",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "util: ok [\"Symbol()\"]"
+    },
+    {
+      "name": "75-lazy-global-capture dies when internal/mime.js mints kType from the live Symbol",
+      "why": "`Symbol` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/internal/mime.js",
+      "find": "  var kType = SymbolG('type');",
+      "replace": "  var kType = Symbol('type');",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "util: ok [\"Symbol()\"]"
+    },
+    {
+      "name": "75-lazy-global-capture dies when internal/mime.js mints kSubtype from the live Symbol",
+      "why": "`Symbol` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/internal/mime.js",
+      "find": "  var kSubtype = SymbolG('subtype');",
+      "replace": "  var kSubtype = Symbol('subtype');",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "util: ok [\"Symbol()\"]"
+    },
+    {
+      "name": "75-lazy-global-capture dies when internal/mime.js mints kParams from the live Symbol",
+      "why": "`Symbol` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/internal/mime.js",
+      "find": "  var kParams = SymbolG('params');",
+      "replace": "  var kParams = Symbol('params');",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "util: ok [\"Symbol()\"]"
+    },
+    {
+      "name": "75-lazy-global-capture dies when internal/mime.js builds its quoted-string class through the live RegExp and String",
+      "why": "`RegExp` / `String.fromCharCode` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/internal/mime.js",
+      "find": "  var NotHTTPQuotedStringCodePoint = /[^\\t\\x20-\\x7E\\x80-\\xFF]/;",
+      "replace": "  var NotHTTPQuotedStringCodePoint = new RegExp(String.fromCharCode(91, 94, 9) + String.fromCharCode(32) + String.fromCharCode(45, 126) + String.fromCharCode(128) + String.fromCharCode(45, 255, 93));",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "String.fromCharCode"
+    },
+    {
+      "name": "75-lazy-global-capture dies when internal/mime.js keys MIMEParams iteration off the live Symbol",
+      "why": "`Symbol.iterator` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/internal/mime.js",
+      "find": "  MIMEParams.prototype[SymbolG.iterator] = MIMEParams.prototype.entries;",
+      "replace": "  MIMEParams.prototype[Symbol.iterator] = MIMEParams.prototype.entries;",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "util: ok [\"Symbol.iterator\"]"
+    },
+    {
+      "name": "75-lazy-global-capture dies when internal/mime.js defines MIMEType accessors through the live Object",
+      "why": "`Object.defineProperties` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/internal/mime.js",
+      "find": "  ObjectDefineProperties(MIMEType.prototype, {",
+      "replace": "  Object.defineProperties(MIMEType.prototype, {",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "util: ok [\"Object.defineProperties\"]"
+    },
+    {
+      "name": "75-lazy-global-capture dies when util.js reads Symbol.for live for promisify.custom",
+      "why": "`Symbol.for` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/util.js",
+      "find": "  var kCustomPromisify = SymbolFor('nodejs.util.promisify.custom');",
+      "replace": "  var kCustomPromisify = Symbol.for('nodejs.util.promisify.custom');",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "util: ok [\"Symbol.for\"]"
+    },
+    {
+      "name": "75-lazy-global-capture dies when util.js builds the ANSI matcher through the live RegExp",
+      "why": "`RegExp` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/util.js",
+      "find": "  var ansiRegex = /",
+      "replace": "  var ansiRegex = new RegExp('(?:)') && /",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "util: ok [\"new RegExp\""
+    },
+    {
+      "name": "75-lazy-global-capture dies when assert.js reads Object.prototype.hasOwnProperty live",
+      "why": "`Object.prototype.hasOwnProperty` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/assert.js",
+      "find": "  var hasOwn = P.ObjectPrototypeHasOwnProperty;",
+      "replace": "  var hasOwnM = Object.prototype.hasOwnProperty; var hasOwn = function (o, k) { return hasOwnM.call(o, k); };",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "assert: ok [\"Object.prototype\"]"
+    },
+    {
+      "name": "75-lazy-global-capture dies when assert.js reads Object.prototype.propertyIsEnumerable live",
+      "why": "`Object.prototype.propertyIsEnumerable` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/assert.js",
+      "find": "  var isEnum = P.ObjectPrototypePropertyIsEnumerable;",
+      "replace": "  var isEnumM = Object.prototype.propertyIsEnumerable; var isEnum = function (o, k) { return isEnumM.call(o, k); };",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "assert: ok [\"Object.prototype\"]"
+    },
+    {
+      "name": "75-lazy-global-capture dies when diagnostics_channel.js builds its registry with the live Map",
+      "why": "`Map` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/diagnostics_channel.js",
+      "find": "  var channels = new P.Map();",
+      "replace": "  var channels = new Map();",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "diagnostics_channel: ok [\"new Map\""
+    },
+    {
+      "name": "75-lazy-global-capture dies when diagnostics_channel.js defines Channel#hasSubscribers through the live Object",
+      "why": "`Object.defineProperty` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/diagnostics_channel.js",
+      "find": "  ObjectDefineProperty(Channel.prototype, 'hasSubscribers', {",
+      "replace": "  Object.defineProperty(Channel.prototype, 'hasSubscribers', {",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "diagnostics_channel: ok [\"Object.defineProperty\"]"
+    },
+    {
+      "name": "75-lazy-global-capture dies when diagnostics_channel.js defines TracingChannel#hasSubscribers through the live Object",
+      "why": "`Object.defineProperty` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/diagnostics_channel.js",
+      "find": "  ObjectDefineProperty(TracingChannel.prototype, 'hasSubscribers', {",
+      "replace": "  Object.defineProperty(TracingChannel.prototype, 'hasSubscribers', {",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "diagnostics_channel: ok [\"Object.defineProperty\"]"
+    },
+    {
+      "name": "75-lazy-global-capture dies when dns.js enumerates its error codes through the live Object",
+      "why": "`Object.keys` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/dns.js",
+      "find": "  P.ObjectKeys(CODES).forEach(function (k) {",
+      "replace": "  Object.keys(CODES).forEach(function (k) {",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "dns: ok [\"Object.keys\"]"
+    },
+    {
+      "name": "75-lazy-global-capture dies when http.js allocates the tchar table with the live Uint8Array",
+      "why": "`Uint8Array` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/http.js",
+      "find": "  var HTTP_TCHAR = new primordials.Uint8Array(128);",
+      "replace": "  var HTTP_TCHAR = new Uint8Array(128);",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "http: ok [\"new Uint8Array\""
+    },
+    {
+      "name": "75-lazy-global-capture dies when http.js builds IncomingMessage.prototype with the live Object",
+      "why": "`Object.create` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/http.js",
+      "find": "  IncomingMessage.prototype = ObjectCreate(EventEmitter.prototype);",
+      "replace": "  IncomingMessage.prototype = Object.create(EventEmitter.prototype);",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "http: ok [\"Object.create\"]"
+    },
+    {
+      "name": "75-lazy-global-capture dies when http.js defines IncomingMessage#rawHeaders through the live Object",
+      "why": "`Object.defineProperty` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/http.js",
+      "find": "  ObjectDefineProperty(IncomingMessage.prototype, 'rawHeaders', {",
+      "replace": "  Object.defineProperty(IncomingMessage.prototype, 'rawHeaders', {",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "http: ok [\"Object.defineProperty\"]"
+    },
+    {
+      "name": "75-lazy-global-capture dies when http.js builds ServerResponse.prototype with the live Object",
+      "why": "`Object.create` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/http.js",
+      "find": "  ServerResponse.prototype = ObjectCreate(EventEmitter.prototype);",
+      "replace": "  ServerResponse.prototype = Object.create(EventEmitter.prototype);",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "http: ok [\"Object.create\"]"
+    },
+    {
+      "name": "75-lazy-global-capture dies when http.js builds Server.prototype with the live Object",
+      "why": "`Object.create` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/http.js",
+      "find": "  Server.prototype = ObjectCreate(EventEmitter.prototype);",
+      "replace": "  Server.prototype = Object.create(EventEmitter.prototype);",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "http: ok [\"Object.create\"]"
+    },
+    {
+      "name": "75-lazy-global-capture dies when net.js builds Socket.prototype with the live Object",
+      "why": "`Object.create` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/net.js",
+      "find": "  Socket.prototype = ObjectCreate(EventEmitter.prototype);",
+      "replace": "  Socket.prototype = Object.create(EventEmitter.prototype);",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "net: ok [\"Object.create\"]"
+    },
+    {
+      "name": "75-lazy-global-capture dies when net.js builds Server.prototype with the live Object",
+      "why": "`Object.create` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/net.js",
+      "find": "  Server.prototype = ObjectCreate(EventEmitter.prototype);",
+      "replace": "  Server.prototype = Object.create(EventEmitter.prototype);",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "net: ok [\"Object.create\"]"
+    },
+    {
+      "name": "75-lazy-global-capture dies when os.js probes endianness through the live typed-array constructors",
+      "why": "`Uint16Array` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/os.js",
+      "find": "      OsPrimordials.TypedArrayPrototypeGetBuffer(new OsPrimordials.Uint16Array([1])),",
+      "replace": "      OsPrimordials.TypedArrayPrototypeGetBuffer(new Uint16Array([1])),",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "os: ok [\"new Uint16Array\""
+    },
+    {
+      "name": "75-lazy-global-capture dies when os.js wraps the endianness probe in the live Uint8Array",
+      "why": "`Uint8Array` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/os.js",
+      "find": "    new OsPrimordials.Uint8Array(",
+      "replace": "    new Uint8Array(",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "new Uint8Array"
+    },
+    {
+      "name": "75-lazy-global-capture dies when querystring.js reads Object.prototype.hasOwnProperty live",
+      "why": "`Object.prototype.hasOwnProperty` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/querystring.js",
+      "find": "  var hasOwn = P.ObjectHasOwn;",
+      "replace": "  var hasOwnM = Object.prototype.hasOwnProperty; var hasOwn = function (o, k) { return hasOwnM.call(o, k); };",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "querystring: ok [\"Object.prototype\"]"
+    },
+    {
+      "name": "75-lazy-global-capture dies when sqlite.js polyfills Symbol.dispose onto the live Symbol",
+      "why": "`Symbol` (the polyfill target for Symbol.dispose) is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/sqlite.js",
+      "find": "  var SymbolG = P.Symbol;",
+      "replace": "  var SymbolG = Symbol;",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "Symbol.dispose="
+    },
+    {
+      "name": "75-lazy-global-capture dies when sqlite.js defines DatabaseSync#isOpen through the live Object",
+      "why": "`Object.defineProperty` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/sqlite.js",
+      "find": "  P.ObjectDefineProperty(DatabaseSync.prototype, 'isOpen', {",
+      "replace": "  Object.defineProperty(DatabaseSync.prototype, 'isOpen', {",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "node:sqlite: ok [\"Object.defineProperty\"]"
+    },
+    {
+      "name": "75-lazy-global-capture dies when tty.js builds ReadStream.prototype with the live Object",
+      "why": "`Object.create` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/tty.js",
+      "find": "  ReadStream.prototype = ObjectCreate(EventEmitter.prototype);",
+      "replace": "  ReadStream.prototype = Object.create(EventEmitter.prototype);",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "tty: ok [\"Object.create\"]"
+    },
+    {
+      "name": "75-lazy-global-capture dies when tty.js builds WriteStream.prototype with the live Object",
+      "why": "`Object.create` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/tty.js",
+      "find": "  WriteStream.prototype = ObjectCreate(EventEmitter.prototype);",
+      "replace": "  WriteStream.prototype = Object.create(EventEmitter.prototype);",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "tty: ok [\"Object.create\"]"
+    },
+    {
+      "name": "75-lazy-global-capture dies when util/types.js reads Object.prototype.toString live",
+      "why": "`Object.prototype.toString` is read at module-eval of a LAZY module, i.e. on the user's first require \u2014 after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
+      "source": "pkg/runtime/js/node/util/types.js",
+      "find": "  var ObjectPrototypeToString = require('internal/primordials').ObjectPrototypeToStringFast;",
+      "replace": "  var toStringM = Object.prototype.toString; var ObjectPrototypeToString = function (v) { return toStringM.call(v); };",
+      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
+      "expect_detail": "util/types: ok [\"Object.prototype\"]"
     }
   ]
 }

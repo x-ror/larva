@@ -4,9 +4,14 @@
 (function (require, module) {
   'use strict';
 
+  // From primordials, not the live globals: this module is LAZY, so a module-eval read here
+  // runs after user code could have replaced `Map` or `Object` (#426).
+  var P = require('internal/primordials');
+  var ObjectDefineProperty = P.ObjectDefineProperty;
+
   // Node dedups channels via a WeakRef registry so unused ones can be GC'd; a Map is
   // functionally equivalent (it just keeps them alive), which is fine here.
-  var channels = new Map();
+  var channels = new P.Map();
 
   function reportError(err) {
     // A throwing subscriber must not break the publisher; surface it out-of-band.
@@ -19,7 +24,7 @@
     this.name = name;
     this._subscribers = [];
   }
-  Object.defineProperty(Channel.prototype, 'hasSubscribers', {
+  ObjectDefineProperty(Channel.prototype, 'hasSubscribers', {
     get: function () {
       return this._subscribers.length > 0;
     },
@@ -90,7 +95,7 @@
     this.asyncEnd = group.asyncEnd;
     this.error = group.error;
   }
-  Object.defineProperty(TracingChannel.prototype, 'hasSubscribers', {
+  ObjectDefineProperty(TracingChannel.prototype, 'hasSubscribers', {
     get: function () {
       return (
         this.start.hasSubscribers ||
