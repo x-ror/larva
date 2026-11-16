@@ -144,7 +144,17 @@
   req('internal/encoding');
   req('url');
   req('internal/structured_clone');
-  req('crypto');
+
+  // crypto's ONE eager root (a second top-level req('crypto') would keep it eager even if
+  // this one moved, which is what the lazy_builtins mutation relies on not happening).
+  // internal/blob mints `blob:nodedata:` ids with crypto.randomUUID, but it is
+  // instantiated by `buffer` above — before crypto exists — and cannot require crypto
+  // back (crypto requires buffer at its top level: a cycle check-js-graph rejects). So it
+  // gets the function through the same internal-req channel as pristineBuffer, read here,
+  // still before user code: a replaced `globalThis.crypto.randomUUID` or
+  // `require('crypto').randomUUID` no longer picks the id. Node mints it from its own
+  // binding and is immune; pinned by tests/node-compat/cases/78-blob-pristine-reads.js.
+  req.pristineRandomUUID = req('crypto').randomUUID;
 
   // The public resolver: what native require() consults. It answers `node/` ids only,
   // so nothing under internal/ is reachable from user code, for two reasons a module
