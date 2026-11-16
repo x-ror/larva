@@ -182,7 +182,8 @@ at its own top level, so the late edge is what keeps the graph acyclic), as node
 `internal/blob` is eager yet takes it too, at call time: `buffer` requires it from its own
 factory, before the table exists, and a top-level `require('buffer')` back would be a cycle.
 
-The JS layer is substantial and high quality: `url.js` (2071 LOC, WHATWG URL),
+The JS layer is substantial and high quality: URL (~2350 across `node/url.js` and
+`internal/url.js`, WHATWG URL),
 Web Streams (~2100 across `internal/webstreams/`), buffer (~1530 across `node/buffer.js` and
 `internal/buffer.js`; `Blob`, `File` and the `blob:` URL registry live in `internal/blob.js`
 and `internal/file.js`, as in node's `lib/internal`), fetch
@@ -237,7 +238,15 @@ same `loader.js` aliasing, and is eager through `req('buffer')`. `os` moves only
 data: `internal/os/constants` holds the signal, errno, priority and dlopen tables, which
 node reads from its C++ constants binding rather than `lib/os.js`. The tables throw
 nothing, so no frame moves; they call no native, so there is no alias, and the file stays
-lazy behind `require('os')`. Errors use Node-shaped
+lazy behind `require('os')`. URL takes node's `lib/internal/url` seam: `internal/url` holds
+the URL Standard parser, `URL`, `URLSearchParams`, `fileURLToPath`, `urlToHttpOptions` and
+`domainToASCII`/`domainToUnicode`, so an invalid URL or a bad `fileURLToPath` argument frames
+`node:internal/url` as node's does. `node/url` keeps `pathToFileURL` and `format`, which
+node's `lib/url.js` defines and frames in `node:url`, installs the `URL`/`URLSearchParams`
+globals (after `buffer`, keeping its object-URL statics) and assembles the exports in their
+old order, borrowing the record slot, the path serializer and the Punycode decoder for
+`format`. Url calls no native, so there is no alias; `internal/url` is eager through
+`req('url')`, which keeps its module-eval captures pristine. Errors use Node-shaped
 coded errors (`ERR_INVALID_ARG_TYPE`,
 `ERR_OUT_OF_RANGE`, …), built in one place: `js/internal/errors.js` (eager, hardened)
 holds node's `determineSpecificType`, `ERR_INVALID_ARG_TYPE`/`_VALUE`, `ERR_OUT_OF_RANGE`,

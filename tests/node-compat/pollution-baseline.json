@@ -257,6 +257,12 @@
     "accessor": 0,
     "global": 14
   },
+  "internal/url.js": {
+    "method": 36,
+    "invoke": 2,
+    "accessor": 0,
+    "global": 17
+  },
   "internal/util.js": {
     "method": 1,
     "invoke": 3,
@@ -480,10 +486,10 @@
     "global": 2
   },
   "node/url.js": {
-    "method": 46,
-    "invoke": 2,
+    "method": 10,
+    "invoke": 0,
     "accessor": 0,
-    "global": 18
+    "global": 1
   },
   "node/util.js": {
     "method": 6,
