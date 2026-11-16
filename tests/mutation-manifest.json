@@ -2022,8 +2022,8 @@
       "name": "builtin_factories_compile_on_first_require dies when a lazy builtin is compiled before user code",
       "why": "Restores eager compilation for the one module the test watches (node:os): if the loader compiles it at init, its first require compiles nothing and the startup win this pins is gone without any visible behavior change.",
       "source": "pkg/runtime/js/bootstrap/loader.js",
-      "find": "  req('crypto');\n",
-      "replace": "  req('crypto');\n  req('os');\n",
+      "find": "  req('internal/structured_clone');\n",
+      "replace": "  req('internal/structured_clone');\n  req('os');\n",
       "gate": "odin:cmd/lava:main.builtin_factories_compile_on_first_require",
       "expect_detail": "expected state.builtin_compiles to be"
     },
