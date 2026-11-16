@@ -183,7 +183,7 @@ at its own top level, so the late edge is what keeps the graph acyclic), as node
 factory, before the table exists, and a top-level `require('buffer')` back would be a cycle.
 
 The JS layer is substantial and high quality: `url.js` (2071 LOC, WHATWG URL),
-`stream/web.js` (2027, Web Streams), `buffer.js` (1456; `Blob`, `File` and the `blob:` URL registry
+Web Streams (~2100 across `internal/webstreams/`), `buffer.js` (1456; `Blob`, `File` and the `blob:` URL registry
 live in `internal/blob.js` and `internal/file.js`, as in node's `lib/internal`), `fetch.js` (1054),
 `crypto.js` (917). `node/stream.js` only assembles the public module; the classic
 streams live in `internal/streams/` (`legacy`, `readable`, `writable`, `duplex`,
@@ -197,7 +197,12 @@ node's — node publishes `require('_http_server')` and friends with a parser/ag
 Lava does not have, so a public file under that name would answer with the wrong keys —
 and frames read `node:internal/http/server` where node's read `node:_http_server`. Odin
 keys the http bindings by `node/http` only, so `loader.js` aliases that one object to
-`internal/http/outgoing` and `internal/http/server`. Errors use Node-shaped coded errors (`ERR_INVALID_ARG_TYPE`,
+`internal/http/outgoing` and `internal/http/server`. `node/stream/web.js` similarly
+only assembles exports and installs the globals; the implementation is in
+`internal/webstreams/` (`util`, `queuingstrategies`, `readablestream` — with tee, async
+iteration and pipeTo, as in node — `writablestream`, `transformstream`), all eager through
+`stream/web` and acyclic: `readablestream` requires `writablestream`, `transformstream`
+requires both, nothing requires back. Errors use Node-shaped coded errors (`ERR_INVALID_ARG_TYPE`,
 `ERR_OUT_OF_RANGE`, …), built in one place: `js/internal/errors.js` (eager, hardened)
 holds node's `determineSpecificType`, `ERR_INVALID_ARG_TYPE`/`_VALUE`, `ERR_OUT_OF_RANGE`,
 `ERR_MISSING_ARGS`, `ERR_UNKNOWN_ENCODING`, and two constructors for node's two shapes —

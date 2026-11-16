@@ -191,6 +191,36 @@
     "accessor": 0,
     "global": 6
   },
+  "internal/webstreams/queuingstrategies.js": {
+    "method": 0,
+    "invoke": 0,
+    "accessor": 1,
+    "global": 4
+  },
+  "internal/webstreams/readablestream.js": {
+    "method": 10,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 30
+  },
+  "internal/webstreams/transformstream.js": {
+    "method": 3,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 6
+  },
+  "internal/webstreams/util.js": {
+    "method": 7,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 10
+  },
+  "internal/webstreams/writablestream.js": {
+    "method": 2,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 15
+  },
   "node/assert.js": {
     "method": 14,
     "invoke": 2,
@@ -324,10 +354,10 @@
     "global": 2
   },
   "node/stream/web.js": {
-    "method": 22,
+    "method": 0,
     "invoke": 0,
-    "accessor": 1,
-    "global": 65
+    "accessor": 0,
+    "global": 0
   },
   "node/string_decoder.js": {
     "method": 14,

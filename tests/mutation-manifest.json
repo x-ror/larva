@@ -2480,6 +2480,24 @@
       "replace": "      if (k !== 'writable') continue;",
       "gate": "compat:tests/node-compat/cases/79-stream-internal-modules.js",
       "expect_detail": "node: Duplex has write function"
+    },
+    {
+      "name": "80-webstreams-internal-modules dies when a constructor is defined in the public entry again",
+      "why": "A constructor left behind in node/stream/web.js throws from a `node:stream/web` frame, which is exactly what the split moved away from.",
+      "source": "pkg/runtime/js/node/stream/web.js",
+      "find": "  var CountQueuingStrategy = strategies.CountQueuingStrategy;",
+      "replace": "  var CountQueuingStrategy = function CountQueuingStrategy(o) { if (!o) throw new TypeError('init'); return new strategies.CountQueuingStrategy(o); };",
+      "gate": "compat:tests/node-compat/cases/80-webstreams-internal-modules.js",
+      "expect_detail": "node: CountQueuingStrategy(): node:internal/webstreams/queuingstrategies true false"
+    },
+    {
+      "name": "80-webstreams-internal-modules dies when pipeTo loses its writablestream import",
+      "why": "pipeTo's abort path calls writableStreamAbort across the readablestream -> writablestream seam; a dropped import throws out of the abort path (unhandled, exit 1) instead of rejecting the pipe with the signal's reason.",
+      "source": "pkg/runtime/js/internal/webstreams/readablestream.js",
+      "find": "  var writableStreamAbort = writable.writableStreamAbort;",
+      "replace": "  var writableStreamAbort = writable.writableStreamAbortGone;",
+      "gate": "compat:tests/node-compat/cases/80-webstreams-internal-modules.js",
+      "expect_detail": "node: abort stop"
     }
   ]
 }
