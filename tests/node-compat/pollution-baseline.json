@@ -48,10 +48,34 @@
     "global": 0
   },
   "internal/fetch.js": {
-    "method": 28,
-    "invoke": 1,
+    "method": 9,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 23
+  },
+  "internal/fetch/body.js": {
+    "method": 7,
+    "invoke": 0,
     "accessor": 6,
-    "global": 75
+    "global": 21
+  },
+  "internal/fetch/headers.js": {
+    "method": 11,
+    "invoke": 1,
+    "accessor": 0,
+    "global": 17
+  },
+  "internal/fetch/request.js": {
+    "method": 1,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 12
+  },
+  "internal/fetch/response.js": {
+    "method": 0,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 2
   },
   "internal/file.js": {
     "method": 0,

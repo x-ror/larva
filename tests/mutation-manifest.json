@@ -188,7 +188,7 @@
     {
       "name": "the Lava-only regexp pollution test dies when the header-name validator goes back to re.test",
       "why": "node ACCEPTS 'X-Evil: 1\\r\\nInjected' under this poison (undici's validator is JS), so this deviation cannot be oracled and CLAUDE.md section 1 requires a Lava-only pin.",
-      "source": "pkg/runtime/js/internal/fetch.js",
+      "source": "pkg/runtime/js/internal/fetch/headers.js",
       "find": "    if (!reTest(VALID_HEADER_NAME, name)) {",
       "replace": "    if (!VALID_HEADER_NAME.test(name)) {",
       "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
@@ -197,7 +197,7 @@
     {
       "name": "the Lava-only regexp pollution test dies when the header trim goes back to a global replaceAll",
       "why": "A global replace under a forged exec does not answer wrongly — it never returns, because lastIndex only advances on an empty match. The observable effect IS the hang, so the recorded reason is the timeout verdict: before capture() bounded it this entry ate 3m16s and multi-GB in CI and degraded to WRONG REASON on a memory-capped runner.",
-      "source": "pkg/runtime/js/internal/fetch.js",
+      "source": "pkg/runtime/js/internal/fetch/headers.js",
       "find": "    while (start < end && isHttpWhitespace(StringPrototypeCharCodeAt(value, start))) start++;",
       "replace": "    if (/^[\\r\\n\\t ]+|[\\r\\n\\t ]+$/g.test(value)) value = value.replace(/^[\\r\\n\\t ]+|[\\r\\n\\t ]+$/g, '');\n    while (start < end && isHttpWhitespace(StringPrototypeCharCodeAt(value, start))) start++;",
       "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
@@ -225,7 +225,7 @@
     {
       "name": "the Lava-only test dies when the header-value scan reads charCodeAt live",
       "why": "Routing the validator off RegExp says nothing about what it scans WITH. A gadget lying only about CR/LF made Lava accept 'a\\r\\nInjected: yes' as a header value where node rejects, and turned res.setHeader('Location', decodeURIComponent(req.url)) into a split response from a remote request line.",
-      "source": "pkg/runtime/js/internal/fetch.js",
+      "source": "pkg/runtime/js/internal/fetch/headers.js",
       "find": "      var code = StringPrototypeCharCodeAt(value, i);",
       "replace": "      var code = value.charCodeAt(i);",
       "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
@@ -2498,6 +2498,24 @@
       "replace": "  var writableStreamAbort = writable.writableStreamAbortGone;",
       "gate": "compat:tests/node-compat/cases/80-webstreams-internal-modules.js",
       "expect_detail": "node: abort stop"
+    },
+    {
+      "name": "82-fetch-internal-modules dies when response.js builds its headers from a different Headers class",
+      "why": "Response and the Headers global now meet across a file seam; a response module holding its own Headers (a stale copy, a wrapper) still passes instanceof but hands user code headers whose constructor is not the global.",
+      "source": "pkg/runtime/js/internal/fetch/response.js",
+      "find": "  var Headers = require('internal/fetch/headers').Headers;",
+      "replace": "  var Headers = class Headers extends require('internal/fetch/headers').Headers {};",
+      "gate": "compat:tests/node-compat/cases/82-fetch-internal-modules.js",
+      "expect_detail": "node: identities true true true true true true true true true"
+    },
+    {
+      "name": "82-fetch-internal-modules dies when the assembler installs a Response other than response.js's",
+      "why": "internal/fetch only assembles: the global it installs must be the class response.js constructs from, or clone()/json()/error() return instances of a class the global is not.",
+      "source": "pkg/runtime/js/internal/fetch.js",
+      "find": "  var Response = require('internal/fetch/response').Response;",
+      "replace": "  var Response = class Response extends require('internal/fetch/response').Response {};",
+      "gate": "compat:tests/node-compat/cases/82-fetch-internal-modules.js",
+      "expect_detail": "node: identities true true true true true true true true true"
     }
   ]
 }
