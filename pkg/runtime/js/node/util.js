@@ -8,6 +8,9 @@
   // Captured for debugEnvPattern below, which replaced three global-flag replaces on the
   // NODE_DEBUG path. This file is not otherwise hardened — see the ratchet baseline.
   var UtilPrimordials = require('internal/primordials');
+  var errors = require('internal/errors');
+  var ERR_INVALID_ARG_TYPE = errors.ERR_INVALID_ARG_TYPE;
+  var ERR_INVALID_ARG_VALUE = errors.ERR_INVALID_ARG_VALUE;
   var StringPrototypeCharCodeAt = UtilPrimordials.StringPrototypeCharCodeAt;
   var StringPrototypeSlice = UtilPrimordials.StringPrototypeSlice;
   var StringPrototypeToUpperCase = UtilPrimordials.StringPrototypeToUpperCase;
@@ -586,20 +589,9 @@
     swapColors: [7, 27],
   };
 
-  // ERR_INVALID_ARG_TYPE and ERR_INVALID_ARG_VALUE are both TypeErrors in Node, so
-  // `err instanceof TypeError` works alongside `err.code`.
-  function styleTextError(code, message) {
-    var e = new TypeError(message);
-    e.code = code;
-    return e;
-  }
-
   function styleText(format, text, options) {
     if (typeof text !== 'string') {
-      throw styleTextError(
-        'ERR_INVALID_ARG_TYPE',
-        'The "text" argument must be of type string. Received ' + typeof text,
-      );
+      throw ERR_INVALID_ARG_TYPE('text', 'string', text);
     }
     var formats = Array.isArray(format) ? format : [format];
     var open = '';
@@ -610,10 +602,9 @@
       // Read from the live inspectColors so a caller-added/overridden style is honored.
       var codes = typeof f === 'string' ? inspectColors[f] : undefined;
       if (codes === undefined) {
-        throw styleTextError(
-          'ERR_INVALID_ARG_VALUE',
-          "The argument 'format' must be a valid style. Received " + inspect(f, {}, [], 1),
-        );
+        // node's reason lists ObjectKeys(inspect.colors); Lava's colors table has a
+        // different key set (aliases enumerable), so the list would not match anyway.
+        throw ERR_INVALID_ARG_VALUE('format', f, 'must be a valid style');
       }
       open += '\x1b[' + codes[0] + 'm';
       close = '\x1b[' + codes[1] + 'm' + close; // closes unwind in reverse
@@ -627,11 +618,7 @@
     // is rejected — Node only type-checks it on this path.
     if (validateStream) {
       if (typeof validateStream !== 'boolean') {
-        throw styleTextError(
-          'ERR_INVALID_ARG_TYPE',
-          'The "options.validateStream" property must be of type boolean. Received ' +
-            typeof validateStream,
-        );
+        throw ERR_INVALID_ARG_TYPE('options.validateStream', 'boolean', validateStream);
       }
       var stream =
         options.stream !== undefined
@@ -659,10 +646,7 @@
 
   function stripVTControlCharacters(str) {
     if (typeof str !== 'string') {
-      throw styleTextError(
-        'ERR_INVALID_ARG_TYPE',
-        'The "str" argument must be of type string. Received ' + typeof str,
-      );
+      throw ERR_INVALID_ARG_TYPE('str', 'string', str);
     }
     // Short-circuit when there is no ESC (7-bit) or CSI (8-bit) introducer at all.
     if (str.indexOf('\u001B') === -1 && str.indexOf('\u009B') === -1) return str;
@@ -833,19 +817,6 @@
     return logger;
   }
 
-  // Node's ERR_INVALID_ARG_TYPE "Received ..." clause: a primitive shows `type <typeof>
-  // (<value>)`, null/undefined as-is, an object `an instance of <constructor>`.
-  function receivedType(v) {
-    if (v === null) return 'null';
-    var t = typeof v;
-    if (t === 'undefined') return 'undefined';
-    if (t === 'object') {
-      var name = v.constructor && v.constructor.name ? v.constructor.name : 'Object';
-      return 'an instance of ' + name;
-    }
-    return 'type ' + t + ' (' + String(v) + ')';
-  }
-
   function isAbortSignalLike(s) {
     return (
       s !== null &&
@@ -862,17 +833,15 @@
   // resource is GC'd; the weak ref is not observable here, but the type check is.
   async function aborted(signal, resource) {
     if (!isAbortSignalLike(signal)) {
-      throw styleTextError(
+      // node's webidl AbortSignal converter: a bare TypeError, no Received tail.
+      throw errors.nativeError(
+        UtilPrimordials.TypeError,
         'ERR_INVALID_ARG_TYPE',
-        'The "signal" argument must be an instance of AbortSignal. Received ' +
-          receivedType(signal),
+        'signal is not of type AbortSignal.',
       );
     }
     if (resource === null || (typeof resource !== 'object' && typeof resource !== 'function')) {
-      throw styleTextError(
-        'ERR_INVALID_ARG_TYPE',
-        'The "resource" argument must be of type object. Received ' + receivedType(resource),
-      );
+      throw ERR_INVALID_ARG_TYPE('resource', 'object', resource);
     }
     if (signal.aborted) return undefined;
     return new Promise(function (resolve) {

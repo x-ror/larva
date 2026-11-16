@@ -11,6 +11,9 @@
   // could have replaced it (#426). Function bodies still read their globals live — see the
   // pollution baseline.
   var P = require('internal/primordials');
+  // node:sqlite throws from C++ (THROW_ERR_*): a bare error with a `code` own
+  // property, so String(e) carries no [code] — internal/errors' nativeError shape.
+  var nativeError = require('internal/errors').nativeError;
 
   if (!native) {
     throw new P.Error('node:sqlite is unavailable: Lava was built without libsqlite3');
@@ -88,9 +91,7 @@
   // whose db is closed reports as finalized too — matching node:sqlite.
   StatementSync.prototype._assertReady = function () {
     if (this._finalized || !this._db._open) {
-      var err = new Error('statement has been finalized');
-      err.code = 'ERR_INVALID_STATE';
-      throw err;
+      throw nativeError(P.Error, 'ERR_INVALID_STATE', 'statement has been finalized');
     }
   };
 
@@ -208,9 +209,11 @@
       native.bindBigInt(stmtId, index, value ? '1' : '0');
     } else if (t === 'bigint') {
       if (value < I64_MIN || value > I64_MAX) {
-        var ov = new TypeError('BigInt value is too large to bind.');
-        ov.code = 'ERR_INVALID_ARG_VALUE';
-        throw ov;
+        throw nativeError(
+          P.TypeError,
+          'ERR_INVALID_ARG_VALUE',
+          'BigInt value is too large to bind.',
+        );
       }
       native.bindBigInt(stmtId, index, value.toString());
     } else if (ArrayBuffer.isView(value)) {
@@ -227,9 +230,11 @@
       // `native` is the factory's private binding table, not a Function: not .bind().
       native.bind(stmtId, index, n === 0 ? null : new Uint8ArrayCtor(value)); // primordials-ok: method
     } else {
-      var err = new TypeError('Provided value cannot be bound to SQLite parameter ' + index + '.');
-      err.code = 'ERR_INVALID_ARG_TYPE';
-      throw err;
+      throw nativeError(
+        P.TypeError,
+        'ERR_INVALID_ARG_TYPE',
+        'Provided value cannot be bound to SQLite parameter ' + index + '.',
+      );
     }
   }
 
@@ -289,9 +294,11 @@
       var keys = Object.keys(named);
       for (var k = 0; k < keys.length; k++) {
         if (!known[keys[k]]) {
-          var unknown = new Error("Unknown named parameter '" + keys[k] + "'");
-          unknown.code = 'ERR_INVALID_STATE';
-          throw unknown;
+          throw nativeError(
+            P.Error,
+            'ERR_INVALID_STATE',
+            "Unknown named parameter '" + keys[k] + "'",
+          );
         }
       }
     }
@@ -355,18 +362,18 @@
       // A URL object — only a file: URL names a path (fileURLToPath rejects others).
       resolved = require('node:url').fileURLToPath(path.href);
     } else {
-      var e = new TypeError(
+      throw nativeError(
+        P.TypeError,
+        'ERR_INVALID_ARG_TYPE',
         'The "path" argument must be a string, Uint8Array, or URL without null bytes.',
       );
-      e.code = 'ERR_INVALID_ARG_TYPE';
-      throw e;
     }
     if (resolved.indexOf('\0') !== -1) {
-      var nul = new TypeError(
+      throw nativeError(
+        P.TypeError,
+        'ERR_INVALID_ARG_TYPE',
         'The "path" argument must be a string, Uint8Array, or URL without null bytes.',
       );
-      nul.code = 'ERR_INVALID_ARG_TYPE';
-      throw nul;
     }
     return resolved;
   }
@@ -395,9 +402,7 @@
 
   DatabaseSync.prototype._assertOpen = function () {
     if (!this._open) {
-      var err = new Error('database is not open');
-      err.code = 'ERR_INVALID_STATE';
-      throw err;
+      throw nativeError(P.Error, 'ERR_INVALID_STATE', 'database is not open');
     }
   };
 
@@ -408,9 +413,11 @@
   // it looks at the argument.
   function assertSql(sql) {
     if (typeof sql !== 'string') {
-      var err = new TypeError('The "sql" argument must be a string.');
-      err.code = 'ERR_INVALID_ARG_TYPE';
-      throw err;
+      throw nativeError(
+        P.TypeError,
+        'ERR_INVALID_ARG_TYPE',
+        'The "sql" argument must be a string.',
+      );
     }
     return sql;
   }

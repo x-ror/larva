@@ -28,44 +28,18 @@
   // Argument-validation helpers mirroring Node's internal validators, so bad
   // input fails with Node's error class + code instead of being silently
   // coerced (a zero-filled buffer, a wrapped iteration count, a clamped range).
-  function inspectReceived(value) {
-    if (value === null) return 'null';
-    var t = typeof value;
-    if (t === 'undefined') return 'undefined';
-    // -0 renders as "-0" in Node (util.inspect); string concatenation erases the
-    // sign. Same fix as buffer.js/encoding.js's copies of this helper.
-    if (t === 'number')
-      return 'type number (' + (value === 0 && 1 / value < 0 ? '-0' : value) + ')';
-    if (t === 'boolean') return 'type boolean (' + value + ')';
-    // A bigint keeps Node's trailing "n" (util.inspect(10n) === '10n'), which bare
-    // string coercion ('' + 10n === '10') drops — matches os.js/buffer.js.
-    if (t === 'bigint') return 'type bigint (' + value + 'n)';
-    if (t === 'string') return 'type string';
-    if (t === 'symbol') return 'type symbol';
-    if (t === 'function') return 'function ' + (value.name || '(anonymous)');
-    if (value && value.constructor && value.constructor.name)
-      return 'an instance of ' + value.constructor.name;
-    return 'type object';
-  }
-  function invalidArgType(name, expected, value) {
-    var err = new TypeError(
-      'The "' + name + '" argument must be ' + expected + '. Received ' + inspectReceived(value),
-    );
-    err.code = 'ERR_INVALID_ARG_TYPE';
-    return err;
-  }
-  function outOfRange(name, range, value) {
-    var err = new RangeError(
-      'The value of "' + name + '" is out of range. It must be ' + range + '. Received ' + value,
-    );
-    err.code = 'ERR_OUT_OF_RANGE';
-    return err;
-  }
+  // The errors themselves come from internal/errors (CLAUDE.md §5).
+  var P = require('internal/primordials');
+  var errors = require('internal/errors');
+  var nodeError = errors.nodeError;
+  var nativeError = errors.nativeError;
+  var invalidArgType = errors.ERR_INVALID_ARG_TYPE;
+  var outOfRange = errors.ERR_OUT_OF_RANGE;
   // Node's validateInt32: number, integer, within [min, max] (default int32 range).
   function validateInt32(value, name, min, max) {
     if (min === undefined) min = -0x80000000;
     if (max === undefined) max = 0x7fffffff;
-    if (typeof value !== 'number') throw invalidArgType(name, 'of type number', value);
+    if (typeof value !== 'number') throw invalidArgType(name, 'number', value);
     if (!Number.isInteger(value)) throw outOfRange(name, 'an integer', value);
     if (value < min || value > max) throw outOfRange(name, '>= ' + min + ' && <= ' + max, value);
     return value;
@@ -73,7 +47,7 @@
   // A byte count (randomBytes size): must be a number in [0, 2^31-1] and not
   // NaN, but — matching Node — a fractional value is truncated, not rejected.
   function validateByteCount(value, name) {
-    if (typeof value !== 'number') throw invalidArgType(name, 'of type number', value);
+    if (typeof value !== 'number') throw invalidArgType(name, 'number', value);
     if (Number.isNaN(value) || value < 0 || value > 0x7fffffff)
       throw outOfRange(name, '>= 0 && <= ' + 0x7fffffff, value);
     return Math.trunc(value);
@@ -89,11 +63,7 @@
     if (data instanceof ArrayBuffer) return new Uint8Array(data.slice(0));
     if (typeof SharedArrayBuffer !== 'undefined' && data instanceof SharedArrayBuffer)
       return new Uint8Array(new Uint8Array(data));
-    throw invalidArgType(
-      name || 'data',
-      'of type string or an instance of Buffer, TypedArray, or DataView',
-      data,
-    );
+    throw invalidArgType(name || 'data', ['string', 'Buffer', 'TypedArray', 'DataView'], data);
   }
 
   function concat(chunks) {
@@ -111,9 +81,7 @@
   }
 
   function finalizedError() {
-    var err = new Error('Digest already called');
-    err.code = 'ERR_CRYPTO_HASH_FINALIZED';
-    return err;
+    return nodeError(P.Error, 'ERR_CRYPTO_HASH_FINALIZED', 'Digest already called');
   }
 
   // Canonical digest names — one per Odin core:crypto/hash primitive. These are
@@ -204,9 +172,7 @@
     );
   }
   function invalidDigestError(name) {
-    var err = new TypeError('Invalid digest: ' + name);
-    err.code = 'ERR_CRYPTO_INVALID_DIGEST';
-    return err;
+    return nativeError(P.TypeError, 'ERR_CRYPTO_INVALID_DIGEST', 'Invalid digest: ' + name);
   }
 
   function getHashes() {
@@ -215,17 +181,21 @@
 
   function notImplemented(name) {
     return function () {
-      var err = new Error('node:crypto ' + name + ' is not implemented in Lava');
-      err.code = 'ERR_NOT_IMPLEMENTED';
-      throw err;
+      throw nativeError(
+        P.Error,
+        'ERR_NOT_IMPLEMENTED',
+        'node:crypto ' + name + ' is not implemented in Lava',
+      );
     };
   }
 
   function notImplementedConstructor(name) {
     return function () {
-      var err = new Error('node:crypto ' + name + ' is not implemented in Lava');
-      err.code = 'ERR_NOT_IMPLEMENTED';
-      throw err;
+      throw nativeError(
+        P.Error,
+        'ERR_NOT_IMPLEMENTED',
+        'node:crypto ' + name + ' is not implemented in Lava',
+      );
     };
   }
 
@@ -344,14 +314,14 @@
   // elements, converted to bytes against the view, and validated. An oversized
   // size now throws ERR_OUT_OF_RANGE instead of silently filling fewer bytes.
   function assertOffset(offset, elementSize, byteLength) {
-    if (typeof offset !== 'number') throw invalidArgType('offset', 'of type number', offset);
+    if (typeof offset !== 'number') throw invalidArgType('offset', 'number', offset);
     var bytes = offset * elementSize;
     if (Number.isNaN(bytes) || bytes < 0 || bytes > byteLength)
       throw outOfRange('offset', '>= 0 && <= ' + byteLength / elementSize, offset);
     return bytes >>> 0;
   }
   function assertSize(size, elementSize, offsetBytes, byteLength) {
-    if (typeof size !== 'number') throw invalidArgType('size', 'of type number', size);
+    if (typeof size !== 'number') throw invalidArgType('size', 'number', size);
     var bytes = size * elementSize;
     if (Number.isNaN(bytes) || bytes < 0 || bytes > 0x7fffffff)
       throw outOfRange('size', '>= 0 && <= ' + 0x7fffffff, size);
@@ -379,11 +349,7 @@
       byteLength = buffer.byteLength;
       elementSize = 1;
     } else {
-      throw invalidArgType(
-        'buf',
-        'an instance of ArrayBuffer, Buffer, TypedArray, or DataView',
-        buffer,
-      );
+      throw invalidArgType('buf', ['ArrayBuffer', 'ArrayBufferView'], buffer);
     }
     var offsetBytes = assertOffset(offset === undefined ? 0 : offset, elementSize, byteLength);
     var sizeBytes =
@@ -468,23 +434,28 @@
   // Node requires both operands to be ArrayBufferView/ArrayBuffer — strings and
   // numbers are rejected (a number used to be zero-filled, so timingSafeEqual(5,
   // 5) wrongly returned true).
+  // node's C++ TimingSafeEqual throws this one: no Received tail, no [code] in String(e).
   function requireBufferSource(value, name) {
     if (!ArrayBuffer.isView(value) && !(value instanceof ArrayBuffer))
-      throw invalidArgType(
-        name,
-        'an instance of ArrayBuffer, Buffer, TypedArray, or DataView',
-        value,
+      throw nativeError(
+        P.TypeError,
+        'ERR_INVALID_ARG_TYPE',
+        'The "' +
+          name +
+          '" argument must be an instance of ArrayBuffer, Buffer, TypedArray, or DataView.',
       );
   }
   function timingSafeEqual(a, b) {
-    requireBufferSource(a, 'a');
-    requireBufferSource(b, 'b');
+    requireBufferSource(a, 'buf1');
+    requireBufferSource(b, 'buf2');
     var ua = toU8(a),
       ub = toU8(b);
     if (ua.length !== ub.length) {
-      var err = new RangeError('Input buffers must have the same byte length');
-      err.code = 'ERR_CRYPTO_TIMING_SAFE_EQUAL_LENGTH';
-      throw err;
+      throw nativeError(
+        P.RangeError,
+        'ERR_CRYPTO_TIMING_SAFE_EQUAL_LENGTH',
+        'Input buffers must have the same byte length',
+      );
     }
     return native.timingSafeEqual(ua, ub);
   }
@@ -536,7 +507,7 @@
   }
 
   function pbkdf2Sync(password, salt, iterations, keylen, digest) {
-    if (typeof digest !== 'string') throw invalidArgType('digest', 'of type string', digest);
+    if (typeof digest !== 'string') throw invalidArgType('digest', 'string', digest);
     var algo = resolveDigest(digest);
     if (!algo) throw invalidDigestError(digest);
     var pw = toU8(password, undefined, 'password');
@@ -703,11 +674,11 @@
       var hasP = opts[primary] !== undefined;
       var hasA = opts[alias] !== undefined;
       if (hasP && hasA) {
-        var err = new TypeError(
+        throw nodeError(
+          P.TypeError,
+          'ERR_INCOMPATIBLE_OPTION_PAIR',
           'Option "' + primary + '" cannot be used in combination with option "' + alias + '"',
         );
-        err.code = 'ERR_INCOMPATIBLE_OPTION_PAIR';
-        throw err;
       }
       if (hasP) return opts[primary];
       if (hasA) return opts[alias];
@@ -721,19 +692,16 @@
   }
 
   function scryptParamsError(message) {
-    var err = new RangeError(message || 'Invalid scrypt params');
-    err.code = 'ERR_CRYPTO_INVALID_SCRYPT_PARAMS';
-    return err;
+    return nativeError(
+      P.RangeError,
+      'ERR_CRYPTO_INVALID_SCRYPT_PARAMS',
+      message || 'Invalid scrypt params',
+    );
   }
 
   function scryptDerive(password, salt, keylen, options) {
     if (!Number.isInteger(keylen) || keylen < 0 || keylen > 0x7fffffff) {
-      var rerr = new RangeError(
-        'The value of "keylen" is out of range. It must be >= 0 && <= 2147483647. Received ' +
-          keylen,
-      );
-      rerr.code = 'ERR_OUT_OF_RANGE';
-      throw rerr;
+      throw outOfRange('keylen', '>= 0 && <= 2147483647', keylen);
     }
     var pr = scryptParams(options);
     var N = pr.N,

@@ -180,7 +180,13 @@ instantiates them during bootstrap.
 The JS layer is substantial and high quality: `url.js` (2071 LOC, WHATWG URL),
 `stream/web.js` (2027, Web Streams), `buffer.js` (1646), `fetch.js` (1054),
 `crypto.js` (917). Errors use Node-shaped coded errors (`ERR_INVALID_ARG_TYPE`,
-`ERR_OUT_OF_RANGE`, …). Native byte ops are gated by a size threshold
+`ERR_OUT_OF_RANGE`, …), built in one place: `js/internal/errors.js` (eager, hardened)
+holds node's `determineSpecificType`, `ERR_INVALID_ARG_TYPE`/`_VALUE`, `ERR_OUT_OF_RANGE`,
+`ERR_MISSING_ARGS`, `ERR_UNKNOWN_ENCODING`, and two constructors for node's two shapes —
+`nodeError` (node's JS layer: `String(e)` is `TypeError [ERR_X]: msg`) and `nativeError`
+(node's C++ layer: `TypeError: msg`). A builtin requires it rather than keeping a local
+copy; per-module message templates call `nodeError`/`nativeError` with their own text.
+Native byte ops are gated by a size threshold
 so small inputs avoid FFI overhead — except that the threshold this sentence used to
 name (`NATIVE_BYTEOP_MIN`) does not exist in the tree: `bytesToString` dispatches to a
 native codec at every size. Removed rather than left as folklore steering review.
@@ -304,8 +310,9 @@ base Error with an overridden name only when the constructor is unreachable.
 `make_js_error` / `make_js_named_error` and the typed `ERR_*` helpers
 (`err_out_of_range`, `err_invalid_arg_type`, …) all route through it; the ad-hoc
 "base Error + manual `name`/`code` patch" sites (process.exit, sqlite, module
-resolution) were migrated. The JS layer still sets `err.code` per module; growing
-the `ERR_*` helper list lets native sites adopt the same codes as they need them.
+resolution) were migrated. The JS layer builds its coded errors through
+`js/internal/errors.js` (§3.3); growing the `ERR_*` helper list lets native sites adopt
+the same codes as they need them.
 
 ---
 

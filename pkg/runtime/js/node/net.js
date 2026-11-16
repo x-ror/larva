@@ -12,6 +12,7 @@
   // module-eval read here runs after user code could have replaced the global (#426).
   var P = require('internal/primordials');
   var ObjectCreate = P.ObjectCreate;
+  var nodeError = require('internal/errors').nodeError;
 
   if (!native || typeof native.listen !== 'function') {
     throw new P.Error('node:net is unavailable on this platform');
@@ -197,8 +198,11 @@
     // (its fd stays watched, pinning the loop and the port). Reject, like Node.
     if (this._listening || this._closing) {
       var self0 = this;
-      var lerr = new Error('Server is already listening');
-      lerr.code = 'ERR_SERVER_ALREADY_LISTEN';
+      var lerr = nodeError(
+        P.Error,
+        'ERR_SERVER_ALREADY_LISTEN',
+        'Listen method has been called more than once without closing.',
+      );
       process.nextTick(function () {
         self0.emit('error', lerr);
       });

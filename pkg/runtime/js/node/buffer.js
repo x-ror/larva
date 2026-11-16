@@ -100,107 +100,23 @@
   var customInspectSymbol =
     typeof Symbol !== 'undefined' && Symbol.for ? Symbol.for('nodejs.util.inspect.custom') : null;
 
-  function describeType(value) {
-    if (value === null) return 'null';
-    var t = typeof value;
-    if (t === 'undefined') return 'undefined';
-    if (t === 'string') {
-      var s = value.length > 28 ? value.slice(0, 25) + '...' : value;
-      return "type string ('" + s + "')";
-    }
-    // -0 renders as "-0" in Node (it routes through util.inspect); string
-    // concatenation erases the sign. 1/value avoids a dependency on Object.is.
-    if (t === 'number')
-      return 'type number (' + (value === 0 && 1 / value < 0 ? '-0' : value) + ')';
-    if (t === 'boolean') return 'type boolean (' + value + ')';
-    if (t === 'bigint') return 'type bigint (' + value + 'n)';
-    if (t === 'symbol') return 'type symbol (' + value.toString() + ')';
-    if (t === 'function') return 'function ' + (value.name || '(anonymous)');
-    var ctor = value.constructor && value.constructor.name;
-    return 'an instance of ' + (ctor || 'Object');
-  }
-
-  function numericSeparator(value) {
-    var str;
-    if (typeof value === 'bigint') str = value.toString();
-    else if (typeof value !== 'number') return StringG(value);
-    else if (!isFinite(value) || Math.floor(value) !== value) return StringG(value);
-    else str = StringG(value);
-    var neg = str.charAt(0) === '-';
-    if (neg) str = str.slice(1);
-    var out = '';
-    var i = str.length;
-    for (; i > 3; i -= 3) out = '_' + str.slice(i - 3, i) + out;
-    return (neg ? '-' : '') + str.slice(0, i) + out;
-  }
-
-  /**
-   * Builds node's ERR_INVALID_ARG_TYPE for a named argument.
-   * @param {string} name Argument name, quoted into the message.
-   * @param {string} expected Everything after "must be", verb phrase included:
-   *   'of type number', 'an instance of Array'. It is spliced verbatim, so a bare
-   *   type name ('number') yields `must be number` — a sentence node never prints.
-   * @param {*} actual The rejected value, rendered by describeType.
-   * @returns {TypeError & {code: string}}
-   * @node `The "size" argument must be of type number. Received type string ('5')`
-   *       for Buffer.alloc('5'); the same template for "offset" (readUInt8('5'),
-   *       writeUInt16LE(0, '1')) and "length" (Buffer.concat([a], '5')). Node 26.13.0,
-   *       verified by tests/node-compat/cases/70-buffer-size-inspect-parity.js.
-   * @deviates none
-   */
-  function errInvalidArgType(name, expected, actual) {
-    var e = new TypeError(
-      'The "' + name + '" argument must be ' + expected + '. Received ' + describeType(actual),
-    );
-    e.code = 'ERR_INVALID_ARG_TYPE';
-    return e;
-  }
-
-  function errInvalidFromArg(value) {
-    var e = new TypeError(
-      'The first argument must be of type string or an instance of Buffer, ArrayBuffer, ' +
-        'or Array or an Array-like Object. Received ' +
-        describeType(value),
-    );
-    e.code = 'ERR_INVALID_ARG_TYPE';
-    return e;
-  }
-
-  /** @returns {RangeError & {code: string}} */
-  function errOutOfRange(name, range, received) {
-    var rendered;
-    if (typeof received === 'bigint') {
-      var bigWide = received > BigInt('4294967296') || received < -BigInt('4294967296');
-      rendered = (bigWide ? numericSeparator(received) : received.toString()) + 'n';
-    } else if (typeof received === 'number' && (received > 4294967296 || received < -4294967296)) {
-      rendered = numericSeparator(received);
-    } else {
-      rendered = StringG(received);
-    }
-    var e = new RangeError(
-      'The value of "' + name + '" is out of range. It must be ' + range + '. Received ' + rendered,
-    );
-    e.code = 'ERR_OUT_OF_RANGE';
-    return e;
-  }
-
-  function errInvalidArgValue(name, value) {
-    var rendered;
-    if (typeof value === 'string') rendered = "'" + value + "'";
-    else if (value instanceof Uint8Array) rendered = inspectBuffer(value);
-    else rendered = describeType(value);
-    var e = new TypeError("The argument '" + name + "' is invalid. Received " + rendered);
-    e.code = 'ERR_INVALID_ARG_VALUE';
-    return e;
-  }
+  // Node-shaped coded errors come from internal/errors (CLAUDE.md §5); what stays here
+  // are the buffer-only message templates.
+  var errors = require('internal/errors');
+  var nodeError = errors.nodeError;
+  var ERR_INVALID_ARG_TYPE = errors.ERR_INVALID_ARG_TYPE;
+  var ERR_INVALID_ARG_VALUE = errors.ERR_INVALID_ARG_VALUE;
+  var ERR_OUT_OF_RANGE = errors.ERR_OUT_OF_RANGE;
+  var ERR_MISSING_ARGS = errors.ERR_MISSING_ARGS;
+  var ERR_UNKNOWN_ENCODING = errors.ERR_UNKNOWN_ENCODING;
 
   function validateByteLength(byteLength) {
     if (typeof byteLength !== 'number')
-      throw errInvalidArgType('byteLength', 'of type number', byteLength);
+      throw ERR_INVALID_ARG_TYPE('byteLength', 'number', byteLength);
     if (Math.floor(byteLength) !== byteLength)
-      throw errOutOfRange('byteLength', 'an integer', byteLength);
+      throw ERR_OUT_OF_RANGE('byteLength', 'an integer', byteLength);
     if (byteLength < 1 || byteLength > 6)
-      throw errOutOfRange('byteLength', '>= 1 and <= 6', byteLength);
+      throw ERR_OUT_OF_RANGE('byteLength', '>= 1 and <= 6', byteLength);
   }
 
   function checkValueInt(value, min, max, blMinus1) {
@@ -218,33 +134,29 @@
       } else {
         range = '>= ' + min + n + ' and <= ' + max + n;
       }
-      throw errOutOfRange('value', range, value);
+      throw ERR_OUT_OF_RANGE('value', range, value);
     }
   }
 
   function validateWriteOffset(offset, max, name) {
-    if (Math.floor(offset) !== offset) throw errOutOfRange(name, 'an integer', offset);
-    if (offset < 0 || offset > max) throw errOutOfRange(name, '>= 0 && <= ' + max, offset);
+    if (Math.floor(offset) !== offset) throw ERR_OUT_OF_RANGE(name, 'an integer', offset);
+    if (offset < 0 || offset > max) throw ERR_OUT_OF_RANGE(name, '>= 0 && <= ' + max, offset);
     return offset;
   }
 
   // Node's validateOffset(value, name, 0, max) as write/compare/fill call it: a
   // non-number is a type error (no ToNumber coercion), then the integer/range check.
   function validateOffsetArg(value, name, max) {
-    if (typeof value !== 'number') throw errInvalidArgType(name, 'of type number', value);
+    if (typeof value !== 'number') throw ERR_INVALID_ARG_TYPE(name, 'number', value);
     return validateWriteOffset(value, max, name);
   }
 
-  function errUnknownEncoding(encoding) {
-    var e = new TypeError('Unknown encoding: ' + encoding);
-    e.code = 'ERR_UNKNOWN_ENCODING';
-    return e;
-  }
-
   function errBufferSize(bits) {
-    var e = new RangeError('Buffer size must be a multiple of ' + bits + '-bits');
-    e.code = 'ERR_INVALID_BUFFER_SIZE';
-    return e;
+    return nodeError(
+      P.RangeError,
+      'ERR_INVALID_BUFFER_SIZE',
+      'Buffer size must be a multiple of ' + bits + '-bits',
+    );
   }
 
   /**
@@ -267,9 +179,9 @@
    *           34-oversized-allocation.js.
    */
   function assertSize(size) {
-    if (typeof size !== 'number') throw errInvalidArgType('size', 'of type number', size);
+    if (typeof size !== 'number') throw ERR_INVALID_ARG_TYPE('size', 'number', size);
     if (!(size >= 0 && size <= K_MAX_LENGTH))
-      throw errOutOfRange('size', '>= 0 && <= ' + K_MAX_LENGTH, size);
+      throw ERR_OUT_OF_RANGE('size', '>= 0 && <= ' + K_MAX_LENGTH, size);
   }
 
   /** @returns {string} Canonical encoding name (default utf8). */
@@ -341,7 +253,7 @@
       return norm ? base64DecodeNative(norm) : EMPTY_U8;
     }
     if (encoding === 'ascii' || encoding === 'latin1') return latin1EncodeNative(str);
-    throw errUnknownEncoding(encoding);
+    throw ERR_UNKNOWN_ENCODING(encoding);
   }
 
   /** @returns {string} */
@@ -354,7 +266,7 @@
     if (encoding === 'base64url') return base64urlEncodeNative(bytes);
     if (encoding === 'latin1') return latin1DecodeNative(bytes);
     if (encoding === 'ascii') return asciiDecodeNative(bytes);
-    throw errUnknownEncoding(encoding);
+    throw ERR_UNKNOWN_ENCODING(encoding);
   }
 
   function toInteger(value, fallback) {
@@ -373,19 +285,21 @@
   }
 
   function errBufferOutOfBounds() {
-    var e = new RangeError('Attempt to access memory outside buffer bounds');
-    e.code = 'ERR_BUFFER_OUT_OF_BOUNDS';
-    return e;
+    return nodeError(
+      P.RangeError,
+      'ERR_BUFFER_OUT_OF_BOUNDS',
+      'Attempt to access memory outside buffer bounds',
+    );
   }
 
   /** Node-style offset bounds for fixed-width numeric accessors. */
   function checkBounds(buf, offset, byteLength) {
     if (offset === undefined) offset = 0;
-    if (typeof offset !== 'number') throw errInvalidArgType('offset', 'of type number', offset);
-    if (Math.floor(offset) !== offset) throw errOutOfRange('offset', 'an integer', offset);
+    if (typeof offset !== 'number') throw ERR_INVALID_ARG_TYPE('offset', 'number', offset);
+    if (Math.floor(offset) !== offset) throw ERR_OUT_OF_RANGE('offset', 'an integer', offset);
     var max = buf.length - byteLength;
     if (max < 0) throw errBufferOutOfBounds();
-    if (offset < 0 || offset > max) throw errOutOfRange('offset', '>= 0 and <= ' + max, offset);
+    if (offset < 0 || offset > max) throw ERR_OUT_OF_RANGE('offset', '>= 0 and <= ' + max, offset);
     return offset;
   }
 
@@ -416,11 +330,7 @@
     if (typeof value === 'string') return strToBytes(value, encoding || 'utf8');
     if (value instanceof Uint8Array) return value;
     if (value instanceof ArrayBuffer) return new Uint8Array(value);
-    throw errInvalidArgType(
-      'value',
-      'one of type number or string or an instance of Buffer or Uint8Array',
-      value,
-    );
+    throw ERR_INVALID_ARG_TYPE('value', ['number', 'string', 'Buffer', 'Uint8Array'], value);
   }
 
   /** indexOf / lastIndexOf implementation (native search). */
@@ -573,25 +483,25 @@
      */
     copy(target, targetStart, sourceStart, sourceEnd) {
       if (!(target instanceof Uint8Array))
-        throw errInvalidArgType('target', 'an instance of Buffer or Uint8Array', target);
+        throw ERR_INVALID_ARG_TYPE('target', ['Buffer', 'Uint8Array'], target);
       if (targetStart === undefined) {
         targetStart = 0;
       } else {
         targetStart = toInteger(targetStart, 0);
-        if (targetStart < 0) throw errOutOfRange('targetStart', '>= 0', targetStart);
+        if (targetStart < 0) throw ERR_OUT_OF_RANGE('targetStart', '>= 0', targetStart);
       }
       if (sourceStart === undefined) {
         sourceStart = 0;
       } else {
         sourceStart = toInteger(sourceStart, 0);
         if (sourceStart < 0 || sourceStart > this.length)
-          throw errOutOfRange('sourceStart', '>= 0 && <= ' + this.length, sourceStart);
+          throw ERR_OUT_OF_RANGE('sourceStart', '>= 0 && <= ' + this.length, sourceStart);
       }
       if (sourceEnd === undefined) {
         sourceEnd = this.length;
       } else {
         sourceEnd = toInteger(sourceEnd, 0);
-        if (sourceEnd < 0) throw errOutOfRange('sourceEnd', '>= 0', sourceEnd);
+        if (sourceEnd < 0) throw ERR_OUT_OF_RANGE('sourceEnd', '>= 0', sourceEnd);
       }
       if (sourceEnd > this.length) sourceEnd = this.length;
       if (targetStart >= target.length || sourceStart >= sourceEnd) return 0;
@@ -611,9 +521,8 @@
      */
     write(string, offset, length, encoding) {
       if (typeof string !== 'string') {
-        var e = new TypeError('argument must be a string');
-        e.code = 'ERR_INVALID_ARG_TYPE';
-        throw e;
+        // node's C++ StringWrite throws this one: no Received tail, no [code].
+        throw errors.nativeError(P.TypeError, 'ERR_INVALID_ARG_TYPE', 'argument must be a string');
       }
       if (offset === undefined) {
         offset = 0;
@@ -669,7 +578,7 @@
 
     compare(target, targetStart, targetEnd, sourceStart, sourceEnd) {
       if (!(target instanceof Uint8Array))
-        throw errInvalidArgType('target', 'an instance of Buffer or Uint8Array', target);
+        throw ERR_INVALID_ARG_TYPE('target', ['Buffer', 'Uint8Array'], target);
       // Node bounds the *Start arguments by kMaxLength only, the *End ones by the
       // buffer length: compare(b3, 100) is 1 (empty target range), not a RangeError.
       if (targetStart === undefined) targetStart = 0;
@@ -705,12 +614,11 @@
       // out of range) goes to validateWriteOffset, which picks and builds the error.
       // `% 1` rather than Math.floor keeps the live `Math` global read out (§5).
       if (start === undefined) start = 0;
-      else if (typeof start !== 'number')
-        throw errInvalidArgType('offset', 'of type number', start);
+      else if (typeof start !== 'number') throw ERR_INVALID_ARG_TYPE('offset', 'number', start);
       else if (start % 1 !== 0 || start < 0 || start > K_MAX_LENGTH)
         validateWriteOffset(start, K_MAX_LENGTH, 'offset');
       if (end === undefined) end = this.length;
-      else if (typeof end !== 'number') throw errInvalidArgType('end', 'of type number', end);
+      else if (typeof end !== 'number') throw ERR_INVALID_ARG_TYPE('end', 'number', end);
       else if (end % 1 !== 0 || end < 0 || end > this.length)
         validateWriteOffset(end, this.length, 'end');
       if (end <= start) return this;
@@ -725,12 +633,12 @@
         if (typeof value === 'string') {
           bytes = strToBytes(value, encoding || 'utf8');
           if (bytes.length === 0) {
-            if (value.length !== 0) throw errInvalidArgValue('value', value);
+            if (value.length !== 0) throw ERR_INVALID_ARG_VALUE('value', value);
             u8Fill.call(this, 0, start, end);
             return this;
           }
         } else if (value instanceof Uint8Array) {
-          if (value.length === 0) throw errInvalidArgValue('value', value);
+          if (value.length === 0) throw ERR_INVALID_ARG_VALUE('value', value);
           bytes = value;
         }
       }
@@ -1243,7 +1151,11 @@
         if (typeof primitive === 'string') return Buffer.from(primitive, encodingOrOffset);
       }
     }
-    throw errInvalidFromArg(value);
+    throw ERR_INVALID_ARG_TYPE(
+      'first argument',
+      ['string', 'Buffer', 'ArrayBuffer', 'Array', 'Array-like Object'],
+      value,
+    );
   };
 
   /** Zero-filled (or filled) allocation. */
@@ -1298,29 +1210,23 @@
     ) {
       return string.byteLength;
     }
-    throw errInvalidArgType(
-      'string',
-      'of type string or an instance of Buffer or ArrayBuffer',
-      string,
-    );
+    throw ERR_INVALID_ARG_TYPE('string', ['string', 'Buffer', 'ArrayBuffer'], string);
   };
 
   Buffer.compare = function (a, b) {
-    if (!(a instanceof Uint8Array))
-      throw errInvalidArgType('buf1', 'an instance of Buffer or Uint8Array', a);
-    if (!(b instanceof Uint8Array))
-      throw errInvalidArgType('buf2', 'an instance of Buffer or Uint8Array', b);
+    if (!(a instanceof Uint8Array)) throw ERR_INVALID_ARG_TYPE('buf1', ['Buffer', 'Uint8Array'], a);
+    if (!(b instanceof Uint8Array)) throw ERR_INVALID_ARG_TYPE('buf2', ['Buffer', 'Uint8Array'], b);
     return compareBytes(a, b);
   };
 
   function assertConcatElement(item, index) {
     if (!(item instanceof Uint8Array))
-      throw errInvalidArgType('list[' + index + ']', 'an instance of Buffer or Uint8Array', item);
+      throw ERR_INVALID_ARG_TYPE('list[' + index + ']', ['Buffer', 'Uint8Array'], item);
   }
 
   /** @param {Array<Uint8Array|Buffer>} list @param {number} [totalLength] */
   Buffer.concat = function (list, totalLength) {
-    if (!Array.isArray(list)) throw errInvalidArgType('list', 'an instance of Array', list);
+    if (!Array.isArray(list)) throw ERR_INVALID_ARG_TYPE('list', 'Array', list);
     if (list.length === 0) return new FastBuffer(0);
     if (totalLength === undefined) {
       totalLength = 0;
@@ -1330,11 +1236,11 @@
       }
     } else {
       if (typeof totalLength !== 'number')
-        throw errInvalidArgType('length', 'of type number', totalLength);
+        throw ERR_INVALID_ARG_TYPE('length', 'number', totalLength);
       if (Math.floor(totalLength) !== totalLength)
-        throw errOutOfRange('length', 'an integer', totalLength);
+        throw ERR_OUT_OF_RANGE('length', 'an integer', totalLength);
       if (totalLength < 0 || totalLength > K_MAX_LENGTH)
-        throw errOutOfRange('length', '>= 0 && <= ' + K_MAX_LENGTH, totalLength);
+        throw ERR_OUT_OF_RANGE('length', '>= 0 && <= ' + K_MAX_LENGTH, totalLength);
     }
     var result = allocate(totalLength);
     var offset = 0;
@@ -1354,8 +1260,7 @@
   };
 
   Buffer.copyBytesFrom = function (view, offset, length) {
-    if (!ArrayBuffer.isView(view))
-      throw errInvalidArgType('view', 'an instance of TypedArray', view);
+    if (!ArrayBuffer.isView(view)) throw ERR_INVALID_ARG_TYPE('view', 'TypedArray', view);
     var bpe = view.BYTES_PER_ELEMENT || 1;
     offset = toInteger(offset, 0);
     length = length === undefined ? view.length - offset : toInteger(length, 0);
@@ -1375,12 +1280,6 @@
   Buffer.poolSize = 262144;
 
   createPool();
-
-  function errMissingInput() {
-    var e = new TypeError('The "input" argument must be specified');
-    e.code = 'ERR_MISSING_ARGS';
-    return e;
-  }
 
   // Node throws a DOMException here; Lava has no DOMException (same gap as
   // structured_clone.js's DataCloneError), so this is an Error carrying the
@@ -1421,7 +1320,7 @@
    *           and message match. Pinned by cmd/lava/atob_invalid_character_test.odin.
    */
   function atob(input) {
-    if (arguments.length === 0) throw errMissingInput();
+    if (arguments.length === 0) throw ERR_MISSING_ARGS('input');
     input = `${input}`;
     var nonWhitespace = 0;
     var equals = 0;
@@ -1468,7 +1367,7 @@
    *           cmd/lava/atob_invalid_character_test.odin.
    */
   function btoa(input) {
-    if (arguments.length === 0) throw errMissingInput();
+    if (arguments.length === 0) throw ERR_MISSING_ARGS('input');
     input = `${input}`;
     if (P.RegExpMatches(NON_LATIN1_RE, input)) throw errInvalidCharacter('Invalid character');
     return Buffer.from(input, 'latin1').toString('base64');
@@ -1705,9 +1604,7 @@
   /** @param {Blob|File} obj @returns {string} blob: URL */
   function createObjectURL(obj) {
     if (!(obj instanceof Blob)) {
-      var typeErr = new TypeError('The "obj" argument must be an instance of Blob.');
-      typeErr.code = 'ERR_INVALID_ARG_TYPE';
-      throw typeErr;
+      throw ERR_INVALID_ARG_TYPE('obj', 'Blob', obj);
     }
     var id = 'blob:nodedata:' + objectUrlId();
     objectUrlRegistry.set(id, obj);
@@ -1717,9 +1614,7 @@
   /** @param {string} url */
   function revokeObjectURL(url) {
     if (url === undefined) {
-      var missingErr = new TypeError('The "url" argument must be specified');
-      missingErr.code = 'ERR_MISSING_ARGS';
-      throw missingErr;
+      throw ERR_MISSING_ARGS('url');
     }
     objectUrlRegistry.delete(StringG(url));
   }
@@ -1778,18 +1673,5 @@
       inspectMaxBytes = value;
     },
   });
-  // Internal, and deliberately NON-ENUMERABLE so `Object.keys(require('buffer'))` still
-  // matches node exactly: stream.js builds the same ERR_INVALID_ARG_TYPE "Received …"
-  // clause, there is no shared errors module to host it, and the alternative is a seventh
-  // near-copy in a tree where the six that exist already disagree with each other (fs.js's
-  // was missing node's object branch until #330). An earlier revision exported it
-  // enumerably, which silently added a key node does not have.
-  P.ObjectDefineProperty(exported, 'describeType', {
-    value: describeType,
-    enumerable: false,
-    writable: false,
-    configurable: false,
-  });
-
   module.exports = exported;
 });

@@ -694,20 +694,20 @@
     },
     {
       "name": "62-fs-read-buffer dies when ERR_INVALID_ARG_TYPE loses node's object branch",
-      "why": "node's determineSpecificType renders an object receiver as `an instance of <Ctor>`, not `type object (<inspected>)`. The reachable trigger is fs.readFile(path, options) with a forgotten callback. expect_detail keys on the ESCAPING text (Received {}), not the case assertion: assert.throws re-surfaces the original TypeError on a message mismatch here, so the assertion text never reaches the diff.",
-      "source": "pkg/runtime/js/node/fs.js",
-      "find": "      if (typeof ctor === 'function' && ctor.name) return 'an instance of ' + ctor.name;",
+      "why": "node's determineSpecificType renders an object receiver as `an instance of <Ctor>`, not the util.inspect fallback (`[Object]` at depth -1) \u2014 the branch now lives in internal/errors' determineSpecificType. The reachable trigger is fs.readFile(path, options) with a forgotten callback. expect_detail keys on the ESCAPING text (Received {}), not the case assertion: assert.throws re-surfaces the original TypeError on a message mismatch here, so the assertion text never reaches the diff.",
+      "source": "pkg/runtime/js/internal/errors.js",
+      "find": "    if (ctor && 'name' in ctor) return 'an instance of ' + ctor.name;",
       "replace": "",
       "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
       "expect_detail": [
-        "Received {}"
+        "Received [Object]"
       ]
     },
     {
       "name": "62-fs-read-buffer dies when the Received string stops being truncated",
       "why": "node cuts a string longer than 28 chars to its first 25 plus '...' before inspecting it into the Received clause.",
-      "source": "pkg/runtime/js/node/fs.js",
-      "find": "    if (typeof shown === 'string' && shown.length > RECEIVED_STR_MAX + 3) {\n      shown = StringPrototypeSlice(shown, 0, RECEIVED_STR_MAX) + '...';\n    }",
+      "source": "pkg/runtime/js/internal/errors.js",
+      "find": "      if (value.length > 28) value = StringPrototypeSlice(value, 0, 25) + '...';",
       "replace": "",
       "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
       "expect_detail": [
@@ -761,13 +761,13 @@
     },
     {
       "name": "62-fs-read-buffer dies when a function in the options slot is rejected",
-      "why": "node's getOptions treats a callback sitting in the options slot as absent; rejecting it turns readFileSync(p, fn) from a working binary read into a throw.",
+      "why": "node's getOptions treats a callback sitting in the options slot as absent; rejecting it turns readFileSync(p, fn) from a working binary read into a throw. The throw escapes the case uncaught (exit 1); its text renders the function the way node's determineSpecificType does (`function ` for an anonymous one), so the detail keys on the options message, not the old `type function (...)` rendering.",
       "source": "pkg/runtime/js/node/fs.js",
       "find": "    if (options === null || options === undefined || typeof options === 'function') {",
       "replace": "    if (options === null || options === undefined) {",
       "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
       "expect_detail": [
-        "Received type function"
+        "must be one of type string or object. Received function"
       ]
     },
     {
@@ -852,8 +852,8 @@
       "name": "64-stream-write dies when a view is not normalized to a Buffer",
       "why": "THE regression that got #326's attempt reverted. node hands _write a Buffer with encoding 'buffer' for every view; without the conversion `chunk.length` is undefined for a DataView, writableLength goes NaN, and 'drain' can never fire again because NaN === 0 is false.",
       "source": "pkg/runtime/js/node/stream.js",
-      "find": "        chunk = bytesToBuffer(chunk);\n        encoding = 'buffer';\n      } else {\n        throw errInvalidArg('chunk', CHUNK_EXPECTED, chunk);",
-      "replace": "        encoding = 'buffer';\n      } else {\n        throw errInvalidArg('chunk', CHUNK_EXPECTED, chunk);",
+      "find": "        chunk = bytesToBuffer(chunk);\n        encoding = 'buffer';\n      } else {\n        throw ERR_INVALID_ARG_TYPE('chunk', CHUNK_EXPECTED, chunk);",
+      "replace": "        encoding = 'buffer';\n      } else {\n        throw ERR_INVALID_ARG_TYPE('chunk', CHUNK_EXPECTED, chunk);",
       "gate": "compat:tests/node-compat/cases/64-stream-write-validation.js",
       "expect_detail": [
         "false, undefined"
@@ -1669,14 +1669,14 @@
       "expect_detail": "is out of date"
     },
     {
-      "name": "70-buffer-size-inspect-parity dies when assertSize splices a bare type name",
-      "why": "node prints `must be of type number` for Buffer.alloc('5'); a bare 'number' prints `must be number`.",
+      "name": "70-buffer-size-inspect-parity dies when assertSize names a class instead of the type",
+      "why": "internal/errors classifies `expected` the way node does: 'number' is a type (`must be of type number`), a capitalized 'Number' a class (`must be an instance of Number`). The call site must pass the type.",
       "source": "pkg/runtime/js/node/buffer.js",
-      "find": "throw errInvalidArgType('size', 'of type number', size);",
-      "replace": "throw errInvalidArgType('size', 'number', size);",
+      "find": "throw ERR_INVALID_ARG_TYPE('size', 'number', size);",
+      "replace": "throw ERR_INVALID_ARG_TYPE('size', 'Number', size);",
       "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
       "expect_detail": [
-        "The \"size\" argument must be number"
+        "The \"size\" argument must be an instance of Number"
       ]
     },
     {
@@ -1689,25 +1689,25 @@
       "expect_detail": "node:buffer has no SlowBuffer"
     },
     {
-      "name": "70-buffer-size-inspect-parity dies when checkBounds splices a bare type name",
-      "why": "every fixed-width read/write reports its offset type error here; node says `must be of type number`.",
+      "name": "70-buffer-size-inspect-parity dies when checkBounds names a class instead of the type",
+      "why": "internal/errors classifies `expected` the way node does: 'number' is a type (`must be of type number`), a capitalized 'Number' a class (`must be an instance of Number`). The call site must pass the type.",
       "source": "pkg/runtime/js/node/buffer.js",
-      "find": "throw errInvalidArgType('offset', 'of type number', offset);",
-      "replace": "throw errInvalidArgType('offset', 'number', offset);",
+      "find": "throw ERR_INVALID_ARG_TYPE('offset', 'number', offset);",
+      "replace": "throw ERR_INVALID_ARG_TYPE('offset', 'Number', offset);",
       "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
       "expect_detail": [
-        "The \"offset\" argument must be number"
+        "The \"offset\" argument must be an instance of Number"
       ]
     },
     {
-      "name": "70-buffer-size-inspect-parity dies when Buffer.concat's length check splices a bare type name",
-      "why": "Buffer.concat(list, '5') must say `The \"length\" argument must be of type number`.",
+      "name": "70-buffer-size-inspect-parity dies when Buffer.concat's length check names a class instead of the type",
+      "why": "internal/errors classifies `expected` the way node does: 'number' is a type (`must be of type number`), a capitalized 'Number' a class (`must be an instance of Number`). The call site must pass the type.",
       "source": "pkg/runtime/js/node/buffer.js",
-      "find": "throw errInvalidArgType('length', 'of type number', totalLength);",
-      "replace": "throw errInvalidArgType('length', 'number', totalLength);",
+      "find": "throw ERR_INVALID_ARG_TYPE('length', 'number', totalLength);",
+      "replace": "throw ERR_INVALID_ARG_TYPE('length', 'Number', totalLength);",
       "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
       "expect_detail": [
-        "The \"length\" argument must be number"
+        "The \"length\" argument must be an instance of Number"
       ]
     },
     {
@@ -1780,7 +1780,7 @@
       "name": "72-events-parity dies when once() stops validating options",
       "why": "node's events.once rejects a non-object options with ERR_INVALID_ARG_TYPE; without the check once(ee, 'foo', 5) just waits.",
       "source": "pkg/runtime/js/node/events.js",
-      "find": "      return P.Promise.reject(errOptionsType(options));",
+      "find": "      return P.Promise.reject(ERR_INVALID_ARG_TYPE('options', 'object', options));",
       "replace": "      options = undefined;",
       "gate": "compat:tests/node-compat/cases/72-events-parity.js",
       "expect_detail": [
@@ -2342,6 +2342,72 @@
       "replace": "  var toStringM = Object.prototype.toString; var ObjectPrototypeToString = function (v) { return toStringM.call(v); };",
       "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
       "expect_detail": "util/types: ok [\"Object.prototype\"]"
+    },
+    {
+      "name": "76-coded-error-shape dies when nodeError stops splicing the code into String(e)",
+      "why": "node's JS-layer errors stringify as `TypeError [ERR_X]: msg` through an inherited toString; a bare TypeError with a code property prints `TypeError: msg`, which is the C++ shape.",
+      "source": "pkg/runtime/js/internal/errors.js",
+      "find": "    ObjectSetPrototypeOf(e, protoFor(Base, code));",
+      "replace": "",
+      "gate": "compat:tests/node-compat/cases/76-coded-error-shape.js",
+      "expect_detail": [
+        "received string | TypeError | ERR_INVALID_ARG_TYPE | TypeError:"
+      ]
+    },
+    {
+      "name": "76-coded-error-shape dies when a long string is not cut to 25 chars",
+      "why": "determineSpecificType cuts a string longer than 28 to its first 25 plus '...'; exactly 28 is kept whole (the 28/29 pair in the case pins the boundary).",
+      "source": "pkg/runtime/js/internal/errors.js",
+      "find": "      if (value.length > 28) value = StringPrototypeSlice(value, 0, 25) + '...';",
+      "replace": "",
+      "gate": "compat:tests/node-compat/cases/76-coded-error-shape.js",
+      "expect_detail": [
+        "received: type string ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaa')"
+      ]
+    },
+    {
+      "name": "76-coded-error-shape dies when a string with a quote is not JSON-quoted",
+      "why": "node switches to JSON.stringify quoting when the (cut) string contains a single quote: `type string (\"it's\")`.",
+      "source": "pkg/runtime/js/internal/errors.js",
+      "find": "      if (StringPrototypeIndexOf(value, \"'\", 0) === -1) return \"type string ('\" + value + \"')\";",
+      "replace": "      return \"type string ('\" + value + \"')\";",
+      "gate": "compat:tests/node-compat/cases/76-coded-error-shape.js",
+      "expect_detail": [
+        "received: type string ('it's')"
+      ]
+    },
+    {
+      "name": "76-coded-error-shape dies when an object with a constructor is not 'an instance of'",
+      "why": "node names an object by its constructor; only a constructor-less object falls back to util.inspect at depth -1.",
+      "source": "pkg/runtime/js/internal/errors.js",
+      "find": "    if (ctor && 'name' in ctor) return 'an instance of ' + ctor.name;",
+      "replace": "",
+      "gate": "compat:tests/node-compat/cases/76-coded-error-shape.js",
+      "expect_detail": [
+        "received: [Array]"
+      ]
+    },
+    {
+      "name": "76-coded-error-shape dies when a large integer loses node's _ grouping",
+      "why": "ERR_OUT_OF_RANGE groups an integer past +-2 ** 32 with `_` every three digits (1_099_511_627_776); buffer, crypto and os all reach it.",
+      "source": "pkg/runtime/js/internal/errors.js",
+      "find": "      received = addNumericalSeparator(StringP(input));",
+      "replace": "      received = StringP(input);",
+      "gate": "compat:tests/node-compat/cases/76-coded-error-shape.js",
+      "expect_detail": [
+        "received: 1099511627776"
+      ]
+    },
+    {
+      "name": "76-coded-error-shape dies when the URL constructor throws the JS shape",
+      "why": "node parses URLs in C++, so `new URL('nope')` stringifies as `TypeError: Invalid URL` with no [code]; only the href setter throws the JS shape.",
+      "source": "pkg/runtime/js/node/url.js",
+      "find": "      if (baseRecord === FAILURE) throw invalidURL(nativeError, input, base);",
+      "replace": "      if (baseRecord === FAILURE) throw invalidURL(nodeError, input, base);",
+      "gate": "compat:tests/node-compat/cases/76-coded-error-shape.js",
+      "expect_detail": [
+        "url invalid base | TypeError | ERR_INVALID_URL | TypeError [ERR_INVALID_URL]:"
+      ]
     }
   ]
 }

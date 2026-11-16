@@ -5,6 +5,8 @@
 (function (require, module, exports) {
   'use strict';
 
+  var ERR_UNKNOWN_ENCODING = require('internal/errors').ERR_UNKNOWN_ENCODING;
+
   function normalizeEncoding(enc) {
     var e = (enc || 'utf8').toLowerCase();
     switch (e) {
@@ -28,7 +30,7 @@
       case 'hex':
         return 'hex';
       default:
-        throw new Error('Unknown encoding: ' + enc);
+        throw ERR_UNKNOWN_ENCODING(enc);
     }
   }
 

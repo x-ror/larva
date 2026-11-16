@@ -77,6 +77,11 @@
   // Free globals / statics, captured pristine at module-eval.
   var StringG = String;
   var NumberG = P.Number;
+  var TypeErrorG = P.TypeError;
+  var errors = require('internal/errors');
+  var nodeError = errors.nodeError;
+  var nativeError = errors.nativeError;
+  var ERR_INVALID_ARG_TYPE = errors.ERR_INVALID_ARG_TYPE;
   var StringFromCharCode = String.fromCharCode;
   var StringFromCodePoint = String.fromCodePoint;
   var MathFloor = Math.floor;
@@ -1401,31 +1406,23 @@
     var baseRecord;
     if (base !== undefined && base !== null) {
       baseRecord = basicURLParse(StringG(base));
-      if (baseRecord === FAILURE) throw invalidURL(base);
+      if (baseRecord === FAILURE) throw invalidURL(nativeError, input, base);
     }
     var record = basicURLParse(StringG(input), baseRecord);
-    if (record === FAILURE) throw invalidURL(input);
+    if (record === FAILURE) {
+      throw invalidURL(nativeError, input, baseRecord === undefined ? undefined : base);
+    }
     return record;
   }
 
-  function invalidURL(input) {
-    var err = new TypeError('Invalid URL');
-    err.code = 'ERR_INVALID_URL';
+  // ERR_INVALID_URL in node's two shapes: the constructor's parse runs in C++, so
+  // String(e) is `TypeError: Invalid URL`; the href setter throws from JS, so it is
+  // `TypeError [ERR_INVALID_URL]: Invalid URL`. Both carry `input`, and `base` when the
+  // parse ran against one (node 26.13.0, case 76).
+  function invalidURL(make, input, base) {
+    var err = make(TypeErrorG, 'ERR_INVALID_URL', 'Invalid URL');
     err.input = StringG(input);
-    return err;
-  }
-
-  // ERR_INVALID_ARG_TYPE, matching Node's message shape closely enough that the
-  // `.code` (what callers branch on) is identical.
-  function invalidArgType(name, expected, value) {
-    var received =
-      value === null
-        ? 'null'
-        : 'type ' + typeof value + ' (' + (typeof value === 'object' ? '' : value) + ')';
-    var err = new TypeError(
-      'The "' + name + '" argument must be ' + expected + '. Received ' + received,
-    );
-    err.code = 'ERR_INVALID_ARG_TYPE';
+    if (base !== undefined) err.base = StringG(base);
     return err;
   }
 
@@ -1846,7 +1843,7 @@
     },
     set: function (value) {
       var record = basicURLParse(toUSVString(value));
-      if (record === FAILURE) throw invalidURL(value);
+      if (record === FAILURE) throw invalidURL(nodeError, value);
       this[kRecord] = record;
       refreshSearchParams(this);
     },
@@ -2072,7 +2069,7 @@
     var href;
     if (typeof input === 'string') href = new URL(input).href;
     else if (input instanceof URL) href = input.href;
-    else throw invalidArgType('path', 'of type string or an instance of URL', input);
+    else throw ERR_INVALID_ARG_TYPE('path', ['string', 'URL'], input);
     return fileURLToPathFromHref(href);
   }
 
@@ -2080,9 +2077,7 @@
   // node:sqlite, which call it on an href, behave exactly as before).
   function fileURLToPathFromHref(url) {
     if (url.slice(0, 5).toLowerCase() !== 'file:') {
-      var schemeErr = new TypeError('The URL must be of scheme file');
-      schemeErr.code = 'ERR_INVALID_URL_SCHEME';
-      throw schemeErr;
+      throw nodeError(TypeErrorG, 'ERR_INVALID_URL_SCHEME', 'The URL must be of scheme file');
     }
     var isWindows = process.platform === 'win32';
     var rest = url.slice(5);
@@ -2099,8 +2094,15 @@
     var query = rest.indexOf('?');
     if (query !== -1) rest = rest.slice(0, query);
     if (reTest(PERCENT_2F_RE, rest) || (isWindows && reTest(PERCENT_5C_RE, rest))) {
-      var sepErr = new TypeError('File URL path must not include encoded / or \\ characters');
-      sepErr.code = 'ERR_INVALID_FILE_URL_PATH';
+      // node words the two platforms differently and attaches the href as `input`.
+      var sepErr = nodeError(
+        TypeErrorG,
+        'ERR_INVALID_FILE_URL_PATH',
+        isWindows
+          ? 'File URL path must not include encoded \\ or / characters'
+          : 'File URL path must not include encoded / characters',
+      );
+      sepErr.input = url;
       throw sepErr;
     }
 
@@ -2111,26 +2113,24 @@
       }
       var letter = StringPrototypeCharCodeAt(winPath, 1) | 0x20;
       if (letter < 97 || letter > 122 || StringPrototypeCharAt(winPath, 2) !== ':') {
-        var pathErr = new TypeError('File URL path must be absolute');
-        pathErr.code = 'ERR_INVALID_FILE_URL_PATH';
-        throw pathErr;
+        throw nodeError(TypeErrorG, 'ERR_INVALID_FILE_URL_PATH', 'File URL path must be absolute');
       }
       return winPath.slice(1);
     }
 
     if (host !== '' && !isLocalhost) {
-      var hostErr = new TypeError(
+      throw nodeError(
+        TypeErrorG,
+        'ERR_INVALID_FILE_URL_HOST',
         'File URL host must be "localhost" or empty on ' + process.platform,
       );
-      hostErr.code = 'ERR_INVALID_FILE_URL_HOST';
-      throw hostErr;
     }
     return decodeURIComponentG(rest);
   }
 
   function pathToFileURL(filepath) {
     if (typeof filepath !== 'string') {
-      throw invalidArgType('path', 'of type string', filepath);
+      throw ERR_INVALID_ARG_TYPE('path', 'string', filepath);
     }
     var path = require('node:path');
     var isWindows = process.platform === 'win32';
