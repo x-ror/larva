@@ -1972,8 +1972,8 @@
       "name": "check-js-graph fixtures die when unreachable modules pass",
       "why": "A file nothing reaches is dead code that still ships and still gets evaluated at every context init.",
       "source": "scripts/check-js-graph.mjs",
-      "find": "if (!seen.has(id)) add(",
-      "replace": "if (false) add(",
+      "find": "add('unreachable',",
+      "replace": "if (false) add('unreachable',",
       "gate": "node-test:scripts/check-js-graph.test.mjs",
       "test": "unreachable: an internal module nothing requires",
       "expect_detail": "unreachable: an internal module nothing requires"
