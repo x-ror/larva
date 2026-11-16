@@ -39,6 +39,9 @@
   natives['internal/crypto/pbkdf2'] = natives['node/crypto'];
   natives['internal/crypto/hkdf'] = natives['node/crypto'];
   natives['internal/crypto/scrypt'] = natives['node/crypto'];
+  // node:buffer's codecs and numeric accessors live in internal/buffer.js (node's
+  // lib/internal/buffer seam); it decodes through node:buffer's own bindings object.
+  natives['internal/buffer'] = natives['node/buffer'];
 
   // Prefix test by code unit. The specifier comes from user code on the public path,
   // so a String.prototype method here would be a live, replaceable read deciding

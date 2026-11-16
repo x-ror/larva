@@ -234,7 +234,7 @@
     {
       "name": "the Lava-only test dies when normalizeBase64 goes back to a global replace",
       "why": "A global replace under a forged exec never terminates (or, on some runners, blows up as RangeError from runaway string growth). Buffer.from(x,'base64') is the Basic-auth/JWT path. Either RED detail proves the reintroduced global replace; hang vs throw is runner-dependent, so expect_detail is an alternatives list.",
-      "source": "pkg/runtime/js/node/buffer.js",
+      "source": "pkg/runtime/js/internal/buffer.js",
       "find": "    var src = StringG(str);\n    var n = src.length;\n    var out = '';",
       "replace": "    return StringG(str)\n      .replaceAll('-', '+')\n      .replaceAll('_', '/')\n      .replaceAll(/[^A-Za-z0-9+/]/g, '');\n    var src = StringG(str);\n    var n = src.length;\n    var out = '';",
       "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
@@ -1691,7 +1691,7 @@
     {
       "name": "70-buffer-size-inspect-parity dies when checkBounds names a class instead of the type",
       "why": "internal/errors classifies `expected` the way node does: 'number' is a type (`must be of type number`), a capitalized 'Number' a class (`must be an instance of Number`). The call site must pass the type.",
-      "source": "pkg/runtime/js/node/buffer.js",
+      "source": "pkg/runtime/js/internal/buffer.js",
       "find": "throw ERR_INVALID_ARG_TYPE('offset', 'number', offset);",
       "replace": "throw ERR_INVALID_ARG_TYPE('offset', 'Number', offset);",
       "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
@@ -1790,7 +1790,7 @@
     {
       "name": "73-buffer-type-fill-bigint dies when writeBigInt rejects non-BigInt values before the range and offset checks",
       "why": "node runs checkInt (range, then offset bounds) before the BigInt mask, so Object(5n) writes and a bad range/offset is reported as ERR_OUT_OF_RANGE / ERR_INVALID_ARG_TYPE rather than 'Cannot mix BigInt'.",
-      "source": "pkg/runtime/js/node/buffer.js",
+      "source": "pkg/runtime/js/internal/buffer.js",
       "find": "    checkValueInt(value, -BIG_SIGN_I64, BIG_SIGN_I64 - BIG_1, 7);\n",
       "replace": "    if (typeof value !== 'bigint') throw new TypeError('Cannot mix BigInt and other types, use explicit conversions');\n    checkValueInt(value, -BIG_SIGN_I64, BIG_SIGN_I64 - BIG_1, 7);\n",
       "gate": "compat:tests/node-compat/cases/73-buffer-type-fill-bigint.js",
@@ -2552,6 +2552,24 @@
       "replace": "  var inspectColors = Object.assign({ __proto__: null }, inspectModule.inspectColors);",
       "gate": "compat:tests/node-compat/cases/84-util-internal-modules.js",
       "expect_detail": "node: identities true true true true"
+    },
+    {
+      "name": "85-buffer-internal-modules dies when the loader stops handing internal/buffer the buffer bindings",
+      "why": "Odin keys the buffer natives to node/buffer only; internal/buffer.js reaches them solely through the loader alias, and without it the codecs every Buffer encode/decode runs through cannot load.",
+      "source": "pkg/runtime/js/bootstrap/loader.js",
+      "find": "  natives['internal/buffer'] = natives['node/buffer'];\n",
+      "replace": "",
+      "gate": "compat:tests/node-compat/cases/85-buffer-internal-modules.js",
+      "expect_detail": "node: hidden internal/buffer MODULE_NOT_FOUND node:threw"
+    },
+    {
+      "name": "85-buffer-internal-modules dies when the numeric accessors are defined back in node:buffer",
+      "why": "node frames a readUInt8 bounds error in node:internal/buffer; a copy of the accessor in node/buffer.js (the pre-split layout) shadows the installed one and its frames read node:buffer again.",
+      "source": "pkg/runtime/js/node/buffer.js",
+      "find": "  internalBuffer.addBufferPrototypeMethods(p);\n",
+      "replace": "  internalBuffer.addBufferPrototypeMethods(p);\n  p.readUInt8 = p.readUint8 = function (offset) {\n    if (offset < 0 || offset >= this.length) throw ERR_OUT_OF_RANGE('offset', '>= 0', offset);\n    return this[offset];\n  };\n",
+      "gate": "compat:tests/node-compat/cases/85-buffer-internal-modules.js",
+      "expect_detail": "lava: readUInt8 offset: internal/buffer got node:buffer"
     }
   ]
 }

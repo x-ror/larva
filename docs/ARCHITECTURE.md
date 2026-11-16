@@ -183,8 +183,9 @@ at its own top level, so the late edge is what keeps the graph acyclic), as node
 factory, before the table exists, and a top-level `require('buffer')` back would be a cycle.
 
 The JS layer is substantial and high quality: `url.js` (2071 LOC, WHATWG URL),
-Web Streams (~2100 across `internal/webstreams/`), `buffer.js` (1456; `Blob`, `File` and the `blob:` URL registry
-live in `internal/blob.js` and `internal/file.js`, as in node's `lib/internal`), fetch
+Web Streams (~2100 across `internal/webstreams/`), buffer (~1530 across `node/buffer.js` and
+`internal/buffer.js`; `Blob`, `File` and the `blob:` URL registry live in `internal/blob.js`
+and `internal/file.js`, as in node's `lib/internal`), fetch
 (~1160 across `internal/fetch.js` and `internal/fetch/`), crypto (~1070 across `node/crypto.js`
 and `internal/crypto/`). `node/stream.js` only assembles the public module; the classic
 streams live in `internal/streams/` (`legacy`, `readable`, `writable`, `duplex`,
@@ -223,7 +224,16 @@ bindings through the same `loader.js` aliasing as http. All seven are eager thro
 and `internal/util` (`promisify`, `deprecate`). `node/util` keeps `callbackify`,
 `inherits`, `styleText` and `toUSVString` where node's `lib/util.js` has them, plus
 `aborted`, and assembles the exports in their old order. Util calls no native, so there
-is no alias, and every file stays lazy behind `require('util')`. Errors use Node-shaped
+is no alias, and every file stays lazy behind `require('util')`. Buffer takes node's one
+seam: `internal/buffer` holds the encoding codecs (`normalizeEncoding`, `strToBytes`,
+`bytesToString`) and `addBufferPrototypeMethods`, which installs the fixed-width
+`read*`/`write*` accessors and the per-encoding `*Slice`/`*Write` aliases, so a bounds
+error frames `node:internal/buffer` as node's does. `node/buffer` keeps the constructor,
+the statics, the pool, the `lib/buffer.js` prototype methods and `atob`/`btoa`, calls the
+installer where those methods were always assigned (the prototype's key order is
+unchanged), and captures the codecs once at module-eval, so a `toString` pays the same
+closure call as before. `internal/buffer` decodes through `node/buffer`'s bindings via the
+same `loader.js` aliasing, and is eager through `req('buffer')`. Errors use Node-shaped
 coded errors (`ERR_INVALID_ARG_TYPE`,
 `ERR_OUT_OF_RANGE`, …), built in one place: `js/internal/errors.js` (eager, hardened)
 holds node's `determineSpecificType`, `ERR_INVALID_ARG_TYPE`/`_VALUE`, `ERR_OUT_OF_RANGE`,

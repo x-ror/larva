@@ -35,6 +35,12 @@
     "accessor": 0,
     "global": 0
   },
+  "internal/buffer.js": {
+    "method": 8,
+    "invoke": 0,
+    "accessor": 3,
+    "global": 17
+  },
   "internal/crypto/hash.js": {
     "method": 8,
     "invoke": 0,
@@ -312,10 +318,10 @@
     "global": 40
   },
   "node/buffer.js": {
-    "method": 23,
+    "method": 15,
     "invoke": 5,
-    "accessor": 15,
-    "global": 81
+    "accessor": 12,
+    "global": 64
   },
   "node/console.js": {
     "method": 0,
