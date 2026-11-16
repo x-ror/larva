@@ -457,6 +457,9 @@
     // As much brand checks as lengths: each getter throws on any receiver that is not
     // a real buffer of its kind, which a Symbol.toStringTag look-alike cannot fake.
     // SharedArrayBuffer is absent from some JSC builds, hence the undefined arm.
+    // Note it still reads the receiver's `constructor` / Symbol.species, per spec — the
+    // method is pristine, not the species lookup. Node's own primordial does the same.
+    ArrayBufferPrototypeSlice: caller2(ArrayBuffer.prototype.slice),
     ArrayBufferPrototypeGetByteLength: safeGetter(
       Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'byteLength').get,
     ),

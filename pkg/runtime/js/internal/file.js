@@ -9,8 +9,15 @@
 (function (require, module, _exports) {
   'use strict';
 
+  var P = require('internal/primordials');
   var Blob = require('internal/blob').Blob;
-  var StringG = String;
+  var StringG = P.String;
+  var NumberG = P.Number;
+  var TypeErrorG = P.TypeError;
+  var ObjectDefineProperty = P.ObjectDefineProperty;
+  // Eager like internal/blob (node/buffer.js requires both before user code), so this
+  // module-eval capture is pristine; primordials has no Date.
+  var DateNow = Date.now;
 
   /**
    * A Blob with a name and a lastModified stamp.
@@ -31,16 +38,16 @@
      */
     constructor(parts, name, options) {
       if (arguments.length < 2)
-        throw new TypeError(
+        throw new TypeErrorG(
           "Failed to construct 'File': 2 arguments required, but only " +
             arguments.length +
             ' present.',
         );
       super(parts, options);
-      Object.defineProperty(this, '_name', { value: StringG(name) });
+      ObjectDefineProperty(this, '_name', { value: StringG(name) });
       var lm =
-        options && options.lastModified !== undefined ? Number(options.lastModified) : Date.now();
-      Object.defineProperty(this, '_lastModified', { value: lm });
+        options && options.lastModified !== undefined ? NumberG(options.lastModified) : DateNow();
+      ObjectDefineProperty(this, '_lastModified', { value: lm });
     }
 
     get name() {
@@ -52,12 +59,10 @@
     }
   }
 
-  if (typeof Symbol !== 'undefined' && Symbol.toStringTag) {
-    Object.defineProperty(File.prototype, Symbol.toStringTag, {
-      value: 'File',
-      configurable: true,
-    });
-  }
+  ObjectDefineProperty(File.prototype, P.Symbol.toStringTag, {
+    value: 'File',
+    configurable: true,
+  });
 
   module.exports = { File: File };
 });

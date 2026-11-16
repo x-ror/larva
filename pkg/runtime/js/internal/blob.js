@@ -15,37 +15,46 @@
   'use strict';
 
   var P = require('internal/primordials');
-  var StringG = String;
+  var StringG = P.String;
+  var TypeErrorG = P.TypeError;
+  var Uint8ArrayG = P.Uint8Array;
+  var ArrayBufferPrototype = P.ArrayBuffer.prototype;
+  var DataViewPrototype = P.DataViewPrototype;
+  var brandedAs = P.brandedAs;
+  var ArrayFrom = P.ArrayFrom;
+  var ArrayBufferIsView = P.ArrayBufferIsView;
+  var ArrayPrototypePush1 = P.ArrayPrototypePush1;
+  var ObjectDefineProperty = P.ObjectDefineProperty;
+  var MathMax = P.MathMax;
+  var MathMin = P.MathMin;
+  var SymbolIterator = P.Symbol.iterator;
+  var SymbolToStringTag = P.Symbol.toStringTag;
+  var PromiseResolve = P.FunctionPrototypeBind(P.Promise.resolve, P.Promise);
   var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;
   var StringPrototypeSlice = P.StringPrototypeSlice;
   var StringPrototypeIndexOf = P.StringPrototypeIndexOf;
+  var StringPrototypeToLowerCase = P.StringPrototypeToLowerCase;
+  var ArrayBufferPrototypeSlice = P.ArrayBufferPrototypeSlice;
+  var Uint8ArrayPrototypeSet = P.Uint8ArrayPrototypeSet;
+  var TypedArrayPrototypeSubarray = P.TypedArrayPrototypeSubarray;
+  var TypedArrayPrototypeGetBuffer = P.TypedArrayPrototypeGetBuffer;
+  var TypedArrayPrototypeGetByteOffset = P.TypedArrayPrototypeGetByteOffset;
+  var TypedArrayPrototypeGetByteLength = P.TypedArrayPrototypeGetByteLength;
+  var DataViewPrototypeGetBuffer = P.DataViewPrototypeGetBuffer;
+  var DataViewPrototypeGetByteOffset = P.DataViewPrototypeGetByteOffset;
+  var DataViewPrototypeGetByteLength = P.DataViewPrototypeGetByteLength;
 
   var errors = require('internal/errors');
   var ERR_INVALID_ARG_TYPE = errors.ERR_INVALID_ARG_TYPE;
   var ERR_MISSING_ARGS = errors.ERR_MISSING_ARGS;
 
-  // UTF-8 encode/decode go through the loader's pristine Buffer table, read at CALL
-  // time. It cannot be captured here: node/buffer.js requires this module from its own
-  // factory, so `require.pristineBuffer` is attached only after this module has run —
-  // and a top-level `require('buffer')` would be a cycle (check-js-graph rejects it).
-  // The functions are the same ones node/buffer.js's own `Buffer.from` /
-  // `Buffer.prototype.toString` are, so the bytes are identical for every string,
-  // lone surrogates included; what changes is that a replaced `Buffer.from` no longer
-  // steers Blob, which is where node is (its Blob encodes through a binding).
-  function encodeUtf8(str) {
-    return new Uint8Array(require.pristineBuffer.from(str, 'utf8'));
-  }
+  // The platform terminator for `endings: 'native'`, fixed when this module loads (before
+  // user code; install_process runs ahead of the loader). Node fixes it at startup too:
+  // with process.platform redefined to 'win32' on darwin, node 26.13.0 still writes '\n'.
+  // Pinned by tests/node-compat/cases/78-blob-pristine-reads.js.
+  var EOL = process.platform === 'win32' ? '\r\n' : '\n';
 
-  function decodeUtf8(bytes) {
-    var PB = require.pristineBuffer;
-    return PB.bufferToString(PB.from(bytes), 'utf8');
-  }
-
-  function nativeEol() {
-    return globalThis.process && globalThis.process.platform === 'win32' ? '\r\n' : '\n';
-  }
-
-  // toNativeEndings is `str.replace(/\r?\n/g, nativeEol())` — every CRLF or lone LF
+  // toNativeEndings is `str.replace(/\r?\n/g, EOL)` — every CRLF or lone LF
   // becomes the platform terminator. No regex: a GLOBAL replace under a forged
   // `RegExp.prototype.exec` never returns, so `new Blob([text], {endings:'native'})`
   // spun on any text at all. node 24 hangs here too, so hardening it is a deviation in
@@ -61,50 +70,61 @@
   function toNativeEndings(str) {
     var firstLF = StringPrototypeIndexOf(str, '\n', 0);
     if (firstLF === -1) return str;
-    var eol = nativeEol();
-    if (eol === '\n' && StringPrototypeIndexOf(str, '\r', 0) === -1) return str;
+    if (EOL === '\n' && StringPrototypeIndexOf(str, '\r', 0) === -1) return str;
     var out = '';
     var from = 0;
     for (var i = firstLF; i !== -1; i = StringPrototypeIndexOf(str, '\n', from)) {
       var cut = i > from && StringPrototypeCharCodeAt(str, i - 1) === 0x0d ? i - 1 : i; // CR
       if (cut > from) out += StringPrototypeSlice(str, from, cut);
-      out += eol;
+      out += EOL;
       from = i + 1;
     }
     return from < str.length ? out + StringPrototypeSlice(str, from) : out;
   }
 
+  // Kept out of the constructor, which would otherwise run past ~40 lines.
+  //
+  // A view's window comes from the engine's slots through the captured getters, not the
+  // configurable %TypedArray% / DataView accessors — read live, a forged trio selects a
+  // window across a shared allocUnsafe pool (the same gadget encoding.js's toBytes
+  // closed). DataView's accessors are separate properties, hence two arms. Deviates:
+  // node's Blob reads all three live (node 26.13.0, spy getters), so a forged trio steers
+  // node and not Lava; pinned Lava-only by blob_view_window_ignores_forged_accessors in
+  // cmd/lava/blob_class_test.odin.
+  // The copy still goes through ArrayBufferPrototypeSlice, which reads the source's
+  // `constructor` / Symbol.species: node's Blob copies through the same primordial, so
+  // that read is parity, not a leftover.
+  //
+  // UTF-8 goes through the loader's pristine Buffer table, read at CALL time: it is
+  // attached only after node/buffer.js (which requires this module) has finished, and a
+  // top-level `require('buffer')` would be a cycle. The functions are the ones Buffer.from
+  // uses, so the bytes are identical for every string, lone surrogates included.
   function blobPartToChunks(part, nativeEndings) {
     if (part instanceof Blob) return part._parts;
-    if (part instanceof ArrayBuffer) return [new Uint8Array(part.slice(0))];
-    if (ArrayBuffer.isView(part)) {
-      return [
-        new Uint8Array(part.buffer.slice(part.byteOffset, part.byteOffset + part.byteLength)),
-      ];
+    if (brandedAs(part, ArrayBufferPrototype)) {
+      return [new Uint8ArrayG(ArrayBufferPrototypeSlice(part, 0))];
+    }
+    if (ArrayBufferIsView(part)) {
+      var dv = brandedAs(part, DataViewPrototype);
+      var buf = dv ? DataViewPrototypeGetBuffer(part) : TypedArrayPrototypeGetBuffer(part);
+      var off = dv ? DataViewPrototypeGetByteOffset(part) : TypedArrayPrototypeGetByteOffset(part);
+      var len = dv ? DataViewPrototypeGetByteLength(part) : TypedArrayPrototypeGetByteLength(part);
+      return [new Uint8ArrayG(ArrayBufferPrototypeSlice(buf, off, off + len))];
     }
     var str = StringG(part);
     if (nativeEndings) str = toNativeEndings(str);
-    return [encodeUtf8(str)];
+    return [new Uint8ArrayG(require.pristineBuffer.from(str, 'utf8'))];
   }
 
+  // Three callers (arrayBuffer, bytes, text), so it stays a function.
   function blobJoin(parts, total) {
-    var merged = new Uint8Array(total),
+    var merged = new Uint8ArrayG(total),
       off = 0;
     for (var i = 0; i < parts.length; i++) {
-      merged.set(parts[i], off);
+      Uint8ArrayPrototypeSet(merged, parts[i], off);
       off += parts[i].length;
     }
     return merged;
-  }
-
-  function normalizeBlobType(options) {
-    if (!options || options.type === undefined) return '';
-    var type = StringG(options.type);
-    for (var i = 0; i < type.length; i++) {
-      var code = type.charCodeAt(i);
-      if (code < 0x20 || code > 0x7e) return '';
-    }
-    return type.toLowerCase();
   }
 
   // Blob.prototype's methods were enumerable while Blob was a function whose prototype
@@ -133,23 +153,33 @@
       var chunks = [],
         total = 0;
       if (parts !== undefined && parts !== null) {
-        if (typeof parts !== 'object' || typeof parts[Symbol.iterator] !== 'function') {
-          throw new TypeError('The "parts" argument must be an iterable object');
+        if (typeof parts !== 'object' || typeof parts[SymbolIterator] !== 'function') {
+          throw new TypeErrorG('The "parts" argument must be an iterable object');
         }
         var nativeEndings = !!(options && options.endings === 'native');
-        var list = Array.from(parts);
+        var list = ArrayFrom(parts);
         for (var i = 0; i < list.length; i++) {
           var cs = blobPartToChunks(list[i], nativeEndings);
           for (var j = 0; j < cs.length; j++) {
             if (cs[j].length === 0) continue;
-            chunks.push(cs[j]);
+            ArrayPrototypePush1(chunks, cs[j]);
             total += cs[j].length;
           }
         }
       }
-      Object.defineProperty(this, '_parts', { value: chunks });
-      Object.defineProperty(this, '_size', { value: total });
-      Object.defineProperty(this, '_type', { value: normalizeBlobType(options) });
+      // A type with any byte outside printable ASCII is dropped whole, per the File API.
+      var type = '';
+      if (options && options.type !== undefined) {
+        type = StringG(options.type);
+        for (var k = 0; k < type.length; k++) {
+          var code = StringPrototypeCharCodeAt(type, k);
+          if (code < 0x20 || code > 0x7e) break;
+        }
+        type = k < type.length ? '' : StringPrototypeToLowerCase(type);
+      }
+      ObjectDefineProperty(this, '_parts', { value: chunks });
+      ObjectDefineProperty(this, '_size', { value: total });
+      ObjectDefineProperty(this, '_type', { value: type });
     }
 
     get size() {
@@ -161,11 +191,11 @@
     }
 
     arrayBuffer() {
-      return Promise.resolve(blobJoin(this._parts, this._size).buffer);
+      return PromiseResolve(TypedArrayPrototypeGetBuffer(blobJoin(this._parts, this._size)));
     }
 
     bytes() {
-      return Promise.resolve(blobJoin(this._parts, this._size));
+      return PromiseResolve(blobJoin(this._parts, this._size));
     }
 
     stream() {
@@ -173,20 +203,26 @@
       var ReadableStream = require('node:stream/web').ReadableStream;
       return new ReadableStream({
         start: function (controller) {
-          for (var i = 0; i < parts.length; i++) controller.enqueue(new Uint8Array(parts[i]));
+          for (var i = 0; i < parts.length; i++) controller.enqueue(new Uint8ArrayG(parts[i]));
           controller.close();
         },
       });
     }
 
     text() {
-      return Promise.resolve(decodeUtf8(blobJoin(this._parts, this._size)));
+      // Decoded in place: the pristine Buffer#toString reads any Uint8Array, so the
+      // joined bytes need no Buffer copy first. The change that dropped it (with the
+      // primordial captures beside it) took 20000 text() calls on a 96-char string from
+      // 93.6 to 77.0 ms — medians of 7 interleaved launches per arm, darwin.
+      return PromiseResolve(
+        require.pristineBuffer.bufferToString(blobJoin(this._parts, this._size), 'utf8'),
+      );
     }
 
     slice(start, end, contentType) {
       var len = this._size;
-      var s = start === undefined ? 0 : start < 0 ? Math.max(len + start, 0) : Math.min(start, len);
-      var e = end === undefined ? len : end < 0 ? Math.max(len + end, 0) : Math.min(end, len);
+      var s = start === undefined ? 0 : start < 0 ? MathMax(len + start, 0) : MathMin(start, len);
+      var e = end === undefined ? len : end < 0 ? MathMax(len + end, 0) : MathMin(end, len);
       if (e < s) e = s;
       var out = [];
       var pos = 0;
@@ -195,7 +231,14 @@
         var part = parts[i];
         var pEnd = pos + part.length;
         if (pEnd > s) {
-          out.push(part.subarray(pos < s ? s - pos : 0, pEnd > e ? e - pos : part.length));
+          ArrayPrototypePush1(
+            out,
+            TypedArrayPrototypeSubarray(
+              part,
+              pos < s ? s - pos : 0,
+              pEnd > e ? e - pos : part.length,
+            ),
+          );
         }
         pos = pEnd;
       }
@@ -207,41 +250,29 @@
     }
   }
   for (var m = 0; m < ENUMERABLE_METHODS.length; m++) {
-    Object.defineProperty(Blob.prototype, ENUMERABLE_METHODS[m], { enumerable: true });
+    ObjectDefineProperty(Blob.prototype, ENUMERABLE_METHODS[m], { enumerable: true });
   }
 
-  if (typeof Symbol !== 'undefined' && Symbol.toStringTag) {
-    Object.defineProperty(Blob.prototype, Symbol.toStringTag, {
-      value: 'Blob',
-      configurable: true,
-    });
-  }
+  ObjectDefineProperty(Blob.prototype, SymbolToStringTag, {
+    value: 'Blob',
+    configurable: true,
+  });
 
-  var objectUrlRegistry = new Map();
-
-  function objectUrlId() {
-    var c = globalThis.crypto;
-    if (c && typeof c.randomUUID === 'function') return c.randomUUID();
-    var bytes = new Uint8Array(16);
-    if (c && typeof c.getRandomValues === 'function') c.getRandomValues(bytes);
-    else for (var i = 0; i < 16; i++) bytes[i] = (Math.random() * 256) & 0xff;
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    var s = '';
-    for (var j = 0; j < 16; j++) {
-      s += (bytes[j] + 0x100).toString(16).slice(1);
-      if (j === 3 || j === 5 || j === 7 || j === 9) s += '-';
-    }
-    return s;
-  }
+  // A null-prototype dictionary rather than a Map: its get/set/delete are plain property
+  // operations, so a replaced Map.prototype method has nothing to steer, and no Map
+  // primordials are needed for it. Keys are strings either way (`${id}` / String(url)),
+  // and with no prototype a key such as '__proto__' or 'toString' is just an own key.
+  var objectUrlRegistry = { __proto__: null };
 
   /** @param {Blob|File} obj @returns {string} blob: URL */
   function createObjectURL(obj) {
     if (!(obj instanceof Blob)) {
       throw ERR_INVALID_ARG_TYPE('obj', 'Blob', obj);
     }
-    var id = 'blob:nodedata:' + objectUrlId();
-    objectUrlRegistry.set(id, obj);
+    // The loader's pristine crypto.randomUUID (see bootstrap/loader.js); crypto is eager,
+    // so it always exists and the hand-rolled Math.random fallback that stood here was dead.
+    var id = 'blob:nodedata:' + require.pristineRandomUUID();
+    objectUrlRegistry[id] = obj;
     return id;
   }
 
@@ -250,12 +281,12 @@
     if (url === undefined) {
       throw ERR_MISSING_ARGS('url');
     }
-    objectUrlRegistry.delete(StringG(url));
+    delete objectUrlRegistry[StringG(url)];
   }
 
   /** @param {string} id @returns {Blob|File|null} */
   function resolveObjectURL(id) {
-    var blob = objectUrlRegistry.get(`${id}`);
+    var blob = objectUrlRegistry[`${id}`];
     if (blob === undefined) return;
     return new Blob([blob], { type: blob.type });
   }

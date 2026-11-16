@@ -30,10 +30,10 @@
     "global": 9
   },
   "internal/blob.js": {
-    "method": 9,
+    "method": 0,
     "invoke": 0,
-    "accessor": 5,
-    "global": 22
+    "accessor": 0,
+    "global": 0
   },
   "internal/encoding.js": {
     "method": 0,
@@ -57,7 +57,7 @@
     "method": 0,
     "invoke": 0,
     "accessor": 0,
-    "global": 5
+    "global": 0
   },
   "internal/mime.js": {
     "method": 24,
