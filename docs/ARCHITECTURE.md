@@ -138,8 +138,12 @@ Thin, per-platform `foreign` declarations of JSC's C API. Highlights:
 ### 3.3 Standard library: native + embedded JS
 
 Built-ins are JS factories embedded at compile time and instantiated by
-`js/bootstrap/loader.js`. The directory layout under `pkg/runtime/js` is the module
-table — there is no second list of files:
+`js/bootstrap/loader.js`. A factory's source is evaluated on its module's first
+require, through a native `compile(id)` (`builtin_compile_cb`) the loader keeps in its
+closure, not at context init: only the eager closure (13 of 39 files) is compiled before
+user code, which took `bench/micro/noop.js` from 16.85 to 14.63 ms (median of 50
+interleaved spawn-to-exit runs per arm, darwin arm64, `-o:speed`). The directory
+layout under `pkg/runtime/js` is the module table — there is no second list of files:
 
 | Directory    | Holds                                    | Module id / visibility                                               |
 | ------------ | ---------------------------------------- | -------------------------------------------------------------------- |

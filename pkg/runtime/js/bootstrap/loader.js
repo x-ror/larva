@@ -1,20 +1,28 @@
-// Internal built-in module loader. Given a map of module id -> factory function
-// `(require, module, exports, native) => exports?`, it returns a `require`
+// Internal built-in module loader. Given a native `compile(id)` that evaluates a
+// module's embedded source to its factory `(require, module, exports, native) =>
+// exports?` (undefined when the id is not a builtin), it returns a `require`
 // implementation that instantiates each module lazily, caches it, strips the
 // `node:` prefix, and lets internal modules require one another (with the usual
 // CommonJS partial-exports behavior on cycles). The resolver is what native
 // `require()` consults before touching the filesystem.
 //
+// A factory is compiled on its module's first require, not at context init, so a
+// script pays only for the eager closure below (13 of 39 files): `lava run
+// bench/micro/noop.js` went 16.85 -> 14.63 ms (medians of 50 interleaved
+// spawn-to-exit runs per arm after 5 warmups, darwin arm64, -o:speed, f106ab4 vs
+// this change; see install_internal_modules).
+// `compile` stays in this closure — never on `req`, `publicReq` or anything user
+// code reaches — and the cache below is what keeps it to one call per module.
+//
 // A module id is its path under pkg/runtime/js without `.js` — `node/buffer`,
 // `node/stream/web`, `internal/primordials` — so the DIRECTORY decides visibility:
 // the public resolver answers `node/` ids only, and everything under `internal/`
 // is reachable solely through the `require` handed to the factories.
-(function (factories, natives) {
+(function (compile, natives) {
   'use strict';
 
   var cache = Object.create(null);
   natives = natives || Object.create(null);
-  var hasOwn = Object.prototype.hasOwnProperty;
 
   // Prefix test by code unit. The specifier comes from user code on the public path,
   // so a String.prototype method here would be a live, replaceable read deciding
@@ -40,13 +48,12 @@
 
   function load(id) {
     if (id in cache) return cache[id];
-    // Look up own properties only: `factories` may inherit from Object.prototype,
-    // so a bracket lookup of 'node/constructor' or a polluted prototype key would
-    // otherwise return an inherited function and mis-resolve that specifier instead
-    // of yielding the "not a builtin" (undefined) that lets native_require_cb fall
-    // through.
-    if (!hasOwn.call(factories, id)) return;
-    var factory = factories[id];
+    // Native and exact: compile matches the id against the embedded file table, so
+    // 'node/constructor' or a polluted prototype key yields undefined — the "not a
+    // builtin" that lets native_require_cb fall through — instead of an inherited
+    // function. Nothing is cached for an unknown id.
+    var factory = compile(id);
+    if (factory === undefined) return;
     var module = { exports: {} };
     // Seed the cache before running the factory so a require cycle resolves
     // to the partially-built exports object instead of looping forever.

@@ -90,6 +90,9 @@ Runtime_State :: struct {
 	// and read by install_process. Empty for embedders that don't set it (then
 	// install_process falls back to os.args).
 	script_argv:       []string,
+	// Embedded builtin factories compiled so far (builtin_compile_cb). Only an
+	// observable for cmd/lava/lazy_builtins_test.odin; nothing branches on it.
+	builtin_compiles:  int,
 }
 
 // JS_Callback bridges a JS function into an event-loop Callback. The function
@@ -1103,42 +1106,34 @@ microtask_report_uncaught_cb :: proc "c" (
 	return jsc.JSValueMakeUndefined(ctx)
 }
 
-// install_internal_modules evaluates the JS built-in modules (util, events,
-// assert, buffer) to factory functions, hands them to the loader, and stores
-// the resulting resolver on Runtime_State. native_require_cb consults that
-// resolver before hitting the filesystem. The loader also eagerly instantiates
-// modules that install globals (Buffer), so those exist without a require.
+// install_internal_modules hands the module loader a native `compile(id)` and the
+// per-module natives, and stores the resulting resolver on Runtime_State.
+// native_require_cb consults that resolver before hitting the filesystem. The
+// loader eagerly instantiates the modules that install globals (Buffer, fetch,
+// URL, …), so those exist without a require; every other builtin's factory is
+// compiled by builtin_compile_cb on its first require.
+//
+// Compile-on-first-require, not at init: evaluating all 39 factory sources made a
+// script that requires nothing pay for http, sqlite and assert. Lazily, only the
+// eager closure (13 files) is compiled before user code — 17 internal
+// JSEvaluateScript calls instead of 43 — and `lava run bench/micro/noop.js` went
+// 16.85 -> 14.63 ms (medians of 50 interleaved spawn-to-exit runs per arm after 5
+// warmups, darwin arm64, -o:speed, f106ab4 vs this change). The cost moves to each
+// lazy module's first require, once per context. See builtin_compile_cb.
 install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef) {
 	state := get_state_from_ctx(ctx)
 	if state == nil do return
 
-	// Module id, source name and override path all derive from the directory and the
-	// file's basename, so the tree under js/ is the only list of modules: adding
-	// js/node/foo.js makes `node:foo` requireable with no Odin edit, and a file under
-	// js/internal/ is reachable only through the factories' own `require`.
 	override_dir := js_override_dir()
-	factories := jsc.JSObjectMake(ctx, nil, nil)
-	for dir in EMBEDDED_JS_DIRS {
-		for file in dir.files {
-			if !strings.has_suffix(file.name, ".js") do continue
-			id, id_err := strings.concatenate({dir.prefix, "/", file.name[:len(file.name) - 3]}, context.temp_allocator)
-			if id_err != nil do continue
-			rel_path, rel_err := strings.concatenate({"js/", id, ".js"}, context.temp_allocator)
-			if rel_err != nil do continue
-			// Source name is what a stack frame shows: `node:buffer`, `node:stream/web`
-			// for public modules and `node:internal/fetch` for internal ones, the shape
-			// node's own frames take (`node:internal/url`).
-			spec := id[len("node/"):] if strings.has_prefix(id, "node/") else id
-			source_name, name_err := strings.concatenate({"node:", spec}, context.temp_allocator)
-			if name_err != nil do continue
-			factory := eval_internal_source(ctx, source_name, override_dir, rel_path, string(file.data))
-			if factory == nil do continue
-			set_named(ctx, factories, id, factory)
-		}
-	}
-
 	loader := eval_internal_source(ctx, "internal:loader", override_dir, "js/bootstrap/loader.js", BOOTSTRAP_LOADER)
 	if loader == nil || !jsc.JSValueIsObject(ctx, loader) do return
+
+	// Cold native: called once per builtin per context, so the generic host path,
+	// not a *_host wrapper. Passed as a bare argument, so it is reachable only from
+	// the loader's closure — never from user code.
+	compile := host_native_create(ctx, "compile", builtin_compile_cb, 1)
+	if compile == nil do compile = make_native_function(ctx, "compile", builtin_compile_cb)
+	if compile == nil do return
 
 	// Native primitives keyed by module id. The loader passes natives[id] to
 	// each factory as its fourth argument, so a module receives its Odin-backed
@@ -1177,7 +1172,7 @@ install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef)
 		set_named(ctx, natives, "node/console", console_val)
 	}
 
-	args := [2]jsc.JSValueRef{cast(jsc.JSValueRef)factories, cast(jsc.JSValueRef)natives}
+	args := [2]jsc.JSValueRef{cast(jsc.JSValueRef)compile, cast(jsc.JSValueRef)natives}
 	exception: jsc.JSValueRef
 	resolver := jsc.JSObjectCallAsFunction(
 		ctx,
@@ -1234,6 +1229,100 @@ install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef)
 			}
 		}
 	}
+}
+
+// builtin_compile_cb is the loader's `compile(id)`: it evaluates the embedded
+// source of module `id` (`node/os`, `node/stream/web`, `internal/mime`) and
+// returns its factory `(require, module, exports, native) => exports?`.
+//
+// Returns:
+//   The factory; undefined for a non-string or an id with no embedded file, and
+//   for a source that failed to evaluate (reported to stderr, as at init before
+//   this was lazy — the loader then answers "not a builtin").
+// Node:
+//   Not observable: Node also compiles a builtin on its first require, and the
+//   loader's cache (bootstrap/loader.js) keeps it to once per context.
+//
+// The id is matched against EMBEDDED_JS_DIRS — exact directory prefix, exact
+// basename — so only a file in the embedded set is reachable: 'node/constructor',
+// '__proto__', '' and anything with '..' match no row. The override path and the
+// source name are rebuilt from the MATCHED row, never from the argument, so a
+// LAVA_JS_OVERRIDE build cannot be steered to read a file outside js/ either.
+// The scan is linear over ~40 rows with no allocation; it runs once per builtin,
+// plus once per `require` of a bare name that is not a builtin (express, lodash)
+// on its way to the filesystem resolver.
+//
+// js_override_dir is recomputed per call rather than cached on Runtime_State: in a
+// normal build it is a compile-time "" and costs nothing; only override builds
+// (mutation runs) pay one os.exists per compile.
+builtin_compile_cb :: proc "c" (
+	ctx: jsc.JSContextRef,
+	function: jsc.JSObjectRef,
+	this_object: jsc.JSObjectRef,
+	argument_count: c.size_t,
+	arguments: [^]jsc.JSValueRef,
+	exception: ^jsc.JSValueRef,
+) -> jsc.JSValueRef {
+	context = runtime.default_context()
+	// Everything below is scratch for this one evaluation (path and cstring
+	// copies); nothing outlives the call. A guard rather than leaning on the
+	// caller's choke point: compile runs under native_require_cb's per-require
+	// free_all, under eval's at init, or under a loop tick's when a builtin
+	// requires a lazy internal module from a callback.
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+	undefined := jsc.JSValueMakeUndefined(ctx)
+	state := get_state_from_ctx(ctx)
+	if state == nil || argument_count < 1 || !jsc.JSValueIsString(ctx, arguments[0]) do return undefined
+
+	// The loader builds ids by concatenation, so the argument is usually a rope,
+	// which value_chars8 declines; read_string_arg flattens it. Where the cell read
+	// is unavailable (off Linux) the C API hands back UTF-16 even for an ASCII
+	// string, so narrow it into a stack buffer; a non-ASCII unit or an id longer
+	// than any embedded one cannot match.
+	r := read_string_arg(ctx, arguments[0])
+	defer if r.str != nil do jsc.JSStringRelease(r.str)
+	if !r.ok do return undefined
+	narrow: [64]byte
+	id: string
+	if r.is8 {
+		id = string(r.s8)
+	} else {
+		if len(r.s16) > len(narrow) do return undefined
+		for u, i in r.s16 {
+			if u >= 0x80 do return undefined
+			narrow[i] = byte(u)
+		}
+		id = string(narrow[:len(r.s16)])
+	}
+
+	slash := strings.last_index_byte(id, '/')
+	if slash <= 0 do return undefined
+	prefix, base := id[:slash], id[slash + 1:]
+	if len(base) == 0 do return undefined
+
+	for dir in EMBEDDED_JS_DIRS {
+		if dir.prefix != prefix do continue
+		for file in dir.files {
+			if len(file.name) != len(base) + 3 || !strings.has_suffix(file.name, ".js") do continue
+			if file.name[:len(base)] != base do continue
+
+			rel_path, rel_err := strings.concatenate({"js/", dir.prefix, "/", file.name}, context.temp_allocator)
+			if rel_err != nil do return undefined
+			// Source name is what a stack frame shows: `node:buffer`, `node:stream/web`
+			// for public modules and `node:internal/fetch` for internal ones, the shape
+			// node's own frames take (`node:internal/url`).
+			spec := rel_path[len("js/"):len(rel_path) - len(".js")]
+			if strings.has_prefix(spec, "node/") do spec = spec[len("node/"):]
+			source_name, name_err := strings.concatenate({"node:", spec}, context.temp_allocator)
+			if name_err != nil do return undefined
+			factory := eval_internal_source(ctx, source_name, js_override_dir(), rel_path, string(file.data))
+			if factory == nil do return undefined
+			state.builtin_compiles += 1
+			return factory
+		}
+		return undefined
+	}
+	return undefined
 }
 
 // require_builtin asks the JS resolver for an internal module by specifier.
@@ -1513,7 +1602,7 @@ CONSOLE_PRELUDE :: #load("js/bootstrap/console.js", string)
 // process) => {}`). Installed after `process` exists; see install_microtasks.
 MICROTASK_PRELUDE :: #load("js/bootstrap/microtasks.js", string)
 
-// The module loader: evaluates to `(factories, natives) => resolver`. A bootstrap
+// The module loader: evaluates to `(compile, natives) => resolver`. A bootstrap
 // file, not a module — it is what makes the modules below requireable.
 BOOTSTRAP_LOADER :: #load("js/bootstrap/loader.js", string)
 
