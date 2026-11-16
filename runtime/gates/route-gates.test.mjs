@@ -32,3 +32,11 @@ test('invalid **.js style is not required — **/* works', () => {
   const r = routePaths(['pkg/runtime/js/bootstrap/console.js']);
   assert.ok(r.targets.includes('make check-js'));
 });
+
+test('internal/http/** routes like node/http.js (the split must not drop the http smoke)', () => {
+  for (const f of ['common', 'incoming', 'outgoing', 'server']) {
+    const r = routePaths([`pkg/runtime/js/internal/http/${f}.js`]);
+    assert.ok(r.targets.includes('make test-http-smoke'), f);
+    assert.ok(r.targets.includes('make bench-http') || r.nonCi.includes('make bench-http'), f);
+  }
+});

@@ -117,6 +117,10 @@ const ROUTES = [
     targets: ['make test-http-smoke', 'make bench-http'],
   },
   {
+    re: globToRe('**/js/internal/http/**'),
+    targets: ['make test-http-smoke', 'make bench-http'],
+  },
+  {
     re: globToRe('**/picohttpparser/**'),
     targets: ['make test-http-smoke', 'make bench-http'],
   },
