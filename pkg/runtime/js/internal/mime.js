@@ -68,7 +68,7 @@
   }
 
   // Validate a token production (type/subtype/parameter name). `input` is the string shown
-  // in the error. The reported index is relative to `value`, not to `input`: node 24 says
+  // in the error. The reported index is relative to `value`, not to `input`: node 26.13.0 says
   // `The MIME syntax for a subtype in "text/p@in" is invalid at 1`.
   function validateToken(production, value, input) {
     if (value.length === 0) throw mimeError(production, input, -1);
@@ -224,7 +224,8 @@
 
   // Every name-taking method folds the name the way parse does, so a parsed `charset`
   // is reachable as get('Charset') and set('Charset') replaces it rather than adding a
-  // second parameter (node 24.21, verified; node 22 compared names as given). The fold
+  // second parameter (since node 24.21; re-verified on 26.13.0; node 22 compared names as
+  // given). The fold
   // happens before validation, so a syntax error quotes the folded name.
   MIMEParams.prototype.get = function get(name) {
     var data = this[kData];

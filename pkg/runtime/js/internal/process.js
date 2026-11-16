@@ -5,7 +5,8 @@
 //   code runs.
 // Returns: the process object (same reference as the original globalThis.process).
 // Node: require('node:process') is the intrinsic regardless of global mutation
-//   (node 24, verified). When the global is untouched, require === process.
+//   (node 26.13.0, verified by tests/node-compat/cases/66 and 67). When the global is
+//   untouched, require === process.
 // Deviates: none.
 //
 // Never re-read the global. A dependency that reassigns or deletes

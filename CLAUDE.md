@@ -171,7 +171,7 @@ the comment block verbatim, so this is the doc source, not decoration.
 //   and the caller must fall back to JSObjectMakeFunctionWithCallback.
 // Node:
 //   setTimeout/setInterval report `.length` 2, every other global 1 — verified
-//   against node 24, not read off the docs.
+//   against node 26, not read off the docs.
 // Deviates:
 //   The C-API fallback reports 0 and is not repairable through the public API.
 //   Pinned by tests/node-compat/cases/56-native-function-arity.js.
@@ -285,7 +285,7 @@ Rules that keep this from becoming ceremony:
    * @returns {string}
    * @throws {TypeError} ERR_INVALID_ARG_TYPE — options is a non-null scalar.
    * @node Options are validated BEFORE the input is converted; `decode(5, 5)`
-   *       reports the options (node 24, verified).
+   *       reports the options (node 26, verified).
    * @deviates none
    */
   ```

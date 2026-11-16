@@ -1045,7 +1045,7 @@
   // `_undestroy` takes a teardown back: the stream has already emitted its 'finish' /
   // 'close' and run its callbacks, and this returns it to a usable state. Node exposes it
   // on both prototypes (internal/streams/destroy.js's `undestroy`; verified present on
-  // node 24.18.1's Writable, Readable AND process.stdout, so it is reachable API, not an
+  // node 26.13.0's Writable, Readable AND process.stdout, so it is reachable API, not an
   // invention here). It has exactly one caller shape — a `_destroy` that wants the
   // teardown undone — which is how node keeps the stdio singletons alive across an
   // `end()`; see js/internal/stdio.js. Nothing in this file calls it, so an existing

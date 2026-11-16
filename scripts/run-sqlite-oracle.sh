@@ -11,7 +11,7 @@ RUN_LAVA=${RUN_LAVA:-0}
 TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/lava-sqlite-oracle.XXXXXX")
 
 # Older Node (e.g. the Node 22 line) flags node:sqlite as experimental and prints
-# an ExperimentalWarning to stderr; the Node 24 CI baseline and Lava do not.
+# an ExperimentalWarning to stderr; the Node 26 CI baseline and Lava do not.
 # Suppress Node's warnings here so the stderr comparison reflects behavior, not
 # version noise, regardless of which Node the run happens to use.
 export NODE_OPTIONS="${NODE_OPTIONS:-} --no-warnings"

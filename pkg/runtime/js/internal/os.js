@@ -568,7 +568,7 @@
    * @param {{encoding?: string}} [options]
    * @returns {{uid:number, gid:number, username:*, homedir:*, shell:*}} A NULL-PROTOTYPE
    *          object, as node returns.
-   * @node Verified on node 24.18.1, and three things here are easy to get wrong:
+   * @node Verified on node 26.13.0, and three things here are easy to get wrong:
    *       - the result has a null prototype (`typeof info.hasOwnProperty === 'undefined'`);
    *       - the encoding goes through node's ParseEncoding, so it is CASE-INSENSITIVE:
    *         'buffer', 'BUFFER' and 'bUfFeR' all yield Buffers;

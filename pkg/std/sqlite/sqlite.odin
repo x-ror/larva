@@ -199,7 +199,7 @@ prepare :: proc(db: ^Database, sql: string) -> (Statement, Result) {
 		handle: rawptr
 		// pzTail is nil on purpose: prepare compiles only the first statement and
 		// silently ignores anything after the first ";". This matches node:sqlite
-		// (verified against Node 24 — `prepare("SELECT 1; SELECT 2")` runs SELECT 1),
+		// (verified against Node 26.13.0 — `prepare("SELECT 1; SELECT 2")` runs SELECT 1),
 		// which is more permissive than better-sqlite3's "one statement only" error.
 		rc := sqlite3_prepare_v2(db.handle, csql, -1, &handle, nil)
 		if rc != SQLITE_OK || handle == nil {
@@ -419,7 +419,7 @@ bind_text :: proc(stmt: ^Statement, index: int, value: string) -> Result {
 //
 // Node:
 //   node:sqlite binds an empty Uint8Array as an empty BLOB — `typeof(x)` reads
-//   "blob" and `length(x)` 0, verified against node 24.
+//   "blob" and `length(x)` 0, verified against node 26.13.0.
 //
 // sqlite3_bind_blob() with a NULL pointer is documented to behave exactly like
 // sqlite3_bind_null(), so an empty slice (whose raw_data is nil) silently bound

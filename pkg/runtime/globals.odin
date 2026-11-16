@@ -691,7 +691,7 @@ output_mutex: sync.Mutex
 // Node:
 //   node writes files and TTYs synchronously on POSIX and QUEUES pipes on its loop,
 //   flushing before a natural exit. On a natural exit `console.log('x'.repeat(300000))`
-//   delivers 300001 bytes where Lava delivered 65536 (node 24.18.1, parent-set O_NONBLOCK
+//   delivers 300001 bytes where Lava delivered 65536 (node 26.13.0, parent-set O_NONBLOCK
 //   pipe). It is not a blanket "node never truncates": across `process.exit(0)` node drops
 //   its queued write and delivers 65536 on the same harness — the exact signature this
 //   fix removes from Lava.

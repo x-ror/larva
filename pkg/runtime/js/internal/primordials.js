@@ -466,7 +466,7 @@
     // spec's RegExpExec abstract operation re-reads `R.exec` off the RECEIVER
     // before falling back to the builtin, so replacing `RegExp.prototype.exec`
     // steers `test` even when `test` itself was captured pristine at module-eval
-    // and invoked through Reflect.apply. Verified identically on node 24 and
+    // and invoked through Reflect.apply. Verified identically on node 26.13.0 and
     // bin/lava. Exporting a `Test` that looks safe and is not would be worse than
     // exporting nothing. The predicate form below, `RegExpMatches(re, s)`, is the
     // spelling a validator should use; `RegExpPrototypeExec` stays exported for a

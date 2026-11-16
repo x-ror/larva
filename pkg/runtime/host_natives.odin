@@ -265,7 +265,8 @@ host_dispatch_fail :: #force_no_inline proc "c" (ctx: jsc.JSContextRef, why: str
 //   JSObjectMakeFunctionWithCallback (inject_native_function already does).
 // Node:
 //   `.length` is observable only for the natives injected as globals —
-//   setTimeout/setInterval report 2, the rest 1 (verified against node 24).
+//   setTimeout/setInterval report 2, the rest 1 (node 26.13.0, verified by
+//   tests/node-compat/cases/56-native-function-arity.js).
 // Deviates:
 //   The C-API fallback reports 0 and cannot carry an arity through the public
 //   API; analysis at inject_native_function (require.odin). Pinned by

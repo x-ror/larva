@@ -180,11 +180,11 @@
   // lossy nor an overflowing bind.
   //
   // Node:
-  //   node 24.21 binds a boolean as INTEGER 1/0 and a (Shared)ArrayBuffer as a BLOB
-  //   of its bytes — NULL when its byteLength is 0, empty or detached, unlike an
+  //   node (since 24.21) binds a boolean as INTEGER 1/0 and a (Shared)ArrayBuffer as a
+  //   BLOB of its bytes — NULL when its byteLength is 0, empty or detached, unlike an
   //   empty Uint8Array, which stays an empty BLOB. Probed against node 24.21 with
-  //   `SELECT ?, typeof(?)`; node 22 threw on the boolean and took the buffer for a
-  //   named bag. Pinned by tests/std/sqlite/cases/08-coercion-parity.js.
+  //   `SELECT ?, typeof(?)`, re-verified on 26.13.0; node 22 threw on the boolean and
+  //   took the buffer for a named bag. Pinned by tests/std/sqlite/cases/08-coercion-parity.js.
   //   node 26 binds `undefined` as NULL, positional and named; node 24 threw
   //   ERR_INVALID_ARG_TYPE. Pinned by tests/std/sqlite/cases/05-coercion.js.
   function bindOne(stmtId, index, value) {

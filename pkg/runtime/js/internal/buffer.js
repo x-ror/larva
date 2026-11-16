@@ -144,7 +144,7 @@
    * @returns {TypeError & {code: string}}
    * @node `The "size" argument must be of type number. Received type string ('5')`
    *       for Buffer.alloc('5'); the same template for "offset" (readUInt8('5'),
-   *       writeUInt16LE(0, '1')) and "length" (Buffer.concat([a], '5')). Node 24.22.1,
+   *       writeUInt16LE(0, '1')) and "length" (Buffer.concat([a], '5')). Node 26.13.0,
    *       verified by tests/node-compat/cases/70-buffer-size-inspect-parity.js.
    * @deviates none
    */
@@ -257,7 +257,7 @@
    *         ceiling; the message quotes the ceiling and `Received <size>`.
    * @node -1/NaN/±Infinity/2**53 → `The value of "size" is out of range. It must be
    *       >= 0 && <= 9007199254740991. Received -1` (2**53 prints 9_007_199_254_740_992);
-   *       -0 and 1.5 pass (length 0 and 1). Node 24.22.1, verified by
+   *       -0 and 1.5 pass (length 0 and 1). Node 26.13.0, verified by
    *       tests/node-compat/cases/70-buffer-size-inspect-parity.js.
    * @deviates The ceiling is K_MAX_LENGTH (4 GiB by default; LAVA_MAX_BUFFER_BYTES lowers it,
    *           and buffer.constants.MAX_LENGTH reports it), not node's 2**53-1 — the documented
@@ -797,7 +797,7 @@
    *         ±Infinity or above kMaxLength (assertSize, the check Buffer.alloc runs).
    * @node `Buffer(n)` is `Buffer.alloc(n)`: -1, NaN, ±Infinity and 2**53 throw the
    *       coded "size" RangeError, -0 → length 0, 1.5 → length 1, 5 → five zero bytes;
-   *       identical with and without `new`. Node 24.22.1, verified by
+   *       identical with and without `new`. Node 26.13.0, verified by
    *       tests/node-compat/cases/70-buffer-size-inspect-parity.js.
    * @deviates The out-of-range bound is K_MAX_LENGTH (see assertSize), pinned by
    *           tests/node-compat/cases/70-buffer-size-inspect-parity.js.

@@ -1044,7 +1044,7 @@
       "expect_detail": "GATE INTEGRITY"
     },
     {
-      "name": "compare.sh dies when the Node 24 oracle version check is gutted",
+      "name": "compare.sh dies when the .nvmrc oracle-major check is gutted",
       "why": "Oracle expectations drift between Node majors (#185: node:sqlite binds undefined as NULL from 26); an oracle older than .nvmrc must not run.",
       "source": "scripts/lib/compare.sh",
       "find": "\tif [ \"$_got\" -lt \"$_want\" ]; then",
@@ -1522,7 +1522,7 @@
     },
     {
       "name": "uncaught-before-teardown dies when the CLI prints the result after eval returns",
-      "why": "eval's deferred teardown joins the loop's pool workers, so a report printed after eval returns waits for a worker blocked without bound (fs.readFile on a FIFO nobody writes): a top-level throw then hangs with empty stderr, where node prints the error first (node v24.22.1, probe case H).",
+      "why": "eval's deferred teardown joins the loop's pool workers, so a report printed after eval returns waits for a worker blocked without bound (fs.readFile on a FIFO nobody writes): a top-level throw then hangs with empty stderr, where node prints the error first (node v26.13.0, probe case H).",
       "source": "cmd/lava/main.odin",
       "find": "\tresult := lava_runtime.run_file(args[0], &loop, args[1:], report = print_result)\n",
       "replace": "\tresult := lava_runtime.run_file(args[0], &loop, args[1:])\n\tprint_result(result, nil)\n",
@@ -1542,7 +1542,7 @@
     },
     {
       "name": "uncaught-before-teardown dies when lava eval prints the result after eval returns",
-      "why": "`lava eval` wires the report hook separately from `lava run`; printing after runtime.eval returns waits for eval's teardown to join a worker blocked without bound, so a top-level throw hangs with empty stderr where `node -e` prints the error first (node v24.22.1, probe case H).",
+      "why": "`lava eval` wires the report hook separately from `lava run`; printing after runtime.eval returns waits for eval's teardown to join a worker blocked without bound, so a top-level throw hangs with empty stderr where `node -e` prints the error first (node v26.13.0, probe case H).",
       "source": "cmd/lava/main.odin",
       "find": "\tresult := lava_runtime.eval(args[0], \"<eval>\", &loop, true, report = print_result)\n",
       "replace": "\tresult := lava_runtime.eval(args[0], \"<eval>\", &loop, true)\n\tprint_result(result, nil)\n",

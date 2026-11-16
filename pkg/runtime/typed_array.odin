@@ -43,7 +43,7 @@ g_bytes_ptr_mode: BytesPtr_Mode // written once per thread after first offset vi
 //   A view over a resizable ArrayBuffer has no fixed length: a length-tracking
 //   one follows the buffer's current size, and a fixed window the buffer has
 //   shrunk below reads as length 0 — so `decode(new Uint8Array(rab))` sees every
-//   byte and a stale window sees none (node 24.21, verified by
+//   byte and a stale window sees none (node 26.13.0, verified by
 //   tests/node-compat/cases/68-resizable-view-bytes.js). The cell fast path
 //   declines those views and the C API below answers for them; its byteLength
 //   applies the spec's rules for every view mode.
