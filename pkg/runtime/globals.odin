@@ -1642,5 +1642,6 @@ EMBEDDED_JS_DIRS := [?]Embedded_JS_Dir {
 	{"internal/fetch", #load_directory("js/internal/fetch")},
 	{"internal/http", #load_directory("js/internal/http")},
 	{"internal/streams", #load_directory("js/internal/streams")},
+	{"internal/util", #load_directory("js/internal/util")},
 	{"internal/webstreams", #load_directory("js/internal/webstreams")},
 }

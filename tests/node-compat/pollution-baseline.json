@@ -245,6 +245,30 @@
     "accessor": 0,
     "global": 14
   },
+  "internal/util.js": {
+    "method": 1,
+    "invoke": 3,
+    "accessor": 0,
+    "global": 11
+  },
+  "internal/util/comparisons.js": {
+    "method": 12,
+    "invoke": 3,
+    "accessor": 10,
+    "global": 16
+  },
+  "internal/util/debuglog.js": {
+    "method": 2,
+    "invoke": 3,
+    "accessor": 0,
+    "global": 4
+  },
+  "internal/util/inspect.js": {
+    "method": 25,
+    "invoke": 3,
+    "accessor": 2,
+    "global": 22
+  },
   "internal/webstreams/adapters.js": {
     "method": 7,
     "invoke": 0,
@@ -450,10 +474,10 @@
     "global": 18
   },
   "node/util.js": {
-    "method": 46,
-    "invoke": 14,
-    "accessor": 12,
-    "global": 70
+    "method": 6,
+    "invoke": 2,
+    "accessor": 0,
+    "global": 17
   },
   "node/util/types.js": {
     "method": 0,

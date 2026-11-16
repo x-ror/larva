@@ -216,7 +216,15 @@ requiring only `util`. `node/crypto` keeps `createHash`/`createHmac` and `timing
 where node's `lib/crypto.js` has them, assembles the exports in their old order and
 installs `globalThis.crypto`; the five files that call into Odin get the `node/crypto`
 bindings through the same `loader.js` aliasing as http. All seven are eager through the one
-`req('crypto')` root. Errors use Node-shaped coded errors (`ERR_INVALID_ARG_TYPE`,
+`req('crypto')` root. Util follows node's `lib/internal/util` seams the same way:
+`internal/util/inspect` (`inspect`, `format`/`formatWithOptions`,
+`stripVTControlCharacters`, the `inspect.colors` table), `internal/util/comparisons`
+(`isDeepStrictEqual`), `internal/util/debuglog` (requiring `inspect` for its formatting)
+and `internal/util` (`promisify`, `deprecate`). `node/util` keeps `callbackify`,
+`inherits`, `styleText` and `toUSVString` where node's `lib/util.js` has them, plus
+`aborted`, and assembles the exports in their old order. Util calls no native, so there
+is no alias, and every file stays lazy behind `require('util')`. Errors use Node-shaped
+coded errors (`ERR_INVALID_ARG_TYPE`,
 `ERR_OUT_OF_RANGE`, …), built in one place: `js/internal/errors.js` (eager, hardened)
 holds node's `determineSpecificType`, `ERR_INVALID_ARG_TYPE`/`_VALUE`, `ERR_OUT_OF_RANGE`,
 `ERR_MISSING_ARGS`, `ERR_UNKNOWN_ENCODING`, and two constructors for node's two shapes —
