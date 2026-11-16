@@ -31,6 +31,14 @@
   // the bindings before requiring either file.
   natives['internal/http/outgoing'] = natives['node/http'];
   natives['internal/http/server'] = natives['node/http'];
+  // node:crypto is split the same way, along node's lib/internal/crypto seams; the five
+  // files that call into Odin get node:crypto's own bindings object, aliased for the
+  // same reason.
+  natives['internal/crypto/hash'] = natives['node/crypto'];
+  natives['internal/crypto/random'] = natives['node/crypto'];
+  natives['internal/crypto/pbkdf2'] = natives['node/crypto'];
+  natives['internal/crypto/hkdf'] = natives['node/crypto'];
+  natives['internal/crypto/scrypt'] = natives['node/crypto'];
 
   // Prefix test by code unit. The specifier comes from user code on the public path,
   // so a String.prototype method here would be a live, replaceable read deciding

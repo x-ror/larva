@@ -204,6 +204,10 @@ const ROUTES = [
     targets: ['make test-odin', 'make test-compat-lava', 'make api-surface'],
   },
   {
+    re: globToRe('**/js/internal/crypto/*.js'),
+    targets: ['make test-odin', 'make test-compat-lava', 'make api-surface'],
+  },
+  {
     re: globToRe('pkg/runtime/js/**/*.js'),
     targets: ['make check-js', 'make check-primordials', 'make test-compat-lava'],
   },

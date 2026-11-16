@@ -2516,6 +2516,24 @@
       "replace": "  var Response = class Response extends require('internal/fetch/response').Response {};",
       "gate": "compat:tests/node-compat/cases/82-fetch-internal-modules.js",
       "expect_detail": "node: identities true true true true true true true true true"
+    },
+    {
+      "name": "83-crypto-internal-modules dies when node:crypto exports a Hash other than internal/crypto/hash's",
+      "why": "createHash (node/crypto) and Hash (internal/crypto/hash) now meet across a file seam; an entry that re-exports a wrapper or a stale copy hands user code a crypto.Hash that createHash()'s instances are not instances of.",
+      "source": "pkg/runtime/js/node/crypto.js",
+      "find": "  var Hash = hashModule.Hash;",
+      "replace": "  var Hash = function Hash(algorithm) {\n    return new hashModule.Hash(algorithm);\n  };",
+      "gate": "compat:tests/node-compat/cases/83-crypto-internal-modules.js",
+      "expect_detail": "node: identities true true true true true true true"
+    },
+    {
+      "name": "83-crypto-internal-modules dies when the loader stops handing internal/crypto/random the crypto bindings",
+      "why": "Odin keys the crypto natives to node/crypto only; random.js reaches them solely through the loader alias, and without it every CSPRNG entry point (and the WHATWG global) throws on first use instead of at load.",
+      "source": "pkg/runtime/js/bootstrap/loader.js",
+      "find": "  natives['internal/crypto/random'] = natives['node/crypto'];\n",
+      "replace": "",
+      "gate": "compat:tests/node-compat/cases/83-crypto-internal-modules.js",
+      "expect_detail": "node: globalThis.crypto object true function function true true"
     }
   ]
 }

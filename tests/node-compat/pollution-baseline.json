@@ -35,6 +35,42 @@
     "accessor": 0,
     "global": 0
   },
+  "internal/crypto/hash.js": {
+    "method": 8,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 5
+  },
+  "internal/crypto/hkdf.js": {
+    "method": 0,
+    "invoke": 0,
+    "accessor": 1,
+    "global": 1
+  },
+  "internal/crypto/pbkdf2.js": {
+    "method": 0,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 2
+  },
+  "internal/crypto/random.js": {
+    "method": 0,
+    "invoke": 0,
+    "accessor": 12,
+    "global": 24
+  },
+  "internal/crypto/scrypt.js": {
+    "method": 0,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 12
+  },
+  "internal/crypto/util.js": {
+    "method": 10,
+    "invoke": 0,
+    "accessor": 4,
+    "global": 15
+  },
   "internal/encoding.js": {
     "method": 0,
     "invoke": 0,
@@ -264,10 +300,10 @@
     "global": 0
   },
   "node/crypto.js": {
-    "method": 22,
+    "method": 4,
     "invoke": 0,
-    "accessor": 17,
-    "global": 61
+    "accessor": 0,
+    "global": 2
   },
   "node/diagnostics_channel.js": {
     "method": 5,
