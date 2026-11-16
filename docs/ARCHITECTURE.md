@@ -175,14 +175,21 @@ attaches them to the `req` it passes each factory, so an internal module reads t
 It exists because a LAZY module's own `require('buffer').Buffer` runs on the user's first
 require of that module — after user code, and therefore steerable (#333). `fs`, `http`,
 `https`, `net` and `os` take it; `stream` and `stdio` do not need it because `installStdio`
-instantiates them during bootstrap.
+instantiates them during bootstrap — and with them every `internal/streams/*` file `stream`
+requires at its top level. `internal/webstreams/adapters` is the exception: `Readable`/
+`Writable.fromWeb`/`toWeb` require it on first call (it requires `readable`/`writable` back
+at its own top level, so the late edge is what keeps the graph acyclic), as node does.
 `internal/blob` is eager yet takes it too, at call time: `buffer` requires it from its own
 factory, before the table exists, and a top-level `require('buffer')` back would be a cycle.
 
 The JS layer is substantial and high quality: `url.js` (2071 LOC, WHATWG URL),
 `stream/web.js` (2027, Web Streams), `buffer.js` (1456; `Blob`, `File` and the `blob:` URL registry
 live in `internal/blob.js` and `internal/file.js`, as in node's `lib/internal`), `fetch.js` (1054),
-`crypto.js` (917). Errors use Node-shaped coded errors (`ERR_INVALID_ARG_TYPE`,
+`crypto.js` (917). `node/stream.js` only assembles the public module; the classic
+streams live in `internal/streams/` (`legacy`, `readable`, `writable`, `duplex`,
+`transform`, `passthrough`, `destroy`, `add-abort-signal`, `end-of-stream`, `pipeline`,
+`utils`) and the Web Streams bridges in `internal/webstreams/adapters.js`, the files node
+keeps them in, so their frames read `node:internal/streams/readable`. Errors use Node-shaped coded errors (`ERR_INVALID_ARG_TYPE`,
 `ERR_OUT_OF_RANGE`, …), built in one place: `js/internal/errors.js` (eager, hardened)
 holds node's `determineSpecificType`, `ERR_INVALID_ARG_TYPE`/`_VALUE`, `ERR_OUT_OF_RANGE`,
 `ERR_MISSING_ARGS`, `ERR_UNKNOWN_ENCODING`, and two constructors for node's two shapes —

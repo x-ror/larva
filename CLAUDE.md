@@ -277,13 +277,17 @@ Rules that keep this from becoming ceremony:
   fixed-arity wrappers (`ArrayPrototypePush1`/`Push2`) or plain indexed writes
   into a preallocated null-prototype array. Getting this wrong cost 1.43x on the
   TextDecoder JS path.
-- Where node implements a constructor as a `class`, new or rewritten code does too
-  (`class Blob`, `class File extends Blob`). It gives node's non-writable
-  `prototype` and `extends`/`new.target` semantics. The one thing it cannot
-  match is the TypeError text for a call without `new`: JSC's own wording is an
-  engine trait, declared with `@deviates` and pinned by a Lava-only assertion,
-  never printed by an oracle case. Method enumerability stays explicit where node
-  makes it explicit.
+- New and rewritten code writes constructors as `class` (`class Blob`,
+  `class File extends Blob`), whatever node does internally. **Exception, and do
+  not add to it without a probe:** constructors that npm code inherits from with
+  the pre-ES6 pattern `function S() { Base.call(this) }` + `util.inherits(S, Base)`
+  stay function constructors. That call throws on a class, so a class there breaks
+  working packages, not just a message. Today these are `EventEmitter`, `Stream`,
+  `Readable`, `Writable`, `Duplex`, `Transform`, `PassThrough`, and `Buffer`
+  (callable without `new`). For every other class, the TypeError text for a call
+  without `new` is JSC's own wording: an engine trait, declared with `@deviates`,
+  pinned by a Lava-only assertion, and never printed by an oracle case. Method
+  enumerability stays explicit wherever it is observable today.
 - Nothing transient lands on `globalThis`; natives arrive as the factory's fourth
   argument.
 - Errors are Node-shaped coded errors (`ERR_INVALID_ARG_TYPE`, `ERR_OUT_OF_RANGE`)
