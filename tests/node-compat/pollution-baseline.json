@@ -45,7 +45,7 @@
     "method": 24,
     "invoke": 0,
     "accessor": 0,
-    "global": 5
+    "global": 17
   },
   "internal/parse_args.js": {
     "method": 0,
@@ -81,7 +81,7 @@
     "method": 14,
     "invoke": 5,
     "accessor": 8,
-    "global": 40
+    "global": 42
   },
   "node/buffer.js": {
     "method": 41,
@@ -105,13 +105,13 @@
     "method": 5,
     "invoke": 9,
     "accessor": 0,
-    "global": 13
+    "global": 16
   },
   "node/dns.js": {
     "method": 10,
     "invoke": 0,
     "accessor": 0,
-    "global": 8
+    "global": 10
   },
   "node/dns/promises.js": {
     "method": 0,
@@ -135,25 +135,25 @@
     "method": 21,
     "invoke": 5,
     "accessor": 0,
-    "global": 21
+    "global": 27
   },
   "node/https.js": {
     "method": 0,
     "invoke": 0,
     "accessor": 0,
-    "global": 8
+    "global": 9
   },
   "node/net.js": {
     "method": 2,
     "invoke": 2,
     "accessor": 3,
-    "global": 9
+    "global": 12
   },
   "node/os.js": {
     "method": 12,
     "invoke": 0,
     "accessor": 1,
-    "global": 7
+    "global": 10
   },
   "node/path.js": {
     "method": 161,
@@ -183,19 +183,19 @@
     "method": 24,
     "invoke": 0,
     "accessor": 0,
-    "global": 2
+    "global": 4
   },
   "node/querystring.js": {
     "method": 6,
     "invoke": 1,
     "accessor": 0,
-    "global": 6
+    "global": 7
   },
   "node/sqlite.js": {
     "method": 10,
     "invoke": 1,
     "accessor": 3,
-    "global": 20
+    "global": 28
   },
   "node/stream.js": {
     "method": 42,
@@ -237,7 +237,7 @@
     "method": 2,
     "invoke": 2,
     "accessor": 0,
-    "global": 2
+    "global": 4
   },
   "node/url.js": {
     "method": 46,
@@ -249,12 +249,12 @@
     "method": 46,
     "invoke": 14,
     "accessor": 15,
-    "global": 72
+    "global": 74
   },
   "node/util/types.js": {
     "method": 0,
     "invoke": 1,
     "accessor": 0,
-    "global": 2
+    "global": 3
   }
 }

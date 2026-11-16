@@ -197,8 +197,9 @@ const INVOKE = new Set(['call', 'apply']);
 // `arr.length` and make the ratchet unusable, which is its own failure mode.
 const ACCESSOR = new Set(['buffer', 'byteOffset', 'byteLength', 'constructor', '__proto__']);
 
-// Globals a script can replace outright. Captured at module-eval, these are
-// safe; read live inside a function body they are the `global` class.
+// Globals a script can replace outright. Captured at module-eval of an EAGER
+// module, these are safe; read live inside a function body, or anywhere in a lazy
+// module, they are the `global` class.
 const GLOBALS = new Set([
   'String',
   'Number',
@@ -271,9 +272,9 @@ function functionDepth(ancestors) {
   return n;
 }
 
-// A global read AT MODULE-EVAL is not a finding at all — the loader evaluates
-// module bodies before any user code runs, so the binding it reads is still
-// pristine. That is what makes a capture the fix, and it generalises: the shape
+// A global read AT MODULE-EVAL of an EAGER module is not a finding at all — the
+// loader evaluates those module bodies before any user code runs, so the binding it
+// reads is still pristine. That is what makes a capture the fix, and it generalises: the shape
 // of the statement does not matter, only when it runs. `var S = String;`,
 // `module.exports = { Object: Object }` and even `var b = Buffer.from(x)` are all
 // safe at depth <= 1, and all three are live reads at depth >= 2.
@@ -282,8 +283,15 @@ function functionDepth(ancestors) {
 // guessed wrong in both directions: it exempted a capture inside a function body
 // (a call-time read) and counted primordials.js's own export table, where every
 // module-level mention IS the capture.
-function runsAtModuleEval(ancestors) {
-  return functionDepth(ancestors) <= 1;
+//
+// `eager` is the other half of "when does this run". A LAZY module's factory runs on
+// the user's first require(), after user code could have replaced `String`, so its
+// module-eval capture is the live read it looks like it avoids — #333 shipped that
+// way (`var StringG = String` at the top of net.js scored 0). The caller decides
+// eagerness from the module graph (lib/js-graph.mjs eagerModules); here it only
+// turns the exemption off.
+function exemptAsPristine(ancestors, eager) {
+  return eager && functionDepth(ancestors) <= 1;
 }
 
 // Does an enclosing function bind this name as a parameter? `function f(String)`
@@ -302,10 +310,12 @@ function shadowedByParam(name, ancestors) {
 }
 
 // countSource parses `src` and reports every pollutable site, per class, with the
-// line each sits on. Throws when the source does not parse — a scanner that
+// line each sits on. `eager: false` scans it as a module instantiated after user
+// code can run (see exemptAsPristine); the default is eager, which is what a bare
+// fixture string pins. Throws when the source does not parse — a scanner that
 // silently reports 0 sites on a file it failed to read is the failure mode this
 // tool exists to prevent.
-function countSource(src, label = '<fixture>') {
+function countSource(src, label = '<fixture>', { eager = true } = {}) {
   const lineComments = new Map();
   let ast;
   try {
@@ -372,7 +382,7 @@ function countSource(src, label = '<fixture>') {
         node.object.name === 'globalThis' &&
         GLOBALS.has(name)
       ) {
-        if (!runsAtModuleEval(ancestors)) at(node, 'global', `globalThis.${name}`);
+        if (!exemptAsPristine(ancestors, eager)) at(node, 'global', `globalThis.${name}`);
         return;
       }
 
@@ -441,7 +451,7 @@ function countSource(src, label = '<fixture>') {
       }
       if (parent.type === 'ClassDeclaration' && parent.id === node) return;
       if (shadowedByParam(node.name, ancestors)) return;
-      if (runsAtModuleEval(ancestors)) return;
+      if (exemptAsPristine(ancestors, eager)) return;
       at(node, 'global', node.name);
     },
   });
@@ -494,8 +504,8 @@ function walkDir(dir, out = []) {
   return out;
 }
 
-function countFile(file) {
-  return countSource(readFileSync(file, 'utf8'), relative(ROOT, file));
+function countFile(file, opts) {
+  return countSource(readFileSync(file, 'utf8'), relative(ROOT, file), opts);
 }
 
 export { KINDS, countSource, countFile, walkDir, JS_DIR, BASELINE, ROOT };

@@ -12,7 +12,8 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { relative, sep } from 'node:path';
-import { KINDS, countFile, walkDir, JS_DIR, BASELINE } from './lib/primordials-detect.mjs';
+import { KINDS, countFile, walkDir, JS_DIR, BASELINE, ROOT } from './lib/primordials-detect.mjs';
+import { eagerModules } from './lib/js-graph.mjs';
 import { selfTest } from './lib/primordials-fixtures.mjs';
 import { compare, raises, totals } from './lib/primordials-baseline.mjs';
 
@@ -33,12 +34,19 @@ if (selfTestFailures.length > 0) {
   process.exit(1);
 }
 
+// Module-eval reads are exempt only where they run before user code: every
+// bootstrap/ file (Odin evaluates each at context init) and the modules the loader
+// instantiates at init, derived from the graph rather than listed (lib/js-graph.mjs).
+// A lazy module's capture runs on the user's first require — #333.
+const EAGER = new Set(eagerModules(ROOT));
+const isEager = (key) => key.startsWith('bootstrap/') || EAGER.has(key.slice(0, -'.js'.length));
+
 const files = walkDir(JS_DIR).sort();
 const counts = {};
 const allHits = {};
 for (const file of files) {
   const key = relative(JS_DIR, file).split(sep).join('/');
-  const { hits } = countFile(file);
+  const { hits } = countFile(file, { eager: isEager(key) });
   // PER-CLASS counts, not one number. The classes differ by an order of
   // magnitude, and a single total would let a file trade a fixed accessor for a
   // new global and still pass.
@@ -140,7 +148,9 @@ if (failed) {
       '            ReflectApply for .call/.apply)\n' +
       '            accessor     -> read via a captured getter, e.g.\n' +
       '                            TypedArrayPrototypeGetBuffer(view)\n' +
-      '            global       -> capture at module-eval (`var StringG = String;`)\n' +
+      '            global       -> capture at module-eval (`var StringG = String;`) in an\n' +
+      '                            eager module; in a lazy one take the loader handle\n' +
+      "                            (require('internal/primordials'), require.pristineBuffer)\n" +
       'A genuine false positive (the receiver is a class instance, not a built-in) takes\n' +
       '`// primordials-ok` on the same line. On a line carrying candidates from more\n' +
       'than one class the bare marker suppresses nothing — name it:\n' +

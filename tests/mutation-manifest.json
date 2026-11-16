@@ -1941,7 +1941,7 @@
     {
       "name": "check-js-graph fixtures die when a non-literal require is accepted",
       "why": "A computed require id is how an internal module gets reached by a name nobody can grep for, and it leaves the graph below incomplete.",
-      "source": "scripts/check-js-graph.mjs",
+      "source": "scripts/lib/js-graph.mjs",
       "find": "add('dynamic', where(mod, call.line), 'require() argument is not a string literal');",
       "replace": "",
       "gate": "node-test:scripts/check-js-graph.test.mjs",
@@ -1951,7 +1951,7 @@
     {
       "name": "check-js-graph fixtures die when an unresolvable require is accepted",
       "why": "With #load_directory nothing checks a spelling at compile time: require('internal/mim') builds and returns undefined at run time.",
-      "source": "scripts/check-js-graph.mjs",
+      "source": "scripts/lib/js-graph.mjs",
       "find": "add('unresolved', where(mod, call.line), `require('${spec}') -> ${id} has no file`);",
       "replace": "",
       "gate": "node-test:scripts/check-js-graph.test.mjs",
@@ -2011,7 +2011,7 @@
     {
       "name": "check-js-graph fixtures die when late-bound requires count as cycle edges",
       "why": "A require inside a function runs after both factories returned; counting it would forbid the sanctioned late binding stream <-> stream/web uses.",
-      "source": "scripts/check-js-graph.mjs",
+      "source": "scripts/lib/js-graph.mjs",
       "find": "topLevel: fns.length <= 1",
       "replace": "topLevel: true",
       "gate": "node-test:scripts/check-js-graph.test.mjs",
@@ -2035,6 +2035,43 @@
       "replace": "\t\tif !strings.has_suffix(prefix, dir.prefix) do continue\n",
       "gate": "odin:cmd/lava:main.builtin_factories_compile_on_first_require",
       "expect_detail": "an id outside the embedded set resolved"
+    },
+    {
+      "name": "the detector's fixtures die when a lazy module's module-eval capture is exempted again",
+      "why": "#333: a lazy module's factory runs on the user's first require, after user code could replace `String`, so exempting its top-level `var StringG = String` scores a live read as 0.",
+      "source": "scripts/lib/primordials-detect.mjs",
+      "find": "  return eager && functionDepth(ancestors) <= 1;",
+      "replace": "  return functionDepth(ancestors) <= 1;",
+      "gate": "node-test:scripts/check-primordials.test.mjs",
+      "expect_detail": "lazy module: module-eval capture is a live read"
+    },
+    {
+      "name": "the ratchet dies when every module is scanned as eager",
+      "why": "Classifying a lazy module as eager re-exempts its module-eval captures; the raised baseline then reads as an improvement, which the ratchet refuses.",
+      "source": "scripts/check-primordials.mjs",
+      "find": "const isEager = (key) => key.startsWith('bootstrap/') || EAGER.has(key.slice(0, -'.js'.length));",
+      "replace": "const isEager = () => true;",
+      "gate": "make:check-primordials",
+      "expect_detail": "hardened by"
+    },
+    {
+      "name": "check-js-graph fixtures die when a function-body require makes its target eager",
+      "why": "A require inside a function runs when that function is called, possibly after user code; propagating eagerness through it exempts a lazy module's captures.",
+      "source": "scripts/lib/js-graph.mjs",
+      "find": "    for (const e of modules.get(id).edges) if (e.topLevel) stack.push(e.id);",
+      "replace": "    for (const e of modules.get(id).edges) stack.push(e.id);",
+      "gate": "node-test:scripts/check-js-graph.test.mjs",
+      "test": "eager: a function-body require does not make its target eager",
+      "expect_detail": "eager: a function-body require does not make its target eager"
+    },
+    {
+      "name": "builtin_factories_compile_on_first_require dies when the ratchet's eager set names a lazy module",
+      "why": "Statically crypto stays a loader req() root and so eager to the ratchet, but at run time it now loads after user code; static must stay a subset of what init compiles.",
+      "source": "pkg/runtime/js/bootstrap/loader.js",
+      "find": "  req('crypto');\n",
+      "replace": "  publicReq.lateCrypto = function () {\n    req('crypto');\n  };\n",
+      "gate": "odin:cmd/lava:main.builtin_factories_compile_on_first_require",
+      "expect_detail": "is listed eager but compiled on first require"
     }
   ]
 }

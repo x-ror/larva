@@ -79,7 +79,31 @@ builtin_factories_compile_on_first_require :: proc(t: ^testing.T) {
 })()`
 	testing.expect(t, run_bool(ctx, UNKNOWN), "an id outside the embedded set resolved")
 	testing.expect_value(t, state.builtin_compiles, at_init + 1)
+
+	// The ratchet's static eager set (scripts/lib/js-graph.mjs eagerModules) against what
+	// init really compiled. Static ⊆ runtime is the property that matters: a module the
+	// ratchet calls eager but that is actually lazy has its module-eval captures exempted
+	// while they run after user code (#333). Each public id must already be compiled —
+	// its require compiles nothing; internal ids are not reachable from user code, so they
+	// are covered by the count: an equal-sized set with every node/ member present leaves
+	// a wrong internal member only if init also gained an unlisted one at the same time.
+	// ponytail: count-based for internal/ ids; record compiled ids on Runtime_State if
+	// that coincidence ever matters. check-js-graph.test.mjs keeps this list current.
+	for id in STATIC_EAGER {
+		if !strings.has_prefix(id, "node/") do continue
+		before := state.builtin_compiles
+		src, _ := strings.concatenate({"require('node:", id[len("node/"):], "') != null"}, context.temp_allocator)
+		testing.expectf(t, run_bool(ctx, src), "%s did not load", id)
+		testing.expectf(t, state.builtin_compiles == before, "%s is listed eager but compiled on first require", id)
+	}
+	// After the loop, so a lazy module wrongly listed is reported by name first.
+	testing.expect_value(t, at_init, len(STATIC_EAGER))
 }
+
+// The static eager set, sorted. Must equal eagerModules() — asserted by
+// scripts/check-js-graph.test.mjs, which parses this literal.
+@(private = "file")
+STATIC_EAGER :: [?]string{"internal/abort", "internal/encoding", "internal/fetch", "internal/primordials", "internal/stdio", "internal/structured_clone", "node/buffer", "node/crypto", "node/events", "node/stream", "node/stream/web", "node/string_decoder", "node/url"}
 
 @(private = "file")
 run_bool :: proc(ctx: jsc.JSContextRef, src: string) -> bool {

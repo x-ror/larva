@@ -224,10 +224,12 @@ Rules that keep this from becoming ceremony:
   **Module-eval capture is pristine only in a module the loader instantiates BEFORE user
   code** — the eager list in `bootstrap/loader.js`, plus `stream`/`stdio` via `installStdio`. A LAZY
   module's factory runs on the user's first `require()`, so a capture there is a live read
-  in disguise: `var StringG = String` at the top of `net.js` scores 0 and is still
-  steerable. Take the handle from the loader instead (`require('internal/primordials')`,
-  `require.pristineBuffer`). The ratchet cannot see this — it exempts every module-eval
-  capture, which is why #333 shipped. Computed and destructured forms count the same as the dot
+  in disguise — `var StringG = String` at the top of `net.js` is still steerable. Take the
+  handle from the loader instead (`require('internal/primordials')`,
+  `require.pristineBuffer`). The ratchet exempts module-eval reads only in that eager set,
+  which it derives from the loader's `req()` roots closed over top-level requires
+  (`scripts/lib/js-graph.mjs`); elsewhere they count as `global`. It used to exempt every
+  module-eval capture, which is why #333 shipped. Computed and destructured forms count the same as the dot
   form, so `view['buffer']` is not a way to lower a number.
 - A false positive takes `// primordials-ok` on the line. On a line carrying
   candidates from **more than one class** the bare marker suppresses nothing —

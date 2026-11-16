@@ -30,65 +30,11 @@
 //
 // Usage: node scripts/check-js-graph.mjs   (exit 1 on any violation)
 
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parse } from 'acorn';
-import * as walk from 'acorn-walk';
-import { walkDir, ROOT } from './lib/primordials-detect.mjs';
-
-const MODULE_DIRS = ['node', 'internal'];
-
-const posix = (p) => p.split(sep).join('/');
-
-// The loader's specifier -> id rule (bootstrap/loader.js toId), restated so a require
-// spelled for the public form (`buffer`, `node:buffer`, `assert/strict`) resolves the
-// way it does at run time.
-function toId(name) {
-  let key = name.startsWith('node:') ? name.slice(5) : name;
-  if (key === 'assert/strict') key = 'assert';
-  return key.startsWith('internal/') ? key : 'node/' + key;
-}
-
-function parseJs(src, file) {
-  return parse(src, {
-    ecmaVersion: 'latest',
-    sourceType: 'script',
-    locations: true,
-    allowReturnOutsideFunction: true,
-    sourceFile: file,
-  });
-}
-
-// Every call `<callee>(…)` in `ast`, with whether it runs at module-eval: its nearest
-// enclosing function is the outermost one in the program.
-function calls(ast, callee) {
-  const out = [];
-  walk.ancestor(ast, {
-    CallExpression(node, _state, ancestors) {
-      if (node.callee.type !== 'Identifier' || node.callee.name !== callee) return;
-      const fns = ancestors.filter(
-        (a) =>
-          a !== node &&
-          (a.type === 'FunctionExpression' ||
-            a.type === 'FunctionDeclaration' ||
-            a.type === 'ArrowFunctionExpression'),
-      );
-      out.push({ node, line: node.loc.start.line, topLevel: fns.length <= 1 });
-    },
-  });
-  return out;
-}
-
-function literalArg(call) {
-  const arg = call.node.arguments[0];
-  if (call.node.arguments.length !== 1 || !arg) return null;
-  if (arg.type === 'Literal' && typeof arg.value === 'string') return arg.value;
-  if (arg.type === 'TemplateLiteral' && arg.expressions.length === 0) {
-    return arg.quasis[0].value.cooked;
-  }
-  return null;
-}
+import { ROOT } from './lib/primordials-detect.mjs';
+import { MODULE_DIRS, moduleGraph, posix } from './lib/js-graph.mjs';
 
 /**
  * Checks the embedded JS module graph rooted at `root` (a repo checkout, or a fixture
@@ -98,7 +44,6 @@ function literalArg(call) {
  */
 export function checkJsGraph(root) {
   const runtimeDir = join(root, 'pkg', 'runtime');
-  const jsDir = join(runtimeDir, 'js');
   const violations = [];
   const add = (rule, where, msg) => violations.push({ rule, where, msg });
   const relJs = (file) => posix(relative(runtimeDir, file));
@@ -127,7 +72,10 @@ export function checkJsGraph(root) {
       nativeKeys.push({ id: m[1], where: `pkg/runtime/${name}` });
     }
   }
-  const allJs = existsSync(jsDir) ? walkDir(jsDir).sort() : [];
+  // The parser and module table are shared with the pollution ratchet (lib/js-graph.mjs),
+  // which reads the same edges to decide which modules run before user code.
+  const graph = moduleGraph(root);
+  const { modules, allJs } = graph;
   for (const file of allJs) {
     const rel = relJs(file);
     const dir = rel.slice(0, rel.lastIndexOf('/'));
@@ -140,49 +88,13 @@ export function checkJsGraph(root) {
     }
   }
 
-  // --- the module table: id -> file, and every require edge ---------------------
-  const modules = new Map(); // id -> { file, edges: [{id, line, topLevel}] }
-  for (const file of allJs) {
-    const id = relJs(file).slice('js/'.length, -'.js'.length);
-    if (!MODULE_DIRS.some((d) => id.startsWith(d + '/'))) continue;
-    modules.set(id, { file, edges: [] });
-  }
+  // --- the module table: dynamic and unresolved requires found while building it ---
+  violations.push(...graph.violations);
   const where = (mod, line) => `pkg/runtime/${relJs(mod.file)}:${line}`;
-  for (const mod of modules.values()) {
-    const ast = parseJs(readFileSync(mod.file, 'utf8'), mod.file);
-    for (const call of calls(ast, 'require')) {
-      const spec = literalArg(call);
-      if (spec === null) {
-        add('dynamic', where(mod, call.line), 'require() argument is not a string literal');
-        continue;
-      }
-      const id = toId(spec);
-      if (!modules.has(id)) {
-        add('unresolved', where(mod, call.line), `require('${spec}') -> ${id} has no file`);
-        continue;
-      }
-      mod.edges.push({ id, line: call.line, topLevel: call.topLevel });
-    }
-  }
 
   // --- roots: every public module, plus whatever the loader asks for -------------
   const roots = [...modules.keys()].filter((id) => id.startsWith('node/'));
-  const loaderFile = join(jsDir, 'bootstrap', 'loader.js');
-  if (existsSync(loaderFile)) {
-    const ast = parseJs(readFileSync(loaderFile, 'utf8'), loaderFile);
-    for (const call of calls(ast, 'req')) {
-      const spec = literalArg(call);
-      if (spec === null) continue; // req(name) inside the resolver itself
-      const id = toId(spec);
-      if (!modules.has(id)) {
-        add(
-          'unresolved',
-          `pkg/runtime/js/bootstrap/loader.js:${call.line}`,
-          `req('${spec}') -> ${id} has no file`,
-        );
-      } else roots.push(id);
-    }
-  }
+  roots.push(...graph.loaderIds);
   for (const k of nativeKeys) {
     if (!modules.has(k.id)) add('unresolved', k.where, `natives key "${k.id}" names no module`);
   }
