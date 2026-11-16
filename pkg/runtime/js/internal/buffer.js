@@ -698,10 +698,21 @@
         encoding = end;
         end = this.length;
       }
+      // validateOffsetArg's checks, inlined: the extra call layer per offset was the
+      // whole residual on fill(i, 0, 32) — 3e6 calls on a 64-byte buffer took 954 ms
+      // through validateOffsetArg and 496 inlined, base 8619888 738 (medians of 5
+      // interleaved launches per arm, darwin arm64, -o:speed). The valid case only compares; anything else (fraction, NaN, ±Infinity,
+      // out of range) goes to validateWriteOffset, which picks and builds the error.
+      // `% 1` rather than Math.floor keeps the live `Math` global read out (§5).
       if (start === undefined) start = 0;
-      else start = validateOffsetArg(start, 'offset', K_MAX_LENGTH);
+      else if (typeof start !== 'number')
+        throw errInvalidArgType('offset', 'of type number', start);
+      else if (start % 1 !== 0 || start < 0 || start > K_MAX_LENGTH)
+        validateWriteOffset(start, K_MAX_LENGTH, 'offset');
       if (end === undefined) end = this.length;
-      else end = validateOffsetArg(end, 'end', this.length);
+      else if (typeof end !== 'number') throw errInvalidArgType('end', 'of type number', end);
+      else if (end % 1 !== 0 || end < 0 || end > this.length)
+        validateWriteOffset(end, this.length, 'end');
       if (end <= start) return this;
       var bytes;
       // Numbers skip the string and instanceof tests (the hot case) and land in the
@@ -1381,6 +1392,19 @@
     return e;
   }
 
+  // One native regex scan instead of a per-char StringPrototypeCharCodeAt loop
+  // (~63 ns/char through the caller1 wrapper). 200 btoa calls on 48 KiB of latin1
+  // took 615 ms that way and 89 ms with the regex; 200 atob calls on 64 KiB of
+  // base64, 2542 vs 1579 ms (medians of 5 interleaved launches per arm, darwin
+  // arm64, -o:speed). Most of what is left is the Buffer round trip, not this
+  // check. Non-global, so RegExpMatches never touches lastIndex (§5).
+  // ATOB_SLOW_RE matches anything the fast path cannot take as-is: whitespace or a
+  // non-alphabet character, a '=' followed by anything but '=', or three '='; atob
+  // then falls back to the exact per-char loop, so error selection and messages
+  // are unchanged.
+  var ATOB_SLOW_RE = /[^A-Za-z0-9+/=]|=[^=]|===/;
+  var NON_LATIN1_RE = /[^\u0000-\u00ff]/;
+
   /**
    * Base64 → latin1 per the HTML forgiving-base64 decode (global atob and node:buffer's
    * atob are the same function, as in Node).
@@ -1401,22 +1425,35 @@
     input = `${input}`;
     var nonWhitespace = 0;
     var equals = 0;
-    for (var i = 0; i < input.length; i++) {
-      var c = StringPrototypeCharCodeAt(input, i);
-      if (c === 0x09 || c === 0x0a || c === 0x0c || c === 0x0d || c === 0x20) continue;
-      var alnum = (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) || (c >= 0x30 && c <= 0x39);
-      if (!alnum && c !== 0x2b && c !== 0x2f && c !== 0x3d)
-        throw errInvalidCharacter('Invalid character');
-      nonWhitespace++;
-      if (c === 0x3d) equals++;
-      else if (equals) throw errInvalidCharacter('Invalid character'); // '=' only at the end
-      if (equals > 2) throw errInvalidCharacter('Invalid character');
-    }
-    var remainder = nonWhitespace % 4;
-    if (!remainder) remainder = (nonWhitespace - equals) % 4;
-    else if (equals) throw errInvalidCharacter('Invalid character');
-    if (remainder === 1)
+    if (!P.RegExpMatches(ATOB_SLOW_RE, input)) {
+      // Fast path: only alphabet characters and at most two trailing '='. The
+      // remainder rules below still apply.
+      nonWhitespace = input.length;
+      if (nonWhitespace > 0 && StringPrototypeCharCodeAt(input, nonWhitespace - 1) === 0x3d) {
+        equals = 1;
+        if (nonWhitespace > 1 && StringPrototypeCharCodeAt(input, nonWhitespace - 2) === 0x3d)
+          equals = 2;
+      }
+    } else
+      for (var i = 0; i < input.length; i++) {
+        var c = StringPrototypeCharCodeAt(input, i);
+        if (c === 0x09 || c === 0x0a || c === 0x0c || c === 0x0d || c === 0x20) continue;
+        var alnum =
+          (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) || (c >= 0x30 && c <= 0x39);
+        if (!alnum && c !== 0x2b && c !== 0x2f && c !== 0x3d)
+          throw errInvalidCharacter('Invalid character');
+        nonWhitespace++;
+        if (c === 0x3d) equals++;
+        else if (equals) throw errInvalidCharacter('Invalid character'); // '=' only at the end
+        if (equals > 2) throw errInvalidCharacter('Invalid character');
+      }
+    // The lone-trailing-character test runs on the length WITHOUT the '=' and wins
+    // over the padding test: node 26.13.0 answers 'not correctly encoded' for 'a=',
+    // 'a==' and 'abcde=', and 'Invalid character' for 'ab=', 'abc==' and 'Zm9v='
+    // (probed; pinned by tests/node-compat/cases/03-buffer.js).
+    if ((nonWhitespace - equals) % 4 === 1)
       throw errInvalidCharacter('The string to be decoded is not correctly encoded.');
+    if (equals && nonWhitespace % 4) throw errInvalidCharacter('Invalid character');
     return Buffer.from(input, 'base64').toString('latin1');
   }
 
@@ -1433,10 +1470,7 @@
   function btoa(input) {
     if (arguments.length === 0) throw errMissingInput();
     input = `${input}`;
-    for (var i = 0; i < input.length; i++) {
-      if (StringPrototypeCharCodeAt(input, i) > 0xff)
-        throw errInvalidCharacter('Invalid character');
-    }
+    if (P.RegExpMatches(NON_LATIN1_RE, input)) throw errInvalidCharacter('Invalid character');
     return Buffer.from(input, 'latin1').toString('base64');
   }
 
