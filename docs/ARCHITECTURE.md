@@ -233,7 +233,11 @@ the statics, the pool, the `lib/buffer.js` prototype methods and `atob`/`btoa`, 
 installer where those methods were always assigned (the prototype's key order is
 unchanged), and captures the codecs once at module-eval, so a `toString` pays the same
 closure call as before. `internal/buffer` decodes through `node/buffer`'s bindings via the
-same `loader.js` aliasing, and is eager through `req('buffer')`. Errors use Node-shaped
+same `loader.js` aliasing, and is eager through `req('buffer')`. `os` moves only its
+data: `internal/os/constants` holds the signal, errno, priority and dlopen tables, which
+node reads from its C++ constants binding rather than `lib/os.js`. The tables throw
+nothing, so no frame moves; they call no native, so there is no alias, and the file stays
+lazy behind `require('os')`. Errors use Node-shaped
 coded errors (`ERR_INVALID_ARG_TYPE`,
 `ERR_OUT_OF_RANGE`, …), built in one place: `js/internal/errors.js` (eager, hardened)
 holds node's `determineSpecificType`, `ERR_INVALID_ARG_TYPE`/`_VALUE`, `ERR_OUT_OF_RANGE`,

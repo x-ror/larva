@@ -155,6 +155,12 @@
     "accessor": 0,
     "global": 4
   },
+  "internal/os/constants.js": {
+    "method": 0,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 0
+  },
   "internal/parse_args.js": {
     "method": 0,
     "invoke": 0,
