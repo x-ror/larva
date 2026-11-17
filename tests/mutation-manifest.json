@@ -2066,6 +2066,16 @@
       "expect_detail": "ratchet CLI (direct path) did not print its OK line"
     },
     {
+      "name": "the ratchet CLI dies when an entry-point guard skips it under a symlink",
+      "why": "e0968ef shipped `if (argv[1] === fileURLToPath(import.meta.url)) main()`, which fails OPEN: run through a symlink argv[1] is the link, the body never runs and the gate exits 0 silently. A direct invocation still passes that guard, so only the symlink arm of the CLI spawn test sees it.",
+      "source": "scripts/check-primordials.mjs",
+      "find": "const selfTestFailures = selfTest();",
+      "replace": "if (process.argv[1] !== new URL(import.meta.url).pathname) process.exit(0);\nconst selfTestFailures = selfTest();",
+      "gate": "node-test:scripts/check-primordials.test.mjs",
+      "test": "ratchet CLI reports OK on the real tree, also when invoked through a symlink",
+      "expect_detail": "ratchet CLI (symlink) did not print its OK line"
+    },
+    {
       "name": "check-js-graph fixtures die when a function-body require makes its target eager",
       "why": "A require inside a function runs when that function is called, possibly after user code; propagating eagerness through it exempts a lazy module's captures.",
       "source": "scripts/lib/js-graph.mjs",
