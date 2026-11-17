@@ -688,7 +688,9 @@ the index, the issue is the detail. Ordered by what it unblocks.
       `global` column to 0, which `encoding.js` already demonstrates. Note
       `primordials.js` reads 9 in `invoke` **by construction** — every `callerN`
       wrapper is a `fn.call` — while its `global` column is 0, because the
-      module-eval rule already exempts the capture table. Neither is work.
+      module-eval rule already exempts the capture table. The `global` 0 is not
+      work; the `invoke` 9 IS — those `fn.call` sites are steerable through an own
+      `call` on the captured intrinsic (see the open item below).
       **Done ([#450](https://github.com/x-ror/lava/issues/450))**: `lockIntrinsics()`
       is wired — `bootstrap/loader.js` runs it right after primordials is captured,
       making `Function.prototype.call/apply/bind` non-configurable accessors in
@@ -728,8 +730,12 @@ the index, the issue is the detail. Ordered by what it unblocks.
       `.call` and `Reflect.apply` — check for that before reaching for either.
       Still open: `.call` on a CALLER-SUPPLIED function (a listener, a callback)
       is outside the lock — the function can carry its own `call` — so those sites
-      still want `ReflectApply`, and the `invoke` class cannot be retired until the
-      ratchet can tell a captured receiver from a caller-supplied one.
+      still want `ReflectApply`. Nor is a captured INTRINSIC safe: user code holds
+      the same object and can give it an own `call`. An own `call` on
+      `Function.prototype.apply` steers `events.js`'s `apply.call(listener, …)`,
+      and one on `Array.prototype.push` steers the `callerN` wrappers. The ratchet
+      now exempts only a strict, non-escaping function declaration
+      (`capturedCallees`), so both stay counted.
 - [x] **`run_until_idle` ended the drive on one no-progress tick** — fixed: it
       now keeps polling while `active_io_count` or `active_async` is nonzero, the
       invariant `run()` has carried since #113 (ba12bd3) and which that fix reached

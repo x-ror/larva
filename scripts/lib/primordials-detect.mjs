@@ -47,7 +47,13 @@
 // real line comment, and only when every candidate on the line shares one
 // class. On a mixed line, name it: `// primordials-ok: method`, or a
 // comma-separated list. An unrecognized class name suppresses nothing, so a typo
-// fails loud.
+// fails loud. Either form may end in a reason after an em dash:
+// `// primordials-ok: invoke — why` (see MARKER).
+//
+// `invoke` (and `.bind` in `method`) is not counted on ONE receiver shape: a
+// strict function declaration the file never lets go of (capturedCallees). It is
+// deliberately NOT exempt on an intrinsic captured at module-eval or a primordials
+// export — user code holds those same objects and can give them an own `call`.
 //
 // Per-class baselines are what make "0" mean something: a file may be at 0
 // globals because it captures them and still carry accessor reads, and mixing
@@ -309,6 +315,194 @@ function shadowedByParam(name, ancestors) {
   return false;
 }
 
+// Every node under `node`, depth-first, with its ancestor chain (the node itself
+// last). Generic over the ESTree shape rather than acorn-walk's visitor table on
+// purpose: capturedCallees has to see binding and write positions that
+// acorn-walk reports under override names (`VariablePattern`), and a missed
+// position here is an exemption that should not have been granted.
+function eachNode(node, visit, ancestors = []) {
+  ancestors.push(node);
+  visit(node, ancestors);
+  for (const key of Object.keys(node)) {
+    const v = node[key];
+    if (Array.isArray(v)) {
+      for (const c of v) if (c && typeof c.type === 'string') eachNode(c, visit, ancestors);
+    } else if (v && typeof v.type === 'string') {
+      eachNode(v, visit, ancestors);
+    }
+  }
+  ancestors.pop();
+}
+
+// The identifiers a binding/assignment target introduces or writes.
+function patternIds(p, out = []) {
+  if (!p) return out;
+  if (p.type === 'Identifier') out.push(p);
+  else if (p.type === 'ObjectPattern') {
+    for (const prop of p.properties)
+      patternIds(prop.type === 'RestElement' ? prop : prop.value, out);
+  } else if (p.type === 'ArrayPattern') for (const e of p.elements) patternIds(e, out);
+  else if (p.type === 'RestElement') patternIds(p.argument, out);
+  else if (p.type === 'AssignmentPattern') patternIds(p.left, out);
+  return out;
+}
+
+function hasUseStrict(body) {
+  for (const s of body) {
+    if (s.type !== 'ExpressionStatement' || typeof s.directive !== 'string') break;
+    if (s.directive === 'use strict') return true;
+  }
+  return false;
+}
+
+// capturedCallees returns the names whose `.call`/`.apply`/`.bind` the detector
+// does NOT count: function declarations no user code can ever hold.
+//
+// Why that is the whole rule. The #485 lock makes Function.prototype.call/apply/
+// bind unreplaceable, but its setter still lets `g.call = x` define an OWN
+// property on any other function — node's override-mistake shape, deliberately
+// kept. So `X.call(...)` is safe exactly when no user code can reach X to give it
+// one. That rules out the two shapes a "captured at module-eval" rule would
+// exempt, and both were probed on bin/lava at c3b35ab:
+//   * an intrinsic captured off a prototype (`var apply = Function.prototype.apply`)
+//     is the SAME object user code reaches as `Function.prototype.apply`;
+//     `Function.prototype.apply.call = evil` made events.js's
+//     `apply.call(listener, …)` run `evil` instead of the listener, and
+//     `Array.prototype.push.call = evil` ran 7 times under one URLSearchParams
+//     append through primordials' `fn.call` wrappers. node runs neither.
+//   * a primordials export: the table re-exports raw intrinsics (`ReflectApply`,
+//     `ObjectKeys`, `String`, …), which are the same reachable objects.
+// What remains sound is a function the file declares and never lets go of:
+//   1. exactly ONE binding of the name anywhere in the file — so no parameter,
+//      local, catch or inner declaration can shadow it at some use site — and
+//      that binding is a FunctionDeclaration directly in a Program or function
+//      body, with every reference lexically inside that scope (outside it the
+//      name resolves to a replaceable global);
+//   2. never written (`=`, `++`, destructuring or for-in/of target);
+//   3. every reference is a direct call `g(…)` or the receiver of
+//      `g.call/apply/bind(…)` — anything else (passing it, exporting it, `new g`,
+//      `g.prototype`, `typeof g`) is treated as an escape, since `new g()` alone
+//      hands it out through `instance.constructor`;
+//   4. strict, because a sloppy function is reachable as `callee.caller` from any
+//      user callback it invokes;
+//   5. no direct `eval` in the file, which could rebind it.
+// Anything else stays counted. A false negative here is a hole, so every doubt
+// resolves to "count it".
+function capturedCallees(ast) {
+  const bindings = new Set();
+  const writes = new Set();
+  eachNode(ast, (n) => {
+    if (n.type === 'VariableDeclarator') for (const id of patternIds(n.id)) bindings.add(id);
+    else if (n.type === 'CatchClause') for (const id of patternIds(n.param)) bindings.add(id);
+    else if (n.type === 'ClassDeclaration' || n.type === 'ClassExpression') {
+      if (n.id) bindings.add(n.id);
+    } else if (FUNCTION_TYPES.has(n.type) && Array.isArray(n.params)) {
+      if (n.id) bindings.add(n.id);
+      for (const p of n.params) for (const id of patternIds(p)) bindings.add(id);
+    } else if (n.type === 'AssignmentExpression') {
+      for (const id of patternIds(n.left)) writes.add(id);
+    } else if (n.type === 'UpdateExpression') {
+      for (const id of patternIds(n.argument)) writes.add(id);
+    } else if (n.type === 'ForInStatement' || n.type === 'ForOfStatement') {
+      if (n.left.type !== 'VariableDeclaration')
+        for (const id of patternIds(n.left)) writes.add(id);
+    }
+  });
+
+  const info = new Map(); // name -> { binds, decl, scope, strict, bad }
+  const entry = (name) => {
+    if (!info.has(name)) info.set(name, { binds: 0, scope: null, strict: false, bad: false });
+    return info.get(name);
+  };
+  const refs = []; // [name, ancestors snapshot]
+  let sawEval = false;
+
+  eachNode(ast, (n, ancestors) => {
+    if (n.type !== 'Identifier') return;
+    const parent = ancestors[ancestors.length - 2];
+    if (bindings.has(n)) {
+      const e = entry(n.name);
+      e.binds++;
+      const scope =
+        parent && parent.type === 'FunctionDeclaration' && parent.id === n
+          ? ancestors[ancestors.length - 3]
+          : null;
+      const owner = ancestors[ancestors.length - 4];
+      const inBody =
+        scope &&
+        (scope.type === 'Program' ||
+          (owner && FUNCTION_TYPES.has(owner.type) && owner.body === scope));
+      if (!inBody) {
+        e.bad = true;
+        return;
+      }
+      e.scope = scope;
+      // Strict when the declaration itself or any enclosing function/program says
+      // so; `ancestors` includes the declaration.
+      for (const a of ancestors) {
+        if (a.type === 'Program' && hasUseStrict(a.body)) e.strict = true;
+        else if (
+          FUNCTION_TYPES.has(a.type) &&
+          a.body?.type === 'BlockStatement' &&
+          hasUseStrict(a.body.body)
+        ) {
+          e.strict = true;
+        }
+      }
+      return;
+    }
+    if (writes.has(n)) {
+      entry(n.name).bad = true;
+      return;
+    }
+    // Positions that name a property or label rather than read the binding.
+    if (!parent) return;
+    if (parent.type === 'MemberExpression' && parent.property === n && !parent.computed) return;
+    if (
+      (parent.type === 'Property' ||
+        parent.type === 'MethodDefinition' ||
+        parent.type === 'PropertyDefinition') &&
+      parent.key === n &&
+      !parent.computed
+    ) {
+      return;
+    }
+    if (
+      parent.type === 'LabeledStatement' ||
+      parent.type === 'BreakStatement' ||
+      parent.type === 'ContinueStatement'
+    )
+      return;
+    if (parent.type === 'MetaProperty') return;
+    if (n.name === 'eval') sawEval = true;
+
+    const grand = ancestors[ancestors.length - 3];
+    const directCall = parent.type === 'CallExpression' && parent.callee === n;
+    const invokeReceiver =
+      parent.type === 'MemberExpression' &&
+      parent.object === n &&
+      (propName(parent) === 'call' ||
+        propName(parent) === 'apply' ||
+        propName(parent) === 'bind') &&
+      grand &&
+      grand.type === 'CallExpression' &&
+      grand.callee === parent;
+    if (!directCall && !invokeReceiver) entry(n.name).bad = true;
+    else refs.push([n.name, ancestors.slice()]);
+  });
+
+  const out = new Set();
+  if (sawEval) return out;
+  for (const [name, e] of info) {
+    if (e.binds === 1 && e.scope && e.strict && !e.bad) out.add(name);
+  }
+  // Rule 1's second half: a reference outside the declaring scope is a global.
+  for (const [name, ancestors] of refs) {
+    if (out.has(name) && !ancestors.includes(info.get(name).scope)) out.delete(name);
+  }
+  return out;
+}
+
 // countSource parses `src` and reports every pollutable site, per class, with the
 // line each sits on. `eager: false` scans it as a module instantiated after user
 // code can run (see exemptAsPristine); the default is eager, which is what a bare
@@ -346,6 +540,7 @@ function countSource(src, label = '<fixture>', { eager = true } = {}) {
 
   const hits = [];
   const at = (node, kind, name) => hits.push({ line: node.loc.start.line, kind, name });
+  const captured = capturedCallees(ast);
 
   walk.ancestor(ast, {
     MemberExpression(node, _state, ancestors) {
@@ -391,7 +586,14 @@ function countSource(src, label = '<fixture>', { eager = true } = {}) {
         (parent.type === 'CallExpression' || parent.type === 'NewExpression') &&
         parent.callee === node;
 
-      if (isCallee) {
+      // `.bind` is counted in `method`, `.call`/`.apply` in `invoke`; all three
+      // resolve through the locked Function.prototype, so a receiver no user code
+      // can reach is exempt from both (capturedCallees has the rule and why).
+      const capturedReceiver =
+        (name === 'bind' || INVOKE.has(name)) &&
+        node.object.type === 'Identifier' &&
+        captured.has(node.object.name);
+      if (isCallee && !capturedReceiver) {
         if (POLLUTABLE.has(name)) at(node, 'method', `.${name}()`);
         else if (INVOKE.has(name)) at(node, 'invoke', `.${name}()`);
       }
@@ -466,6 +668,14 @@ function countSource(src, label = '<fixture>', { eager = true } = {}) {
 // author never looked at. A mixed line must name its class:
 // `// primordials-ok: method` (or a comma-separated list). An unrecognized name
 // suppresses nothing, so a typo fails loud rather than quiet.
+//
+// Either form may carry a reason after ONE separator, an em dash:
+// `// primordials-ok: invoke — receiver is our own closure`. One spelling, not
+// three: a second accepted separator is a second grammar to keep in sync, and a
+// wrong one (`--`, `-`, a bare `: reason`) suppresses nothing, which fails loud
+// the same way a class typo does. The reason must be non-empty. Before this the
+// reason had to sit on the line above, away from the site it justified.
+const MARKER = /^\s*primordials-ok(?::\s*([\w,\s]+?))?\s*(?:—\s*\S.*)?$/;
 function applySuppression(hits, lineComments) {
   const byLine = new Map();
   for (const h of hits) {
@@ -475,7 +685,7 @@ function applySuppression(hits, lineComments) {
   const kept = [];
   for (const [line, lineHits] of byLine) {
     const comment = lineComments.get(line);
-    const marker = comment ? /^\s*primordials-ok(?::\s*([\w,\s]+))?\s*$/.exec(comment) : null;
+    const marker = comment ? MARKER.exec(comment) : null;
     if (!marker) {
       kept.push(...lineHits);
       continue;
