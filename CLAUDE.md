@@ -227,12 +227,23 @@ Rules that keep this from becoming ceremony:
   `f.call = x` on an ordinary function still defines an own property, as in node.
   That is a §1 deviation, pinned by `cmd/lava/function_call_lock_test.odin`. What
   it buys: `Function.prototype.call = x` can no longer steer every `.call` at once.
-  What it does NOT buy: `.call` on any function user code can HOLD. That is a
-  caller-supplied callback (own `call`, re-pointed prototype), and it is also every
-  captured INTRINSIC — `var apply = Function.prototype.apply` is the very object
-  user code reaches, so `Function.prototype.apply.call = evil` steers
-  `apply.call(listener, …)`, and `Array.prototype.push.call = evil` steers the
-  `callerN` wrappers' `fn.call` (both probed on `bin/lava`; node runs neither).
+  The held functions are locked too (#494): `call`/`apply`/`bind` and every
+  method a primordials wrapper closes over (the set the `callerN`/fixed-arity
+  factories record, so a newly wrapped method is covered automatically) are
+  non-extensible, so neither an own `call` nor a re-pointed prototype on them
+  reaches a wrapper's `fn.call` or events.js's `apply.call(listener, …)`. Also a
+  §1 deviation — those functions answer as under `node --frozen-intrinsics`
+  (isExtensible false; own property, defineProperty and setPrototypeOf throw) but
+  are not frozen — pinned by the same test. Intrinsics no wrapper holds keep
+  node's extensibility. `call.call(fn, …)` routing was measured and rejected:
+  JSC inlines only `fn.call` (caller1 ~1 ns vs ~55 ns, Linux arm64), costing
+  `new URL` 2.64x and `URLSearchParams.get` 3.81x end to end.
+  What it does NOT buy: `.call` on a function user code can HOLD outside that
+  set — every caller-supplied callback (own `call`, re-pointed prototype), every
+  intrinsic captured raw OUTSIDE primordials and invoked with `.call`
+  (`toString.call` in structured_clone.js, `u8Fill.call` in buffer.js), and every
+  live prototype read (`Array.prototype.slice.call(…)`), which plain replacement
+  already steers. Route those through a primordials wrapper.
   The ratchet therefore counts every `.call`/`.apply` (`invoke`) and `.bind`
   (`method`) except on ONE receiver: a strict function declaration the file never
   lets go of — exactly one binding of the name in the file, never written,
