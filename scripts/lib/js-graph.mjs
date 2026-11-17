@@ -1,6 +1,7 @@
 // The embedded runtime JS module graph — ONE parser and graph builder, two consumers:
 //
-//   scripts/check-js-graph.mjs     literal, resolved, reachable, embedded, acyclic
+//   scripts/lib/js-graph-check.mjs literal, resolved, reachable, embedded, acyclic
+//                                  (reported by the scripts/check-js-graph.mjs CLI)
 //   scripts/check-primordials.mjs  which modules are EAGER (instantiated before user
 //                                  code), because only there is a module-eval
 //                                  capture pristine (CLAUDE.md §5)

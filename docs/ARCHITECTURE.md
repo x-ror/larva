@@ -547,8 +547,9 @@ reason after an em dash: `// primordials-ok: invoke — why`.
 
 A `global` read at module-eval is exempt only in a module instantiated before user
 code — the loader's `req()` roots closed over top-level requires, computed by
-`scripts/lib/js-graph.mjs` (the parser `check-js-graph.mjs` also uses). In a lazy
-module the factory runs on the user's first `require()`, so its capture counts (#333).
+`scripts/lib/js-graph.mjs` (the parser the graph rules in `lib/js-graph-check.mjs`
+also use). In a lazy module the factory runs on the user's first `require()`, so its
+capture counts (#333).
 `cmd/lava/lazy_builtins_test.odin` checks that set against what context init compiles.
 
 `make check-primordials` (part of `make check-js`) fails on any per-class

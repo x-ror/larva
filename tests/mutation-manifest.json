@@ -2028,7 +2028,7 @@
     {
       "name": "check-js-graph fixtures die when natives keys are not resolved",
       "why": "natives is keyed by module id; a key left on the old spelling (\"buffer\") hands the module undefined and the factory fails closed or worse.",
-      "source": "scripts/check-js-graph.mjs",
+      "source": "scripts/lib/js-graph-check.mjs",
       "find": "/set_named\\(ctx, natives, \"([^\"]+)\"/g",
       "replace": "/NEVER_MATCH_([^\"]+)/g",
       "gate": "node-test:scripts/check-js-graph.test.mjs",
@@ -2038,7 +2038,7 @@
     {
       "name": "check-js-graph fixtures die when unreachable modules pass",
       "why": "A file nothing reaches is dead code that still ships and still gets evaluated at every context init.",
-      "source": "scripts/check-js-graph.mjs",
+      "source": "scripts/lib/js-graph-check.mjs",
       "find": "add('unreachable',",
       "replace": "if (false) add('unreachable',",
       "gate": "node-test:scripts/check-js-graph.test.mjs",
@@ -2048,7 +2048,7 @@
     {
       "name": "check-js-graph fixtures die when an unembedded directory passes",
       "why": "#load_directory is not recursive, so a new subdirectory under node/ silently never ships without its own row.",
-      "source": "scripts/check-js-graph.mjs",
+      "source": "scripts/lib/js-graph-check.mjs",
       "find": "if (!loadDirs.has(dir) && !loadFiles.has(rel)) {",
       "replace": "if (false) {",
       "gate": "node-test:scripts/check-js-graph.test.mjs",
@@ -2058,7 +2058,7 @@
     {
       "name": "check-js-graph fixtures die when #load_directory may read bootstrap/",
       "why": "esm.js is kept off the module table on purpose (CLAUDE.md §5); a #load_directory over bootstrap/ would hand it to the loader as a factory.",
-      "source": "scripts/check-js-graph.mjs",
+      "source": "scripts/lib/js-graph-check.mjs",
       "find": "if (!MODULE_DIRS.some((d) => inside === d || inside.startsWith(d + '/'))) {",
       "replace": "if (false) {",
       "gate": "node-test:scripts/check-js-graph.test.mjs",
@@ -2068,7 +2068,7 @@
     {
       "name": "check-js-graph fixtures die when module-eval cycles pass",
       "why": "A module-eval cycle hands one side the other's PARTIAL exports, which reads as undefined members at run time.",
-      "source": "scripts/check-js-graph.mjs",
+      "source": "scripts/lib/js-graph-check.mjs",
       "find": "add('cycle', where(modules.get(id), e.line), cycle.join(' -> '));",
       "replace": "",
       "gate": "node-test:scripts/check-js-graph.test.mjs",
@@ -2084,6 +2084,46 @@
       "gate": "node-test:scripts/check-js-graph.test.mjs",
       "test": "clean fixture has no violations (late-bound stream <-> stream/web is not a cycle)",
       "expect_detail": "clean fixture has no violations (late-bound stream <-> stream/web is not a cycle)"
+    },
+    {
+      "name": "the graph CLI dies when it exits 0 without reporting",
+      "why": "An exit code alone cannot tell a checked tree from an unchecked one: an entry-point guard once made the CLI skip its whole body when invoked through a symlink and exit 0 silently. Silencing the CLI ahead of the check must fail on the missing OK line.",
+      "source": "scripts/check-js-graph.mjs",
+      "find": "const violations = checkJsGraph(root);",
+      "replace": "process.exit(0);\nconst violations = checkJsGraph(root);",
+      "gate": "node-test:scripts/check-js-graph.test.mjs",
+      "test": "graph CLI reports OK on the real tree, also when invoked through a symlink",
+      "expect_detail": "graph CLI (direct path) did not print its OK line"
+    },
+    {
+      "name": "the graph CLI dies when an entry-point guard skips it under a symlink",
+      "why": "The CLI shipped `if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1])` around its report, which fails OPEN: run through a symlink argv[1] is the link, the body never runs and the gate exits 0 silently. A direct invocation still passes that guard, so only the symlink arm of the CLI spawn test sees it.",
+      "source": "scripts/check-js-graph.mjs",
+      "find": "const violations = checkJsGraph(root);",
+      "replace": "if (process.argv[1] !== decodeURIComponent(new URL(import.meta.url).pathname)) process.exit(0);\nconst violations = checkJsGraph(root);",
+      "gate": "node-test:scripts/check-js-graph.test.mjs",
+      "test": "graph CLI reports OK on the real tree, also when invoked through a symlink",
+      "expect_detail": "graph CLI (symlink) did not print its OK line"
+    },
+    {
+      "name": "the graph CLI dies when it exits 0 on a violating tree",
+      "why": "A gate that prints its violations and still exits 0 is green in CI. The real tree is clean, so only the spawn over a one-defect fixture sees the exit code of the failing branch.",
+      "source": "scripts/check-js-graph.mjs",
+      "find": "  for (const v of violations) console.error(`  ${v.rule}: ${v.where}  ${v.msg}`);\n  process.exit(1);",
+      "replace": "  for (const v of violations) console.error(`  ${v.rule}: ${v.where}  ${v.msg}`);\n  process.exit(0);",
+      "gate": "node-test:scripts/check-js-graph.test.mjs",
+      "test": "graph CLI fails on a violating tree and names the violation",
+      "expect_detail": "graph CLI exited 0 on a violating tree"
+    },
+    {
+      "name": "the graph CLI dies when it prints OK without checking",
+      "why": "Discarding the check's result prints the OK line on every tree. On the clean real tree that is indistinguishable from a pass; only the violating fixture shows the OK line where a failure belongs.",
+      "source": "scripts/check-js-graph.mjs",
+      "find": "const violations = checkJsGraph(root);",
+      "replace": "const violations = [];",
+      "gate": "node-test:scripts/check-js-graph.test.mjs",
+      "test": "graph CLI fails on a violating tree and names the violation",
+      "expect_detail": "graph CLI printed OK on a violating tree"
     },
     {
       "name": "builtin_factories_compile_on_first_require dies when a lazy builtin is compiled before user code",
