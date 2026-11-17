@@ -92,9 +92,14 @@ test('the real tree is clean', () => {
 // script path) is its own, so every CLI case runs once per runtime. bun is resolved
 // from PATH and is NOT optional: make check-js already requires it, and a skipped bun
 // arm would read as a pass of the gate's real runtime.
+//
+// Each resolved binary is also asked who it is. The CLI mutants below fail the same
+// way under either runtime, so without this a [bun] arm quietly running node (or a
+// [node] arm running bun, under `bun run js:scripttests` behind a node shim) would
+// pass every recorded mutation while testing the wrong runtime.
 const CLI = join(import.meta.dirname, 'check-js-graph.mjs');
 const RUNTIMES = [
-  ['node', () => process.execPath],
+  ['node', () => process.execPath, 'undefined'],
   [
     'bun',
     () => {
@@ -105,18 +110,28 @@ const RUNTIMES = [
       );
       return 'bun';
     },
+    'object',
   ],
 ];
 
-for (const [rt, exe] of RUNTIMES) {
+for (const [rt, resolveBin, typeofBun] of RUNTIMES) {
+  const exe = () => {
+    const bin = resolveBin();
+    const r = spawnSync(bin, ['-e', 'process.stdout.write(typeof Bun)'], { encoding: 'utf8' });
+    assert.equal(r.stdout, typeofBun, `graph CLI [${rt}] binary is not ${rt}: ${bin}`);
+    return bin;
+  };
+
   // The CLI itself must report. It once sat behind an "am I the entry point?" guard so
   // this file could import checkJsGraph, and that guard failed OPEN: run through a
   // symlink under node, argv[1] is the link while import.meta.url is the realpath, the
   // body never ran, and the gate exited 0 having printed nothing. The rules now live in
   // lib/ and the CLI has no guard; this pins both the plain invocation and the symlinked
   // one, since an exit code alone cannot tell "checked and passed" from "never checked".
-  // (bun realpaths argv[1] as well, so that guard would have held under bun; the bun
-  // arm still pins that the gate's real runtime reaches the OK line both ways.)
+  // The guard regression is pinned by the [node] symlink arm only. The [bun] symlink
+  // arm mirrors the gate's own invocation but is NOT mutation-pinned: bun realpaths
+  // argv[1] (verified on bun 1.4.4), so that guard would have held under bun and no
+  // recorded mutation can kill this arm.
   test(`graph CLI [${rt}] reports OK on the real tree, also when invoked through a symlink`, () => {
     const bin = exe();
     const dir = mkdtempSync(join(tmpdir(), 'js-graph-cli-'));
