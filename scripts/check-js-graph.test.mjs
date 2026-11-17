@@ -1,17 +1,19 @@
-// node:test view of scripts/check-js-graph.mjs: one fixture tree per rule, each a
-// minimal pkg/runtime layout that is clean except for the ONE defect the rule exists
-// to catch. The clean fixture runs first, so a rule that fires on everything cannot
-// pass by accident, and every failing fixture asserts the exact rule set — a fixture
-// that also tripped a second rule would be testing its own scaffolding.
+// node:test view of scripts/check-js-graph.mjs, whose rules live in
+// lib/js-graph-check.mjs: one fixture tree per rule, each a minimal pkg/runtime layout
+// that is clean except for the ONE defect the rule exists to catch. The clean fixture
+// runs first, so a rule that fires on everything cannot pass by accident, and every
+// failing fixture asserts the exact rule set — a fixture that also tripped a second
+// rule would be testing its own scaffolding.
 //
 // Run: node --test scripts/check-js-graph.test.mjs   (or `make test-scripts`)
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { checkJsGraph } from './check-js-graph.mjs';
+import { checkJsGraph } from './lib/js-graph-check.mjs';
 import { eagerModules } from './lib/js-graph.mjs';
 import { ROOT } from './lib/primordials-detect.mjs';
 
@@ -82,6 +84,35 @@ test('clean fixture has no violations (late-bound stream <-> stream/web is not a
 
 test('the real tree is clean', () => {
   assert.deepEqual(checkJsGraph(ROOT), []);
+});
+
+// The CLI itself must report. It once sat behind an "am I the entry point?" guard so
+// this file could import checkJsGraph, and that guard failed OPEN: run through a
+// symlink, argv[1] is the link while import.meta.url is the realpath, the body never
+// ran, and the gate exited 0 having printed nothing. The rules now live in lib/ and
+// the CLI has no guard; this pins both the plain invocation and the symlinked one,
+// since an exit code alone cannot tell "checked and passed" from "never checked".
+test('graph CLI reports OK on the real tree, also when invoked through a symlink', () => {
+  const cli = join(import.meta.dirname, 'check-js-graph.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'js-graph-cli-'));
+  try {
+    const link = join(dir, 'check-js-graph.mjs');
+    symlinkSync(cli, link);
+    for (const [how, path] of [
+      ['direct path', cli],
+      ['symlink', link],
+    ]) {
+      const r = spawnSync(process.execPath, [path], { encoding: 'utf8' });
+      assert.equal(r.status, 0, `graph CLI (${how}) exited ${r.status}: ${r.stderr}`);
+      assert.match(
+        r.stdout,
+        /^OK: embedded JS module graph is literal/m,
+        `graph CLI (${how}) did not print its OK line; stdout: ${JSON.stringify(r.stdout)}`,
+      );
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('dynamic: a non-literal require argument', () => {
