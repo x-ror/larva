@@ -11,157 +11,178 @@
 //   node scripts/check-primordials.mjs --update --allow-raise
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import { relative, sep } from 'node:path';
-import { KINDS, countFile, walkDir, JS_DIR, BASELINE, ROOT } from './lib/primordials-detect.mjs';
+import { join, relative, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { KINDS, countFile, walkDir, BASELINE, ROOT } from './lib/primordials-detect.mjs';
 import { eagerModules } from './lib/js-graph.mjs';
 import { selfTest } from './lib/primordials-fixtures.mjs';
 import { compare, raises, totals } from './lib/primordials-baseline.mjs';
 
-// --- report ----------------------------------------------------------------
+// --- scan ------------------------------------------------------------------
 
-// Before anything else: a detector that has gone blind must not report on the
-// tree, and must not be allowed to rebaseline. Exits non-zero rather than
-// printing a reassuring "OK".
-const selfTestFailures = selfTest();
-if (selfTestFailures.length > 0) {
-  console.error('Pollution ratchet SELF-TEST FAILED — the detector itself is broken:');
-  for (const f of selfTestFailures) console.error(`  ${f}`);
-  console.error(
-    '\nEvery fixture above pins a vector the ratchet is supposed to see, or a\n' +
-      'position it must not count. Fix the detector before trusting any number it\n' +
-      'prints.',
-  );
-  process.exit(1);
+// scanTree is exported, and takes the root, so the eager/lazy classification below
+// can be driven over a fixture tree (check-primordials.test.mjs). Pinned only by the
+// real tree, a mutant that scored every module eager survived as soon as no lazy
+// module happened to hold a module-eval capture.
+export function scanTree(root) {
+  // Module-eval reads are exempt only where they run before user code: every
+  // bootstrap/ file (Odin evaluates each at context init) and the modules the loader
+  // instantiates at init, derived from the graph rather than listed (lib/js-graph.mjs).
+  // A lazy module's capture runs on the user's first require — #333.
+  const EAGER = new Set(eagerModules(root));
+  const isEager = (key) => key.startsWith('bootstrap/') || EAGER.has(key.slice(0, -'.js'.length));
+
+  const jsDir = join(root, 'pkg', 'runtime', 'js');
+  const files = walkDir(jsDir).sort();
+  const counts = {};
+  const allHits = {};
+  for (const file of files) {
+    const key = relative(jsDir, file).split(sep).join('/');
+    const { hits } = countFile(file, { eager: isEager(key) });
+    // PER-CLASS counts, not one number. The classes differ by an order of
+    // magnitude, and a single total would let a file trade a fixed accessor for a
+    // new global and still pass.
+    const byKind = {};
+    for (const k of KINDS) byKind[k] = 0;
+    for (const h of hits) byKind[h.kind]++;
+    counts[key] = byKind;
+    allHits[key] = hits;
+  }
+  return { files, counts, allHits };
 }
 
-// Module-eval reads are exempt only where they run before user code: every
-// bootstrap/ file (Odin evaluates each at context init) and the modules the loader
-// instantiates at init, derived from the graph rather than listed (lib/js-graph.mjs).
-// A lazy module's capture runs on the user's first require — #333.
-const EAGER = new Set(eagerModules(ROOT));
-const isEager = (key) => key.startsWith('bootstrap/') || EAGER.has(key.slice(0, -'.js'.length));
+// Run only as the CLI: the test imports scanTree and must not trigger the report,
+// its process.exit calls, or the baseline write behind --update.
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main();
 
-const files = walkDir(JS_DIR).sort();
-const counts = {};
-const allHits = {};
-for (const file of files) {
-  const key = relative(JS_DIR, file).split(sep).join('/');
-  const { hits } = countFile(file, { eager: isEager(key) });
-  // PER-CLASS counts, not one number. The classes differ by an order of
-  // magnitude, and a single total would let a file trade a fixed accessor for a
-  // new global and still pass.
-  const byKind = {};
-  for (const k of KINDS) byKind[k] = 0;
-  for (const h of hits) byKind[h.kind]++;
-  counts[key] = byKind;
-  allHits[key] = hits;
-}
+function main() {
+  // --- report ----------------------------------------------------------------
 
-const perKindLine = () => KINDS.map((k) => `${k} ${totals(counts).perKind[k]}`).join(', ');
-const grandTotal = () => totals(counts).total;
+  // Before anything else: a detector that has gone blind must not report on the
+  // tree, and must not be allowed to rebaseline. Exits non-zero rather than
+  // printing a reassuring "OK".
+  const selfTestFailures = selfTest();
+  if (selfTestFailures.length > 0) {
+    console.error('Pollution ratchet SELF-TEST FAILED — the detector itself is broken:');
+    for (const f of selfTestFailures) console.error(`  ${f}`);
+    console.error(
+      '\nEvery fixture above pins a vector the ratchet is supposed to see, or a\n' +
+        'position it must not count. Fix the detector before trusting any number it\n' +
+        'prints.',
+    );
+    process.exit(1);
+  }
 
-// A corrupt baseline is NOT a missing one. Both used to set haveBaseline=false,
-// which put `--update` outside the refuse-to-raise guard entirely — so a file with
-// git conflict markers in it (a large generated JSON that changes on every
-// hardening, so conflicts are likely) turned the tool's own advice, "run
-// --update", into an unguarded rebaseline of every floor.
-let baseline = {};
-let haveBaseline = true;
-let raw = null;
-try {
-  raw = readFileSync(BASELINE, 'utf8');
-} catch {
-  haveBaseline = false;
-}
-if (raw !== null) {
+  const { files, counts, allHits } = scanTree(ROOT);
+
+  const perKindLine = () => KINDS.map((k) => `${k} ${totals(counts).perKind[k]}`).join(', ');
+  const grandTotal = () => totals(counts).total;
+
+  // A corrupt baseline is NOT a missing one. Both used to set haveBaseline=false,
+  // which put `--update` outside the refuse-to-raise guard entirely — so a file with
+  // git conflict markers in it (a large generated JSON that changes on every
+  // hardening, so conflicts are likely) turned the tool's own advice, "run
+  // --update", into an unguarded rebaseline of every floor.
+  let baseline = {};
+  let haveBaseline = true;
+  let raw = null;
   try {
-    baseline = JSON.parse(raw);
-  } catch (err) {
-    console.error(`Baseline at ${BASELINE} is not valid JSON: ${err.message}`);
-    console.error(
-      'Fix the file — do NOT rebaseline. Rewriting it would raise every floor to\n' +
-        'whatever the tree currently is, which is what the ratchet exists to prevent.',
-    );
-    process.exit(1);
+    raw = readFileSync(BASELINE, 'utf8');
+  } catch {
+    haveBaseline = false;
   }
-}
-
-const update = process.argv.includes('--update');
-if (update) {
-  // A raise is a policy decision, not a mechanical one: the point of the ratchet
-  // is that a floor only moves down. Previously `--update` rewrote every entry in
-  // both directions, so a contributor who hit a failure and reached for
-  // `UPDATE=1` silently raised the floor for every file — the prose rule in
-  // CLAUDE.md §5 was the only thing stopping it.
-  const up = haveBaseline ? raises(counts, baseline) : [];
-  if (up.length > 0 && !process.argv.includes('--allow-raise')) {
-    console.error('Refusing to RAISE the baseline. These entries would go up:\n');
-    for (const r of up) {
-      console.error(`  ${r.key}: ${r.kind} ${r.base} -> ${r.now} (+${r.now - r.base})`);
+  if (raw !== null) {
+    try {
+      baseline = JSON.parse(raw);
+    } catch (err) {
+      console.error(`Baseline at ${BASELINE} is not valid JSON: ${err.message}`);
+      console.error(
+        'Fix the file — do NOT rebaseline. Rewriting it would raise every floor to\n' +
+          'whatever the tree currently is, which is what the ratchet exists to prevent.',
+      );
+      process.exit(1);
     }
+  }
+
+  const update = process.argv.includes('--update');
+  if (update) {
+    // A raise is a policy decision, not a mechanical one: the point of the ratchet
+    // is that a floor only moves down. Previously `--update` rewrote every entry in
+    // both directions, so a contributor who hit a failure and reached for
+    // `UPDATE=1` silently raised the floor for every file — the prose rule in
+    // CLAUDE.md §5 was the only thing stopping it.
+    const up = haveBaseline ? raises(counts, baseline) : [];
+    if (up.length > 0 && !process.argv.includes('--allow-raise')) {
+      console.error('Refusing to RAISE the baseline. These entries would go up:\n');
+      for (const r of up) {
+        console.error(`  ${r.key}: ${r.kind} ${r.base} -> ${r.now} (+${r.now - r.base})`);
+      }
+      console.error(
+        '\nThe ratchet only moves down. Harden the sites, add `// primordials-ok` where\n' +
+          'the receiver genuinely is not a built-in, or pass --allow-raise if you are\n' +
+          'deliberately recording new ground (a newly scanned file, or a new class).',
+      );
+      process.exit(1);
+    }
+    writeFileSync(BASELINE, JSON.stringify(counts, null, 2) + '\n');
+    console.log(
+      `Wrote ${BASELINE} — ${grandTotal()} sites across ${files.length} files (${perKindLine()}).`,
+    );
+    process.exit(0);
+  }
+
+  if (!haveBaseline) {
+    console.error(`No baseline at ${BASELINE}. Run: node scripts/check-primordials.mjs --update`);
+    process.exit(1);
+  }
+
+  const { failures, improvements, stale } = compare(counts, baseline);
+  let failed = failures.length > 0;
+  const improved = improvements.length > 0;
+
+  for (const f of failures) {
+    console.error(`\n${f.key}: ${f.now} ${f.kind} sites, baseline ${f.base} (+${f.now - f.base}):`);
+    for (const h of allHits[f.key].filter((h) => h.kind === f.kind)) {
+      console.error(`  ${f.key}:${h.line}  ${h.name}`);
+    }
+  }
+  for (const i of improvements) {
+    console.log(
+      `${i.key}: ${i.kind} ${i.now} < baseline ${i.base} — hardened by ${i.base - i.now}.`,
+    );
+  }
+  if (stale.length > 0) {
+    failed = true;
+    console.error('\nStale baseline entries — these files no longer exist:');
+    for (const key of stale) console.error(`  ${key}`);
     console.error(
-      '\nThe ratchet only moves down. Harden the sites, add `// primordials-ok` where\n' +
-        'the receiver genuinely is not a built-in, or pass --allow-raise if you are\n' +
-        'deliberately recording new ground (a newly scanned file, or a new class).',
+      'A stale entry is a ceiling waiting for a file to be re-added under the same\n' +
+        'path, which would then inherit it instead of starting at 0. Run --update to prune.',
+    );
+  }
+
+  if (failed) {
+    console.error(
+      '\nPollution ratchet FAILED: a module gained pollutable sites. The fix depends on\n' +
+        "the class:  method/invoke -> route through primordials (require('internal/primordials'),\n" +
+        '            ReflectApply for .call/.apply)\n' +
+        '            accessor     -> read via a captured getter, e.g.\n' +
+        '                            TypedArrayPrototypeGetBuffer(view)\n' +
+        '            global       -> capture at module-eval (`var StringG = String;`) in an\n' +
+        '                            eager module; in a lazy one take the loader handle\n' +
+        "                            (require('internal/primordials'), require.pristineBuffer)\n" +
+        'A genuine false positive (the receiver is a class instance, not a built-in) takes\n' +
+        '`// primordials-ok` on the same line. On a line carrying candidates from more\n' +
+        'than one class the bare marker suppresses nothing — name it:\n' +
+        '`// primordials-ok: method`.',
     );
     process.exit(1);
   }
-  writeFileSync(BASELINE, JSON.stringify(counts, null, 2) + '\n');
-  console.log(
-    `Wrote ${BASELINE} — ${grandTotal()} sites across ${files.length} files (${perKindLine()}).`,
-  );
-  process.exit(0);
-}
-
-if (!haveBaseline) {
-  console.error(`No baseline at ${BASELINE}. Run: node scripts/check-primordials.mjs --update`);
-  process.exit(1);
-}
-
-const { failures, improvements, stale } = compare(counts, baseline);
-let failed = failures.length > 0;
-const improved = improvements.length > 0;
-
-for (const f of failures) {
-  console.error(`\n${f.key}: ${f.now} ${f.kind} sites, baseline ${f.base} (+${f.now - f.base}):`);
-  for (const h of allHits[f.key].filter((h) => h.kind === f.kind)) {
-    console.error(`  ${f.key}:${h.line}  ${h.name}`);
+  if (improved) {
+    console.log('\nRatchet improved — commit the tighter baseline:');
+    console.log('  node scripts/check-primordials.mjs --update');
+    process.exit(1);
   }
-}
-for (const i of improvements) {
-  console.log(`${i.key}: ${i.kind} ${i.now} < baseline ${i.base} — hardened by ${i.base - i.now}.`);
-}
-if (stale.length > 0) {
-  failed = true;
-  console.error('\nStale baseline entries — these files no longer exist:');
-  for (const key of stale) console.error(`  ${key}`);
-  console.error(
-    'A stale entry is a ceiling waiting for a file to be re-added under the same\n' +
-      'path, which would then inherit it instead of starting at 0. Run --update to prune.',
-  );
-}
 
-if (failed) {
-  console.error(
-    '\nPollution ratchet FAILED: a module gained pollutable sites. The fix depends on\n' +
-      "the class:  method/invoke -> route through primordials (require('internal/primordials'),\n" +
-      '            ReflectApply for .call/.apply)\n' +
-      '            accessor     -> read via a captured getter, e.g.\n' +
-      '                            TypedArrayPrototypeGetBuffer(view)\n' +
-      '            global       -> capture at module-eval (`var StringG = String;`) in an\n' +
-      '                            eager module; in a lazy one take the loader handle\n' +
-      "                            (require('internal/primordials'), require.pristineBuffer)\n" +
-      'A genuine false positive (the receiver is a class instance, not a built-in) takes\n' +
-      '`// primordials-ok` on the same line. On a line carrying candidates from more\n' +
-      'than one class the bare marker suppresses nothing — name it:\n' +
-      '`// primordials-ok: method`.',
-  );
-  process.exit(1);
+  console.log(`OK: pollution ratchet holds (${grandTotal()} sites: ${perKindLine()}).`);
 }
-if (improved) {
-  console.log('\nRatchet improved — commit the tighter baseline:');
-  console.log('  node scripts/check-primordials.mjs --update');
-  process.exit(1);
-}
-
-console.log(`OK: pollution ratchet holds (${grandTotal()} sites: ${perKindLine()}).`);

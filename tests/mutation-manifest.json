@@ -2047,12 +2047,13 @@
     },
     {
       "name": "the ratchet dies when every module is scanned as eager",
-      "why": "Classifying a lazy module as eager re-exempts its module-eval captures; the raised baseline then reads as an improvement, which the ratchet refuses.",
+      "why": "Classifying a lazy module as eager re-exempts its module-eval captures, so a live `var S = String` in a lazily required module scores 0. Gated on a fixture tree rather than the real one: since #430 no lazy module in the tree holds such a capture, so the mutant changed no count there and survived.",
       "source": "scripts/check-primordials.mjs",
       "find": "const isEager = (key) => key.startsWith('bootstrap/') || EAGER.has(key.slice(0, -'.js'.length));",
       "replace": "const isEager = () => true;",
-      "gate": "make:check-primordials",
-      "expect_detail": "hardened by"
+      "gate": "node-test:scripts/check-primordials.test.mjs",
+      "test": "ratchet scan: a lazy module-eval capture counts as global, an eager one does not",
+      "expect_detail": "eager classification: lazy module internal/lazy.js scored as eager"
     },
     {
       "name": "check-js-graph fixtures die when a function-body require makes its target eager",
