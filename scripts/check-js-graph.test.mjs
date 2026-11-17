@@ -86,63 +86,97 @@ test('the real tree is clean', () => {
   assert.deepEqual(checkJsGraph(ROOT), []);
 });
 
-// The CLI itself must report. It once sat behind an "am I the entry point?" guard so
-// this file could import checkJsGraph, and that guard failed OPEN: run through a
-// symlink, argv[1] is the link while import.meta.url is the realpath, the body never
-// ran, and the gate exited 0 having printed nothing. The rules now live in lib/ and
-// the CLI has no guard; this pins both the plain invocation and the symlinked one,
-// since an exit code alone cannot tell "checked and passed" from "never checked".
-test('graph CLI reports OK on the real tree, also when invoked through a symlink', () => {
-  const cli = join(import.meta.dirname, 'check-js-graph.mjs');
-  const dir = mkdtempSync(join(tmpdir(), 'js-graph-cli-'));
-  try {
-    const link = join(dir, 'check-js-graph.mjs');
-    symlinkSync(cli, link);
-    for (const [how, path] of [
-      ['direct path', cli],
-      ['symlink', link],
-    ]) {
-      const r = spawnSync(process.execPath, [path], { encoding: 'utf8' });
-      assert.equal(r.status, 0, `graph CLI (${how}) exited ${r.status}: ${r.stderr}`);
-      assert.match(
-        r.stdout,
-        /^OK: embedded JS module graph is literal/m,
-        `graph CLI (${how}) did not print its OK line; stdout: ${JSON.stringify(r.stdout)}`,
+// The CLI runs under two runtimes: the tests below spawn it with this node, and the
+// real gate runs it under bun (make check-js -> package.json js:graph -> `bun run
+// scripts/check-js-graph.mjs`). Bun's argv handling (the optional root, a symlinked
+// script path) is its own, so every CLI case runs once per runtime. bun is resolved
+// from PATH and is NOT optional: make check-js already requires it, and a skipped bun
+// arm would read as a pass of the gate's real runtime.
+const CLI = join(import.meta.dirname, 'check-js-graph.mjs');
+const RUNTIMES = [
+  ['node', () => process.execPath],
+  [
+    'bun',
+    () => {
+      const r = spawnSync('bun', ['--version'], { encoding: 'utf8' });
+      assert.ok(
+        !r.error && r.status === 0,
+        `bun not runnable from PATH (${r.error?.code ?? `exit ${r.status}`}); make check-js runs the graph CLI under bun, so it is required here`,
       );
-    }
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
+      return 'bun';
+    },
+  ],
+];
 
-// The other half of the CLI contract: on a violating tree it must FAIL, and say why.
-// Run only on the clean real tree, a CLI that exited 0 on violations, printed OK
-// without checking, or dropped the violation lines would all have passed above. The
-// CLI takes an optional root for exactly this; the fixture is the one-defect natives
-// tree the rule test below uses.
-test('graph CLI fails on a violating tree and names the violation', () => {
-  const root = tree({ 'pkg/runtime/globals.odin': ODIN.replace('"node/buffer"', '"buffer"') });
-  try {
-    const cli = join(import.meta.dirname, 'check-js-graph.mjs');
-    const r = spawnSync(process.execPath, [cli, root], { encoding: 'utf8' });
-    // OK first: a CLI that skips the check also exits 0, and this keeps the two
-    // mutants (wrong exit code, result discarded) reporting distinct failures.
-    assert.doesNotMatch(r.stdout, /^OK:/m, `graph CLI printed OK on a violating tree: ${r.stdout}`);
-    assert.equal(r.status, 1, `graph CLI exited ${r.status} on a violating tree: ${r.stderr}`);
-    assert.match(
-      r.stderr,
-      /^JS module graph: 1 violation\(s\):$/m,
-      `graph CLI header: ${r.stderr}`,
-    );
-    assert.match(
-      r.stderr,
-      /^  unresolved: pkg\/runtime\/globals\.odin  natives key "buffer" names no module$/m,
-      `graph CLI violation line: ${r.stderr}`,
-    );
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
+for (const [rt, exe] of RUNTIMES) {
+  // The CLI itself must report. It once sat behind an "am I the entry point?" guard so
+  // this file could import checkJsGraph, and that guard failed OPEN: run through a
+  // symlink under node, argv[1] is the link while import.meta.url is the realpath, the
+  // body never ran, and the gate exited 0 having printed nothing. The rules now live in
+  // lib/ and the CLI has no guard; this pins both the plain invocation and the symlinked
+  // one, since an exit code alone cannot tell "checked and passed" from "never checked".
+  // (bun realpaths argv[1] as well, so that guard would have held under bun; the bun
+  // arm still pins that the gate's real runtime reaches the OK line both ways.)
+  test(`graph CLI [${rt}] reports OK on the real tree, also when invoked through a symlink`, () => {
+    const bin = exe();
+    const dir = mkdtempSync(join(tmpdir(), 'js-graph-cli-'));
+    try {
+      const link = join(dir, 'check-js-graph.mjs');
+      symlinkSync(CLI, link);
+      for (const [how, path] of [
+        ['direct path', CLI],
+        ['symlink', link],
+      ]) {
+        const r = spawnSync(bin, [path], { encoding: 'utf8' });
+        assert.equal(r.status, 0, `graph CLI [${rt}] (${how}) exited ${r.status}: ${r.stderr}`);
+        assert.match(
+          r.stdout,
+          /^OK: embedded JS module graph is literal/m,
+          `graph CLI [${rt}] (${how}) did not print its OK line; stdout: ${JSON.stringify(r.stdout)}`,
+        );
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // The other half of the CLI contract: on a violating tree it must FAIL, and say why.
+  // Run only on the clean real tree, a CLI that exited 0 on violations, printed OK
+  // without checking, or dropped the violation lines would all have passed above. The
+  // CLI takes an optional root for exactly this; the fixture is the one-defect natives
+  // tree the rule test below uses.
+  test(`graph CLI [${rt}] fails on a violating tree and names the violation`, () => {
+    const bin = exe();
+    const root = tree({ 'pkg/runtime/globals.odin': ODIN.replace('"node/buffer"', '"buffer"') });
+    try {
+      const r = spawnSync(bin, [CLI, root], { encoding: 'utf8' });
+      // OK first: a CLI that skips the check also exits 0, and this keeps the two
+      // mutants (wrong exit code, result discarded) reporting distinct failures.
+      assert.doesNotMatch(
+        r.stdout,
+        /^OK:/m,
+        `graph CLI [${rt}] printed OK on a violating tree: ${r.stdout}`,
+      );
+      assert.equal(
+        r.status,
+        1,
+        `graph CLI [${rt}] exited ${r.status} on a violating tree: ${r.stderr}`,
+      );
+      assert.match(
+        r.stderr,
+        /^JS module graph: 1 violation\(s\):$/m,
+        `graph CLI [${rt}] header: ${r.stderr}`,
+      );
+      assert.match(
+        r.stderr,
+        /^  unresolved: pkg\/runtime\/globals\.odin  natives key "buffer" names no module$/m,
+        `graph CLI [${rt}] violation line: ${r.stderr}`,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
 
 test('dynamic: a non-literal require argument', () => {
   const vs = rules({
