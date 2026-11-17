@@ -2306,13 +2306,43 @@
     },
     {
       "name": "the ratchet CLI dies when it prints OK without scanning",
-      "why": "An OK line and exit 0 were all the CLI spawn test checked, so a CLI that printed a bare OK line passed. Pinned now: the OK line's figures equal what the test scans in-process over the same tree, and nothing more. Still surviving every scripts test: echoing the baseline's own totals instead of scanning (equal on a passing tree by definition), skipping selfTest(), and skipping compare(). Closing those needs a root/baseline override on the CLI.",
+      "why": "An OK line and exit 0 were all the CLI spawn test checked, so a CLI that printed a bare OK line passed. Pinned now: the OK line's figures equal what the test scans in-process over the same tree. A real tree that passes cannot see a CLI that echoes the baseline, skips selfTest() or skips compare(); the three sandbox entries below pin those through a disposable copy of the tree.",
       "source": "scripts/check-primordials.mjs",
       "find": "const selfTestFailures = selfTest();",
       "replace": "console.log('OK: pollution ratchet holds.');\nprocess.exit(0);\nconst selfTestFailures = selfTest();",
       "gate": "node-test:scripts/check-primordials.test.mjs",
       "test": "ratchet CLI reports OK on the real tree, also when invoked through a symlink",
       "expect_detail": "ratchet CLI (direct path) OK line does not report the in-process scan"
+    },
+    {
+      "name": "the ratchet CLI dies when it echoes the baseline instead of scanning",
+      "why": "On a passing tree the baseline's totals equal the scan's by definition, so the real-tree OK line cannot tell an echo from a scan. A sandbox copy of the tree with one new method site in node/net.js must fail and name the file; a CLI that reads its counts off the baseline prints OK.",
+      "source": "scripts/check-primordials.mjs",
+      "find": "const { files, counts, allHits } = scanTree(ROOT);",
+      "replace": "const { files, counts, allHits } = { files: [], counts: JSON.parse(readFileSync(BASELINE, 'utf8')), allHits: {} };",
+      "gate": "node-test:scripts/check-primordials.test.mjs",
+      "test": "ratchet CLI fails and names the file when a scanned module gains a site",
+      "expect_detail": "ratchet CLI printed OK over a tree with a new site"
+    },
+    {
+      "name": "the ratchet CLI dies when it skips its self-test",
+      "why": "A detector gone blind must not report on the tree. The real fixtures pass, so skipping selfTest() is invisible there; a sandbox whose fixtures module fails its self-test must exit 1 with SELF-TEST FAILED, not print OK.",
+      "source": "scripts/check-primordials.mjs",
+      "find": "const selfTestFailures = selfTest();",
+      "replace": "const selfTestFailures = [];",
+      "gate": "node-test:scripts/check-primordials.test.mjs",
+      "test": "ratchet CLI refuses to report when its self-test fails",
+      "expect_detail": "ratchet CLI printed OK with a failing self-test"
+    },
+    {
+      "name": "the ratchet CLI dies when it skips the baseline comparison",
+      "why": "The real tree matches its baseline, so a CLI that never compares still prints OK with the right figures there. A sandbox copy with one new method site must exit 1 and name the file.",
+      "source": "scripts/check-primordials.mjs",
+      "find": "const { failures, improvements, stale } = compare(counts, baseline);",
+      "replace": "const { failures, improvements, stale } = { failures: [], improvements: [], stale: [] };",
+      "gate": "node-test:scripts/check-primordials.test.mjs",
+      "test": "ratchet CLI fails and names the file when a scanned module gains a site",
+      "expect_detail": "ratchet CLI printed OK over a tree with a new site"
     },
     {
       "name": "check-js-graph fixtures die when a function-body require makes its target eager",
