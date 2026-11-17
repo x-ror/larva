@@ -32,12 +32,16 @@
 // trees. This file is only the CLI and deliberately has no "am I the entry point?"
 // guard: one that compared argv[1] with import.meta.url failed open under a symlink.
 //
-// Usage: node scripts/check-js-graph.mjs   (exit 1 on any violation)
+// Usage: node scripts/check-js-graph.mjs [root]   (exit 1 on any violation)
 
+import { resolve } from 'node:path';
 import { ROOT } from './lib/primordials-detect.mjs';
 import { checkJsGraph } from './lib/js-graph-check.mjs';
 
-const violations = checkJsGraph(ROOT);
+// `root` exists for the test, which runs the CLI over a one-defect fixture tree to pin
+// the failing exit, header and violation lines; every real caller passes nothing.
+const root = process.argv[2] ? resolve(process.argv[2]) : ROOT;
+const violations = checkJsGraph(root);
 if (violations.length > 0) {
   console.error(`JS module graph: ${violations.length} violation(s):`);
   for (const v of violations) console.error(`  ${v.rule}: ${v.where}  ${v.msg}`);

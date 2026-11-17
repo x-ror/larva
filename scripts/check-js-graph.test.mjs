@@ -115,6 +115,35 @@ test('graph CLI reports OK on the real tree, also when invoked through a symlink
   }
 });
 
+// The other half of the CLI contract: on a violating tree it must FAIL, and say why.
+// Run only on the clean real tree, a CLI that exited 0 on violations, printed OK
+// without checking, or dropped the violation lines would all have passed above. The
+// CLI takes an optional root for exactly this; the fixture is the one-defect natives
+// tree the rule test below uses.
+test('graph CLI fails on a violating tree and names the violation', () => {
+  const root = tree({ 'pkg/runtime/globals.odin': ODIN.replace('"node/buffer"', '"buffer"') });
+  try {
+    const cli = join(import.meta.dirname, 'check-js-graph.mjs');
+    const r = spawnSync(process.execPath, [cli, root], { encoding: 'utf8' });
+    // OK first: a CLI that skips the check also exits 0, and this keeps the two
+    // mutants (wrong exit code, result discarded) reporting distinct failures.
+    assert.doesNotMatch(r.stdout, /^OK:/m, `graph CLI printed OK on a violating tree: ${r.stdout}`);
+    assert.equal(r.status, 1, `graph CLI exited ${r.status} on a violating tree: ${r.stderr}`);
+    assert.match(
+      r.stderr,
+      /^JS module graph: 1 violation\(s\):$/m,
+      `graph CLI header: ${r.stderr}`,
+    );
+    assert.match(
+      r.stderr,
+      /^  unresolved: pkg\/runtime\/globals\.odin  natives key "buffer" names no module$/m,
+      `graph CLI violation line: ${r.stderr}`,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('dynamic: a non-literal require argument', () => {
   const vs = rules({
     'pkg/runtime/js/node/buffer.js':
