@@ -29,13 +29,22 @@
   ],
   "mutations": [
     {
-      "name": "55-encoding-pollution V dies when the utf-8 decode return path goes back through .call",
-      "why": "A replaced Function.prototype.call substitutes decode()'s return value outright, so decode() hands back an ArrayBuffer instead of a string.",
-      "source": "pkg/runtime/js/internal/encoding.js",
-      "find": "  function bufferToStringUtf8(buf) {\n    return utf8DecodeNative(buf);\n  }",
-      "replace": "  function bufferToStringUtf8(buf) {\n    return Buffer.prototype.toString.call(buf, 'utf8');\n  }",
-      "gate": "compat:tests/node-compat/cases/55-encoding-pollution.js",
-      "expect_detail": "node: V "
+      "name": "function_call_lock dies when the loader stops locking Function.prototype.call/apply/bind",
+      "why": "Without the lock a replaced Function.prototype.call reaches every callerN primordial, so URLSearchParams.get, util.format, Buffer.from, new URL and TextDecoder break or answer wrongly where node is fine (#450).",
+      "source": "pkg/runtime/js/bootstrap/loader.js",
+      "find": "  req('internal/primordials').lockIntrinsics();",
+      "replace": "  req('internal/primordials');",
+      "gate": "odin:cmd/lava:main.function_call_lock",
+      "expect_detail": "want sloppy-call=THREW:TypeError got sloppy-call=assigned"
+    },
+    {
+      "name": "function_call_lock dies when the lock is a non-writable data property instead of the accessor",
+      "why": "A read-only data property on Function.prototype hits the override mistake: f.call = x on an ordinary function throws in strict code where node defines an own property, and the sloppy assignment on Function.prototype no-ops silently.",
+      "source": "pkg/runtime/js/internal/primordials.js",
+      "find": "    lockMethod('call', call);\n    lockMethod('apply', apply);\n    lockMethod('bind', bind);",
+      "replace": "    defineProperty(FunctionProto, 'call', { writable: false, configurable: false });\n    defineProperty(FunctionProto, 'apply', { writable: false, configurable: false });\n    defineProperty(FunctionProto, 'bind', { writable: false, configurable: false });",
+      "gate": "odin:cmd/lava:main.function_call_lock",
+      "expect_detail": "got own-strict=THREW:TypeError"
     },
     {
       "name": "55-encoding-pollution U dies when toBytes reads the view window live",

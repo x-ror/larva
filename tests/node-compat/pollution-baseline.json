@@ -183,7 +183,7 @@
     "method": 0,
     "invoke": 9,
     "accessor": 0,
-    "global": 1
+    "global": 0
   },
   "internal/punycode.js": {
     "method": 1,

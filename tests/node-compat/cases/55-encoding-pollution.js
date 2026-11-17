@@ -9,8 +9,10 @@
 // `new URL(...)` cases below are MODULE-BOUNDARY vectors: url.js was already
 // hardened, but a poisoned intrinsic still reached it through encoding.js.
 //
-//   H  Function.prototype.apply -> String.fromCharCode.apply rewrote the decoded
-//      host: new URL('http://%C3%BCber.example/') became http://a/
+//   H  Function.prototype.apply -> retired: String.fromCharCode.apply rewrote the
+//      decoded host (new URL('http://%C3%BCber.example/') became http://a/), but
+//      apply is locked since #450, so the poison throws on Lava only. H1-H4 and Q2
+//      moved to cmd/lava/function_call_lock_test.odin.
 //   I  String.fromCharCode      -> same carrier, replaced statically
 //   J  Array.prototype.push     -> the decoder's code-unit accumulator, on all
 //                                  four decode paths and every flush/error site
@@ -24,8 +26,8 @@
 //   Q  the >0x2000 chunked unitsToString branch (ArrayPrototypeSlice+ReflectApply)
 //   R  Buffer.from / Buffer.prototype.toString / the String global underneath —
 //      the encoding->buffer boundary, one layer below the url->encoding one
-//   V  Function.prototype.call   -> the borrow itself, so the replacement's return
-//                                   value became decode()'s (see V, at the end)
+//   V  Function.prototype.call   -> retired: locked since #450, so not oracle-able
+//                                   (see V, at the end)
 //   W  Ctor[Symbol.hasInstance]   -> toBytes' three `instanceof` brands, forged in
 //                                   both directions (see W, at the end)
 //
@@ -67,9 +69,6 @@ function poison(target, key, value) {
 const RealU8 = Uint8Array;
 
 const U16_SMILE = [0x3d, 0xd8, 0x00, 0xde, 0x41, 0x00]; // 😀A
-const APPLY_STUB = function () {
-  return 'a';
-};
 
 // A >0x2000-code-unit input, so unitsToString takes its chunked branch.
 const BIG_LATIN = new Uint8Array(9000);
@@ -78,43 +77,7 @@ function bigDigest(s) {
   return s.length + ':' + s.charCodeAt(0) + ':' + s.charCodeAt(8192) + ':' + s.charCodeAt(8999);
 }
 
-// --- H: poisoned Function.prototype.apply, through url.js and directly -------
-
-console.log(
-  'H1',
-  underPollution(
-    ...poison(Function.prototype, 'apply', APPLY_STUB),
-    () => new URL('http://%C3%BCber.example/').href,
-  ),
-);
-
-// The fatal decoder is what url.js percentDecodeHostStrict uses, and unlike the
-// lenient one it never takes the native Buffer fast path.
-console.log(
-  'H2',
-  underPollution(...poison(Function.prototype, 'apply', APPLY_STUB), () =>
-    JSON.stringify(
-      new TextDecoder('utf-8', { fatal: true }).decode(
-        new Uint8Array([0xc3, 0xbc, 0x62, 0x65, 0x72]),
-      ),
-    ),
-  ),
-);
-
-// utf-16le never takes the native Buffer fast path either.
-console.log(
-  'H3',
-  underPollution(...poison(Function.prototype, 'apply', APPLY_STUB), () =>
-    JSON.stringify(new TextDecoder('utf-16le').decode(new Uint8Array(U16_SMILE))),
-  ),
-);
-
-console.log(
-  'H4',
-  underPollution(...poison(Function.prototype, 'apply', APPLY_STUB), () =>
-    Array.from(new TextEncoder().encode('ü€😀')).join(','),
-  ),
-);
+// --- H: retired (see the header); Function.prototype.apply is locked --------
 
 // --- I: replaced String.fromCharCode ----------------------------------------
 
@@ -417,12 +380,7 @@ console.log(
 
 console.log('Q1', bigDigest(new TextDecoder('windows-1252').decode(BIG_LATIN)));
 
-console.log(
-  'Q2',
-  underPollution(...poison(Function.prototype, 'apply', APPLY_STUB), () =>
-    bigDigest(new TextDecoder('windows-1252').decode(BIG_LATIN)),
-  ),
-);
+// Q2 (a poisoned Function.prototype.apply on this branch) retired with H.
 
 console.log(
   'Q3',
@@ -617,50 +575,13 @@ console.log(
   })(),
 );
 
-// V: `Function.prototype.call` replaced — the RETURN path of decode(), which is
-// the sharpest shape in this whole file. The other vectors forge an intermediate
-// and the damage is arithmetic; here the replacement's return value simply became
-// decode()'s, so `decode()` handed back an ArrayBuffer instead of a string. It
-// reached the utf-8 fast path through `Buffer.prototype.toString.call(bytes,
-// 'utf8')` and the utf-16le path through the same borrow, and neither
-// captured-method nor captured-getter hardening touches it: the method was
-// already pristine, `.call` is the live read. Fixed by taking the codec natives
-// (`utf8Decode`/`utf16leDecode`) straight from the loader's native argument, so no
-// `Function.prototype` read is left on the path at all.
-//
-// The decoders are built BEFORE the poison so this measures decode, not
-// construction: label normalization still routes through `.call`-based
-// primordials, so `new TextDecoder()` under this poison throws RangeError under
-// Lava where node succeeds. That residual is the whole `invoke` class, it is
-// tracked in ROADMAP against lockIntrinsics(), and it is deliberately NOT part of
-// this case — a case that asserted it would have to assert the divergence.
-console.log(
-  'V',
-  (() => {
-    const d8 = new TextDecoder();
-    const d16 = new TextDecoder('utf-16le');
-    const utf8 = new Uint8Array([0x68, 0x69]); // "hi"
-    const utf16 = new Uint8Array([0x41, 0x00, 0x42, 0x00]); // "AB"
-    const real = Function.prototype.call;
-    // Nothing between the assignment and the restore may itself use `.call`, so
-    // the results are collected raw and only inspected after `.call` is back.
-    Function.prototype.call = function () {
-      return new ArrayBuffer(8);
-    };
-    let a, b, threw;
-    try {
-      a = d8.decode(utf8);
-      b = d16.decode(utf16);
-    } catch (e) {
-      threw = e;
-    }
-    Function.prototype.call = real;
-    if (threw !== undefined) return 'THREW:' + threw.name;
-    // typeof is asserted explicitly: an ArrayBuffer stringifies to something
-    // harmless-looking in a template, so comparing text alone would pass.
-    return [typeof a, JSON.stringify(a), typeof b, JSON.stringify(b)].join('|');
-  })(),
-);
+// V (retired): `Function.prototype.call` replaced, which put the replacement's
+// return value on decode()'s RETURN path (decode() handed back an ArrayBuffer).
+// encoding.js now calls the codec natives directly, and since #450 Lava also locks
+// call/apply/bind before user code, so the assignment throws on Lava where node
+// accepts it — a deliberate deviation an oracle cannot print. The lock, and
+// decode() surviving the attempt, are pinned Lava-only in
+// cmd/lava/function_call_lock_test.odin.
 
 // W: the BRANDS, not the window. `toBytes` routed on `input instanceof
 // Uint8Array/ArrayBuffer/DataView`, and every one of those dispatches through

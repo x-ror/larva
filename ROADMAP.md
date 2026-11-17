@@ -687,13 +687,17 @@ the index, the issue is the detail. Ordered by what it unblocks.
       capturing a module's globals at module-eval is mechanical and drives its
       `global` column to 0, which `encoding.js` already demonstrates. Note
       `primordials.js` reads 9 in `invoke` **by construction** — every `callerN`
-      wrapper is a `fn.call` — while its `global` column is 1, because the
+      wrapper is a `fn.call` — while its `global` column is 0, because the
       module-eval rule already exempts the capture table. Neither is work.
-      **Next, and it is the largest single win left**: wire `lockIntrinsics()`.
-      It is written and exported in `primordials.js` and called from nowhere, so
-      the whole `invoke` class is live today. Now that the class is counted it is
-      also measurable, and the exposure is worse than the "exotic axis" the file
-      header used to call it: replacing `Function.prototype.call` makes Lava throw
+      **Done ([#450](https://github.com/x-ror/lava/issues/450))**: `lockIntrinsics()`
+      is wired — `bootstrap/loader.js` runs it right after primordials is captured,
+      making `Function.prototype.call/apply/bind` non-configurable accessors in
+      node's `--frozen-intrinsics` shape (assignment on `Function.prototype` throws
+      in both modes; `f.call = x` on an ordinary function still works). It is a §1
+      deviation pinned by `cmd/lava/function_call_lock_test.odin`; vectors H, Q2 and V
+      of `55-encoding-pollution.js` and the call/apply poison in eventloop case 11 moved
+      there, since node accepts the assignment Lava now refuses. What follows is the
+      record of why it was needed. Before the lock, replacing `Function.prototype.call` made Lava throw
       where Node succeeds (TextDecoder/TextEncoder construction, `Buffer.from`,
       `buf.toString`, `Buffer.concat`, `new URL`) and — worse — answer _wrongly_
       where Node is right (`URLSearchParams.get` → `null`, `util.format` →
@@ -719,15 +723,13 @@ the index, the issue is the detail. Ordered by what it unblocks.
       read at all and is FASTER than the `.call` it replaced (0.74x on a 9-byte
       decode, 0.91x on a 20-parameter URLSearchParams parse, medians of 7
       interleaved launches) because toString's length getter, range clamp and
-      encoding-name dispatch drop out. Pinned by vector V in
-      `55-encoding-pollution.js`. Where a JS layer is borrowing a prototype method
+      encoding-name dispatch drop out. Where a JS layer is borrowing a prototype method
       that only wraps a native we already own, going to the native beats both
-      `.call` and `Reflect.apply` — check for that before reaching for either. The open question is only
-      `lockIntrinsics()`'s own Node deviation — Node leaves the intrinsics
-      writable, so a program assigning `Function.prototype.call` would silently
-      not take effect; that narrower divergence needs a Lava-only test pinning it
-      per §1, plus a full `make test-lava` pass to find what in the oracle suites
-      legitimately writes an intrinsic.
+      `.call` and `Reflect.apply` — check for that before reaching for either.
+      Still open: `.call` on a CALLER-SUPPLIED function (a listener, a callback)
+      is outside the lock — the function can carry its own `call` — so those sites
+      still want `ReflectApply`, and the `invoke` class cannot be retired until the
+      ratchet can tell a captured receiver from a caller-supplied one.
 - [x] **`run_until_idle` ended the drive on one no-progress tick** — fixed: it
       now keeps polling while `active_io_count` or `active_async` is nonzero, the
       invariant `run()` has carried since #113 (ba12bd3) and which that fix reached
