@@ -30,6 +30,13 @@
 // construction, Buffer.from, buf.toString, Buffer.concat and new URL throw where
 // node succeeds, and URLSearchParams.get answer `null` and util.format
 // `'undefined'` where node is right.
+// The lock alone did not close the other half: `fn.call` reads `call` off `fn`
+// FIRST, and `fn` is the very intrinsic user code can hold, so
+// `Array.prototype.push.call = evil` (an own property) or a setPrototypeOf on `push`
+// steered its wrapper where node is unaffected. lockIntrinsics() therefore also makes
+// every WRAPPED method non-extensible (#494; the `.call` section below says why that
+// and not a different spelling). Methods captured raw OUTSIDE this table and invoked
+// with `.call` elsewhere are not covered.
 // The accessor axis (a setter on a numeric-index property of Array/Object.proto)
 // is not a method concern and is handled per-hot-array with null prototypes in
 // the consuming modules.
@@ -44,6 +51,25 @@
   var ObjectProto = Object.prototype;
   var ArrayProto = Array.prototype;
   var StringProto = String.prototype;
+
+  // The wrapped set (#494). Every wrapper below reads `fn.call` with `fn` the very
+  // method user code can hold, so an own `call` on it, or a re-pointed prototype,
+  // steers the wrapper even with Function.prototype.call locked. lockIntrinsics()
+  // makes exactly this set non-extensible; a factory call after the lock (the
+  // loader's pristine-Buffer `uncurryThis` sites run after it, still before user
+  // code) locks its method on the spot. Recorded here rather than listed by hand in
+  // lockIntrinsics, so a newly wrapped method cannot be missed. Index writes into a
+  // plain array are safe: every write happens before user code can plant an index
+  // setter, and the list is dropped at the lock. Declared up here because the
+  // first factory call (stringCharCodeAt, below) runs at module eval.
+  var preventExtensions = Object.preventExtensions;
+  var wrappedFns = [];
+  var wrappedCount = 0;
+  var intrinsicsLocked = false;
+  function track(fn) {
+    if (intrinsicsLocked) preventExtensions(fn);
+    else wrappedFns[wrappedCount++] = fn;
+  }
 
   // --- the `.call` read, and why the wrappers may keep it ---------------
   //
@@ -87,6 +113,20 @@
   // where a forged answer reads another request's bytes.
   // (safeGetter predates the lock and is kept: it is cold, so reverting it to
   // `.call` would win nothing measurable.)
+  //
+  // The remaining hole (#494) is an own `call` on — or a re-pointed prototype of —
+  // the HELD method itself, which the lock on Function.prototype cannot see. The
+  // obvious spelling that reads `.call` only off the locked, non-extensible `call`,
+  // `call.call(fn, t, …)`, was measured and is WORSE than Reflect.apply: on JSC 2.52.6,
+  // Linux arm64 (Docker), best of 7 in-process reps, a caller1 over charCodeAt costs
+  // 0.8-1.0 ns/op as `fn.call`, 52.6-56.6 as `call.call`, 44.8-50.4 as reflectApply
+  // (three launches each; scratch variants.js), and end to end, medians of 9
+  // interleaved launches per arm, new URL went 130.5 -> 344.2 ms per 50k (2.64x) and
+  // URLSearchParams.get 2.4 -> 9.0 ms per 200k (3.81x). Neither spelling inlines
+  // through the builtin `call`; only `fn.call` lets the DFG call `fn` directly. So
+  // the wrappers keep `fn.call`, and the hole is closed on the other side instead:
+  // lockIntrinsics() makes every wrapped method non-extensible (the wrapped set,
+  // above), which leaves no own `call` and no prototype re-point for the read to find.
   var reflectApply = Reflect.apply;
   var NO_ARGS = Object.freeze([]);
   function safeGetter(fn) {
@@ -172,21 +212,25 @@
   // Fixed-arity `.call` wrappers — the fast path on JSC. `fn` is the captured
   // pristine method; the closure forwards a known number of positional args.
   function caller0(fn) {
+    track(fn);
     return function (t) {
       return fn.call(t);
     };
   }
   function caller1(fn) {
+    track(fn);
     return function (t, a) {
       return fn.call(t, a);
     };
   }
   function caller2(fn) {
+    track(fn);
     return function (t, a, b) {
       return fn.call(t, a, b);
     };
   }
   function caller3(fn) {
+    track(fn);
     return function (t, a, b, c) {
       return fn.call(t, a, b, c);
     };
@@ -195,6 +239,7 @@
   // more than a fixed-arity closure on JSC, but push/unshift/splice/concat are
   // never in a per-character loop, so it does not matter in practice.
   function callerN(fn) {
+    track(fn);
     return function (t) {
       switch (arguments.length) {
         case 1:
@@ -232,14 +277,41 @@
    * returns the original method and whose setter refuses Function.prototype itself
    * but fixes the "override mistake" for every other receiver. Called ONCE, by
    * bootstrap/loader.js, right after this table is captured and before user code.
+   * Also makes call/apply/bind and every method a wrapper below holds
+   * non-extensible (#494).
    * @throws {TypeError} `Function.prototype.call = x`, sloppy or strict, and any
    *   Object.defineProperty of the three on Function.prototype.
+   *   Also any own property added to the three functions themselves
+   *   (`Function.prototype.apply.call = x`, sloppy or strict; a fresh key only in
+   *   strict code) and Object.setPrototypeOf on them to a different prototype.
    * @node node 26 lets a script replace all three (assignment succeeds in both
    *   modes). Under `node --frozen-intrinsics` it behaves as here: both modes
    *   throw, defineProperty throws, and `f.call = x` on an ordinary function `f`
    *   defines an own writable/enumerable/configurable property (all four rows
-   *   probed on node 26.13).
-   * @deviates Default node allows the replacement; Lava throws. Traded for: the
+   *   probed on node 26.13). The same flag makes the three functions
+   *   non-extensible; this matches its answers for isExtensible, an own `call`/
+   *   `apply`/`bind` (throws in both modes), a fresh key (sloppy no-op, strict
+   *   throws) and setPrototypeOf (throws) — probed on node 26.13. It also FREEZES
+   *   them; Lava does not (`name`/`length` stay configurable, isFrozen false).
+   *   The same for every method a primordials wrapper closes over (the wrapped
+   *   set: Array.prototype.push, String.prototype.charCodeAt, Buffer.prototype.
+   *   toString, …): `Array.prototype.push.call = x` throws in both modes, a fresh
+   *   key throws in strict code, defineProperty of a new key and setPrototypeOf
+   *   throw.
+   * @deviates Default node allows the replacement; Lava throws. Default node also
+   *   leaves call/apply/bind AND the wrapped set extensible; Lava does not (#494),
+   *   so the own-property and setPrototypeOf writes above throw where node
+   *   succeeds. `node --frozen-intrinsics` gives the same answers for the wrapped
+   *   set too (isExtensible false, own `call` throws in both modes, fresh key
+   *   sloppy no-op / strict throw, defineProperty and setPrototypeOf throw; probed
+   *   on node 26.13 with Array.prototype.push) but additionally freezes, so there
+   *   redefining `name` throws and isFrozen is true; on Lava both stay as in
+   *   default node. A method no wrapper holds (Array.prototype.at) is untouched.
+   *   Traded for: events.js's `apply.call(listener, …)` and every callerN
+   *   wrapper's `fn.call` cannot be steered by an own `call` on, or a re-pointed
+   *   prototype of, the held method (node runs the real method; Lava ran the
+   *   attacker's function), while the wrappers keep the only spelling JSC inlines
+   *   (`.call` section above). The first trade, from #450: the
    *   `callerN` wrappers keep their live `fn.call` (25x cheaper than Reflect.apply
    *   on the bare wrapper, table above) without Function.prototype.call being a
    *   way to break or steer URL, URLSearchParams, util.format, Buffer and
@@ -250,6 +322,22 @@
     lockMethod('call', call);
     lockMethod('apply', apply);
     lockMethod('bind', bind);
+    // Then the HELD functions (#494): every method a wrapper closes over, and
+    // nothing else — an intrinsic no wrapper holds (Array.prototype.at) keeps node's
+    // default extensibility. Locking the slots on Function.prototype does not stop
+    // `Array.prototype.push.call = evil` or `Function.prototype.apply.call = evil`:
+    // an own property on the very object a `fn.call` / `apply.call(fn, …)` reads
+    // `.call` off. Nor a setPrototypeOf that re-points what that read inherits.
+    // Non-extensible closes both without adding a key: getOwnPropertyNames is
+    // unchanged and `name`/`length` keep their default attributes. An own locked
+    // accessor per method (lockMethod's shape) was the fallback and is strictly
+    // worse: new visible keys on every method, and the prototype re-point left open.
+    // call/apply/bind are in the set through FunctionPrototypeCall/Apply/Bind below,
+    // which is also what events.js's `apply.call(listener, …)` relies on; the test's
+    // `ext` row goes red if one of them ever drops out.
+    for (var i = 0; i < wrappedCount; i++) preventExtensions(wrappedFns[i]);
+    wrappedFns = null;
+    intrinsicsLocked = true;
   }
 
   // An accessor, not a non-writable data property, because of the override mistake:

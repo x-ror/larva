@@ -103,6 +103,70 @@ record('q2', function () {
   return s.length + ':' + s.charCodeAt(0) + ':' + s.charCodeAt(8192) + ':' + s.charCodeAt(8999);
 });
 
+// #494: the captured intrinsics themselves. Locking the three slots on
+// Function.prototype does not stop a script from giving the HELD function an own
+// 'call': 'Function.prototype.apply.call = evil' steered every
+// 'apply.call(listener, …)' in events.js (node runs the listener). lockIntrinsics()
+// now makes call/apply/bind non-extensible, so neither an own property nor a
+// re-pointed prototype can change what a read off them finds.
+// The same hole on every OTHER method primordials wraps: 'Array.prototype.push.call
+// = evil' steered the callerN 'fn.call(t, …)' wrappers. lockIntrinsics() makes
+// exactly the wrapped set non-extensible too (the wrappers keep 'fn.call', which is
+// the only spelling JSC inlines); a method nobody wraps (Array.prototype.at) keeps
+// node's default behavior. Buffer.prototype.toString is wrapped by the loader AFTER
+// the lock (pristineBuffer), so it pins the lock-on-wrap path.
+// The deviation rows (ext … setproto) are node --frozen-intrinsics' answers (node
+// 26.13, probed); default node answers true / length|name / assigned / assigned /
+// assigned / 1 / assigned / set.
+const evil = function () { return 'HIJACK'; };
+record('ext', function () {
+  return [Object.isExtensible(real.call), Object.isExtensible(real.apply), Object.isExtensible(real.bind)].join(',');
+});
+record('keys', function () {
+  return [real.call, real.apply, real.bind].map(function (f) { return Object.getOwnPropertyNames(f).join('|'); }).join(',');
+});
+// Through lockMethod's setter, which defines an own property: on a non-extensible
+// receiver that throws in sloppy code too, as under --frozen-intrinsics.
+record('own-call-sloppy', function () { FP.apply.call = evil; return 'assigned'; });
+record('own-apply-strict', function () { 'use strict'; FP.call.apply = evil; return 'assigned'; });
+record('own-bind-strict', function () { 'use strict'; FP.bind.bind = evil; return 'assigned'; });
+// A key with no inherited setter: plain [[Set]] on a non-extensible object.
+record('new-key-sloppy', function () { FP.bind.x = 1; return FP.bind.x; });
+record('new-key-strict', function () { 'use strict'; FP.bind.x = 1; return 'assigned'; });
+// Re-pointing the prototype is the other way to change what 'apply.call' reads.
+record('setproto', function () {
+  Object.setPrototypeOf(real.apply, { __proto__: FP, call: evil });
+  return 'set';
+});
+record('wrapped-ext', function () {
+  return [Object.isExtensible(Array.prototype.push), Object.isExtensible(String.prototype.charCodeAt),
+    Object.isExtensible(Buffer.prototype.toString), Object.isExtensible(Array.prototype.at)].join(',');
+});
+record('push-own-sloppy', function () { Array.prototype.push.call = evil; return 'assigned'; });
+record('push-fresh-sloppy', function () { Array.prototype.push.x = 1; return Array.prototype.push.x; });
+record('at-own', function () {
+  Array.prototype.at.call = evil;
+  return Object.getOwnPropertyDescriptor(Array.prototype.at, 'call').value === evil;
+});
+// The #494 probe: every attempt is made (and may throw on Lava), then the wrappers
+// must still run the real push/charCodeAt.
+record('push-hijack', function () {
+  let hit = 0;
+  const bump = function () { hit++; return 0; };
+  try { Array.prototype.push.call = bump; } catch (e) {}
+  try { Object.setPrototypeOf(String.prototype.charCodeAt, { __proto__: FP, call: bump }); } catch (e) {}
+  const u = new URLSearchParams('a=1&b=2');
+  u.append('c', '3');
+  return [hit, u.toString(), new URL('http://a/b?c').href].join(' ');
+});
+record('emit-hijack', function () {
+  const EE = require('events');
+  const e = new EE();
+  const got = [];
+  e.on('x', function (a) { got[got.length] = 'listener:' + a; });
+  e.emit('x', 1);
+  return got.join(',');
+});
 const want = [
   'sloppy-call=THREW:TypeError', 'strict-call=THREW:TypeError', 'define-call=THREW:TypeError', 'intact-call=true',
   'sloppy-apply=THREW:TypeError', 'strict-apply=THREW:TypeError', 'define-apply=THREW:TypeError', 'intact-apply=true',
@@ -113,6 +177,12 @@ const want = [
   'usp=1', 'format=x', 'buffer=6869', 'url=/b', 'decode=hi', 'decode16=AB',
   'h1=http://xn--ber-goa.example/', 'h2=true', 'h3=true', 'h4=195,188,226,130,172,240,159,152,128',
   'q2=9000:65:67:68',
+  'ext=false,false,false', 'keys=length|name,length|name,length|name',
+  'own-call-sloppy=THREW:TypeError', 'own-apply-strict=THREW:TypeError', 'own-bind-strict=THREW:TypeError',
+  'new-key-sloppy=undefined', 'new-key-strict=THREW:TypeError', 'setproto=THREW:TypeError',
+  'wrapped-ext=false,false,false,true', 'push-own-sloppy=THREW:TypeError', 'push-fresh-sloppy=undefined', 'at-own=true',
+  'push-hijack=0 a=1&b=2&c=3 http://a/b?c',
+  'emit-hijack=listener:1',
 ];
 const bad = [];
 for (let i = 0; i < want.length; i++) {
