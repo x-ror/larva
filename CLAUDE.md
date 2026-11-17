@@ -226,12 +226,20 @@ Rules that keep this from becoming ceremony:
   accessors, so `Function.prototype.call = x` throws in both modes while
   `f.call = x` on an ordinary function still defines an own property, as in node.
   That is a §1 deviation, pinned by `cmd/lava/function_call_lock_test.odin`. What
-  it buys: `fn.call(t, a)` on a function WE captured can no longer be steered, so
-  the `callerN` wrappers keep their live `.call` at no security cost. What it does
-  not: a CALLER-SUPPLIED function can still carry an own `call` or a re-pointed
-  prototype, and `cb.call(t, x)` then runs the caller's `call` where node invokes
-  `cb` directly — still `ReflectApply` there. The `invoke` class keeps counting
-  both until the ratchet can tell them apart.
+  it buys: `Function.prototype.call = x` can no longer steer every `.call` at once.
+  What it does NOT buy: `.call` on any function user code can HOLD. That is a
+  caller-supplied callback (own `call`, re-pointed prototype), and it is also every
+  captured INTRINSIC — `var apply = Function.prototype.apply` is the very object
+  user code reaches, so `Function.prototype.apply.call = evil` steers
+  `apply.call(listener, …)`, and `Array.prototype.push.call = evil` steers the
+  `callerN` wrappers' `fn.call` (both probed on `bin/lava`; node runs neither).
+  The ratchet therefore counts every `.call`/`.apply` (`invoke`) and `.bind`
+  (`method`) except on ONE receiver: a strict function declaration the file never
+  lets go of — exactly one binding of the name in the file, never written,
+  referenced only as `g(…)` or `g.call/apply/bind(…)` inside its declaring scope,
+  no direct `eval` in the file (`capturedCallees`, `scripts/lib/primordials-detect.mjs`).
+  A module-eval capture of an intrinsic or a primordials export is NOT exempt, by
+  design: a false negative there is a hole.
   **Module-eval capture is pristine only in a module the loader instantiates BEFORE user
   code** — the eager list in `bootstrap/loader.js`, plus `stream`/`stdio` via `installStdio`. A LAZY
   module's factory runs on the user's first `require()`, so a capture there is a live read
@@ -245,7 +253,10 @@ Rules that keep this from becoming ceremony:
 - A false positive takes `// primordials-ok` on the line. On a line carrying
   candidates from **more than one class** the bare marker suppresses nothing —
   name it, `// primordials-ok: method` (comma-separated list allowed). An
-  unrecognized class name suppresses nothing, so a typo fails loud.
+  unrecognized class name suppresses nothing, so a typo fails loud. Either form may
+  end in a reason after ONE separator, an em dash —
+  `// primordials-ok: invoke — receiver is our own closure`; `--`, `-` or an
+  empty reason suppress nothing.
 - `UPDATE=1` only _lowers_ a baseline. Raising one needs
   `make check-primordials UPDATE=1 RAISE=--allow-raise` and a stated reason (a
   newly scanned file, or a new class). A corrupt baseline fails hard rather than
@@ -280,10 +291,10 @@ Rules that keep this from becoming ceremony:
   readable rather than reassuring. It earned that caveat: `encoding.js` stood at
   0 while `units.buffer` went through the live `%TypedArray%.prototype.buffer`
   getter, which is why the accessor class exists. And a high number is not
-  automatically work: `primordials.js` reads 9 in `invoke` **by construction**,
-  because every `callerN` wrapper is a `fn.call` on a captured method, which the
-  lock above makes safe — its `global` column is 0, since the module-eval rule
-  already exempts the capture table.
+  automatically work: `primordials.js`'s `global` column is 0 because the
+  module-eval rule exempts the capture table. Its 9 `invoke` sites, though, are
+  real: every `callerN` wrapper is a `fn.call` on a captured intrinsic, which the
+  lock above does not protect (an own `call` on the intrinsic steers it).
 - Pick the primordial by **arity**. `callerN` (`ArrayPrototypePush`) carries an
   `arguments` switch and belongs at cold call sites; per-element loops use the
   fixed-arity wrappers (`ArrayPrototypePush1`/`Push2`) or plain indexed writes

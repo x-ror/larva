@@ -25,6 +25,7 @@ import { KINDS, countSource } from './primordials-detect.mjs';
 // directory would be counted as production source.
 const E = (o = {}) => ({ method: 0, invoke: 0, accessor: 0, global: 0, ...o });
 const WRAP = (body) => `(function (require, module) {\n${body}\n})`;
+const STRICT = (body) => WRAP(`'use strict';\n${body}`);
 
 const SELF_TEST = [
   // --- the four classes, each in its plainest form ---
@@ -385,6 +386,127 @@ const SELF_TEST = [
     name: 'unknown class name suppresses nothing',
     src: 'q.push(x); // primordials-ok: methods',
     expect: E({ method: 1 }),
+  },
+
+  // --- marker with a reason: ` — ` (an em dash) and nothing else ---
+  {
+    name: 'named marker with a reason suppresses',
+    src: 'fn.call(t, a); // primordials-ok: invoke — receiver is our own closure',
+    expect: E(),
+  },
+  {
+    name: 'bare marker with a reason suppresses',
+    src: 'q.push(x); // primordials-ok — q is a Fifo, not an Array',
+    expect: E(),
+  },
+  {
+    name: 'typo class with a reason still suppresses nothing',
+    src: 'fn.call(t, a); // primordials-ok: invok — receiver is our own closure',
+    expect: E({ invoke: 1 }),
+  },
+  {
+    name: 'a separator other than the em dash suppresses nothing',
+    src: 'fn.call(t, a); // primordials-ok: invoke -- receiver is our own closure',
+    expect: E({ invoke: 1 }),
+  },
+  {
+    name: 'an empty reason suppresses nothing',
+    src: 'fn.call(t, a); // primordials-ok: invoke —',
+    expect: E({ invoke: 1 }),
+  },
+
+  // --- invoke: the captured-callee exemption (see capturedCallees) ---
+  // The one shape that is exempt: a strict, file-private function declaration
+  // that never escapes, so no user code can hold it to give it an own `call`.
+  {
+    name: 'private function declaration: .call/.apply/.bind exempt',
+    src: STRICT(
+      'function g(a) { return a; }\n' +
+        'function f(t, x) { g.call(t, x); g.apply(t, [x]); return g.bind(t); }\n' +
+        'f(1, 2);',
+    ),
+    expect: E(),
+  },
+  {
+    name: 'parameter receiver is counted',
+    src: STRICT('function f(cb, t) { return cb.call(t); }'),
+    expect: E({ invoke: 1 }),
+  },
+  {
+    name: 'reassigned declaration is counted',
+    src: STRICT('function g() {}\ng = h;\nfunction f(t) { return g.call(t); }'),
+    expect: E({ invoke: 1 }),
+  },
+  {
+    name: 'local alias of a callback is counted',
+    src: STRICT('function f(cb, t) { var g = cb; return g.call(t); }'),
+    expect: E({ invoke: 1 }),
+  },
+  {
+    name: 'shadowing parameter inside a function is counted',
+    src: STRICT('function g() {}\nfunction f(g, t) { return g.call(t); }\nf(1, 2);'),
+    expect: E({ invoke: 1 }),
+  },
+  {
+    name: 'shadowing local inside a function is counted',
+    src: STRICT('function g() {}\nfunction f(t) { var g = t.cb; return g.call(t); }\nf(1);'),
+    expect: E({ invoke: 1 }),
+  },
+  // Rule 1 is "one binding", not a scope analysis: a second DECLARATION of the
+  // name is counted even where it would resolve to another private function.
+  // This is the only fixture binds === 1 alone pins — a parameter or local
+  // shadow is also refused by the not-a-function-declaration check.
+  {
+    name: 'second declaration of the name is counted',
+    src: STRICT('function g() {}\nfunction f(t) { function g() {} return g.call(t); }\nf(1);'),
+    expect: E({ invoke: 1 }),
+  },
+  {
+    name: 'exported declaration is counted',
+    src: STRICT('function g() {}\nmodule.exports = g;\nfunction f(t) { return g.call(t); }'),
+    expect: E({ invoke: 1 }),
+  },
+  {
+    name: 'constructed declaration is counted (instance.constructor leaks it)',
+    src: STRICT('function g() {}\nvar o = new g();\nfunction f(t) { return g.call(t); }'),
+    expect: E({ invoke: 1 }),
+  },
+  {
+    name: 'sloppy declaration is counted (callee.caller leaks it)',
+    src: WRAP('function g() {}\nfunction f(t) { return g.call(t); }\nf(1);'),
+    expect: E({ invoke: 1 }),
+  },
+  {
+    name: 'declaration out of the reference scope is counted',
+    src: STRICT('(function () { function g() {} g(); })();\nfunction f(t) { return g.call(t); }'),
+    expect: E({ invoke: 1 }),
+  },
+  {
+    name: 'direct eval disqualifies every declaration',
+    src: STRICT('function g() {}\nfunction f(t, s) { eval(s); return g.call(t); }'),
+    expect: E({ invoke: 1 }),
+  },
+  // NOT exempt, deliberately: a captured INTRINSIC. The #485 lock stops
+  // `Function.prototype.call = x` but not `Function.prototype.apply.call = x`,
+  // which defines an own `call` on the very object `apply` captured; Lava then
+  // runs it where node invokes the listener (probed: an emit printed the
+  // attacker's marker). Same for every raw intrinsic the primordials table
+  // re-exports (`ReflectApply`, `ObjectKeys`, …).
+  {
+    name: 'captured intrinsic receiver is counted',
+    src: STRICT(
+      'var apply = Function.prototype.apply;\nfunction f(cb, t, a) { return apply.call(cb, t, a); }',
+    ),
+    expect: E({ invoke: 1 }),
+  },
+  {
+    name: 'destructured primordial receiver is counted',
+    src: STRICT(
+      "var { ReflectApply } = require('internal/primordials');\n" +
+        'var P = require("internal/primordials");\nvar push = P.ArrayPrototypePush;\n' +
+        'function f(t, a) { ReflectApply.call(null, t, a); return push.call(t, a); }',
+    ),
+    expect: E({ invoke: 2 }),
   },
 ];
 

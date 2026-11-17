@@ -2113,6 +2113,78 @@
       "expect_detail": "lazy module: module-eval capture is a live read"
     },
     {
+      "name": "the detector's fixtures die when the captured-callee rule ignores a reassignment",
+      "why": "A reassigned name can hold a caller-supplied function by the time `g.call(\u2026)` runs, so exempting it scores a steerable invoke as 0.",
+      "source": "scripts/lib/primordials-detect.mjs",
+      "find": "    if (writes.has(n)) {\n      entry(n.name).bad = true;\n      return;\n    }",
+      "replace": "    if (writes.has(n)) {\n      return;\n    }",
+      "gate": "node-test:scripts/check-primordials.test.mjs",
+      "expect_detail": "reassigned declaration is counted"
+    },
+    {
+      "name": "the detector's fixtures die when the captured-callee rule stops treating other uses as escapes",
+      "why": "Once a function is exported, passed or constructed, user code can define an own `call` on it (the #485 setter allows it), so `.call` on it is steerable.",
+      "source": "scripts/lib/primordials-detect.mjs",
+      "find": "    if (!directCall && !invokeReceiver) entry(n.name).bad = true;",
+      "replace": "    if (false) entry(n.name).bad = true;",
+      "gate": "node-test:scripts/check-primordials.test.mjs",
+      "expect_detail": "exported declaration is counted"
+    },
+    {
+      "name": "the detector's fixtures die when the captured-callee rule tolerates a second binding",
+      "why": "One binding is the rule, not a scope analysis; a second declaration of the name must not be resolved by guessing which one a use site sees.",
+      "source": "scripts/lib/primordials-detect.mjs",
+      "find": "    if (e.binds === 1 && e.scope && e.strict && !e.bad) out.add(name);",
+      "replace": "    if (e.binds >= 1 && e.scope && e.strict && !e.bad) out.add(name);",
+      "gate": "node-test:scripts/check-primordials.test.mjs",
+      "expect_detail": "second declaration of the name is counted"
+    },
+    {
+      "name": "the detector's fixtures die when the captured-callee rule exempts a sloppy declaration",
+      "why": "A sloppy function is reachable as `callback.caller` from any user callback it invokes, after which its own `call` can be set.",
+      "source": "scripts/lib/primordials-detect.mjs",
+      "find": "    if (e.binds === 1 && e.scope && e.strict && !e.bad) out.add(name);",
+      "replace": "    if (e.binds === 1 && e.scope && !e.bad) out.add(name);",
+      "gate": "node-test:scripts/check-primordials.test.mjs",
+      "expect_detail": "sloppy declaration is counted"
+    },
+    {
+      "name": "the detector's fixtures die when the captured-callee rule ignores the declaring scope",
+      "why": "Outside the declaring scope the same name resolves to a global, which user code can replace.",
+      "source": "scripts/lib/primordials-detect.mjs",
+      "find": "    if (out.has(name) && !ancestors.includes(info.get(name).scope)) out.delete(name);",
+      "replace": "    if (false) out.delete(name);",
+      "gate": "node-test:scripts/check-primordials.test.mjs",
+      "expect_detail": "declaration out of the reference scope is counted"
+    },
+    {
+      "name": "the detector's fixtures die when the captured-callee rule ignores direct eval",
+      "why": "Direct eval in strict code can still assign an outer binding, so no declaration in such a file is provably fixed.",
+      "source": "scripts/lib/primordials-detect.mjs",
+      "find": "  if (sawEval) return out;\n",
+      "replace": "",
+      "gate": "node-test:scripts/check-primordials.test.mjs",
+      "expect_detail": "direct eval disqualifies every declaration"
+    },
+    {
+      "name": "the detector's fixtures die when the marker rejects a trailing reason again",
+      "why": "A reason after the em dash must suppress like the bare marker; before, the reason had to sit on the line above.",
+      "source": "scripts/lib/primordials-detect.mjs",
+      "find": "const MARKER = /^\\s*primordials-ok(?::\\s*([\\w,\\s]+?))?\\s*(?:\u2014\\s*\\S.*)?$/;",
+      "replace": "const MARKER = /^\\s*primordials-ok(?::\\s*([\\w,\\s]+))?\\s*$/;",
+      "gate": "node-test:scripts/check-primordials.test.mjs",
+      "expect_detail": "named marker with a reason suppresses"
+    },
+    {
+      "name": "the detector's fixtures die when the marker accepts a second separator",
+      "why": "One separator is the grammar; a second is a second spelling to keep in sync, and a wrong one must suppress nothing so it fails loud.",
+      "source": "scripts/lib/primordials-detect.mjs",
+      "find": "const MARKER = /^\\s*primordials-ok(?::\\s*([\\w,\\s]+?))?\\s*(?:\u2014\\s*\\S.*)?$/;",
+      "replace": "const MARKER = /^\\s*primordials-ok(?::\\s*([\\w,\\s]+?))?\\s*(?:(?:\u2014|--)\\s*\\S.*)?$/;",
+      "gate": "node-test:scripts/check-primordials.test.mjs",
+      "expect_detail": "a separator other than the em dash suppresses nothing"
+    },
+    {
       "name": "the ratchet dies when every module is scanned as eager",
       "why": "Classifying a lazy module as eager re-exempts its module-eval captures, so a live `var S = String` in a lazily required module scores 0. Gated on a fixture tree rather than the real one: since #430 no lazy module in the tree holds such a capture, so the mutant changed no count there and survived.",
       "source": "scripts/lib/primordials-scan.mjs",

@@ -533,10 +533,17 @@ the loader calls `lockIntrinsics()` right after the primordials table is capture
 turning each into a non-configurable accessor in the shape of node's
 `--frozen-intrinsics` (assignment on `Function.prototype` throws in both modes;
 `f.call = x` on an ordinary function still defines an own property). That is a
-deliberate node deviation (#450), pinned by `cmd/lava/function_call_lock_test.odin`,
-and it is what lets the `callerN` wrappers keep a live `.call` on a captured method.
-It does not cover `.call` on a caller-supplied function, which can carry its own
-`call`, so the `invoke` class still counts every site.
+deliberate node deviation (#450), pinned by `cmd/lava/function_call_lock_test.odin`.
+It does **not** make `.call` safe on a captured INTRINSIC: user code holds the same
+object, so `Function.prototype.apply.call = evil` defines an own `call` that
+`apply.call(listener, …)` in `events.js` then runs, and `Array.prototype.push.call = evil`
+reaches the `callerN` wrappers' `fn.call` (both probed on `bin/lava`; node runs
+neither). So the `invoke` class counts every `.call`/`.apply` (and `method` every
+`.bind`) except on one receiver: a strict function declaration the file never lets
+go of — one binding of the name in the file, never written, referenced only as
+`g(…)` or `g.call/apply/bind(…)` inside its declaring scope, and no direct `eval`
+(`capturedCallees` in `primordials-detect.mjs`). A suppression marker may carry its
+reason after an em dash: `// primordials-ok: invoke — why`.
 
 A `global` read at module-eval is exempt only in a module instantiated before user
 code — the loader's `req()` roots closed over top-level requires, computed by
