@@ -16,7 +16,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { KINDS, countSource, countFile, walkDir, JS_DIR, ROOT } from './lib/primordials-detect.mjs';
@@ -121,20 +131,28 @@ test('ratchet scan: a lazy module-eval capture counts as global, an eager one do
 // exit code alone cannot tell "checked and passed" from "never checked".
 //
 // Nor can the OK line by itself: a CLI that printed a bare OK passed this test
-// too. What is pinned now is narrow: the figures in the OK line equal what this
-// process scans off the same tree. NOT pinned, each checked by hand to pass every
-// scripts test: a CLI that echoes the baseline's own totals instead of scanning (on
-// a passing tree they are equal by definition), one that skips selfTest(), and one
-// that skips compare(). The real tree is clean and the fixtures pass, so neither
-// step's failing branch is ever reached. Closing them needs a root/baseline override
-// on the CLI so a fixture can drive those branches, as the graph CLI's root does.
+// too. What this test pins is narrow: the figures in the OK line equal what this
+// process scans off the same tree. The real tree is clean and the fixtures pass, so
+// no failing branch is reached here; a CLI that echoes the baseline's own totals
+// instead of scanning (equal on a passing tree by definition), skips selfTest(), or
+// skips compare() passes it. Those three are pinned by the sandbox tests below:
+// "...fails and names the file when a scanned module gains a site" (echo, compare)
+// and "...refuses to report when its self-test fails" (selfTest).
 //
 // The spawn is bounded so a hung CLI fails this test by name rather than hanging the
 // suite: the CLI takes ~0.2 s wall here (`time`, three runs), so 60 s only trips on a
 // real hang.
 const SPAWN_TIMEOUT_MS = 60_000;
 function run(label, bin, args) {
-  const r = spawnSync(bin, args, { encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS });
+  // SIGKILL, not the default SIGTERM: a child that traps SIGTERM outlives the timeout
+  // and spawnSync waits on it, so the bound would not bound anything (measured: a
+  // SIGTERM-trapping child with an 8 s sleep held a 500 ms timeout for 8020 ms; with
+  // SIGKILL it returned ETIMEDOUT at 504 ms).
+  const r = spawnSync(bin, args, {
+    encoding: 'utf8',
+    timeout: SPAWN_TIMEOUT_MS,
+    killSignal: 'SIGKILL',
+  });
   // The error first: a timeout AND an overflowed maxBuffer (ENOBUFS) both kill the
   // child with SIGTERM, so reading the signal alone misnames the second as an outside
   // kill. ENOENT passes through untouched, for the caller's own missing-binary message.
@@ -175,5 +193,101 @@ test('ratchet CLI reports OK on the real tree, also when invoked through a symli
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The spawn above runs on the real tree, which is clean and whose fixtures pass, so
+// no failing branch of the CLI is ever reached there: a CLI that skipped selfTest(),
+// skipped compare(), or skipped the scan and echoed the baseline's own totals (equal
+// to the scan on a passing tree, by definition) passed it. These drive those branches
+// through the REAL CLI source rather than a root override on it: ROOT is derived from
+// the CLI's own location (lib/primordials-detect.mjs), so a copy of the CLI, its lib/,
+// the baseline and the scanned tree inside a scratch dir scans that copy. Copied at
+// test time from the working tree, so a mutated check-primordials.mjs is what runs;
+// node_modules is symlinked in so acorn resolves.
+function ratchetSandbox() {
+  const repo = join(import.meta.dirname, '..');
+  // Without installed deps the symlink below dangles, the copied CLI dies resolving
+  // acorn, and the tests fail on a missing "+1" line that says nothing about why.
+  assert.ok(
+    existsSync(join(repo, 'node_modules', 'acorn')),
+    'sandbox needs installed deps: node_modules/acorn missing — run bun install',
+  );
+  const root = mkdtempSync(join(tmpdir(), 'primordials-sandbox-'));
+  // The caller's finally only exists once this returns; a failed copy (EACCES,
+  // ENOSPC) would otherwise leave the temp dir behind.
+  try {
+    for (const rel of [
+      'scripts/check-primordials.mjs',
+      'scripts/lib',
+      'pkg/runtime/js',
+      'tests/node-compat/pollution-baseline.json',
+    ]) {
+      cpSync(join(repo, rel), join(root, rel), { recursive: true });
+    }
+    symlinkSync(join(repo, 'node_modules'), join(root, 'node_modules'));
+  } catch (err) {
+    rmSync(root, { recursive: true, force: true });
+    throw err;
+  }
+  return { root, cli: join(root, 'scripts', 'check-primordials.mjs') };
+}
+
+// One pollutable method call added to a lazy module must fail the CLI and name the
+// file. A CLI that echoes the baseline instead of scanning, or never runs compare(),
+// exits 0 with its OK line here.
+test('ratchet CLI fails and names the file when a scanned module gains a site', () => {
+  const { root, cli } = ratchetSandbox();
+  try {
+    const key = 'node/net.js';
+    const base = JSON.parse(
+      readFileSync(join(root, 'tests', 'node-compat', 'pollution-baseline.json'), 'utf8'),
+    )[key].method;
+    appendFileSync(
+      join(root, 'pkg', 'runtime', 'js', key),
+      '\nfunction injectedRatchetSite(a) { return a.push(1); }\n',
+    );
+    const r = run('ratchet CLI (sandbox, +1 site)', process.execPath, [cli]);
+    assert.doesNotMatch(
+      r.stdout,
+      /^OK: pollution ratchet holds/m,
+      `ratchet CLI printed OK over a tree with a new site; stdout: ${JSON.stringify(r.stdout)}`,
+    );
+    assert.equal(r.status, 1, `ratchet CLI exited ${r.status} over a tree with a new site`);
+    assert.ok(
+      r.stderr.includes(`${key}: ${base + 1} method sites, baseline ${base} (+1):`),
+      `ratchet CLI did not report ${key} +1 method; stderr: ${JSON.stringify(r.stderr)}`,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// A detector whose self-test fails must not report on the tree. The sandbox's
+// fixtures are replaced by a stub with the same exports whose selfTest() fails; a CLI
+// that skips selfTest() scans the clean copy and prints OK.
+test('ratchet CLI refuses to report when its self-test fails', () => {
+  const { root, cli } = ratchetSandbox();
+  try {
+    writeFileSync(
+      join(root, 'scripts', 'lib', 'primordials-fixtures.mjs'),
+      'export const E = () => ({});\nexport const WRAP = (s) => s;\nexport const SELF_TEST = [];\n' +
+        "export function selfTest() { return ['injected detector failure']; }\n",
+    );
+    const r = run('ratchet CLI (sandbox, failing self-test)', process.execPath, [cli]);
+    assert.doesNotMatch(
+      r.stdout,
+      /^OK: pollution ratchet holds/m,
+      `ratchet CLI printed OK with a failing self-test; stdout: ${JSON.stringify(r.stdout)}`,
+    );
+    assert.equal(r.status, 1, `ratchet CLI exited ${r.status} with a failing self-test`);
+    assert.match(
+      r.stderr,
+      /SELF-TEST FAILED/,
+      `no SELF-TEST FAILED; stderr: ${JSON.stringify(r.stderr)}`,
+    );
+    assert.match(r.stderr, /injected detector failure/, 'self-test failure text not reported');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

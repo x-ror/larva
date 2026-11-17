@@ -107,7 +107,15 @@ const CLI = join(import.meta.dirname, 'check-js-graph.mjs');
 // timeout or a kill from surfacing as a confusing "did not print its OK line".
 const SPAWN_TIMEOUT_MS = 60_000;
 function run(label, bin, args) {
-  const r = spawnSync(bin, args, { encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS });
+  // SIGKILL, not the default SIGTERM: a child that traps SIGTERM outlives the timeout
+  // and spawnSync waits on it, so the bound would not bound anything (measured: a
+  // SIGTERM-trapping child with an 8 s sleep held a 500 ms timeout for 8020 ms; with
+  // SIGKILL it returned ETIMEDOUT at 504 ms).
+  const r = spawnSync(bin, args, {
+    encoding: 'utf8',
+    timeout: SPAWN_TIMEOUT_MS,
+    killSignal: 'SIGKILL',
+  });
   // The error first: a timeout AND an overflowed maxBuffer (ENOBUFS) both kill the
   // child with SIGTERM, so reading the signal alone misnames the second as an outside
   // kill. ENOENT passes through untouched, for the caller's own missing-binary message.
