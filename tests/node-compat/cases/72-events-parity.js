@@ -123,7 +123,39 @@ function testMetaEvents() {
   console.log('meta:', JSON.stringify(log));
 }
 
+// A listener is caller-supplied, so it can carry its own call/apply or a swapped
+// prototype. node invokes it with ReflectApply, which reads none of them: the real
+// body runs, with the emitter as `this` and the emitted arguments, on emit for one
+// listener, for several, and when a once() wrapper fires.
+function testListenerInvocation() {
+  const ee = new EventEmitter();
+  const seen = [];
+  function own(a, b) {
+    seen.push('own ' + a + b + ' ' + (this === ee));
+  }
+  own.call = () => seen.push('own.call');
+  own.apply = () => seen.push('own.apply');
+  function swapped(a) {
+    seen.push('swapped ' + a + ' ' + (this === ee));
+  }
+  Object.setPrototypeOf(swapped, {
+    call: () => seen.push('proto.call'),
+    apply: () => seen.push('proto.apply'),
+  });
+  ee.on('one', own);
+  ee.emit('one', 1, 2);
+  ee.on('many', own);
+  ee.on('many', swapped);
+  ee.emit('many', 3, 4);
+  ee.once('once', own);
+  ee.emit('once', 5, 6);
+  ee.prependOnceListener('once2', swapped);
+  ee.emit('once2', 7);
+  console.log('invoke:', seen.join('; '));
+}
+
 testSetMaxListeners();
 testListenerCount();
 testMetaEvents();
+testListenerInvocation();
 testOnceSignal();

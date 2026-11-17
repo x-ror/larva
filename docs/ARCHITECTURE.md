@@ -554,8 +554,8 @@ is deliberately stronger than Node.
 
 A baseline of 0 in a class means "no **counted** site of that class remains", not
 "immune" — the ratchet is a floor, not a proof. Per-class counts are what make
-that readable: `events.js` is at 0 `method` and 0 `accessor` while still carrying
-`invoke` and `global` sites, which a single total hid. Do not restate the numbers
+that readable: `events.js` is at 0 `method`, `accessor` and `global` while still
+carrying `invoke` sites, which a single total hid. Do not restate the numbers
 here — `pollution-baseline.json` is the source and `make check-primordials` prints
 the live split; the counts copied into prose went stale twice. `.call`/`.apply`
 and live globals used to be the author's problem and are now gated classes;

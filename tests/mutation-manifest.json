@@ -1786,10 +1786,68 @@
       ]
     },
     {
+      "name": "72-events-parity dies when emit() invokes a listener through its own apply",
+      "why": "node invokes listeners with ReflectApply, so a listener's own call/apply is never consulted; handler.apply(this, args) runs the listener's own apply instead of its body.",
+      "source": "pkg/runtime/js/node/events.js",
+      "find": "      apply.call(handler, this, args); // primordials-ok: invoke",
+      "replace": "      handler.apply(this, args);",
+      "gate": "compat:tests/node-compat/cases/72-events-parity.js",
+      "expect_detail": [
+        "own.apply"
+      ]
+    },
+    {
+      "name": "72-events-parity dies when a once() wrapper invokes the listener through its own apply",
+      "why": "The once() wrapper is the other listener-invocation site; node ignores the listener's own apply there too.",
+      "source": "pkg/runtime/js/node/events.js",
+      "find": "      return apply.call(listener, target, arguments); // primordials-ok: invoke",
+      "replace": "      return listener.apply(target, arguments);",
+      "gate": "compat:tests/node-compat/cases/72-events-parity.js",
+      "expect_detail": [
+        "own.apply"
+      ]
+    },
+    {
+      "name": "events_pollution_immunity dies when emit()'s two-listener snapshot is built by index writes",
+      "why": "An array literal defines its elements; index writes into [] walk Array.prototype, so a setter at [0] throws inside emit() or silently drops a listener where node emits to both.",
+      "source": "pkg/runtime/js/node/events.js",
+      "find": "      case 2:\n        return [list[0], list[1]];\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.events_pollution_immunity",
+      "expect_detail": "want setter0=2,0,2,2 got setter0=THREW:TypeError"
+    },
+    {
+      "name": "events_pollution_immunity dies when once() rejects through the live Promise.reject",
+      "why": "Promise.reject is a writable static of the Promise constructor; capturing Promise does not capture it, so a replaced Promise.reject steers once()'s argument errors.",
+      "source": "pkg/runtime/js/node/events.js",
+      "find": "  var PromiseReject = P.PromiseReject;",
+      "replace": "  var PromiseReject = function (e) { return P.Promise.reject(e); };",
+      "gate": "odin:cmd/lava:main.events_pollution_immunity",
+      "expect_detail": "got promise-statics=THREW:Error"
+    },
+    {
+      "name": "events_pollution_immunity dies when events.on() defaults options to a fresh {}",
+      "why": "A {} default inherits signal from a poisoned Object.prototype, so on(emitter, name) throws ERR_INVALID_ARG_TYPE where node (frozen null-prototype default) does not.",
+      "source": "pkg/runtime/js/node/events.js",
+      "find": "    options = options || kEmptyObject;",
+      "replace": "    options = options || {};",
+      "gate": "odin:cmd/lava:main.events_pollution_immunity",
+      "expect_detail": "want options-proto=function got options-proto=THREW:TypeError"
+    },
+    {
+      "name": "events_pollution_immunity dies when events.on()'s queue keeps its slots in an Array",
+      "why": "Queued events written into an Array pass through an Array.prototype index setter, which can read or drop them; the null-prototype slots object walks no chain.",
+      "source": "pkg/runtime/js/node/events.js",
+      "find": "      this.slots = ObjectCreate(null);",
+      "replace": "      this.slots = [];",
+      "gate": "odin:cmd/lava:main.events_pollution_immunity",
+      "expect_detail": "want on-queue=a|b,0 got on-queue="
+    },
+    {
       "name": "72-events-parity dies when once() stops validating options",
       "why": "node's events.once rejects a non-object options with ERR_INVALID_ARG_TYPE; without the check once(ee, 'foo', 5) just waits.",
       "source": "pkg/runtime/js/node/events.js",
-      "find": "      return P.Promise.reject(ERR_INVALID_ARG_TYPE('options', 'object', options));",
+      "find": "      return PromiseReject(ERR_INVALID_ARG_TYPE('options', 'object', options));",
       "replace": "      options = undefined;",
       "gate": "compat:tests/node-compat/cases/72-events-parity.js",
       "expect_detail": [

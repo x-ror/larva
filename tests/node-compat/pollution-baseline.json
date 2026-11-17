@@ -381,7 +381,7 @@
     "method": 0,
     "invoke": 2,
     "accessor": 0,
-    "global": 10
+    "global": 0
   },
   "node/fs.js": {
     "method": 0,
