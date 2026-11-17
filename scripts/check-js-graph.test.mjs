@@ -102,20 +102,23 @@ const CLI = join(import.meta.dirname, 'check-js-graph.mjs');
 // Every spawn below goes through here so a hung runtime fails ITS test, by name,
 // instead of hanging the whole suite with nothing attached. The bound is generous on
 // purpose: the CLI finishes in well under a second on a dev box (~0.1 s wall under
-// node and bun, `time` over one run each), so 60 s only ever trips on a real hang,
-// never on a slow CI core. A timeout and an outside kill both leave `signal` set;
-// checking it before anything else keeps either from surfacing as a confusing
-// "did not print its OK line".
+// node and bun, `time` over three runs each), so 60 s only ever trips on a real
+// hang, never on a slow CI core. Checking the spawn before anything else keeps a
+// timeout or a kill from surfacing as a confusing "did not print its OK line".
 const SPAWN_TIMEOUT_MS = 60_000;
 function run(label, bin, args) {
   const r = spawnSync(bin, args, { encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS });
-  assert.equal(
-    r.signal,
-    null,
-    r.error?.code === 'ETIMEDOUT'
-      ? `${label} timed out after ${SPAWN_TIMEOUT_MS} ms`
-      : `${label} was killed by ${r.signal}`,
-  );
+  // The error first: a timeout AND an overflowed maxBuffer (ENOBUFS) both kill the
+  // child with SIGTERM, so reading the signal alone misnames the second as an outside
+  // kill. ENOENT passes through untouched, for the caller's own missing-binary message.
+  if (r.error && r.error.code !== 'ENOENT') {
+    assert.fail(
+      r.error.code === 'ETIMEDOUT'
+        ? `${label} timed out after ${SPAWN_TIMEOUT_MS} ms`
+        : `${label} failed to run: ${r.error.code ?? r.error.message}`,
+    );
+  }
+  assert.equal(r.signal, null, `${label} was killed by ${r.signal}`);
   return r;
 }
 const RUNTIMES = [

@@ -120,26 +120,32 @@ test('ratchet scan: a lazy module-eval capture counts as global, an eager one do
 // no guard; this pins both the plain invocation and the symlinked one, since an
 // exit code alone cannot tell "checked and passed" from "never checked".
 //
-// Nor can the OK line by itself: a CLI that printed it without scanning passed this
-// test too. The CLI takes no root, so there is no violating fixture to run it over
-// (the graph CLI's answer); instead the line's figures must be the ones this process
-// scans off the same tree. What that still cannot see is a CLI that scans nothing
-// and echoes the baseline's own totals: on a tree that passes, the two are equal by
-// definition.
+// Nor can the OK line by itself: a CLI that printed a bare OK passed this test
+// too. What is pinned now is narrow: the figures in the OK line equal what this
+// process scans off the same tree. NOT pinned, each checked by hand to pass every
+// scripts test: a CLI that echoes the baseline's own totals instead of scanning (on
+// a passing tree they are equal by definition), one that skips selfTest(), and one
+// that skips compare(). The real tree is clean and the fixtures pass, so neither
+// step's failing branch is ever reached. Closing them needs a root/baseline override
+// on the CLI so a fixture can drive those branches, as the graph CLI's root does.
 //
 // The spawn is bounded so a hung CLI fails this test by name rather than hanging the
 // suite: the CLI takes ~0.2 s wall here (`time`, three runs), so 60 s only trips on a
-// real hang. A timeout and an outside kill both leave `signal` set.
+// real hang.
 const SPAWN_TIMEOUT_MS = 60_000;
 function run(label, bin, args) {
   const r = spawnSync(bin, args, { encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS });
-  assert.equal(
-    r.signal,
-    null,
-    r.error?.code === 'ETIMEDOUT'
-      ? `${label} timed out after ${SPAWN_TIMEOUT_MS} ms`
-      : `${label} was killed by ${r.signal}`,
-  );
+  // The error first: a timeout AND an overflowed maxBuffer (ENOBUFS) both kill the
+  // child with SIGTERM, so reading the signal alone misnames the second as an outside
+  // kill. ENOENT passes through untouched, for the caller's own missing-binary message.
+  if (r.error && r.error.code !== 'ENOENT') {
+    assert.fail(
+      r.error.code === 'ETIMEDOUT'
+        ? `${label} timed out after ${SPAWN_TIMEOUT_MS} ms`
+        : `${label} failed to run: ${r.error.code ?? r.error.message}`,
+    );
+  }
+  assert.equal(r.signal, null, `${label} was killed by ${r.signal}`);
   return r;
 }
 
