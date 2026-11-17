@@ -2156,6 +2156,26 @@
       "expect_detail": "graph CLI [bun] binary is not bun"
     },
     {
+      "name": "the graph CLI [node] arm dies when it runs bun instead of node",
+      "why": "The mirror of the [bun] identity entry: under `bun run js:scripttests` behind a node shim the [node] arm could resolve to bun, and every CLI mutant fails both runtimes with the same message, so the [node] entries above would pass while the node arm never ran node. The identity probe (typeof Bun must be 'undefined') is the only thing that tells the runtimes apart.",
+      "source": "scripts/check-js-graph.test.mjs",
+      "find": "  ['node', () => process.execPath, 'undefined'],",
+      "replace": "  ['node', () => 'bun', 'undefined'],",
+      "gate": "node-test:scripts/check-js-graph.test.mjs",
+      "test": "graph CLI [node] reports OK on the real tree, also when invoked through a symlink",
+      "expect_detail": "graph CLI [node] binary is not node"
+    },
+    {
+      "name": "the graph CLI dies when it writes to stderr on a clean run",
+      "why": "CI reads stderr as the failure channel. A clean run that exits 0 and prints OK while also writing a warning or a stray violation header is a gate whose output contradicts its verdict; status and the OK line both still pass, so only the empty-stderr assertion sees it.",
+      "source": "scripts/check-js-graph.mjs",
+      "find": "console.log(\n  'OK: embedded JS module graph",
+      "replace": "console.error('JS module graph: 0 violation(s):');\nconsole.log(\n  'OK: embedded JS module graph",
+      "gate": "node-test:scripts/check-js-graph.test.mjs",
+      "test": "graph CLI [node] reports OK on the real tree, also when invoked through a symlink",
+      "expect_detail": "graph CLI [node] (direct path) wrote to stderr on a clean run"
+    },
+    {
       "name": "builtin_factories_compile_on_first_require dies when a lazy builtin is compiled before user code",
       "why": "Restores eager compilation for the one module the test watches (node:os): if the loader compiles it at init, its first require compiles nothing and the startup win this pins is gone without any visible behavior change.",
       "source": "pkg/runtime/js/bootstrap/loader.js",
@@ -2283,6 +2303,16 @@
       "gate": "node-test:scripts/check-primordials.test.mjs",
       "test": "ratchet CLI reports OK on the real tree, also when invoked through a symlink",
       "expect_detail": "ratchet CLI (symlink) did not print its OK line"
+    },
+    {
+      "name": "the ratchet CLI dies when it prints OK without scanning",
+      "why": "An OK line and exit 0 were all the CLI spawn test checked, so a CLI that printed the line without running the self-test, the scan or the comparison passed. The line's figures must now equal what the test scans in-process over the same tree. (Echoing the baseline's own totals is still invisible here: on a passing tree they equal the scan by definition.)",
+      "source": "scripts/check-primordials.mjs",
+      "find": "const selfTestFailures = selfTest();",
+      "replace": "console.log('OK: pollution ratchet holds.');\nprocess.exit(0);\nconst selfTestFailures = selfTest();",
+      "gate": "node-test:scripts/check-primordials.test.mjs",
+      "test": "ratchet CLI reports OK on the real tree, also when invoked through a symlink",
+      "expect_detail": "ratchet CLI (direct path) OK line does not report the in-process scan"
     },
     {
       "name": "check-js-graph fixtures die when a function-body require makes its target eager",
