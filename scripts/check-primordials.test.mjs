@@ -19,6 +19,7 @@ import { spawnSync } from 'node:child_process';
 import {
   appendFileSync,
   cpSync,
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -143,7 +144,15 @@ test('ratchet scan: a lazy module-eval capture counts as global, an eager one do
 // real hang.
 const SPAWN_TIMEOUT_MS = 60_000;
 function run(label, bin, args) {
-  const r = spawnSync(bin, args, { encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS });
+  // SIGKILL, not the default SIGTERM: a child that traps SIGTERM outlives the timeout
+  // and spawnSync waits on it, so the bound would not bound anything (measured: a
+  // SIGTERM-trapping child with an 8 s sleep held a 500 ms timeout for 8020 ms; with
+  // SIGKILL it returned ETIMEDOUT at 504 ms).
+  const r = spawnSync(bin, args, {
+    encoding: 'utf8',
+    timeout: SPAWN_TIMEOUT_MS,
+    killSignal: 'SIGKILL',
+  });
   // The error first: a timeout AND an overflowed maxBuffer (ENOBUFS) both kill the
   // child with SIGTERM, so reading the signal alone misnames the second as an outside
   // kill. ENOENT passes through untouched, for the caller's own missing-binary message.
@@ -198,16 +207,29 @@ test('ratchet CLI reports OK on the real tree, also when invoked through a symli
 // node_modules is symlinked in so acorn resolves.
 function ratchetSandbox() {
   const repo = join(import.meta.dirname, '..');
+  // Without installed deps the symlink below dangles, the copied CLI dies resolving
+  // acorn, and the tests fail on a missing "+1" line that says nothing about why.
+  assert.ok(
+    existsSync(join(repo, 'node_modules', 'acorn')),
+    'sandbox needs installed deps: node_modules/acorn missing — run bun install',
+  );
   const root = mkdtempSync(join(tmpdir(), 'primordials-sandbox-'));
-  for (const rel of [
-    'scripts/check-primordials.mjs',
-    'scripts/lib',
-    'pkg/runtime/js',
-    'tests/node-compat/pollution-baseline.json',
-  ]) {
-    cpSync(join(repo, rel), join(root, rel), { recursive: true });
+  // The caller's finally only exists once this returns; a failed copy (EACCES,
+  // ENOSPC) would otherwise leave the temp dir behind.
+  try {
+    for (const rel of [
+      'scripts/check-primordials.mjs',
+      'scripts/lib',
+      'pkg/runtime/js',
+      'tests/node-compat/pollution-baseline.json',
+    ]) {
+      cpSync(join(repo, rel), join(root, rel), { recursive: true });
+    }
+    symlinkSync(join(repo, 'node_modules'), join(root, 'node_modules'));
+  } catch (err) {
+    rmSync(root, { recursive: true, force: true });
+    throw err;
   }
-  symlinkSync(join(repo, 'node_modules'), join(root, 'node_modules'));
   return { root, cli: join(root, 'scripts', 'check-primordials.mjs') };
 }
 
