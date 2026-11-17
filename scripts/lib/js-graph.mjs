@@ -1,10 +1,11 @@
 // The embedded runtime JS module graph — ONE parser and graph builder, two consumers:
 //
-//   scripts/lib/js-graph-check.mjs literal, resolved, reachable, embedded, acyclic
-//                                  (reported by the scripts/check-js-graph.mjs CLI)
-//   scripts/check-primordials.mjs  which modules are EAGER (instantiated before user
-//                                  code), because only there is a module-eval
-//                                  capture pristine (CLAUDE.md §5)
+//   scripts/lib/js-graph-check.mjs   literal, resolved, reachable, embedded, acyclic
+//                                    (reported by the scripts/check-js-graph.mjs CLI)
+//   scripts/lib/primordials-scan.mjs which modules are EAGER (instantiated before user
+//                                    code), because only there is a module-eval
+//                                    capture pristine (CLAUDE.md §5)
+//                                    (reported by the scripts/check-primordials.mjs CLI)
 //
 // A module id is its path under pkg/runtime/js without `.js` (`node/buffer`,
 // `internal/primordials`). An edge is TOP-LEVEL when the require runs at module-eval:

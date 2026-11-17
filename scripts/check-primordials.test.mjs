@@ -19,9 +19,10 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { KINDS, countSource, countFile, walkDir, JS_DIR } from './lib/primordials-detect.mjs';
+import { KINDS, countSource, countFile, walkDir, JS_DIR, ROOT } from './lib/primordials-detect.mjs';
 import { SELF_TEST, E } from './lib/primordials-fixtures.mjs';
 import { scanTree } from './lib/primordials-scan.mjs';
+import { totals } from './lib/primordials-baseline.mjs';
 
 test('detector fixtures', async (t) => {
   for (const fixture of SELF_TEST) {
@@ -118,8 +119,40 @@ test('ratchet scan: a lazy module-eval capture counts as global, an eager one do
 // gate exited 0 having printed nothing. The scan now lives in lib/ and the CLI has
 // no guard; this pins both the plain invocation and the symlinked one, since an
 // exit code alone cannot tell "checked and passed" from "never checked".
+//
+// Nor can the OK line by itself: a CLI that printed a bare OK passed this test
+// too. What is pinned now is narrow: the figures in the OK line equal what this
+// process scans off the same tree. NOT pinned, each checked by hand to pass every
+// scripts test: a CLI that echoes the baseline's own totals instead of scanning (on
+// a passing tree they are equal by definition), one that skips selfTest(), and one
+// that skips compare(). The real tree is clean and the fixtures pass, so neither
+// step's failing branch is ever reached. Closing them needs a root/baseline override
+// on the CLI so a fixture can drive those branches, as the graph CLI's root does.
+//
+// The spawn is bounded so a hung CLI fails this test by name rather than hanging the
+// suite: the CLI takes ~0.2 s wall here (`time`, three runs), so 60 s only trips on a
+// real hang.
+const SPAWN_TIMEOUT_MS = 60_000;
+function run(label, bin, args) {
+  const r = spawnSync(bin, args, { encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS });
+  // The error first: a timeout AND an overflowed maxBuffer (ENOBUFS) both kill the
+  // child with SIGTERM, so reading the signal alone misnames the second as an outside
+  // kill. ENOENT passes through untouched, for the caller's own missing-binary message.
+  if (r.error && r.error.code !== 'ENOENT') {
+    assert.fail(
+      r.error.code === 'ETIMEDOUT'
+        ? `${label} timed out after ${SPAWN_TIMEOUT_MS} ms`
+        : `${label} failed to run: ${r.error.code ?? r.error.message}`,
+    );
+  }
+  assert.equal(r.signal, null, `${label} was killed by ${r.signal}`);
+  return r;
+}
+
 test('ratchet CLI reports OK on the real tree, also when invoked through a symlink', () => {
   const cli = join(import.meta.dirname, 'check-primordials.mjs');
+  const { perKind, total } = totals(scanTree(ROOT).counts);
+  const okLine = `OK: pollution ratchet holds (${total} sites: ${KINDS.map((k) => `${k} ${perKind[k]}`).join(', ')}).`;
   const dir = mkdtempSync(join(tmpdir(), 'primordials-cli-'));
   try {
     const link = join(dir, 'check-primordials.mjs');
@@ -128,12 +161,16 @@ test('ratchet CLI reports OK on the real tree, also when invoked through a symli
       ['direct path', cli],
       ['symlink', link],
     ]) {
-      const r = spawnSync(process.execPath, [path], { encoding: 'utf8' });
+      const r = run(`ratchet CLI (${how})`, process.execPath, [path]);
       assert.equal(r.status, 0, `ratchet CLI (${how}) exited ${r.status}: ${r.stderr}`);
       assert.match(
         r.stdout,
         /^OK: pollution ratchet holds/m,
         `ratchet CLI (${how}) did not print its OK line; stdout: ${JSON.stringify(r.stdout)}`,
+      );
+      assert.ok(
+        r.stdout.split('\n').includes(okLine),
+        `ratchet CLI (${how}) OK line does not report the in-process scan; want ${JSON.stringify(okLine)}, stdout: ${JSON.stringify(r.stdout)}`,
       );
     }
   } finally {

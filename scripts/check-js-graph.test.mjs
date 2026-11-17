@@ -98,12 +98,35 @@ test('the real tree is clean', () => {
 // [node] arm running bun, under `bun run js:scripttests` behind a node shim) would
 // pass every recorded mutation while testing the wrong runtime.
 const CLI = join(import.meta.dirname, 'check-js-graph.mjs');
+
+// Every spawn below goes through here so a hung runtime fails ITS test, by name,
+// instead of hanging the whole suite with nothing attached. The bound is generous on
+// purpose: the CLI finishes in well under a second on a dev box (~0.1 s wall under
+// node and bun, `time` over three runs each), so 60 s only ever trips on a real
+// hang, never on a slow CI core. Checking the spawn before anything else keeps a
+// timeout or a kill from surfacing as a confusing "did not print its OK line".
+const SPAWN_TIMEOUT_MS = 60_000;
+function run(label, bin, args) {
+  const r = spawnSync(bin, args, { encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS });
+  // The error first: a timeout AND an overflowed maxBuffer (ENOBUFS) both kill the
+  // child with SIGTERM, so reading the signal alone misnames the second as an outside
+  // kill. ENOENT passes through untouched, for the caller's own missing-binary message.
+  if (r.error && r.error.code !== 'ENOENT') {
+    assert.fail(
+      r.error.code === 'ETIMEDOUT'
+        ? `${label} timed out after ${SPAWN_TIMEOUT_MS} ms`
+        : `${label} failed to run: ${r.error.code ?? r.error.message}`,
+    );
+  }
+  assert.equal(r.signal, null, `${label} was killed by ${r.signal}`);
+  return r;
+}
 const RUNTIMES = [
   ['node', () => process.execPath, 'undefined'],
   [
     'bun',
     () => {
-      const r = spawnSync('bun', ['--version'], { encoding: 'utf8' });
+      const r = run('graph CLI [bun] version probe', 'bun', ['--version']);
       assert.ok(
         !r.error && r.status === 0,
         `bun not runnable from PATH (${r.error?.code ?? `exit ${r.status}`}); make check-js runs the graph CLI under bun, so it is required here`,
@@ -117,7 +140,10 @@ const RUNTIMES = [
 for (const [rt, resolveBin, typeofBun] of RUNTIMES) {
   const exe = () => {
     const bin = resolveBin();
-    const r = spawnSync(bin, ['-e', 'process.stdout.write(typeof Bun)'], { encoding: 'utf8' });
+    const r = run(`graph CLI [${rt}] identity probe`, bin, [
+      '-e',
+      'process.stdout.write(typeof Bun)',
+    ]);
     assert.equal(r.stdout, typeofBun, `graph CLI [${rt}] binary is not ${rt}: ${bin}`);
     return bin;
   };
@@ -142,12 +168,20 @@ for (const [rt, resolveBin, typeofBun] of RUNTIMES) {
         ['direct path', CLI],
         ['symlink', link],
       ]) {
-        const r = spawnSync(bin, [path], { encoding: 'utf8' });
+        const r = run(`graph CLI [${rt}] (${how})`, bin, [path]);
         assert.equal(r.status, 0, `graph CLI [${rt}] (${how}) exited ${r.status}: ${r.stderr}`);
         assert.match(
           r.stdout,
           /^OK: embedded JS module graph is literal/m,
           `graph CLI [${rt}] (${how}) did not print its OK line; stdout: ${JSON.stringify(r.stdout)}`,
+        );
+        // A clean run says OK and nothing else. CI shows stderr as the failure channel,
+        // so a warning or a half-printed violation list beside a 0 exit is a gate
+        // whose output contradicts its verdict.
+        assert.equal(
+          r.stderr,
+          '',
+          `graph CLI [${rt}] (${how}) wrote to stderr on a clean run: ${JSON.stringify(r.stderr)}`,
         );
       }
     } finally {
@@ -164,7 +198,7 @@ for (const [rt, resolveBin, typeofBun] of RUNTIMES) {
     const bin = exe();
     const root = tree({ 'pkg/runtime/globals.odin': ODIN.replace('"node/buffer"', '"buffer"') });
     try {
-      const r = spawnSync(bin, [CLI, root], { encoding: 'utf8' });
+      const r = run(`graph CLI [${rt}] (violating tree)`, bin, [CLI, root]);
       // OK first: a CLI that skips the check also exits 0, and this keeps the two
       // mutants (wrong exit code, result discarded) reporting distinct failures.
       assert.doesNotMatch(
