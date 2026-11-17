@@ -9,8 +9,9 @@
 //     probed; pinned by tests/node-compat/cases/72-events-parity.js "invoke:").
 //     Lava spells the same thing `apply.call(listener, thisArg, args)` on the
 //     CAPTURED apply: Function.prototype.call/apply/bind are locked before user code
-//     (#450), so neither read can be steered and the listener's own properties are
-//     never consulted. Not ReflectApply and not the FunctionPrototypeApply wrapper,
+//     (#450) and the three functions are non-extensible (#494), so neither read can
+//     be steered — not even by an own `call` on the held apply — and the listener's
+//     own properties are never consulted. Not ReflectApply and not the FunctionPrototypeApply wrapper,
 //     because both stop JSC from sinking emit()'s rest array on the no-listener
 //     path. Scratch micro, Linux arm64 JSC 2.52.6, best of 5 x 1e6 emit() calls per
 //     launch, 2-3 launches per variant: a miss took 1.6 ms with `apply.call` and
@@ -179,7 +180,7 @@
       fired = true;
       target.removeListener(type, wrapped);
       // A ratchet false positive, like the two in emit(): captured `apply`, locked `.call`.
-      return apply.call(listener, target, arguments); // primordials-ok: invoke
+      return apply.call(listener, target, arguments); // primordials-ok: invoke — receiver is the locked Function.prototype.apply
     }
     wrapped.listener = listener;
     return wrapped;
@@ -284,14 +285,15 @@
       return false;
     }
     // Both `apply.call` sites are false positives for the ratchet: `apply` is the
-    // captured Function.prototype.apply and `.call` is locked (#450).
+    // captured Function.prototype.apply, `.call` is locked (#450) and `apply` cannot
+    // take an own `call` or a new prototype (#494).
     if (typeof handler === 'function') {
-      apply.call(handler, this, args); // primordials-ok: invoke
+      apply.call(handler, this, args); // primordials-ok: invoke — receiver is the locked Function.prototype.apply
     } else {
       // A snapshot: listeners added or removed by a listener take effect next emit.
       var listeners = arrayClone(handler);
       for (var i = 0; i < listeners.length; i++) {
-        apply.call(listeners[i], this, args); // primordials-ok: invoke
+        apply.call(listeners[i], this, args); // primordials-ok: invoke — receiver is the locked Function.prototype.apply
       }
     }
     return true;

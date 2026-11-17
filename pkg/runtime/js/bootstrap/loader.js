@@ -101,8 +101,10 @@
   // before user code, so it captures pristine intrinsics (see primordials.js).
   // Other modules require('internal/primordials') and get this cached, pristine table.
   //
-  // Then lock Function.prototype.call/apply/bind (#450; the deviation is documented on
-  // lockIntrinsics). Here and nowhere else, for two reasons. It must follow the capture,
+  // Then lock Function.prototype.call/apply/bind (#450) and make them plus every method
+  // a primordials wrapper holds non-extensible (#494; the deviation is documented on
+  // lockIntrinsics). The `uncurryThis` calls below run after this line and lock their
+  // Buffer.prototype methods as they wrap them. Here and nowhere else, for two reasons. It must follow the capture,
   // which reads the three as plain values. And the loader is the one choke point every
   // user-code entry runs behind: there is exactly one JSGlobalContextCreate that hosts a
   // script (runtime.odin eval), install_globals runs this loader before the entry

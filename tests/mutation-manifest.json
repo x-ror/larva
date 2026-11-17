@@ -47,6 +47,33 @@
       "expect_detail": "got own-strict=THREW:TypeError"
     },
     {
+      "name": "function_call_lock dies when Function.prototype.apply drops out of the wrapped set",
+      "why": "An extensible captured apply takes an own call, and every apply.call(listener, this, args) in events.js then runs the attacker's function instead of the listener; node runs the listener (#494).",
+      "source": "pkg/runtime/js/internal/primordials.js",
+      "find": "  function track(fn) {\n",
+      "replace": "  function track(fn) {\n    if (fn === apply) return;\n",
+      "gate": "odin:cmd/lava:main.function_call_lock",
+      "expect_detail": "want emit-hijack=listener:1 got emit-hijack="
+    },
+    {
+      "name": "function_call_lock dies when the wrapped set stays extensible",
+      "why": "Every callerN wrapper reads fn.call off the held method, so an extensible Array.prototype.push takes an own call and URLSearchParams.append runs the attacker's function instead of push; node is unaffected (#494).",
+      "source": "pkg/runtime/js/internal/primordials.js",
+      "find": "    for (var i = 0; i < wrappedCount; i++) preventExtensions(wrappedFns[i]);\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.function_call_lock",
+      "expect_detail": "want push-hijack=0 a=1&b=2&c=3 http://a/b?c got push-hijack="
+    },
+    {
+      "name": "function_call_lock dies when a method wrapped after the lock is not locked on the spot",
+      "why": "The loader wraps Buffer.prototype.toString/indexOf/slice with uncurryThis AFTER lockIntrinsics (pristineBuffer, the http framing path); without lock-on-wrap those held methods stay steerable through an own call.",
+      "source": "pkg/runtime/js/internal/primordials.js",
+      "find": "    if (intrinsicsLocked) preventExtensions(fn);",
+      "replace": "    if (intrinsicsLocked) return;",
+      "gate": "odin:cmd/lava:main.function_call_lock",
+      "expect_detail": "want wrapped-ext=false,false,false,true got wrapped-ext=false,false,true,true"
+    },
+    {
       "name": "55-encoding-pollution U dies when toBytes reads the view window live",
       "why": "A poisoned byteOffset/byteLength pair selects a window across the shared allocUnsafe pool, so decode() returns a neighbouring Buffer's bytes.",
       "source": "pkg/runtime/js/internal/encoding.js",
@@ -1789,7 +1816,7 @@
       "name": "72-events-parity dies when emit() invokes a listener through its own apply",
       "why": "node invokes listeners with ReflectApply, so a listener's own call/apply is never consulted; handler.apply(this, args) runs the listener's own apply instead of its body.",
       "source": "pkg/runtime/js/node/events.js",
-      "find": "      apply.call(handler, this, args); // primordials-ok: invoke",
+      "find": "      apply.call(handler, this, args); // primordials-ok: invoke — receiver is the locked Function.prototype.apply",
       "replace": "      handler.apply(this, args);",
       "gate": "compat:tests/node-compat/cases/72-events-parity.js",
       "expect_detail": [
@@ -1800,7 +1827,7 @@
       "name": "72-events-parity dies when a once() wrapper invokes the listener through its own apply",
       "why": "The once() wrapper is the other listener-invocation site; node ignores the listener's own apply there too.",
       "source": "pkg/runtime/js/node/events.js",
-      "find": "      return apply.call(listener, target, arguments); // primordials-ok: invoke",
+      "find": "      return apply.call(listener, target, arguments); // primordials-ok: invoke — receiver is the locked Function.prototype.apply",
       "replace": "      return listener.apply(target, arguments);",
       "gate": "compat:tests/node-compat/cases/72-events-parity.js",
       "expect_detail": [
