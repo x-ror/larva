@@ -1,9 +1,10 @@
 // Prototype-pollution ratchet — CLI entry point.
 //
-// The detector lives in lib/primordials-detect.mjs and its fixtures in
-// lib/primordials-fixtures.mjs; this file is the baseline comparison, the
-// --update path, and the report. See the detector for what each class means
-// and why the tool parses rather than scans.
+// The detector lives in lib/primordials-detect.mjs, its fixtures in
+// lib/primordials-fixtures.mjs and the tree scan in lib/primordials-scan.mjs;
+// this file is the baseline comparison, the --update path, and the report. See
+// the detector for what each class means and why the tool parses rather than
+// scans.
 //
 // Usage:
 //   node scripts/check-primordials.mjs                  # check against baseline
@@ -11,9 +12,8 @@
 //   node scripts/check-primordials.mjs --update --allow-raise
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import { relative, sep } from 'node:path';
-import { KINDS, countFile, walkDir, JS_DIR, BASELINE, ROOT } from './lib/primordials-detect.mjs';
-import { eagerModules } from './lib/js-graph.mjs';
+import { KINDS, BASELINE, ROOT } from './lib/primordials-detect.mjs';
+import { scanTree } from './lib/primordials-scan.mjs';
 import { selfTest } from './lib/primordials-fixtures.mjs';
 import { compare, raises, totals } from './lib/primordials-baseline.mjs';
 
@@ -34,28 +34,10 @@ if (selfTestFailures.length > 0) {
   process.exit(1);
 }
 
-// Module-eval reads are exempt only where they run before user code: every
-// bootstrap/ file (Odin evaluates each at context init) and the modules the loader
-// instantiates at init, derived from the graph rather than listed (lib/js-graph.mjs).
-// A lazy module's capture runs on the user's first require — #333.
-const EAGER = new Set(eagerModules(ROOT));
-const isEager = (key) => key.startsWith('bootstrap/') || EAGER.has(key.slice(0, -'.js'.length));
-
-const files = walkDir(JS_DIR).sort();
-const counts = {};
-const allHits = {};
-for (const file of files) {
-  const key = relative(JS_DIR, file).split(sep).join('/');
-  const { hits } = countFile(file, { eager: isEager(key) });
-  // PER-CLASS counts, not one number. The classes differ by an order of
-  // magnitude, and a single total would let a file trade a fixed accessor for a
-  // new global and still pass.
-  const byKind = {};
-  for (const k of KINDS) byKind[k] = 0;
-  for (const h of hits) byKind[h.kind]++;
-  counts[key] = byKind;
-  allHits[key] = hits;
-}
+// The scan, including the eager/lazy classification, is lib/primordials-scan.mjs so
+// a test can drive it over a fixture tree. This file stays a plain script with no
+// entry-point guard: its body must run however it is invoked.
+const { files, counts, allHits } = scanTree(ROOT);
 
 const perKindLine = () => KINDS.map((k) => `${k} ${totals(counts).perKind[k]}`).join(', ');
 const grandTotal = () => totals(counts).total;
