@@ -129,6 +129,15 @@
   // re-read off Number at call time. Same reason parseInt is captured above.
   var numberIsInteger = Number.isInteger;
   var numberIsSafeInteger = Number.isSafeInteger;
+  // Promise.resolve / Promise.reject are writable statics, so capturing `Promise`
+  // does not capture them (the SymbolFor note below): `P.Promise.reject(e)` in a
+  // consumer reads whatever user code left there. Exported as PromiseResolve /
+  // PromiseReject, node's primordial names. Reflect.apply rather than a `.call`
+  // wrapper only because neither is ever per-element hot; it keeps this file's
+  // `invoke` column where it is.
+  var PromiseCtor = Promise;
+  var promiseResolve = Promise.resolve;
+  var promiseReject = Promise.reject;
 
   // brandedAs is the UNFORGEABLE replacement for `value instanceof Ctor` on a
   // hardening path. `instanceof` dispatches through `Ctor[Symbol.hasInstance]`, a
@@ -296,6 +305,12 @@
     // writable property on it, so a lazily-evaluated module reading `P.Symbol.for` at its
     // own module-eval still reads whatever user code left there.
     SymbolFor: Symbol.for,
+    PromiseResolve: function (value) {
+      return reflectApply(promiseResolve, PromiseCtor, [value]);
+    },
+    PromiseReject: function (reason) {
+      return reflectApply(promiseReject, PromiseCtor, [reason]);
+    },
     Reflect: Reflect,
     JSON: JSON,
     Math: Math,
