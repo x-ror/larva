@@ -21,19 +21,15 @@
 // THREAT MODEL / RESIDUAL. The captured method makes these wrappers immune to
 // prototype-method pollution (Array.prototype.push = …) and global replacement
 // (globalThis.Array = …) — the realistic axes. They invoke through `.call`,
-// which reads Function.prototype.call dynamically, so a script that overrides
-// `Function.prototype.call/apply` still reaches them. This file used to call that
-// axis "exotic … self-defeating as an attack"; that was wrong twice over, and the
-// `invoke` ratchet class made it measurable. Wrapping `Function.prototype.call` is
-// something instrumentation, tracing and coverage libraries do on purpose, so the
-// trigger need not be an attacker at all — and the outcome is not a uniform
-// breakage but a SPLIT: TextDecoder/TextEncoder construction, Buffer.from,
-// buf.toString, Buffer.concat and new URL throw where node succeeds, while
-// URLSearchParams.get answers `null` and util.format answers `'undefined'` where
-// node is right. A silent wrong answer from a URL parameter lookup is the sharp
-// end of that. See the measured table above caller0 below; closed completely only
-// by lockIntrinsics(), which is written, exported, called from nowhere, and
-// tracked in ROADMAP.
+// which reads Function.prototype.call dynamically. That axis is closed by
+// lockIntrinsics() below, which bootstrap/loader.js runs right after this table
+// is captured and before any user code: Function.prototype.call/apply/bind can no
+// longer be replaced, so the live `.call` read always finds the original (#450).
+// Before the lock, replacing `.call` — which tracing and coverage libraries do on
+// purpose, so the trigger need not be an attacker — made TextDecoder/TextEncoder
+// construction, Buffer.from, buf.toString, Buffer.concat and new URL throw where
+// node succeeds, and URLSearchParams.get answer `null` and util.format
+// `'undefined'` where node is right.
 // The accessor axis (a setter on a numeric-index property of Array/Object.proto)
 // is not a method concern and is handled per-hot-array with null prototypes in
 // the consuming modules.
@@ -49,12 +45,13 @@
   var ArrayProto = Array.prototype;
   var StringProto = String.prototype;
 
-  // --- the `.call` residual, and where it is NOT acceptable ---------------
+  // --- the `.call` read, and why the wrappers may keep it ---------------
   //
   // Every wrapper below invokes through `fn.call(t, …)`, which READS
-  // Function.prototype.call at call time. That property is writable, so a script
-  // that replaces it reaches every primordial — the residual this file's header
-  // has always documented, "closed only by lockIntrinsics(), applied opt-in".
+  // Function.prototype.call at call time. Until #450 that property was writable, so
+  // a script that replaced it reached every primordial. lockIntrinsics() now makes
+  // it unreplaceable before user code runs; the history below is why the wrappers
+  // were not converted to Reflect.apply instead, and why safeGetter still is.
   //
   // It is not theoretical. Poisoning ONLY Function.prototype.call — leaving the
   // byteOffset/byteLength descriptors untouched — reproduced a full Buffer-pool
@@ -88,15 +85,8 @@
   // The view accessors below are `safeGetter`: three calls per decode against a
   // ~1-4us decode, so the 33ns each is under 3% and buys immunity on the path
   // where a forged answer reads another request's bytes.
-  //
-  // What the residual actually costs today, since the `invoke` class is now
-  // counted and therefore measurable: with `Function.prototype.call` replaced,
-  // Lava diverges from Node on TextDecoder/TextEncoder construction, Buffer.from,
-  // buf.toString, Buffer.concat and new URL (they throw where Node succeeds) and
-  // — worse — answers WRONGLY on URLSearchParams.get (null) and util.format
-  // ('undefined'). lockIntrinsics() closes all of it at zero per-call cost; it is
-  // written, exported, and called from nowhere. Wiring it at bootstrap is the
-  // complete answer and is tracked in ROADMAP with this table.
+  // (safeGetter predates the lock and is kept: it is cold, so reverting it to
+  // `.call` would win nothing measurable.)
   var reflectApply = Reflect.apply;
   var NO_ARGS = Object.freeze([]);
   function safeGetter(fn) {
@@ -221,24 +211,72 @@
   // for parity with Node's export, but is now `.call`-based (not bind.bind(call)).
   var uncurryThis = callerN;
 
-  // lockIntrinsics pins Function.prototype.call/apply/bind so the wrappers'
-  // `.call` route cannot be poisoned. Opt-in: the runtime applies it only under
-  // the frozen-intrinsics flag (npm packages that legitimately reassign these
-  // are vanishingly rare but not proven absent). Idempotent; safe to call once
-  // at bootstrap, before user code. Locking keeps the methods callable — it only
-  // forbids reassignment.
+  // Captured here, at the eager module-eval the loader runs before user code, so the
+  // setter below throws a pristine TypeError and defines through a pristine
+  // defineProperty whatever user code later does to the globals.
+  var TypeErrorG = TypeError;
+  var defineProperty = Object.defineProperty;
+
+  /**
+   * Locks Function.prototype.call/apply/bind realm-wide, in the shape node's
+   * `--frozen-intrinsics` gives them: a non-configurable accessor whose getter
+   * returns the original method and whose setter refuses Function.prototype itself
+   * but fixes the "override mistake" for every other receiver. Called ONCE, by
+   * bootstrap/loader.js, right after this table is captured and before user code.
+   * @throws {TypeError} `Function.prototype.call = x`, sloppy or strict, and any
+   *   Object.defineProperty of the three on Function.prototype.
+   * @node node 26 lets a script replace all three (assignment succeeds in both
+   *   modes). Under `node --frozen-intrinsics` it behaves as here: both modes
+   *   throw, defineProperty throws, and `f.call = x` on an ordinary function `f`
+   *   defines an own writable/enumerable/configurable property (all four rows
+   *   probed on node 26.13).
+   * @deviates Default node allows the replacement; Lava throws. Traded for: the
+   *   `callerN` wrappers keep their live `fn.call` (25x cheaper than Reflect.apply
+   *   on the bare wrapper, table above) without Function.prototype.call being a
+   *   way to break or steer URL, URLSearchParams, util.format, Buffer and
+   *   TextDecoder (#450). Pinned by the Lava-only test
+   *   cmd/lava/function_call_lock_test.odin (main.function_call_lock).
+   */
   function lockIntrinsics() {
-    var def = Object.defineProperty;
-    var lock = function (obj, name, value) {
-      try {
-        def(obj, name, { value: value, writable: false, configurable: false });
-      } catch (e) {
-        /* already locked / non-configurable — leave as is */
-      }
-    };
-    lock(FunctionProto, 'call', call);
-    lock(FunctionProto, 'apply', apply);
-    lock(FunctionProto, 'bind', bind);
+    lockMethod('call', call);
+    lockMethod('apply', apply);
+    lockMethod('bind', bind);
+  }
+
+  // An accessor, not a non-writable data property, because of the override mistake:
+  // with a read-only data property on the prototype, `f.call = x` on an ordinary
+  // function silently no-ops in sloppy code and throws in strict code where node
+  // creates an own property, and `Function.prototype.call = x` in sloppy code
+  // no-ops silently instead of failing loud (both probed on node 26.13). The setter
+  // fixes both. No try/catch: the one call site runs on a fresh realm where these
+  // are configurable, so a throw here is a bootstrap defect, not one to swallow.
+  function lockMethod(name, original) {
+    defineProperty(FunctionProto, name, {
+      __proto__: null,
+      configurable: false,
+      enumerable: false,
+      get: function () {
+        return original;
+      },
+      set: function (value) {
+        if (this === FunctionProto) {
+          throw new TypeErrorG(
+            "Cannot assign to read only property '" +
+              name +
+              "' of object 'function () { [native code] }'",
+          );
+        }
+        // What a plain assignment creates on node. `__proto__: null` so an inherited
+        // Object.prototype.get/set cannot turn this into an invalid descriptor.
+        defineProperty(this, name, {
+          __proto__: null,
+          value: value,
+          writable: true,
+          enumerable: true,
+          configurable: true,
+        });
+      },
+    });
   }
 
   module.exports = {

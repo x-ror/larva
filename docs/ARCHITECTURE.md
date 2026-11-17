@@ -528,6 +528,16 @@ pollutable site, each baselined separately in
 | `accessor` | `view.buffer`   | a configurable prototype getter |
 | `global`   | `String(x)`     | a replaceable global, read live |
 
+`Function.prototype.call/apply/bind` themselves are **locked** before user code:
+the loader calls `lockIntrinsics()` right after the primordials table is captured,
+turning each into a non-configurable accessor in the shape of node's
+`--frozen-intrinsics` (assignment on `Function.prototype` throws in both modes;
+`f.call = x` on an ordinary function still defines an own property). That is a
+deliberate node deviation (#450), pinned by `cmd/lava/function_call_lock_test.odin`,
+and it is what lets the `callerN` wrappers keep a live `.call` on a captured method.
+It does not cover `.call` on a caller-supplied function, which can carry its own
+`call`, so the `invoke` class still counts every site.
+
 A `global` read at module-eval is exempt only in a module instantiated before user
 code — the loader's `req()` roots closed over top-level requires, computed by
 `scripts/lib/js-graph.mjs` (the parser `check-js-graph.mjs` also uses). In a lazy

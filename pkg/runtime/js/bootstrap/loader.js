@@ -100,7 +100,16 @@
   // primordials is eager-loaded FIRST, before any other internal module and well
   // before user code, so it captures pristine intrinsics (see primordials.js).
   // Other modules require('internal/primordials') and get this cached, pristine table.
-  req('internal/primordials');
+  //
+  // Then lock Function.prototype.call/apply/bind (#450; the deviation is documented on
+  // lockIntrinsics). Here and nowhere else, for two reasons. It must follow the capture,
+  // which reads the three as plain values. And the loader is the one choke point every
+  // user-code entry runs behind: there is exactly one JSGlobalContextCreate that hosts a
+  // script (runtime.odin eval), install_globals runs this loader before the entry
+  // script, `.mjs` sources only reach the same context through esm.js's transform, and
+  // multi-worker mode is N such evals. Only runtime code runs before this line (the
+  // console prelude, install_process), so locking here leaves no window.
+  req('internal/primordials').lockIntrinsics();
   req('buffer');
 
   // Hand the LAZY internal modules a PRISTINE Buffer.

@@ -1,6 +1,6 @@
 // The scheduler must keep working after userland mutates common intrinsics.
 // process.nextTick/queueMicrotask are runtime primitives; they should not depend
-// on the live Array/Promise/Function prototype methods once installed.
+// on the live Array/Promise prototype methods once installed.
 (function () {
   let hits = 0;
 
@@ -19,12 +19,10 @@
   Promise.prototype.then = function () {
     throw new Error('then poisoned');
   };
-  Function.prototype.call = function () {
-    throw new Error('call poisoned');
-  };
-  Function.prototype.apply = function () {
-    throw new Error('apply poisoned');
-  };
+  // Function.prototype.call/apply used to be poisoned here too. Lava locks them
+  // before user code since #450 (node does not), so that assignment throws on Lava
+  // only; the scheduler-after-attempted-replacement check moved to the Lava-only
+  // cmd/lava/function_call_lock_test.odin.
 
   process.nextTick(
     (a, b) => {

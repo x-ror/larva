@@ -221,6 +221,17 @@ Rules that keep this from becoming ceremony:
   getter such as `TypedArrayPrototypeGetBuffer`), and `global` (a replaceable
   global read live instead of captured at module-eval, which the loader runs
   before user code).
+  **`Function.prototype.call/apply/bind` are locked** realm-wide before user code
+  (`lockIntrinsics`, run by `bootstrap/loader.js`; #450): non-configurable
+  accessors, so `Function.prototype.call = x` throws in both modes while
+  `f.call = x` on an ordinary function still defines an own property, as in node.
+  That is a §1 deviation, pinned by `cmd/lava/function_call_lock_test.odin`. What
+  it buys: `fn.call(t, a)` on a function WE captured can no longer be steered, so
+  the `callerN` wrappers keep their live `.call` at no security cost. What it does
+  not: a CALLER-SUPPLIED function can still carry an own `call` or a re-pointed
+  prototype, and `cb.call(t, x)` then runs the caller's `call` where node invokes
+  `cb` directly — still `ReflectApply` there. The `invoke` class keeps counting
+  both until the ratchet can tell them apart.
   **Module-eval capture is pristine only in a module the loader instantiates BEFORE user
   code** — the eager list in `bootstrap/loader.js`, plus `stream`/`stdio` via `installStdio`. A LAZY
   module's factory runs on the user's first `require()`, so a capture there is a live read
@@ -270,8 +281,9 @@ Rules that keep this from becoming ceremony:
   0 while `units.buffer` went through the live `%TypedArray%.prototype.buffer`
   getter, which is why the accessor class exists. And a high number is not
   automatically work: `primordials.js` reads 9 in `invoke` **by construction**,
-  because every `callerN` wrapper is a `fn.call` — its `global` column is 1,
-  since the module-eval rule already exempts the capture table.
+  because every `callerN` wrapper is a `fn.call` on a captured method, which the
+  lock above makes safe — its `global` column is 0, since the module-eval rule
+  already exempts the capture table.
 - Pick the primordial by **arity**. `callerN` (`ArrayPrototypePush`) carries an
   `arguments` switch and belongs at cold call sites; per-element loops use the
   fixed-arity wrappers (`ArrayPrototypePush1`/`Push2`) or plain indexed writes

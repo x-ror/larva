@@ -22,7 +22,6 @@ ENCODING_POLLUTION_SCRIPT :: `
 const realToLowerCase = String.prototype.toLowerCase;
 const realTrim = String.prototype.trim;
 const realFromCharCode = String.fromCharCode;
-const realApply = Function.prototype.apply;
 const realPush = Array.prototype.push;
 const realBufferFrom = Buffer.from;
 const realBufferToString = Buffer.prototype.toString;
@@ -45,7 +44,8 @@ function record(name, fn) {
 String.prototype.toLowerCase = function () { return 'utf-8'; };
 String.prototype.trim = function () { return 'utf-8'; };
 String.fromCharCode = function () { return 'PWNED'; };
-Function.prototype.apply = function () { return 'PWNED'; };
+// Function.prototype.apply is no longer poisoned here: since #450 it is locked
+// before user code, so the assignment throws (pinned by function_call_lock_test).
 Array.prototype.push = function () { return 0; };
 Buffer.from = function () { return new Uint8Array([0x50]); };
 Buffer.prototype.toString = function () { return 'PWNED'; };
@@ -85,7 +85,6 @@ record('encode', function () {
 String.prototype.toLowerCase = realToLowerCase;
 String.prototype.trim = realTrim;
 String.fromCharCode = realFromCharCode;
-Function.prototype.apply = realApply;
 Array.prototype.push = realPush;
 Buffer.from = realBufferFrom;
 Buffer.prototype.toString = realBufferToString;
