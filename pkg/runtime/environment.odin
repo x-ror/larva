@@ -17,20 +17,40 @@ Module_Context :: struct {
 }
 
 // Головна функція, яка налаштовує середовище під Node.js (Тепер приймає loop)
-setup_module_environment :: proc(ctx: jsc.JSContextRef, file_path: string, loop: ^eventloop.Loop) {
+//
+// `surface` (see Global_Surface, runtime.odin) decides what the entry script can
+// name. Under `.Web` the CommonJS entry bindings — `__filename`, `__dirname`,
+// `require`, `__lava_precache`, `module`, `exports` — are never injected, and the
+// Node globals the bootstrap still needed are removed once install_globals is done.
+// `.Node` takes exactly the path it took before the parameter existed.
+setup_module_environment :: proc(
+	ctx: jsc.JSContextRef,
+	file_path: string,
+	loop: ^eventloop.Loop,
+	surface: Global_Surface = .Node,
+) {
 	global_obj := jsc.JSContextGetGlobalObject(ctx)
 
-	// 1. Розраховуємо __filename та __dirname
-	abs_path, _ := filepath.abs(file_path, context.temp_allocator)
-	dir_path := filepath.dir(abs_path)
+	if surface == .Node {
+		// 1. Розраховуємо __filename та __dirname
+		abs_path, _ := filepath.abs(file_path, context.temp_allocator)
+		dir_path := filepath.dir(abs_path)
 
-	// 2. Інжектуємо __filename та __dirname як глобальні змінні
-	inject_global_string(ctx, global_obj, "__filename", abs_path)
-	inject_global_string(ctx, global_obj, "__dirname", dir_path)
+		// 2. Інжектуємо __filename та __dirname як глобальні змінні
+		inject_global_string(ctx, global_obj, "__filename", abs_path)
+		inject_global_string(ctx, global_obj, "__dirname", dir_path)
+	}
 
 	// 2.5. Встановлюємо глобальні об'єкти Node (console, process, таймери).
 	// Вказівник на Event Loop живе у приватних даних global object, а не у JS.
-	install_globals(ctx, loop)
+	install_globals(ctx, loop, surface)
+
+	if surface == .Web {
+		// The LAST step before user code: nothing below this point runs on `.Web`,
+		// and eval evaluates the entry next.
+		remove_node_globals(ctx, global_obj)
+		return
+	}
 
 	// 3. Інжектуємо функцію require
 	req_name := jsc.JSStringCreateWithUTF8CString("require")
@@ -103,6 +123,31 @@ setup_module_environment :: proc(ctx: jsc.JSContextRef, file_path: string, loop:
 		{},
 		nil,
 	)
+}
+
+// WEB_REMOVED_GLOBALS are the Node globals install_globals puts on every context and
+// `.Web` takes back off. Each one is needed while the bootstrap runs, which is why
+// they are removed rather than never installed: the loader hands `process` to
+// node:process, microtasks.js installs `process.nextTick` on it, and the eager
+// modules capture at module-eval (blob.js fixes its EOL from process.platform,
+// buffer.js publishes `Buffer`). The scheduler and the native drain never read them
+// back off the global (Runtime_State.dispatch_fn / next_tick_drain), so removing
+// them leaves timers and microtasks working.
+@(private = "file")
+WEB_REMOVED_GLOBALS :: [?]cstring{"process", "Buffer", "setImmediate", "clearImmediate", "global"}
+
+// remove_node_globals deletes WEB_REMOVED_GLOBALS from the global object. All of
+// them are plain configurable properties (set_named / inject_native_function pass no
+// attributes; buffer.js assigns), so the delete cannot be refused. Deleting from the
+// global object can move it to JSC's dictionary mode — a cost `.Web` alone pays,
+// once per context; `.Node` never calls this.
+@(private = "file")
+remove_node_globals :: proc(ctx: jsc.JSContextRef, global_obj: jsc.JSObjectRef) {
+	for name in WEB_REMOVED_GLOBALS {
+		js_name := jsc.JSStringCreateWithUTF8CString(name)
+		jsc.JSObjectDeleteProperty(ctx, global_obj, js_name, nil)
+		jsc.JSStringRelease(js_name)
+	}
 }
 
 inject_global_string :: proc(

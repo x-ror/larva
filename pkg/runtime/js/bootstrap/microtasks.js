@@ -63,7 +63,6 @@
   var promiseThen = uncurryThis(Promise.prototype.then);
   var arraySlice = uncurryThis(Array.prototype.slice);
   var functionApply = Reflect.apply;
-  var objectDefineProperty = Object.defineProperty;
   var EMPTY = [];
   var resolved = promiseResolve(PromiseCtor);
 
@@ -147,29 +146,10 @@
   process.nextTick = nextTick;
   globalObject.queueMicrotask = queueMicrotask;
 
-  // Internal, non-enumerable global so the native top-level drain shim (a trailing
-  // statement appended to the entry source) can reach checkpoint 1 before
-  // JSEvaluateScript returns. Native also receives drainNextTicks directly via the
-  // factory return below; this hook exists only for the JS-source-level drain.
-  objectDefineProperty(globalObject, '__lavaDrainNextTicks', {
-    value: drainNextTicks,
-    writable: false,
-    enumerable: false,
-    configurable: false,
-  });
-
-  // Pre-create the binding the top-level drain assigns to, as a non-enumerable
-  // property. The appended `var __lava_tl_drain = ...` (a VariableStatement, kept
-  // for its empty completion value — see runtime.odin) would otherwise create an
-  // *enumerable*, non-configurable global; redeclaring an existing own property
-  // instead writes through without changing this descriptor, so the internal name
-  // stays out of `Object.keys(globalThis)` / `for...in`.
-  objectDefineProperty(globalObject, '__lava_tl_drain', {
-    value: undefined,
-    writable: true,
-    enumerable: false,
-    configurable: false,
-  });
-
+  // The global hooks the native top-level drain shim (a trailing statement appended
+  // to the entry source) reaches checkpoint 1 through — `__lavaDrainNextTicks` and
+  // the `__lava_tl_drain` binding — are defined by install_microtasks from the
+  // drainNextTicks returned here, and only on the `.Node` surface: they are
+  // non-configurable, so a `.Web` context could not delete them once defined.
   return { drainNextTicks: drainNextTicks, dispatch: dispatch };
 });
