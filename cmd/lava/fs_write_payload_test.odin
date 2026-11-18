@@ -47,7 +47,11 @@ fs_write_payload_rejects_a_window_resized_by_its_own_getter :: proc(t: ^testing.
 	jsc.lava_jsc_init()
 	gctx := jsc.JSGlobalContextCreate(nil)
 	testing.expect(t, gctx != nil, "could not create a JSC global context")
-	if gctx == nil do return
+
+	if gctx == nil {
+		return
+	}
+
 	defer jsc.JSGlobalContextRelease(gctx)
 	ctx := cast(jsc.JSContextRef)gctx
 
@@ -57,7 +61,10 @@ fs_write_payload_rejects_a_window_resized_by_its_own_getter :: proc(t: ^testing.
 		ctx,
 		payload_eval(ctx, "new ArrayBuffer(8, { maxByteLength: 8 }).resizable === true"),
 	)
-	if !resizable do return
+
+	if !resizable {
+		return
+	}
 
 	// A genuine DataView over a 4096-byte resizable buffer, carrying an own byteOffset
 	// getter that shrinks the backing to 8 bytes and an own byteLength that keeps

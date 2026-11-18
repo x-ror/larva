@@ -47,22 +47,35 @@ other_cb :: proc "c" (
 
 eval_text :: proc(ctx: jsc.JSContextRef, source: string) -> (string, bool) {
 	c_src, err := strings.clone_to_cstring(source, context.temp_allocator)
-	if err != nil do return "", false
+
+	if err != nil {
+		return "", false
+	}
+
 	js_src := jsc.JSStringCreateWithUTF8CString(c_src)
 	defer jsc.JSStringRelease(js_src)
 
 	exception: jsc.JSValueRef
 	value := jsc.JSEvaluateScript(ctx, js_src, nil, nil, 1, &exception)
-	if exception != nil || value == nil do return "", false
+
+	if exception != nil || value == nil {
+		return "", false
+	}
+
 	// jsc_value_to_string_or_default hands back an OWNED context.allocator buffer.
 	// The test runner installs a per-test tracking allocator and reports whatever is
 	// still live when the test ends, so a helper that keeps it would print a leak on
 	// every assertion here and bury a real one in the code under test.
 	owned, got := lava.jsc_value_to_string_or_default(ctx, value)
-	if !got do return "", true // empty string: nothing was allocated
+
+	if !got {return "", true} 	// empty string: nothing was allocated
 	defer delete(owned)
 	copied, clone_err := strings.clone(owned, context.temp_allocator)
-	if clone_err != nil do return "", false
+
+	if clone_err != nil {
+		return "", false
+	}
+
 	return copied, true
 }
 
@@ -77,10 +90,12 @@ Context :: struct {
 make_context :: proc() -> (Context, bool) {
 	class := lava.make_global_class()
 	gctx := jsc.JSGlobalContextCreate(class)
+
 	if gctx == nil {
 		jsc.JSClassRelease(class)
 		return {}, false
 	}
+
 	return Context{class = class, gctx = gctx, ctx = cast(jsc.JSContextRef)gctx}, true
 }
 
@@ -93,7 +108,10 @@ destroy_context :: proc(c: Context) {
 // this file asserts on it rather than skipping quietly: a silently vacuous
 // regression test is the failure mode this whole area keeps hitting.
 host_path_active :: proc(t: ^testing.T, ctx: jsc.JSContextRef) -> bool {
-	if jsc.host_calls_active(ctx) do return true
+	if jsc.host_calls_active(ctx) {
+		return true
+	}
+
 	testing.expect(t, false, "private-ABI host-call path inactive — this test cannot observe what it pins")
 	return false
 }
@@ -106,15 +124,25 @@ host_path_active :: proc(t: ^testing.T, ctx: jsc.JSContextRef) -> bool {
 host_native_sweep_is_scoped_to_its_context :: proc(t: ^testing.T) {
 	a, a_ok := make_context()
 	testing.expect(t, a_ok, "could not create the first JSC global context")
-	if !a_ok do return
+
+	if !a_ok {
+		return
+	}
+
 	defer destroy_context(a)
 
 	b, b_ok := make_context()
 	testing.expect(t, b_ok, "could not create the second JSC global context")
-	if !b_ok do return
+
+	if !b_ok {
+		return
+	}
+
 	defer destroy_context(b)
 
-	if !host_path_active(t, a.ctx) do return
+	if !host_path_active(t, a.ctx) {
+		return
+	}
 
 	state_a := lava.new_runtime_state(nil)
 	jsc.JSObjectSetPrivate(jsc.JSContextGetGlobalObject(a.ctx), cast(rawptr)state_a)
@@ -149,10 +177,16 @@ host_native_sweep_is_scoped_to_its_context :: proc(t: ^testing.T) {
 host_native_create_dedupes_per_callback_and_name :: proc(t: ^testing.T) {
 	c, ok := make_context()
 	testing.expect(t, ok, "could not create a JSC global context")
-	if !ok do return
+
+	if !ok {
+		return
+	}
+
 	defer destroy_context(c)
 
-	if !host_path_active(t, c.ctx) do return
+	if !host_path_active(t, c.ctx) {
+		return
+	}
 
 	state := lava.new_runtime_state(nil)
 	jsc.JSObjectSetPrivate(jsc.JSContextGetGlobalObject(c.ctx), cast(rawptr)state)
@@ -160,7 +194,10 @@ host_native_create_dedupes_per_callback_and_name :: proc(t: ^testing.T) {
 
 	first := lava.host_native_create(c.ctx, "probe", answer_cb)
 	testing.expect(t, first != nil, "host_native_create returned nil on the host path")
-	if first == nil do return
+
+	if first == nil {
+		return
+	}
 
 	same := lava.host_native_create(c.ctx, "probe", answer_cb)
 	testing.expect(t, same == first, "same (callback, name) minted a second function object")
@@ -186,10 +223,16 @@ host_native_create_dedupes_per_callback_and_name :: proc(t: ^testing.T) {
 host_native_construct_returns_call_result :: proc(t: ^testing.T) {
 	c, ok := make_context()
 	testing.expect(t, ok, "could not create a JSC global context")
-	if !ok do return
+
+	if !ok {
+		return
+	}
+
 	defer destroy_context(c)
 
-	if !host_path_active(t, c.ctx) do return
+	if !host_path_active(t, c.ctx) {
+		return
+	}
 
 	state := lava.new_runtime_state(nil)
 	jsc.JSObjectSetPrivate(jsc.JSContextGetGlobalObject(c.ctx), cast(rawptr)state)
@@ -208,10 +251,16 @@ host_native_construct_returns_call_result :: proc(t: ^testing.T) {
 host_native_create_declines_without_state :: proc(t: ^testing.T) {
 	c, ok := make_context()
 	testing.expect(t, ok, "could not create a JSC global context")
-	if !ok do return
+
+	if !ok {
+		return
+	}
+
 	defer destroy_context(c)
 
-	if !host_path_active(t, c.ctx) do return
+	if !host_path_active(t, c.ctx) {
+		return
+	}
 
 	// Deliberately no JSObjectSetPrivate: this is the bare embedder context.
 	fn := lava.host_native_create(c.ctx, "probe", answer_cb)
@@ -276,10 +325,16 @@ failing_allocator :: proc() -> mem.Allocator {
 host_native_create_survives_allocation_failure :: proc(t: ^testing.T) {
 	c, ok := make_context()
 	testing.expect(t, ok, "could not create a JSC global context")
-	if !ok do return
+
+	if !ok {
+		return
+	}
+
 	defer destroy_context(c)
 
-	if !host_path_active(t, c.ctx) do return
+	if !host_path_active(t, c.ctx) {
+		return
+	}
 
 	// Built normally, so its maps and its own allocation come from the real
 	// allocator; only the name-clone allocator is faulted. Overwriting the field
@@ -316,7 +371,11 @@ host_native_create_survives_allocation_failure :: proc(t: ^testing.T) {
 host_throw_reports_whether_it_raised :: proc(t: ^testing.T) {
 	c, ok := make_context()
 	testing.expect(t, ok, "could not create a JSC global context")
-	if !ok do return
+
+	if !ok {
+		return
+	}
+
 	defer destroy_context(c)
 
 	testing.expect(

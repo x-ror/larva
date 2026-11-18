@@ -34,10 +34,12 @@ fetch_tls_cleanup :: proc(req: ^Fetch_Request) {
 // setup failure it settles the request with an error.
 fetch_tls_start_handshake :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 	ssl := tls_new_client(req.fd, req.host)
+
 	if ssl == nil {
 		fetch_settle_error(req, "fetch: TLS setup failed")
 		return
 	}
+
 	req.tls = rawptr(ssl)
 	req.phase = .TLS_Handshake
 	fetch_tls_handshake(loop, req) // try the handshake immediately
@@ -79,11 +81,13 @@ fetch_tls_classify :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request, ret: c.in
 // An EOF mid-handshake is fatal — there is no response to complete yet.
 fetch_tls_handshake :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 	ret := SSL_connect(cast(SSL)req.tls)
+
 	if ret == 1 {
 		req.phase = .Writing
 		fetch_write(loop, req)
 		return
 	}
+
 	if fetch_tls_classify(loop, req, ret) != .Pending {
 		fetch_settle_error(req, "fetch: TLS handshake failed")
 	}
@@ -95,14 +99,17 @@ fetch_tls_write :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 	for req.write_offset < len(req.request_bytes) {
 		chunk := req.request_bytes[req.write_offset:]
 		n := SSL_write(cast(SSL)req.tls, raw_data(chunk), c.int(len(chunk)))
+
 		if n <= 0 {
 			// An EOF while still sending the request is a failure, not completion,
 			// so .Eof falls in with .Fatal here.
 			if fetch_tls_classify(loop, req, n) != .Pending {
 				fetch_settle_error(req, "fetch: TLS write failed")
 			}
+
 			return
 		}
+
 		req.write_offset += int(n)
 	}
 	fetch_after_write_head(loop, req)
@@ -118,7 +125,11 @@ fetch_tls_write :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 // peer's renegotiation bytes can only be read.
 fetch_tls_send_chunk :: proc(req: ^Fetch_Request, chunk: []byte) -> (n: int, res: Fetch_IO_Result, want_read: bool) {
 	ret := SSL_write(cast(SSL)req.tls, raw_data(chunk), c.int(len(chunk)))
-	if ret > 0 do return int(ret), .Ok, false
+
+	if ret > 0 {
+		return int(ret), .Ok, false
+	}
+
 	switch SSL_get_error(cast(SSL)req.tls, ret) {
 	case SSL_ERROR_WANT_READ:
 		return 0, .Would_Block, true
@@ -141,6 +152,7 @@ fetch_tls_read :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 	buf: [16384]byte
 	for {
 		n := SSL_read(cast(SSL)req.tls, raw_data(buf[:]), c.int(len(buf)))
+
 		if n <= 0 {
 			switch fetch_tls_classify(loop, req, n) {
 			case .Pending:
@@ -151,6 +163,9 @@ fetch_tls_read :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 			}
 			return
 		}
-		if !fetch_on_recv(loop, req, buf[:int(n)]) do return
+
+		if !fetch_on_recv(loop, req, buf[:int(n)]) {
+			return
+		}
 	}
 }

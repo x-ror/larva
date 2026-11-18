@@ -28,7 +28,10 @@ net_shutdown_active :: proc(state: ^Runtime_State) {}
 // The registries are make()d unconditionally in new_runtime_state (shared across platforms); free
 // their (empty here) backings so the non-Linux build doesn't leak the map headers at teardown.
 net_destroy_state :: proc(state: ^Runtime_State) {
-	if state == nil do return
+	if state == nil {
+		return
+	}
+
 	delete(state.net_servers)
 	delete(state.net_conns)
 	delete(state.tls_server_ctxs)

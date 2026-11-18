@@ -33,10 +33,12 @@ fetch_tls_cleanup :: proc(req: ^Fetch_Request) {
 // it settles the request with an error.
 fetch_tls_start_handshake :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 	sess := darwin_tls_new_client(req.fd, req.host)
+
 	if sess == nil {
 		fetch_settle_error(req, "fetch: TLS setup failed")
 		return
 	}
+
 	req.tls = rawptr(sess)
 	req.phase = .TLS_Handshake
 	fetch_tls_handshake(loop, req) // try the handshake immediately
@@ -80,11 +82,13 @@ fetch_tls_handshake :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 	sess := cast(^Darwin_TLS_Session)req.tls
 	for {
 		status := SSLHandshake(sess.ctx)
+
 		if status == errSecSuccess {
 			req.phase = .Writing
 			fetch_write(loop, req)
 			return
 		}
+
 		if status == errSSLPeerAuthCompleted {
 			// The server cert is in hand; verify it (fail closed), then re-drive the
 			// handshake to completion.
@@ -92,11 +96,14 @@ fetch_tls_handshake :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 				fetch_settle_error(req, "fetch: TLS certificate verification failed")
 				return
 			}
+
 			continue
 		}
+
 		if fetch_tls_classify(loop, req, status) != .Pending {
 			fetch_settle_error(req, "fetch: TLS handshake failed")
 		}
+
 		return
 	}
 }
@@ -123,18 +130,22 @@ fetch_tls_handshake :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 @(private = "file")
 darwin_tls_write_chunk :: proc(sess: ^Darwin_TLS_Session, buf: []byte) -> (consumed: int, status: OSStatus) {
 	skip := sess.write_skip
-	if skip > len(buf) do skip = len(buf) // defensive — buffer is stable across retries
+
+	if skip > len(buf) {skip = len(buf)} 	// defensive — buffer is stable across retries
 	tail := buf[skip:]
 	processed: c.size_t
 	st := SSLWrite(sess.ctx, raw_data(tail), c.size_t(len(tail)), &processed)
+
 	if st == errSecSuccess {
 		sess.write_skip = 0
 		return len(buf), errSecSuccess
 	}
+
 	if st == errSSLWouldBlock {
 		sess.write_skip = skip + int(processed)
 		return 0, errSSLWouldBlock
 	}
+
 	return 0, st
 }
 
@@ -146,13 +157,16 @@ fetch_tls_write :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 	for req.write_offset < len(req.request_bytes) {
 		chunk := req.request_bytes[req.write_offset:]
 		n, status := darwin_tls_write_chunk(sess, chunk)
+
 		if status != errSecSuccess {
 			// An EOF/close while still sending the request is a failure, not completion.
 			if fetch_tls_classify(loop, req, status) != .Pending {
 				fetch_settle_error(req, "fetch: TLS write failed")
 			}
+
 			return
 		}
+
 		req.write_offset += n
 	}
 	fetch_after_write_head(loop, req)
@@ -193,9 +207,13 @@ fetch_tls_read :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 	for {
 		processed: c.size_t
 		status := SSLRead(sess.ctx, raw_data(buf[:]), c.size_t(len(buf)), &processed)
+
 		if processed > 0 {
-			if !fetch_on_recv(loop, req, buf[:int(processed)]) do return
+			if !fetch_on_recv(loop, req, buf[:int(processed)]) {
+				return
+			}
 		}
+
 		if status == errSecSuccess {
 			if processed == 0 {
 				// Defensive: success with no data should not happen for a non-empty
@@ -203,10 +221,13 @@ fetch_tls_read :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 				if !fetch_set_watch_mode(loop, req, .Read) {
 					fetch_settle_error(req, "fetch: event loop watch failed")
 				}
+
 				return
 			}
+
 			continue // drain any further buffered records
 		}
+
 		switch fetch_tls_classify(loop, req, status) {
 		case .Pending:
 		case .Eof:

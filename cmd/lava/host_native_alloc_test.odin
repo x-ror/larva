@@ -86,7 +86,9 @@ host_native_tables_are_not_charged_to_the_eval_allocator :: proc(t: ^testing.T) 
 
 	stray := 0
 	for _, entry in track.allocation_map {
-		if strings.contains(entry.location.file_path, "host_natives.odin") do stray += 1
+		if strings.contains(entry.location.file_path, "host_natives.odin") {
+			stray += 1
+		}
 	}
 	testing.expectf(
 		t,

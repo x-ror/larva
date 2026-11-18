@@ -55,7 +55,11 @@ buffer_natives_detach_during_coercion :: proc(t: ^testing.T) {
 	jsc.lava_jsc_init()
 	gctx := jsc.JSGlobalContextCreate(nil)
 	testing.expect(t, gctx != nil, "could not create a JSC global context")
-	if gctx == nil do return
+
+	if gctx == nil {
+		return
+	}
+
 	defer jsc.JSGlobalContextRelease(gctx)
 	ctx := cast(jsc.JSContextRef)gctx
 
@@ -65,6 +69,7 @@ buffer_natives_detach_during_coercion :: proc(t: ^testing.T) {
 		ctx,
 		reentrancy_eval(ctx, "typeof ArrayBuffer.prototype.transfer === 'function'"),
 	)
+
 	if !has_transfer {
 		// Older JSC without the detach primitive: nothing to exercise.
 		return

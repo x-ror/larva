@@ -57,6 +57,7 @@ record_and_schedule_immediate :: proc(loop: ^Loop, user_data: rawptr) {
 record_interval_and_clear_after_two_ticks :: proc(loop: ^Loop, user_data: rawptr) {
 	rec := cast(^Recorder)user_data
 	append(&rec.events, 1)
+
 	if len(rec.events) == 2 {
 		clear_interval(loop, rec.interval_id)
 	}
@@ -626,7 +627,10 @@ pool_test_work :: proc(user_data: rawptr) {
 // pool_test_done runs ON the loop thread and records the off-loop result.
 pool_test_done :: proc(loop: ^Loop, user_data: rawptr) {
 	job := cast(^Pool_Test_Job)user_data
-	if job.rec != nil do append(&job.rec.events, job.computed)
+
+	if job.rec != nil {
+		append(&job.rec.events, job.computed)
+	}
 }
 
 @(test)
@@ -705,23 +709,31 @@ threadpool_ring_preserves_fifo_across_grow_and_wrap :: proc(t: ^testing.T) {
 	// region is wrapped (the unwrap-copy path). Every job must dequeue exactly once in
 	// submit order. (pool_ring_* are pointer-only; no Loop/threads needed.)
 	pool := Thread_Pool{}
-	defer if pool.pending != nil do delete(pool.pending)
+	defer if pool.pending != nil {
+		delete(pool.pending)
+	}
 
 	jobs: [20]Pool_Job
 	expect := 0
 	pushed := 0
 
 	// Grow 0 -> 8 and fill.
-	for ; pushed < 8; pushed += 1 do pool_ring_push(&pool, &jobs[pushed], context.allocator)
+	for ; pushed < 8; pushed += 1 {
+		pool_ring_push(&pool, &jobs[pushed], context.allocator)
+	}
 	// Drain 6: head advances to 6, two live entries remain.
 	for _ in 0 ..< 6 {
 		testing.expect(t, pool_ring_pop(&pool) == &jobs[expect], "fifo before wrap")
 		expect += 1
 	}
 	// Refill to capacity: the live region now wraps past the end of the 8-slot backing.
-	for ; pushed < 14; pushed += 1 do pool_ring_push(&pool, &jobs[pushed], context.allocator)
+	for ; pushed < 14; pushed += 1 {
+		pool_ring_push(&pool, &jobs[pushed], context.allocator)
+	}
 	// Push past capacity: growth happens while the live region is wrapped (8 -> 16).
-	for ; pushed < 20; pushed += 1 do pool_ring_push(&pool, &jobs[pushed], context.allocator)
+	for ; pushed < 20; pushed += 1 {
+		pool_ring_push(&pool, &jobs[pushed], context.allocator)
+	}
 	// Drain everything: exactly once, still in submit order.
 	for pool.pending_count > 0 {
 		testing.expect(t, pool_ring_pop(&pool) == &jobs[expect], "fifo after wrap+grow")
@@ -907,18 +919,33 @@ io_probe_cb :: proc(loop: ^Loop, user_data: rawptr) {
 watch_fd_fires_on_readable_socket :: proc(t: ^testing.T) {
 	// A connected loopback TCP pair: write on the client, watch the server end.
 	listener, lerr := net.listen_tcp(net.Endpoint{address = net.IP4_Loopback, port = 0})
-	if !testing.expect_value(t, lerr, nil) do return
+
+	if !testing.expect_value(t, lerr, nil) {
+		return
+	}
+
 	defer net.close(listener)
 
 	bound, berr := net.bound_endpoint(listener)
-	if !testing.expect_value(t, berr, nil) do return
+
+	if !testing.expect_value(t, berr, nil) {
+		return
+	}
 
 	client, cerr := net.dial_tcp_from_endpoint(net.Endpoint{address = net.IP4_Loopback, port = bound.port})
-	if !testing.expect_value(t, cerr, nil) do return
+
+	if !testing.expect_value(t, cerr, nil) {
+		return
+	}
+
 	defer net.close(client)
 
 	server, _, aerr := net.accept_tcp(listener)
-	if !testing.expect_value(t, aerr, nil) do return
+
+	if !testing.expect_value(t, aerr, nil) {
+		return
+	}
+
 	defer net.close(server)
 
 	loop := init(real_time = true)
@@ -938,12 +965,16 @@ watch_fd_fires_on_readable_socket :: proc(t: ^testing.T) {
 	if !testing.expect(t, watch_fd(&loop, &watcher), "watch_fd should accept the socket") {
 		return
 	}
+
 	testing.expect_value(t, loop.active_io_count, 1)
 
 	// Make the server end readable, then drive the loop. The callback fires and
 	// unwatches, dropping active_io_count to 0 so run_until_idle returns.
 	_, serr := net.send_tcp(client, {42})
-	if !testing.expect_value(t, serr, nil) do return
+
+	if !testing.expect_value(t, serr, nil) {
+		return
+	}
 
 	run_until_idle(&loop)
 
@@ -957,16 +988,27 @@ watch_fd_fires_on_readable_socket :: proc(t: ^testing.T) {
 // caller closes client and server. ok=false (sockets zeroed) on any setup failure.
 connect_loopback_pair :: proc(t: ^testing.T) -> (client, server: net.TCP_Socket, ok: bool) {
 	listener, lerr := net.listen_tcp(net.Endpoint{address = net.IP4_Loopback, port = 0})
-	if !testing.expect_value(t, lerr, nil) do return
+
+	if !testing.expect_value(t, lerr, nil) {
+		return
+	}
+
 	defer net.close(listener)
 
 	bound, berr := net.bound_endpoint(listener)
-	if !testing.expect_value(t, berr, nil) do return
+
+	if !testing.expect_value(t, berr, nil) {
+		return
+	}
 
 	dialed, cerr := net.dial_tcp_from_endpoint(net.Endpoint{address = net.IP4_Loopback, port = bound.port})
-	if !testing.expect_value(t, cerr, nil) do return
+
+	if !testing.expect_value(t, cerr, nil) {
+		return
+	}
 
 	accepted, _, aerr := net.accept_tcp(listener)
+
 	if !testing.expect_value(t, aerr, nil) {
 		net.close(dialed)
 		return
@@ -988,7 +1030,11 @@ noop_io_cb :: proc(loop: ^Loop, user_data: rawptr) {}
 @(test)
 io_count_accounting_is_idempotent :: proc(t: ^testing.T) {
 	client, server, ok := connect_loopback_pair(t)
-	if !ok do return
+
+	if !ok {
+		return
+	}
+
 	defer net.close(client)
 	defer net.close(server)
 
@@ -1026,6 +1072,7 @@ Immediate_Starvation :: struct {
 starvation_immediate_cb :: proc(loop: ^Loop, user_data: rawptr) {
 	st := cast(^Immediate_Starvation)user_data
 	st.chain_len += 1
+
 	// Keep an immediate perpetually pending until the I/O watcher fires. If a
 	// did_work tick skips the poll phase entirely (the pre-fix behavior), the
 	// watcher never fires and this chain never ends.
@@ -1048,7 +1095,11 @@ starvation_io_cb :: proc(loop: ^Loop, user_data: rawptr) {
 @(test)
 immediate_chain_does_not_starve_io :: proc(t: ^testing.T) {
 	client, server, ok := connect_loopback_pair(t)
-	if !ok do return
+
+	if !ok {
+		return
+	}
+
 	defer net.close(client)
 	defer net.close(server)
 
@@ -1066,12 +1117,18 @@ immediate_chain_does_not_starve_io :: proc(t: ^testing.T) {
 	}
 	st.watcher = &w
 
-	if !testing.expect(t, watch_fd(&loop, &w)) do return
+	if !testing.expect(t, watch_fd(&loop, &w)) {
+		return
+	}
 
 	// Make the server end readable, then give the loopback byte time to land so the
 	// very first non-blocking poll observes it.
 	_, serr := net.send_tcp(client, {7})
-	if !testing.expect_value(t, serr, nil) do return
+
+	if !testing.expect_value(t, serr, nil) {
+		return
+	}
+
 	time.sleep(20 * time.Millisecond)
 
 	set_immediate(&loop, starvation_immediate_cb, &st)
@@ -1159,7 +1216,11 @@ stop_watch_cb :: proc(loop: ^Loop, user_data: rawptr) {
 @(test)
 unwatch_fd_drops_stale_io_completion :: proc(t: ^testing.T) {
 	client, server, ok := connect_loopback_pair(t)
-	if !ok do return
+
+	if !ok {
+		return
+	}
+
 	defer net.close(client)
 	defer net.close(server)
 
@@ -1174,13 +1235,20 @@ unwatch_fd_drops_stale_io_completion :: proc(t: ^testing.T) {
 		user_data = &counter,
 	}
 
-	if !testing.expect(t, watch_fd(&loop, &w)) do return
+	if !testing.expect(t, watch_fd(&loop, &w)) {
+		return
+	}
+
 	testing.expect_value(t, loop.active_io_count, 1)
 
 	// Make the watched fd readable, but do NOT drive the loop: the completion is now
 	// pending in the backend but unobserved.
 	_, serr := net.send_tcp(client, {1})
-	if !testing.expect_value(t, serr, nil) do return
+
+	if !testing.expect_value(t, serr, nil) {
+		return
+	}
+
 	time.sleep(20 * time.Millisecond)
 
 	// Unwatch before the completion is drained, leaving the callback set.
@@ -1202,7 +1270,11 @@ unwatch_fd_drops_stale_io_completion :: proc(t: ^testing.T) {
 @(test)
 rewatch_after_unwatch_dispatches_live_watcher :: proc(t: ^testing.T) {
 	client, server, ok := connect_loopback_pair(t)
-	if !ok do return
+
+	if !ok {
+		return
+	}
+
 	defer net.close(client)
 	defer net.close(server)
 
@@ -1217,9 +1289,16 @@ rewatch_after_unwatch_dispatches_live_watcher :: proc(t: ^testing.T) {
 		user_data = &stale,
 	}
 
-	if !testing.expect(t, watch_fd(&loop, &w)) do return
+	if !testing.expect(t, watch_fd(&loop, &w)) {
+		return
+	}
+
 	_, serr := net.send_tcp(client, {1})
-	if !testing.expect_value(t, serr, nil) do return
+
+	if !testing.expect_value(t, serr, nil) {
+		return
+	}
+
 	time.sleep(20 * time.Millisecond)
 
 	// Pause: clear the callback (as the fetch transport does) and unwatch, then drain
@@ -1238,7 +1317,10 @@ rewatch_after_unwatch_dispatches_live_watcher :: proc(t: ^testing.T) {
 	w.callback = stop_watch_cb
 	w.user_data = &live
 	w.mode = .Read
-	if !testing.expect(t, watch_fd(&loop, &w)) do return
+
+	if !testing.expect(t, watch_fd(&loop, &w)) {
+		return
+	}
 
 	run_until_idle(&loop, 64)
 
@@ -1253,7 +1335,11 @@ rewatch_after_unwatch_dispatches_live_watcher :: proc(t: ^testing.T) {
 @(test)
 repeated_unwatch_never_dispatches_stale :: proc(t: ^testing.T) {
 	client, server, ok := connect_loopback_pair(t)
-	if !ok do return
+
+	if !ok {
+		return
+	}
+
 	defer net.close(client)
 	defer net.close(server)
 
@@ -1269,11 +1355,18 @@ repeated_unwatch_never_dispatches_stale :: proc(t: ^testing.T) {
 	}
 
 	_, serr := net.send_tcp(client, {1})
-	if !testing.expect_value(t, serr, nil) do return
+
+	if !testing.expect_value(t, serr, nil) {
+		return
+	}
+
 	time.sleep(20 * time.Millisecond)
 
 	for _ in 0 ..< 8 {
-		if !testing.expect(t, watch_fd(&loop, &w)) do return
+		if !testing.expect(t, watch_fd(&loop, &w)) {
+			return
+		}
+
 		testing.expect(t, unwatch_fd(&loop, &w))
 		platform_poll(&loop, 5)
 	}
@@ -1300,10 +1393,12 @@ rearm_self_cb :: proc(loop: ^Loop, user_data: rawptr) {
 	s := cast(^Rearm_Self)user_data
 	s.fired += 1
 	unwatch_fd(loop, s.watcher)
+
 	if s.fired >= s.limit {
 		s.watcher.callback = nil // stop: no re-watch, loop drains to idle
 		return
 	}
+
 	watch_fd(loop, s.watcher)
 }
 
@@ -1314,7 +1409,11 @@ rearm_self_cb :: proc(loop: ^Loop, user_data: rawptr) {
 @(test)
 rewatch_within_callback_keeps_watcher_live :: proc(t: ^testing.T) {
 	client, server, ok := connect_loopback_pair(t)
-	if !ok do return
+
+	if !ok {
+		return
+	}
+
 	defer net.close(client)
 	defer net.close(server)
 
@@ -1324,7 +1423,11 @@ rewatch_within_callback_keeps_watcher_live :: proc(t: ^testing.T) {
 	// Make the fd permanently readable (the byte is never consumed), so each fresh
 	// poll completes and the watcher keeps firing until it stops itself.
 	_, serr := net.send_tcp(client, {1})
-	if !testing.expect_value(t, serr, nil) do return
+
+	if !testing.expect_value(t, serr, nil) {
+		return
+	}
+
 	time.sleep(20 * time.Millisecond)
 
 	s := Rearm_Self {
@@ -1339,7 +1442,10 @@ rewatch_within_callback_keeps_watcher_live :: proc(t: ^testing.T) {
 	}
 	s.watcher = &w
 
-	if !testing.expect(t, watch_fd(&loop, &w)) do return
+	if !testing.expect(t, watch_fd(&loop, &w)) {
+		return
+	}
+
 	run_until_idle(&loop, 256)
 
 	testing.expect_value(t, s.fired, 3) // fired exactly limit times across re-arms
@@ -1382,7 +1488,9 @@ timer_index_consistent_after_siftup_and_cancel :: proc(t: ^testing.T) {
 	ids: [8]Timer_ID
 	// Descending delays: each insert is the new minimum, sifting to the root and pushing
 	// the rest down — every insert moves existing entries.
-	for k in 0 ..< 8 do ids[k] = set_timeout(&loop, record, u64((8 - k) * 1000), &rec, count_dispose)
+	for k in 0 ..< 8 {
+		ids[k] = set_timeout(&loop, record, u64((8 - k) * 1000), &rec, count_dispose)
+	}
 	check_timer_index(t, &loop)
 	testing.expect_value(t, len(loop.timers), 8)
 
@@ -1406,11 +1514,15 @@ timer_cancel_removes_eagerly_bounding_memory :: proc(t: ^testing.T) {
 
 	N :: 200
 	ids: [N]Timer_ID
-	for k in 0 ..< N do ids[k] = set_timeout(&loop, record, 1_000_000, &rec, count_dispose)
+	for k in 0 ..< N {
+		ids[k] = set_timeout(&loop, record, 1_000_000, &rec, count_dispose)
+	}
 	testing.expect_value(t, len(loop.timers), N)
 	testing.expect_value(t, len(loop.timer_index), N)
 
-	for k in 0 ..< N do testing.expect(t, clear_timeout(&loop, ids[k]))
+	for k in 0 ..< N {
+		testing.expect(t, clear_timeout(&loop, ids[k]))
+	}
 	testing.expect_value(t, len(loop.timers), 0) // not N tombstones
 	testing.expect_value(t, len(loop.timer_index), 0)
 	testing.expect_value(t, rec.dispose_count, N)
@@ -1427,7 +1539,7 @@ interval_rearm_then_external_cancel :: proc(t: ^testing.T) {
 	defer delete(rec.events)
 
 	id := set_interval(&loop, record, 0, &rec, count_dispose)
-	for _ in 0 ..< 3 do run_once(&loop) // fire + re-arm a few times
+	for _ in 0 ..< 3 {run_once(&loop)} 	// fire + re-arm a few times
 	testing.expect(t, len(rec.events) >= 1)
 	check_timer_index(t, &loop)
 
@@ -1452,6 +1564,7 @@ timer_index_invariant_under_random_churn :: proc(t: ^testing.T) {
 
 	for _ in 0 ..< 1500 {
 		r := test_lcg(&seed)
+
 		if len(live) == 0 || (r & 1) == 0 {
 			id := set_timeout(&loop, record, u64(r % 100000 + 1), &rec, count_dispose)
 			append(&live, id)
@@ -1460,6 +1573,7 @@ timer_index_invariant_under_random_churn :: proc(t: ^testing.T) {
 			testing.expect(t, clear_timeout(&loop, live[pick]))
 			unordered_remove(&live, pick)
 		}
+
 		if len(loop.timers) != len(loop.timer_index) {
 			testing.expect_value(t, len(loop.timer_index), len(loop.timers))
 			return
@@ -1467,7 +1581,9 @@ timer_index_invariant_under_random_churn :: proc(t: ^testing.T) {
 	}
 	check_timer_index(t, &loop)
 	testing.expect_value(t, len(loop.timers), len(live))
-	for id in live do clear_timeout(&loop, id)
+	for id in live {
+		clear_timeout(&loop, id)
+	}
 	testing.expect_value(t, len(loop.timers), 0)
 	testing.expect_value(t, len(loop.timer_index), 0)
 }

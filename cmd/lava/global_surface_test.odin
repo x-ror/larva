@@ -323,10 +323,12 @@ surface_events_compiles :: proc(t: ^testing.T, surface: lava.Global_Surface) -> 
 	gclass := lava.make_global_class()
 	gctx := jsc.JSGlobalContextCreate(gclass)
 	testing.expect(t, gctx != nil, "could not create a JSC global context")
+
 	if gctx == nil {
 		jsc.JSClassRelease(gclass)
 		return
 	}
+
 	defer jsc.JSClassRelease(gclass)
 	defer jsc.JSGlobalContextRelease(gctx)
 	ctx := cast(jsc.JSContextRef)gctx

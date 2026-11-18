@@ -12,14 +12,19 @@ import "core:sys/posix"
 // fd on success or a Node error code (+ errno) on failure.
 fs_platform_open :: proc(path: string, flags_str: string, mode: int) -> (fd: int, err_code: string, errno_val: int) {
 	flags, ok := fs_open_flags(flags_str)
-	if !ok do return -1, "EINVAL", 22
+
+	if !ok {
+		return -1, "EINVAL", 22
+	}
 
 	cpath := strings.clone_to_cstring(path, context.temp_allocator)
 	res := posix.open(cpath, flags, fs_mode_t(mode))
+
 	if i32(res) < 0 {
 		e := posix.errno()
 		return -1, fs_posix_errno_code(e), int(i32(e))
 	}
+
 	return int(res), "", 0
 }
 
@@ -27,18 +32,55 @@ fs_platform_open :: proc(path: string, flags_str: string, mode: int) -> (fd: int
 // (not a transmute) because _mode_t differs by platform (u32 on Linux, u16 on Darwin).
 fs_mode_t :: proc(mode: int) -> posix.mode_t {
 	m: posix.mode_t
-	if mode & 0o400 != 0 do m += {.IRUSR}
-	if mode & 0o200 != 0 do m += {.IWUSR}
-	if mode & 0o100 != 0 do m += {.IXUSR}
-	if mode & 0o040 != 0 do m += {.IRGRP}
-	if mode & 0o020 != 0 do m += {.IWGRP}
-	if mode & 0o010 != 0 do m += {.IXGRP}
-	if mode & 0o004 != 0 do m += {.IROTH}
-	if mode & 0o002 != 0 do m += {.IWOTH}
-	if mode & 0o001 != 0 do m += {.IXOTH}
-	if mode & 0o4000 != 0 do m += {.ISUID}
-	if mode & 0o2000 != 0 do m += {.ISGID}
-	if mode & 0o1000 != 0 do m += {.ISVXT}
+
+	if mode & 0o400 != 0 {
+		m += {.IRUSR}
+	}
+
+	if mode & 0o200 != 0 {
+		m += {.IWUSR}
+	}
+
+	if mode & 0o100 != 0 {
+		m += {.IXUSR}
+	}
+
+	if mode & 0o040 != 0 {
+		m += {.IRGRP}
+	}
+
+	if mode & 0o020 != 0 {
+		m += {.IWGRP}
+	}
+
+	if mode & 0o010 != 0 {
+		m += {.IXGRP}
+	}
+
+	if mode & 0o004 != 0 {
+		m += {.IROTH}
+	}
+
+	if mode & 0o002 != 0 {
+		m += {.IWOTH}
+	}
+
+	if mode & 0o001 != 0 {
+		m += {.IXOTH}
+	}
+
+	if mode & 0o4000 != 0 {
+		m += {.ISUID}
+	}
+
+	if mode & 0o2000 != 0 {
+		m += {.ISGID}
+	}
+
+	if mode & 0o1000 != 0 {
+		m += {.ISVXT}
+	}
+
 	return m
 }
 
@@ -47,6 +89,7 @@ fs_platform_close :: proc(fd: int) -> (err_code: string, errno_val: int) {
 		e := posix.errno()
 		return fs_posix_errno_code(e), int(i32(e))
 	}
+
 	return "", 0
 }
 

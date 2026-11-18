@@ -138,7 +138,10 @@ pool_init :: proc(pool: ^Thread_Pool, allocator: mem.Allocator) {
 pool_destroy :: proc(pool: ^Thread_Pool, allocator: mem.Allocator) {
 	delete(pool.threads)
 	delete(pool.outstanding)
-	if pool.pending != nil do delete(pool.pending, allocator)
+
+	if pool.pending != nil {
+		delete(pool.pending, allocator)
+	}
 }
 
 // pool_ring_push appends a job at the ring's tail, growing (doubling) when full.
@@ -152,10 +155,15 @@ pool_ring_push :: proc(pool: ^Thread_Pool, job: ^Pool_Job, allocator: mem.Alloca
 		for i in 0 ..< pool.pending_count {
 			ns[i] = pool.pending[(pool.pending_head + i) % len(pool.pending)]
 		}
-		if pool.pending != nil do delete(pool.pending, allocator)
+
+		if pool.pending != nil {
+			delete(pool.pending, allocator)
+		}
+
 		pool.pending = ns
 		pool.pending_head = 0
 	}
+
 	tail := (pool.pending_head + pool.pending_count) % len(pool.pending)
 	pool.pending[tail] = job
 	pool.pending_count += 1
@@ -183,12 +191,16 @@ pool_submit :: proc(
 	dispose: Pool_Dispose = nil,
 	cancel: Pool_Cancel = nil,
 ) -> bool {
-	if loop == nil || work == nil do return false
+	if loop == nil || work == nil {
+		return false
+	}
+
 	pool := &loop.pool
 
 	// Keep the loop alive (and blocking in poll) until the completion is posted.
 	// Undone if the pool can't be started, so the loop is not pinned forever.
 	async_begin(loop)
+
 	if !pool_ensure_started(loop) {
 		async_cancel(loop)
 		return false
@@ -218,7 +230,11 @@ pool_submit :: proc(
 @(private = "file")
 pool_ensure_started :: proc(loop: ^Loop) -> bool {
 	pool := &loop.pool
-	if pool.started do return true
+
+	if pool.started {
+		return true
+	}
+
 	pool.stopping = false
 	pool.exited = 0
 	// Workers receive the loop pointer and reach the pool through loop.pool; the loop
@@ -227,13 +243,21 @@ pool_ensure_started :: proc(loop: ^Loop) -> bool {
 	context.allocator = loop.allocator
 	for _ in 0 ..< THREADPOOL_SIZE {
 		th := thread.create(pool_worker)
-		if th == nil do continue
+
+		if th == nil {
+			continue
+		}
+
 		th.data = loop
 		thread.start(th)
 		append(&pool.threads, th)
 	}
+
 	// As long as one worker started, the pool can make progress.
-	if len(pool.threads) == 0 do return false
+	if len(pool.threads) == 0 {
+		return false
+	}
+
 	pool.started = true
 	return true
 }
@@ -247,26 +271,33 @@ pool_worker :: proc(self: ^thread.Thread) {
 		for pool.pending_count == 0 && !pool.stopping {
 			sync.cond_wait(&pool.wake, &pool.mutex)
 		}
+
 		if pool.stopping && pool.pending_count == 0 {
 			// Count out under the mutex, so close_detach and the last worker agree on
 			// who finishes a detached loop: whichever of them sees the other's write.
 			exited := sync.atomic_add(&pool.exited, 1) + 1
 			last_of_detached := pool.detached && exited == len(pool.threads)
 			sync.unlock(&pool.mutex)
+
 			if last_of_detached {
 				pool_release_detached(loop, self)
 				return
 			}
+
 			// Wake a driver waiting to reap this loop (close_ready moved). Safe after
 			// the unlock: the pipe closes only after this thread is joined.
 			wakeup(loop)
 			return
 		}
+
 		job := pool_ring_pop(pool) // FIFO from the ring head, O(1)
 		job.running = true
 		sync.unlock(&pool.mutex)
 
-		if job.work != nil do job.work(job.user_data)
+		if job.work != nil {
+			job.work(job.user_data)
+		}
+
 		// Release any per-job scratch the work left on this worker's temp arena.
 		free_all(context.temp_allocator)
 		// Hand back to the loop thread. After this the worker must not touch the job —
@@ -287,7 +318,9 @@ pool_worker :: proc(self: ^thread.Thread) {
 pool_release_detached :: proc(loop: ^Loop, self: ^thread.Thread) {
 	pool := &loop.pool
 	for th in pool.threads {
-		if th != self do thread.destroy(th)
+		if th != self {
+			thread.destroy(th)
+		}
 	}
 	clear(&pool.threads)
 	sync.atomic_or(&self.flags, {.Self_Cleanup})
@@ -308,7 +341,10 @@ pool_complete :: proc(loop: ^Loop, user_data: rawptr) {
 	done := job.done
 	ud := job.user_data
 	pool_release_job(loop, job)
-	if done != nil do done(loop, ud)
+
+	if done != nil {
+		done(loop, ud)
+	}
 }
 
 @(private = "file")
@@ -341,7 +377,11 @@ pool_release_job :: proc(loop: ^Loop, job: ^Pool_Job) {
 // only; a no-op when the pool never started.
 pool_stop :: proc(loop: ^Loop) -> (busy: bool) {
 	pool := &loop.pool
-	if !pool.started do return false
+
+	if !pool.started {
+		return false
+	}
+
 	sync.lock(&pool.mutex)
 	pool.stopping = true
 	// Drop the queued backlog (the jobs stay in `outstanding`, settled below).
@@ -354,14 +394,23 @@ pool_stop :: proc(loop: ^Loop) -> (busy: bool) {
 	i := 0
 	for i < len(pool.outstanding) {
 		job := pool.outstanding[i]
+
 		if job.running {
-			if job.cancel != nil do job.cancel(job.user_data)
+			if job.cancel != nil {
+				job.cancel(job.user_data)
+			}
+
 			busy = true
 			i += 1
 			continue
 		}
+
 		unordered_remove(&pool.outstanding, i)
-		if job.dispose != nil do job.dispose(job.user_data)
+
+		if job.dispose != nil {
+			job.dispose(job.user_data)
+		}
+
 		free(job, loop.allocator)
 	}
 	return
@@ -371,8 +420,12 @@ pool_stop :: proc(loop: ^Loop) -> (busy: bool) {
 // as long as a job's `work` does; close_ready says when it will not. close_finish only.
 pool_join :: proc(loop: ^Loop) {
 	pool := &loop.pool
-	if !pool.started do return
-	for th in pool.threads do thread.destroy(th) // joins, then frees through loop.allocator
+
+	if !pool.started {
+		return
+	}
+
+	for th in pool.threads {thread.destroy(th)} 	// joins, then frees through loop.allocator
 	clear(&pool.threads)
 	pool.started = false
 }
@@ -384,7 +437,10 @@ pool_join :: proc(loop: ^Loop) {
 pool_dispose_outstanding :: proc(loop: ^Loop) {
 	pool := &loop.pool
 	for job in pool.outstanding {
-		if job.dispose != nil do job.dispose(job.user_data)
+		if job.dispose != nil {
+			job.dispose(job.user_data)
+		}
+
 		free(job, loop.allocator)
 	}
 	clear(&pool.outstanding)

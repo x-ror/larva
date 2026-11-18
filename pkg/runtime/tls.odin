@@ -166,9 +166,17 @@ g_tls_ctx_once: sync.Once
 @(private = "file")
 tls_build_ctx :: proc() {
 	method := TLS_client_method()
-	if method == nil do return
+
+	if method == nil {
+		return
+	}
+
 	ctx := SSL_CTX_new(method)
-	if ctx == nil do return
+
+	if ctx == nil {
+		return
+	}
+
 	// Fail closed if the trust store can't be loaded (verification would have
 	// nothing to check against) or the TLS 1.2 floor can't be set. Both return
 	// 1 on success; SSL_CTX_ctrl(SET_MIN_PROTO_VERSION) returns 1 likewise.
@@ -177,6 +185,7 @@ tls_build_ctx :: proc() {
 		SSL_CTX_free(ctx)
 		return
 	}
+
 	// Add any platform-native roots (Windows cert store) on top of the OpenSSL
 	// defaults. Best-effort: if it loads nothing, verification simply falls back
 	// to whatever set_default_verify_paths / SSL_CERT_FILE provided and a missing
@@ -212,9 +221,17 @@ tls_client_ctx :: proc() -> SSL_CTX {
 // fetch_tls_cleanup).
 tls_new_client :: proc(fd: uintptr, host: string) -> SSL {
 	ctx := tls_client_ctx()
-	if ctx == nil do return nil
+
+	if ctx == nil {
+		return nil
+	}
+
 	ssl := SSL_new(ctx)
-	if ssl == nil do return nil
+
+	if ssl == nil {
+		return nil
+	}
+
 	// SSL_set_fd takes an int. On Windows req.fd is a SOCKET (a uintptr-wide
 	// kernel handle); narrowing to c.int is the documented OpenSSL-on-Windows
 	// convention (its BIO socket layer uses int) and real socket values fit.
@@ -222,13 +239,16 @@ tls_new_client :: proc(fd: uintptr, host: string) -> SSL {
 		SSL_free(ssl)
 		return nil
 	}
+
 	// Verification needs a NUL-terminated host. OpenSSL copies it into its own
 	// storage, so a temp-allocator cstring scoped to this proc is sufficient.
 	chost, clone_err := strings.clone_to_cstring(host, context.temp_allocator)
+
 	if clone_err != nil {
 		SSL_free(ssl)
 		return nil
 	}
+
 	// An IP-literal host verifies against the certificate's iPAddress SAN (not a
 	// DNS name) and must NOT be sent as SNI (RFC 6066 forbids IP literals there).
 	// A DNS name uses SNI + DNS-name verification. Fail closed: if any of these
@@ -244,11 +264,13 @@ tls_new_client :: proc(fd: uintptr, host: string) -> SSL {
 			SSL_free(ssl)
 			return nil
 		}
+
 		if SSL_set1_host(ssl, chost) != 1 {
 			SSL_free(ssl)
 			return nil
 		}
 	}
+
 	return ssl
 }
 
@@ -256,7 +278,13 @@ tls_new_client :: proc(fd: uintptr, host: string) -> SSL {
 // be verified as an IP address rather than a DNS name). The transport delivers
 // IPv6 literals bracket-stripped (e.g. "::1"), matching net.parse_ip6_address.
 tls_host_is_ip :: proc(host: string) -> bool {
-	if _, ok := net.parse_ip4_address(host); ok do return true
-	if _, ok := net.parse_ip6_address(host); ok do return true
+	if _, ok := net.parse_ip4_address(host); ok {
+		return true
+	}
+
+	if _, ok := net.parse_ip6_address(host); ok {
+		return true
+	}
+
 	return false
 }

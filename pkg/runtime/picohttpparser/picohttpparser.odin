@@ -118,7 +118,7 @@ parse_response :: proc(
 			value = value,
 		}
 	}
-	if msg_ptr != nil && msg_len > 0 do msg = string(msg_ptr[:msg_len])
+	if msg_ptr != nil && msg_len > 0 {msg = string(msg_ptr[:msg_len])}
 	return int(ret), int(status_c), msg, num, .Complete
 }
 
@@ -175,7 +175,7 @@ parse_request :: proc(
 			value = value,
 		}
 	}
-	if method_ptr != nil && method_len > 0 do method = string(method_ptr[:method_len])
-	if path_ptr != nil && path_len > 0 do path = string(path_ptr[:path_len])
+	if method_ptr != nil && method_len > 0 {method = string(method_ptr[:method_len])}
+	if path_ptr != nil && path_len > 0 {path = string(path_ptr[:path_len])}
 	return int(ret), int(minor_c), num, method, path, .Complete
 }

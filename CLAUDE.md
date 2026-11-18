@@ -153,6 +153,11 @@ appears in CI, read the code or shrink the CPU set; do not just re-run.
   imports) and `odin strip-semicolon` for Odin, clang-format (`.clang-format`: tabs,
   120 columns) for C/C++. odinfmt ships with the OLS extension; pass
   `ODINFMT=/path/to/odinfmt` when it is not on PATH.
+- **`if` always has braces, on their own lines** — no `if x do y`, no `if x {y}` —
+  and **a blank line before and after every `if` statement**, unless it opens or
+  closes a block or a `case` (a comment directly above belongs to the `if`). Applied
+  by `make fmt`: odinfmt `convert_do`, clang-format `InsertBraces`, then
+  `scripts/fmt-if.mjs`, which neither formatter covers.
 - **Declaration order in a file**, Odin and C alike: imports/includes (sorted), then
   constants, then types, then procedures — public ones first, private helpers last.
   The formatters sort imports and includes; nothing reorders declarations, so this is

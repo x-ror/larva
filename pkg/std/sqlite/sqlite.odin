@@ -128,18 +128,21 @@ open :: proc(path: string) -> (Database, Result) {
 	if len(path) == 0 {
 		return Database{}, Result{status = .Invalid_Input, message = "missing SQLite database path"}
 	}
+
 	when !SQLITE_AVAILABLE {
 		return Database{}, unavailable()
 	} else {
 		cpath := strings.clone_to_cstring(path, context.temp_allocator)
 		handle: rawptr
 		rc := sqlite3_open(cpath, &handle)
+
 		if rc != SQLITE_OK {
 			// sqlite3_open returns a handle even on failure, and the real error text
 			// is only reachable through it. errmsg is borrowed and invalidated by
 			// close, so clone it (into temp, like the bridge's other error paths)
 			// before closing the handle.
 			msg := "could not open database"
+
 			if handle != nil {
 				if detail := sqlite3_errmsg(handle); detail != nil {
 					if cloned, err := strings.clone(string(detail), context.temp_allocator);
@@ -147,10 +150,13 @@ open :: proc(path: string) -> (Database, Result) {
 						msg = cloned
 					}
 				}
+
 				sqlite3_close_v2(handle)
 			}
+
 			return Database{}, Result{status = .Error, message = msg}
 		}
+
 		return Database{handle = handle, is_open = true}, Result{status = .Ok}
 	}
 }
@@ -161,6 +167,7 @@ close :: proc(db: ^Database) {
 			sqlite3_close_v2(db.handle)
 		}
 	}
+
 	if db != nil {
 		db.handle = nil
 		db.is_open = false
@@ -171,19 +178,23 @@ exec :: proc(db: ^Database, sql: string) -> Result {
 	if db == nil || !db.is_open {
 		return Result{status = .Invalid_Input, message = "database is not open"}
 	}
+
 	// Empty SQL is a no-op, matching node:sqlite (`db.exec('')`); sqlite3_exec on
 	// an empty/whitespace string also returns SQLITE_OK without running anything.
 	if len(sql) == 0 {
 		return Result{status = .Ok}
 	}
+
 	when !SQLITE_AVAILABLE {
 		return unavailable()
 	} else {
 		csql := strings.clone_to_cstring(sql, context.temp_allocator)
 		rc := sqlite3_exec(db.handle, csql, nil, nil, nil)
+
 		if rc != SQLITE_OK {
 			return Result{status = .Error, message = "exec failed"}
 		}
+
 		return Result{status = .Ok}
 	}
 }
@@ -192,6 +203,7 @@ prepare :: proc(db: ^Database, sql: string) -> (Statement, Result) {
 	if db == nil || !db.is_open {
 		return Statement{}, Result{status = .Invalid_Input, message = "database is not open"}
 	}
+
 	when !SQLITE_AVAILABLE {
 		return Statement{}, unavailable()
 	} else {
@@ -202,9 +214,11 @@ prepare :: proc(db: ^Database, sql: string) -> (Statement, Result) {
 		// (verified against Node 26.13.0 — `prepare("SELECT 1; SELECT 2")` runs SELECT 1),
 		// which is more permissive than better-sqlite3's "one statement only" error.
 		rc := sqlite3_prepare_v2(db.handle, csql, -1, &handle, nil)
+
 		if rc != SQLITE_OK || handle == nil {
 			return Statement{}, Result{status = .Error, message = "prepare failed"}
 		}
+
 		return Statement{handle = handle}, Result{status = .Ok}
 	}
 }
@@ -213,7 +227,10 @@ step :: proc(stmt: ^Statement) -> Step_Result {
 	when !SQLITE_AVAILABLE {
 		return .Error
 	} else {
-		if stmt == nil || stmt.handle == nil do return .Error
+		if stmt == nil || stmt.handle == nil {
+			return .Error
+		}
+
 		rc := sqlite3_step(stmt.handle)
 		switch rc {
 		case SQLITE_ROW:
@@ -242,14 +259,20 @@ finalize :: proc(stmt: ^Statement) {
 			sqlite3_finalize(stmt.handle)
 		}
 	}
-	if stmt != nil do stmt.handle = nil
+
+	if stmt != nil {
+		stmt.handle = nil
+	}
 }
 
 column_count :: proc(stmt: ^Statement) -> int {
 	when !SQLITE_AVAILABLE {
 		return 0
 	} else {
-		if stmt == nil || stmt.handle == nil do return 0
+		if stmt == nil || stmt.handle == nil {
+			return 0
+		}
+
 		return int(sqlite3_column_count(stmt.handle))
 	}
 }
@@ -259,7 +282,10 @@ column_name :: proc(stmt: ^Statement, i: int) -> string {
 	when !SQLITE_AVAILABLE {
 		return ""
 	} else {
-		if stmt == nil || stmt.handle == nil do return ""
+		if stmt == nil || stmt.handle == nil {
+			return ""
+		}
+
 		return string(sqlite3_column_name(stmt.handle, c.int(i)))
 	}
 }
@@ -268,7 +294,10 @@ column_type :: proc(stmt: ^Statement, i: int) -> Column_Type {
 	when !SQLITE_AVAILABLE {
 		return .Null
 	} else {
-		if stmt == nil || stmt.handle == nil do return .Null
+		if stmt == nil || stmt.handle == nil {
+			return .Null
+		}
+
 		switch sqlite3_column_type(stmt.handle, c.int(i)) {
 		case SQLITE_INTEGER:
 			return .Integer
@@ -287,7 +316,10 @@ column_int :: proc(stmt: ^Statement, i: int) -> i64 {
 	when !SQLITE_AVAILABLE {
 		return 0
 	} else {
-		if stmt == nil || stmt.handle == nil do return 0
+		if stmt == nil || stmt.handle == nil {
+			return 0
+		}
+
 		return sqlite3_column_int64(stmt.handle, c.int(i))
 	}
 }
@@ -296,7 +328,10 @@ column_double :: proc(stmt: ^Statement, i: int) -> f64 {
 	when !SQLITE_AVAILABLE {
 		return 0
 	} else {
-		if stmt == nil || stmt.handle == nil do return 0
+		if stmt == nil || stmt.handle == nil {
+			return 0
+		}
+
 		return sqlite3_column_double(stmt.handle, c.int(i))
 	}
 }
@@ -306,9 +341,16 @@ column_text :: proc(stmt: ^Statement, i: int) -> string {
 	when !SQLITE_AVAILABLE {
 		return ""
 	} else {
-		if stmt == nil || stmt.handle == nil do return ""
+		if stmt == nil || stmt.handle == nil {
+			return ""
+		}
+
 		ptr := sqlite3_column_text(stmt.handle, c.int(i))
-		if ptr == nil do return ""
+
+		if ptr == nil {
+			return ""
+		}
+
 		n := int(sqlite3_column_bytes(stmt.handle, c.int(i)))
 		return string(ptr[:n])
 	}
@@ -319,10 +361,17 @@ column_blob :: proc(stmt: ^Statement, i: int) -> []byte {
 	when !SQLITE_AVAILABLE {
 		return nil
 	} else {
-		if stmt == nil || stmt.handle == nil do return nil
+		if stmt == nil || stmt.handle == nil {
+			return nil
+		}
+
 		ptr := sqlite3_column_blob(stmt.handle, c.int(i))
 		n := int(sqlite3_column_bytes(stmt.handle, c.int(i)))
-		if ptr == nil || n == 0 do return nil
+
+		if ptr == nil || n == 0 {
+			return nil
+		}
+
 		return (cast([^]byte)ptr)[:n]
 	}
 }
@@ -331,7 +380,10 @@ bind_parameter_count :: proc(stmt: ^Statement) -> int {
 	when !SQLITE_AVAILABLE {
 		return 0
 	} else {
-		if stmt == nil || stmt.handle == nil do return 0
+		if stmt == nil || stmt.handle == nil {
+			return 0
+		}
+
 		return int(sqlite3_bind_parameter_count(stmt.handle))
 	}
 }
@@ -344,9 +396,16 @@ bind_parameter_name :: proc(stmt: ^Statement, index: int) -> string {
 	when !SQLITE_AVAILABLE {
 		return ""
 	} else {
-		if stmt == nil || stmt.handle == nil do return ""
+		if stmt == nil || stmt.handle == nil {
+			return ""
+		}
+
 		name := sqlite3_bind_parameter_name(stmt.handle, c.int(index))
-		if name == nil do return ""
+
+		if name == nil {
+			return ""
+		}
+
 		return string(name)
 	}
 }
@@ -357,7 +416,10 @@ bind_parameter_name :: proc(stmt: ^Statement, index: int) -> string {
 // unbound. The message borrows sqlite's static errstr text (no free needed).
 bind_result :: proc(rc: c.int) -> Result {
 	when SQLITE_AVAILABLE {
-		if rc == SQLITE_OK do return Result{status = .Ok}
+		if rc == SQLITE_OK {
+			return Result{status = .Ok}
+		}
+
 		text := sqlite3_errstr(rc)
 		return Result{status = .Error, message = text != nil ? string(text) : "bind failed"}
 	} else {
@@ -373,6 +435,7 @@ bind_int :: proc(stmt: ^Statement, index: int, value: i64) -> Result {
 		if stmt == nil || stmt.handle == nil {
 			return Result{status = .Invalid_Input, message = "statement is not prepared"}
 		}
+
 		return bind_result(sqlite3_bind_int64(stmt.handle, c.int(index), value))
 	}
 }
@@ -384,6 +447,7 @@ bind_double :: proc(stmt: ^Statement, index: int, value: f64) -> Result {
 		if stmt == nil || stmt.handle == nil {
 			return Result{status = .Invalid_Input, message = "statement is not prepared"}
 		}
+
 		return bind_result(sqlite3_bind_double(stmt.handle, c.int(index), value))
 	}
 }
@@ -395,6 +459,7 @@ bind_null :: proc(stmt: ^Statement, index: int) -> Result {
 		if stmt == nil || stmt.handle == nil {
 			return Result{status = .Invalid_Input, message = "statement is not prepared"}
 		}
+
 		return bind_result(sqlite3_bind_null(stmt.handle, c.int(index)))
 	}
 }
@@ -406,6 +471,7 @@ bind_text :: proc(stmt: ^Statement, index: int, value: string) -> Result {
 		if stmt == nil || stmt.handle == nil {
 			return Result{status = .Invalid_Input, message = "statement is not prepared"}
 		}
+
 		// Explicit length (not strlen): an embedded NUL is a legal byte in SQLite
 		// TEXT, so the whole slice is bound, not just up to the first NUL.
 		cval := strings.clone_to_cstring(value, context.temp_allocator)
@@ -433,6 +499,7 @@ bind_blob :: proc(stmt: ^Statement, index: int, value: []byte) -> Result {
 		if stmt == nil || stmt.handle == nil {
 			return Result{status = .Invalid_Input, message = "statement is not prepared"}
 		}
+
 		empty: byte
 		ptr := len(value) > 0 ? rawptr(raw_data(value)) : rawptr(&empty)
 		return bind_result(sqlite3_bind_blob(stmt.handle, c.int(index), ptr, c.int(len(value)), sqlite_transient()))
@@ -443,7 +510,10 @@ changes :: proc(db: ^Database) -> i64 {
 	when !SQLITE_AVAILABLE {
 		return 0
 	} else {
-		if db == nil || db.handle == nil do return 0
+		if db == nil || db.handle == nil {
+			return 0
+		}
+
 		return sqlite3_changes64(db.handle)
 	}
 }
@@ -452,7 +522,10 @@ last_insert_rowid :: proc(db: ^Database) -> i64 {
 	when !SQLITE_AVAILABLE {
 		return 0
 	} else {
-		if db == nil || db.handle == nil do return 0
+		if db == nil || db.handle == nil {
+			return 0
+		}
+
 		return sqlite3_last_insert_rowid(db.handle)
 	}
 }
@@ -462,9 +535,16 @@ errmsg :: proc(db: ^Database, allocator := context.allocator) -> string {
 	when !SQLITE_AVAILABLE {
 		return ""
 	} else {
-		if db == nil || db.handle == nil do return ""
+		if db == nil || db.handle == nil {
+			return ""
+		}
+
 		msg := sqlite3_errmsg(db.handle)
-		if msg == nil do return ""
+
+		if msg == nil {
+			return ""
+		}
+
 		cloned, _ := strings.clone(string(msg), allocator)
 		return cloned
 	}

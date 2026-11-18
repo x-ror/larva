@@ -26,9 +26,17 @@ tty_isatty_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 1 do return jsc.JSValueMakeBoolean(ctx, false)
+
+	if argument_count < 1 {
+		return jsc.JSValueMakeBoolean(ctx, false)
+	}
+
 	fd := jsc.JSValueToNumber(ctx, arguments[0], nil)
+
 	// NaN / negative / non-integral fds are not terminals.
-	if fd < 0 || fd != f64(int(fd)) do return jsc.JSValueMakeBoolean(ctx, false)
+	if fd < 0 || fd != f64(int(fd)) {
+		return jsc.JSValueMakeBoolean(ctx, false)
+	}
+
 	return jsc.JSValueMakeBoolean(ctx, b32(tty_fd_isatty(int(fd))))
 }

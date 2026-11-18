@@ -21,17 +21,26 @@ import jsc "lava:pkg/jsc"
 js_root_set :: proc(ctx: jsc.JSContextRef, slot: ^jsc.JSObjectRef, fn: jsc.JSObjectRef) {
 	assert(slot^ == nil, "js_root_set requires an empty slot (clear it first)")
 	slot^ = fn
-	if fn != nil do jsc.JSValueProtect(ctx, cast(jsc.JSValueRef)fn)
+
+	if fn != nil {
+		jsc.JSValueProtect(ctx, cast(jsc.JSValueRef)fn)
+	}
 }
 
 js_root_clear :: proc(ctx: jsc.JSContextRef, slot: ^jsc.JSObjectRef) {
-	if slot^ == nil do return
+	if slot^ == nil {
+		return
+	}
+
 	jsc.JSValueUnprotect(ctx, cast(jsc.JSValueRef)slot^)
 	slot^ = nil
 }
 
 js_root_clear_private :: proc(ctx: jsc.JSContextRef, slot: ^jsc.JSObjectRef) {
-	if slot^ == nil do return
+	if slot^ == nil {
+		return
+	}
+
 	jsc.JSObjectSetPrivate(slot^, nil)
 	jsc.JSValueUnprotect(ctx, cast(jsc.JSValueRef)slot^)
 	slot^ = nil

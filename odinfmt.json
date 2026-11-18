@@ -4,5 +4,6 @@
   "tabs": true,
   "tabs_width": 4,
   "sort_imports": true,
-  "newline_limit": 2
+  "newline_limit": 2,
+  "convert_do": true
 }

@@ -18,10 +18,14 @@ buffer_utf8_encode_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 1 do return make_uint8_array(ctx, nil)
+
+	if argument_count < 1 {
+		return make_uint8_array(ctx, nil)
+	}
 
 	str, alloc := jsc_value_to_string_or_default(ctx, arguments[0])
-	if !alloc do return make_uint8_array(ctx, nil) // empty string
+
+	if !alloc {return make_uint8_array(ctx, nil)} 	// empty string
 	// Do NOT free `str`: its backing buffer is handed to JSC below.
 	return make_uint8_array(ctx, transmute([]byte)str)
 }
@@ -33,6 +37,7 @@ emit_utf16 :: proc "contextless" (out: []u16, cp: u32) -> int {
 		out[0] = u16(cp)
 		return 1
 	}
+
 	c := cp - 0x10000
 	out[0] = u16(0xD800 + (c >> 10))
 	out[1] = u16(0xDC00 + (c & 0x3FF))
@@ -72,24 +77,28 @@ decode_utf8_to_utf16_whatwg :: proc "contextless" (data: []byte, out: []u16) -> 
 
 	for i < len(data) {
 		b := data[i]
+
 		if bytes_needed == 0 {
 			if b <= 0x7F { 	// ASCII resumes after a completed multi-byte sequence
 				out[n] = u16(b); n += 1
 				i += 1
 				continue
 			}
+
 			switch {
 			case b >= 0xC2 && b <= 0xDF:
 				bytes_needed = 1; code_point = u32(b & 0x1F)
 				i += 1
 			case b >= 0xE0 && b <= 0xEF:
-				if b == 0xE0 do lower = 0xA0 // exclude overlong < U+0800
-				if b == 0xED do upper = 0x9F // exclude UTF-16 surrogates
+				if b == 0xE0 {lower = 0xA0} 	// exclude overlong < U+0800
+
+				if b == 0xED {upper = 0x9F} 	// exclude UTF-16 surrogates
 				bytes_needed = 2; code_point = u32(b & 0x0F)
 				i += 1
 			case b >= 0xF0 && b <= 0xF4:
-				if b == 0xF0 do lower = 0x90 // exclude overlong < U+10000
-				if b == 0xF4 do upper = 0x8F // exclude > U+10FFFF
+				if b == 0xF0 {lower = 0x90} 	// exclude overlong < U+10000
+
+				if b == 0xF4 {upper = 0x8F} 	// exclude > U+10FFFF
 				bytes_needed = 3; code_point = u32(b & 0x07)
 				i += 1
 			case:
@@ -109,6 +118,7 @@ decode_utf8_to_utf16_whatwg :: proc "contextless" (data: []byte, out: []u16) -> 
 				code_point = (code_point << 6) | u32(b & 0x3F)
 				bytes_seen += 1
 				i += 1
+
 				if bytes_seen == bytes_needed {
 					// #force_inline: hot path, but keep emit_utf16 a single named unit
 					// (no duplicated surrogate-pair logic).
@@ -118,10 +128,12 @@ decode_utf8_to_utf16_whatwg :: proc "contextless" (data: []byte, out: []u16) -> 
 			}
 		}
 	}
+
 	// Unfinished trailing sequence at end of input -> a single replacement.
 	if bytes_needed != 0 {
 		out[n] = 0xFFFD; n += 1
 	}
+
 	return n
 }
 
@@ -140,10 +152,16 @@ buffer_utf8_decode_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 1 do return js_string_value(ctx, "")
+
+	if argument_count < 1 {
+		return js_string_value(ctx, "")
+	}
 
 	data, ok := typed_array_view(ctx, arguments[0])
-	if !ok || len(data) == 0 do return js_string_value(ctx, "")
+
+	if !ok || len(data) == 0 {
+		return js_string_value(ctx, "")
+	}
 
 	// Pure-ASCII (NULs included): same as latin1 bytes → 8-bit StringImpl.
 	if bytes_all_ascii(data) {
@@ -157,11 +175,13 @@ buffer_utf8_decode_cb :: proc "c" (
 		copy(tmp, data)
 		tmp[len(data)] = 0
 		js_str := jsc.JSStringCreateWithUTF8CString(cstring(raw_data(tmp)))
+
 		if js_str != nil {
 			if jsc.JSStringGetLength(js_str) > 0 {
 				defer jsc.JSStringRelease(js_str)
 				return jsc.JSValueMakeString(ctx, js_str)
 			}
+
 			jsc.JSStringRelease(js_str)
 		}
 	}
@@ -194,10 +214,21 @@ buffer_is_valid_utf8_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 1 do return jsc.JSValueMakeBoolean(ctx, true)
+
+	if argument_count < 1 {
+		return jsc.JSValueMakeBoolean(ctx, true)
+	}
+
 	data, ok := typed_array_view(ctx, arguments[0])
-	if !ok do return jsc.JSValueMakeBoolean(ctx, false)
-	if len(data) == 0 do return jsc.JSValueMakeBoolean(ctx, true)
+
+	if !ok {
+		return jsc.JSValueMakeBoolean(ctx, false)
+	}
+
+	if len(data) == 0 {
+		return jsc.JSValueMakeBoolean(ctx, true)
+	}
+
 	return jsc.JSValueMakeBoolean(ctx, b32(utf8.valid_string(string(data))))
 }
 
@@ -213,41 +244,78 @@ buffer_utf8_write_into_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 4 do return jsc.JSValueMakeNumber(ctx, 0)
+
+	if argument_count < 4 {
+		return jsc.JSValueMakeNumber(ctx, 0)
+	}
+
 	// Re-entrancy hazard: the target view must be acquired after every argument
 	// coercion — see the note in buffer_utf16le_write_into_cb (buffer.odin).
 	src := read_string_arg(ctx, arguments[1])
-	if !src.ok do return js_int_value(ctx, 0)
-	defer if src.str != nil do jsc.JSStringRelease(src.str)
+
+	if !src.ok {
+		return js_int_value(ctx, 0)
+	}
+
+	defer if src.str != nil {
+		jsc.JSStringRelease(src.str)
+	}
 	slen := string_read_len(src)
-	if slen == 0 do return js_int_value(ctx, 0)
+
+	if slen == 0 {
+		return js_int_value(ctx, 0)
+	}
 
 	offset := js_int_arg(ctx, arguments[2])
 	max := js_int_arg(ctx, arguments[3])
 
 	target, tok := typed_array_view(ctx, arguments[0])
-	if !tok do return jsc.JSValueMakeNumber(ctx, 0)
-	if offset < 0 do offset = 0
-	if offset > len(target) do offset = len(target)
+
+	if !tok {
+		return jsc.JSValueMakeNumber(ctx, 0)
+	}
+
+	if offset < 0 {
+		offset = 0
+	}
+
+	if offset > len(target) {
+		offset = len(target)
+	}
+
 	avail := len(target) - offset
-	if max > avail do max = avail
-	if max <= 0 do return js_int_value(ctx, 0)
+
+	if max > avail {
+		max = avail
+	}
+
+	if max <= 0 {
+		return js_int_value(ctx, 0)
+	}
 
 	dst := target[offset:][:max]
+
 	if src.is8 {
 		// ASCII 8-bit storage is already UTF-8 — straight capped copy. Latin-1
 		// high bytes expand to two UTF-8 bytes each, capped at the boundary.
 		if bytes_all_ascii(src.s8) {
 			return js_int_value(ctx, copy(dst, src.s8))
 		}
+
 		o := 0
 		for b in src.s8 {
 			if b < 0x80 {
-				if o + 1 > len(dst) do break
+				if o + 1 > len(dst) {
+					break
+				}
+
 				dst[o] = b
 				o += 1
 			} else {
-				if o + 2 > len(dst) do break
+				if o + 2 > len(dst) {
+					break
+				}
+
 				dst[o] = 0xC0 | (b >> 6)
 				dst[o + 1] = 0x80 | (b & 0x3F)
 				o += 2
@@ -255,6 +323,7 @@ buffer_utf8_write_into_cb :: proc "c" (
 		}
 		return js_int_value(ctx, o)
 	}
+
 	n := jsc.utf16_js_to_utf8_capped(raw_data(src.s16), slen, dst)
 	return js_int_value(ctx, n)
 }
@@ -268,19 +337,32 @@ buffer_utf8_byte_length_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 1 do return jsc.JSValueMakeNumber(ctx, 0)
+
+	if argument_count < 1 {
+		return jsc.JSValueMakeNumber(ctx, 0)
+	}
 
 	src := read_string_arg(ctx, arguments[0])
-	if !src.ok do return js_int_value(ctx, 0)
-	defer if src.str != nil do jsc.JSStringRelease(src.str)
+
+	if !src.ok {
+		return js_int_value(ctx, 0)
+	}
+
+	defer if src.str != nil {
+		jsc.JSStringRelease(src.str)
+	}
+
 	// 8-bit storage: no surrogates possible; UTF-8 length is len + one extra
 	// byte per Latin-1 high byte.
 	if src.is8 {
 		n := len(src.s8)
 		for b in src.s8 {
-			if b >= 0x80 do n += 1
+			if b >= 0x80 {
+				n += 1
+			}
 		}
 		return js_int_value(ctx, n)
 	}
+
 	return js_int_value(ctx, jsc.utf16_js_utf8_byte_len(raw_data(src.s16), len(src.s16)))
 }

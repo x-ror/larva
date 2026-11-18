@@ -32,7 +32,9 @@ srv.listen(0, '127.0.0.1', () => {
 live_net_allocations :: proc(track: ^mem.Tracking_Allocator) -> int {
 	n := 0
 	for _, entry in track.allocation_map {
-		if strings.has_suffix(entry.location.file_path, "net.odin") do n += 1
+		if strings.has_suffix(entry.location.file_path, "net.odin") {
+			n += 1
+		}
 	}
 	return n
 }

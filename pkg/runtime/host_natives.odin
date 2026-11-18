@@ -26,20 +26,30 @@ host_dispatch :: proc "c" (global: rawptr, cf: [^]u64, cb: jsc.JSObjectCallAsFun
 	context = runtime.default_context() // valid allocator for the overflow slice below
 	ctx := jsc.JSContextRef(global)
 	argc := int(u32(cf[jsc.CALL_FRAME_ARGC_SLOT] & 0xFFFFFFFF)) - 1 // minus `this`
-	if argc < 0 do argc = 0
+
+	if argc < 0 {
+		argc = 0
+	}
+
 	// Deliver every argument. Fixed stack buffer for the common small case; a
 	// genuinely variadic caller (setTimeout(fn, delay, ...args)) that overflows
 	// it uses a temp slice rather than being silently truncated.
 	stack_args: [16]jsc.JSValueRef
 	args: []jsc.JSValueRef = stack_args[:]
+
 	if argc > len(stack_args) {
 		overflow, alloc_err := make([]jsc.JSValueRef, argc, context.temp_allocator)
+
 		// Fail closed, same rule as a dispatch miss: a nil slice faults at &args[0]
 		// and a truncated one would run the native against arguments it was never
 		// passed. Reachable only at >16 args under temp-arena OOM.
-		if alloc_err != nil do return host_dispatch_fail(ctx, "lava: host native dispatch failed (argument allocation)")
+		if alloc_err != nil {
+			return host_dispatch_fail(ctx, "lava: host native dispatch failed (argument allocation)")
+		}
+
 		args = overflow
 	}
+
 	for i in 0 ..< argc {
 		args[i] = jsc.JSValueRef(uintptr(cf[jsc.CALL_FRAME_FIRST_ARG_SLOT + i]))
 	}
@@ -47,36 +57,53 @@ host_dispatch :: proc "c" (global: rawptr, cf: [^]u64, cb: jsc.JSObjectCallAsFun
 	this := host_cell_object(cf[jsc.CALL_FRAME_THIS_SLOT])
 	exception: jsc.JSValueRef
 	ret := cb(ctx, callee, this, c.size_t(argc), &args[0], &exception)
+
 	if exception != nil {
 		// Same rule as host_dispatch_fail: never return a value we know is not an
 		// exception. Here g_host_ok is implied (we got here via a table hit, so
 		// registration ran on this thread), but the check costs nothing and keeps
 		// the two sites from drifting.
-		if !jsc.host_throw(ctx, exception) do return transmute(i64)jsc.JSValueMakeUndefined(ctx)
+		if !jsc.host_throw(ctx, exception) {
+			return transmute(i64)jsc.JSValueMakeUndefined(ctx)
+		}
+
 		return transmute(i64)exception
 	}
-	if ret == nil do return transmute(i64)jsc.JSValueMakeUndefined(ctx)
+
+	if ret == nil {
+		return transmute(i64)jsc.JSValueMakeUndefined(ctx)
+	}
+
 	return transmute(i64)ret
 }
 
 @(private = "file")
 host_cell_object :: proc "contextless" (bits: u64) -> jsc.JSObjectRef {
-	if bits == 0 || (bits & jsc.VALUE_NOT_CELL_MASK) != 0 do return nil
+	if bits == 0 || (bits & jsc.VALUE_NOT_CELL_MASK) != 0 {
+		return nil
+	}
+
 	return jsc.JSObjectRef(uintptr(bits))
 }
 
 // js_int_arg reads an integer argument without a C-API call when it is an
 // immediate int32 (the common case for offsets/lengths from the JS layer).
 js_int_arg :: proc(ctx: jsc.JSContextRef, v: jsc.JSValueRef) -> int {
-	if x, ok := jsc.value_int32(ctx, v); ok do return int(x)
+	if x, ok := jsc.value_int32(ctx, v); ok {
+		return int(x)
+	}
+
 	return int(jsc.JSValueToNumber(ctx, v, nil))
 }
 
 // js_int_value encodes an integer result without a C-API call when possible.
 js_int_value :: proc(ctx: jsc.JSContextRef, v: int) -> jsc.JSValueRef {
 	if v >= -2147483648 && v <= 2147483647 {
-		if r, ok := jsc.make_int32(ctx, i32(v)); ok do return r
+		if r, ok := jsc.make_int32(ctx, i32(v)); ok {
+			return r
+		}
 	}
+
 	return jsc.JSValueMakeNumber(ctx, f64(v))
 }
 
@@ -141,7 +168,10 @@ g_host_tables_bound: bool
 // purpose: re-running the reserve on every injection would buy nothing.
 @(private = "file")
 bind_host_tables :: proc() {
-	if g_host_tables_bound do return
+	if g_host_tables_bound {
+		return
+	}
+
 	g_host_tables_bound = true
 	sync.atomic_add(&g_host_tables_live, 1)
 	g_host_native_fns, _ = make(map[Host_Native_Key]jsc.JSObjectRef, 64, runtime.default_allocator())
@@ -165,7 +195,10 @@ g_host_tables_live: int
 // both backings — once per worker thread per lifetime. Pinned by
 // workers_give_back_their_host_tables (pkg/runtime/workers_test.odin).
 host_native_thread_teardown :: proc() {
-	if !g_host_tables_bound do return
+	if !g_host_tables_bound {
+		return
+	}
+
 	// Every context's entries went with it (host_natives_release_context); one still
 	// here means a context outlived the thread, and its names would leak with it.
 	assert(len(g_host_native_fns) == 0, "host_native_thread_teardown: a context on this thread is still alive")
@@ -191,9 +224,11 @@ generic_native_host_cb :: proc "c" (global: rawptr, cf: [^]u64) -> i64 {
 	// bench/micro/encoding.js, zero misses). Keeping the cold path in its own
 	// #force_no_inline proc restores the previous codegen instruction-for-instruction.
 	cb, found := g_host_native_cbs[rawptr(uintptr(cf[jsc.CALL_FRAME_CALLEE_SLOT]))]
+
 	if !found {
 		return host_dispatch_fail(jsc.JSContextRef(global), "lava: host native dispatch failed (unregistered callee)")
 	}
+
 	return host_dispatch(global, cf, cb)
 }
 
@@ -223,6 +258,7 @@ generic_native_host_cb :: proc "c" (global: rawptr, cf: [^]u64) -> i64 {
 host_dispatch_fail :: #force_no_inline proc "c" (ctx: jsc.JSContextRef, why: string) -> i64 {
 	context = runtime.default_context()
 	exception := make_js_error(ctx, why)
+
 	// Both guards matter. make_js_error can return nil under OOM; returning it
 	// would hand JSC the EMPTY JSValue with no pending exception, which is its
 	// TDZ sentinel and isCell()-true — a segfault or a bogus "cannot access
@@ -233,8 +269,14 @@ host_dispatch_fail :: #force_no_inline proc "c" (ctx: jsc.JSContextRef, why: str
 	// ordinary VALUE the moment that reasoning rots, and that is fail-open
 	// again. Undefined is the honest answer when we cannot raise: wrong, but not
 	// a crash and not a forged success.
-	if exception == nil do return transmute(i64)jsc.JSValueMakeUndefined(ctx)
-	if !jsc.host_throw(ctx, exception) do return transmute(i64)jsc.JSValueMakeUndefined(ctx)
+	if exception == nil {
+		return transmute(i64)jsc.JSValueMakeUndefined(ctx)
+	}
+
+	if !jsc.host_throw(ctx, exception) {
+		return transmute(i64)jsc.JSValueMakeUndefined(ctx)
+	}
+
 	return transmute(i64)exception
 }
 
@@ -273,9 +315,12 @@ host_native_create :: proc(
 	arity: int = 1,
 ) -> jsc.JSObjectRef {
 	key := Host_Native_Key{rawptr(ctx), transmute(rawptr)cb, name}
+
 	// Lookup first: the hit path is hot (measured ~60k hits per 20k fs.statSync,
 	// three per Stats instance) and must not pay for anything below it.
-	if fn, hit := g_host_native_fns[key]; hit do return fn
+	if fn, hit := g_host_native_fns[key]; hit {
+		return fn
+	}
 
 	// State FIRST, before anything is created. Names are cloned through the
 	// Runtime_State's allocator, not the ambient one: this runs from
@@ -292,14 +337,22 @@ host_native_create :: proc(
 	// stateless (embedder) context used to mint a JSFunction, protect it, bind two
 	// maps and then discard all three on EVERY injection.
 	state := get_state_from_ctx(ctx)
-	if state == nil do return nil
+
+	if state == nil {
+		return nil
+	}
 
 	fn, ok := jsc.host_function_create(ctx, name, generic_native_host_cb, arity)
-	if !ok || fn == nil do return nil
+
+	if !ok || fn == nil {
+		return nil
+	}
+
 	jsc.JSValueProtect(ctx, jsc.JSValueRef(fn))
 	bind_host_tables()
 	alloc := state.allocator
 	cloned, clone_err := strings.clone(name, alloc)
+
 	if clone_err != nil {
 		// Raw unprotect on purpose, unlike the sweep below: a mid-run rollback of
 		// the protect taken above, with the context fully healthy.
@@ -308,7 +361,9 @@ host_native_create :: proc(
 		jsc.JSValueUnprotect(ctx, jsc.JSValueRef(fn))
 		return nil
 	}
+
 	key.name = cloned // outlive the caller's (possibly temp) string
+
 	// CHECKED inserts. A bare `m[k] = v` discards the allocator error, and a half
 	// -inserted pair is worse than no cache: an entry in cbs that fns does not
 	// know about is unreachable from the sweep (it walks fns keys), so it would
@@ -322,12 +377,14 @@ host_native_create :: proc(
 		jsc.JSValueUnprotect(ctx, jsc.JSValueRef(fn))
 		return nil
 	}
+
 	if map_insert(&g_host_native_cbs, rawptr(fn), cb) == nil {
 		delete_key(&g_host_native_fns, key)
 		delete(cloned, alloc)
 		jsc.JSValueUnprotect(ctx, jsc.JSValueRef(fn))
 		return nil
 	}
+
 	return fn
 }
 
@@ -345,7 +402,10 @@ host_natives_release_context :: proc(ctx: jsc.JSContextRef, alloc: mem.Allocator
 	// would silently leave live entries keyed by a dead context — the exact
 	// use-after-free this sweep exists to prevent, with no diagnostic.
 	for key, fn in g_host_native_fns {
-		if key.ctx != rawptr(ctx) do continue
+		if key.ctx != rawptr(ctx) {
+			continue
+		}
+
 		// Through the shared helper, NOT a raw JSValueUnprotect: it skips the
 		// unprotect on Windows on purpose (final teardown races the VM's GC/JIT
 		// workers and exits 127; the VM is intentionally leaked there anyway).

@@ -43,7 +43,11 @@ parse_http_url_cases :: proc(t: ^testing.T) {
 	for c in cases {
 		host, port, path, scheme, ok := lava_runtime.parse_http_url(c.url)
 		testing.expectf(t, ok == c.ok, "%s: ok=%v want %v", c.url, ok, c.ok)
-		if !c.ok do continue
+
+		if !c.ok {
+			continue
+		}
+
 		testing.expectf(t, host == c.host, "%s: host=%q want %q", c.url, host, c.host)
 		testing.expectf(t, port == c.port, "%s: port=%d want %d", c.url, port, c.port)
 		testing.expectf(t, path == c.path, "%s: path=%q want %q", c.url, path, c.path)
@@ -78,7 +82,11 @@ fetch_parse_chunk_size_cases :: proc(t: ^testing.T) {
 	for c in cases {
 		size, ok := lava_runtime.fetch_parse_chunk_size(c.text)
 		testing.expectf(t, ok == c.ok, "%q: ok=%v want %v", c.text, ok, c.ok)
-		if !c.ok do continue
+
+		if !c.ok {
+			continue
+		}
+
 		testing.expectf(t, size == c.size, "%q: size=%d want %d", c.text, size, c.size)
 	}
 }

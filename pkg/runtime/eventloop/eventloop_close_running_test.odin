@@ -57,7 +57,10 @@ close_begin_never_disposes_a_job_its_worker_is_running :: proc(t: ^testing.T) {
 	job := new(Held_Job, heap)
 	testing.expect(t, pool_submit(loop, held_work, held_done, job, held_dispose, held_cancel))
 	deadline := time.tick_add(time.tick_now(), 2 * time.Second)
-	for !sync.atomic_load(&job.started) && time.tick_diff(time.tick_now(), deadline) > 0 do time.sleep(time.Millisecond)
+	for !sync.atomic_load(&job.started) && time.tick_diff(time.tick_now(), deadline) > 0 {
+		time.sleep(time.Millisecond)
+	}
+
 	if !sync.atomic_load(&job.started) {
 		// Still queued: close_begin disposes it outright, and no worker holds it.
 		destroy(loop)
@@ -68,6 +71,7 @@ close_begin_never_disposes_a_job_its_worker_is_running :: proc(t: ^testing.T) {
 
 	busy := close_begin(loop)
 	disposed := sync.atomic_load(&job.dispose)
+
 	if disposed != 0 || !busy {
 		// Leave the worker blocked: see the file comment.
 		testing.expectf(
@@ -79,11 +83,14 @@ close_begin_never_disposes_a_job_its_worker_is_running :: proc(t: ^testing.T) {
 		)
 		return
 	}
+
 	testing.expect_value(t, sync.atomic_load(&job.cancel), 1)
 
 	sync.sema_post(&job.gate)
 	deadline = time.tick_add(time.tick_now(), 3 * time.Second)
-	for !close_ready(loop) && time.tick_diff(time.tick_now(), deadline) > 0 do time.sleep(time.Millisecond)
+	for !close_ready(loop) && time.tick_diff(time.tick_now(), deadline) > 0 {
+		time.sleep(time.Millisecond)
+	}
 	close_finish(loop)
 	free(loop, heap)
 	testing.expect_value(t, sync.atomic_load(&job.dispose), 1)

@@ -86,29 +86,46 @@ when ODIN_OS == .Linux {
 
 	@(private = "file")
 	ensure_view :: proc(ctx: JSContextRef) {
-		if g_view_checked do return
+		if g_view_checked {
+			return
+		}
+
 		// Soft failures (nil create) leave g_view_checked false so a later call
 		// retries. Layout disagreements after successful allocates latch closed.
 
 		a := JSObjectMakeTypedArrayWithBytesNoCopy(ctx, .Uint8Array, &g_probe_a[0], len(g_probe_a), nil, nil, nil)
-		if a == nil do return
+
+		if a == nil {
+			return
+		}
+
 		JSValueProtect(ctx, JSValueRef(a))
 		defer JSValueUnprotect(ctx, JSValueRef(a))
 		b := JSObjectMakeTypedArrayWithBytesNoCopy(ctx, .Uint8Array, &g_probe_b[0], len(g_probe_b), nil, nil, nil)
-		if b == nil do return
+
+		if b == nil {
+			return
+		}
+
 		JSValueProtect(ctx, JSValueRef(b))
 		defer JSValueUnprotect(ctx, JSValueRef(b))
 		cc := JSObjectMakeTypedArrayWithBytesNoCopy(ctx, .Uint8Array, &g_probe_c[0], len(g_probe_c), nil, nil, nil)
-		if cc == nil do return
+
+		if cc == nil {
+			return
+		}
+
 		JSValueProtect(ctx, JSValueRef(cc))
 		defer JSValueUnprotect(ctx, JSValueRef(cc))
 
 		pa, pb, pc := uintptr(rawptr(a)), uintptr(rawptr(b)), uintptr(rawptr(cc))
 		ty := (^u8)(pa + JSCELL_TYPE_OFFSET)^
+
 		if (^u8)(pb + JSCELL_TYPE_OFFSET)^ != ty || (^u8)(pc + JSCELL_TYPE_OFFSET)^ != ty {
 			g_view_checked = true
 			return
 		}
+
 		vec_off: uintptr
 		vec_found := false
 		for cand: uintptr = 8; cand <= 120; cand += 8 {
@@ -120,6 +137,7 @@ when ODIN_OS == .Linux {
 				break
 			}
 		}
+
 		if !vec_found {
 			g_view_checked = true
 			return
@@ -132,7 +150,10 @@ when ODIN_OS == .Linux {
 		len_found := false
 		len_u64 := false
 		for cand: uintptr = 8; cand <= 120; cand += 8 {
-			if cand == vec_off do continue
+			if cand == vec_off {
+				continue
+			}
+
 			if (^u64)(pa + cand)^ == len(g_probe_a) &&
 			   (^u64)(pb + cand)^ == len(g_probe_b) &&
 			   (^u64)(pc + cand)^ == len(g_probe_c) {
@@ -142,9 +163,13 @@ when ODIN_OS == .Linux {
 				break
 			}
 		}
+
 		if !len_found {
 			for cand: uintptr = 8; cand <= 124; cand += 4 {
-				if cand >= vec_off && cand < vec_off + 8 do continue
+				if cand >= vec_off && cand < vec_off + 8 {
+					continue
+				}
+
 				if (^u32)(pa + cand)^ == len(g_probe_a) &&
 				   (^u32)(pb + cand)^ == len(g_probe_b) &&
 				   (^u32)(pc + cand)^ == len(g_probe_c) {
@@ -154,10 +179,12 @@ when ODIN_OS == .Linux {
 				}
 			}
 		}
+
 		if !len_found {
 			g_view_checked = true
 			return
 		}
+
 		// Disambiguate the width with a view at a NON-ZERO byteOffset. All three
 		// probes above have byteOffset 0, so if m_length is really u32 with an
 		// adjacent u32 byteOffset, a u64 read at len_off equals the length anyway
@@ -170,33 +197,41 @@ when ODIN_OS == .Linux {
 			OFF :: 16
 			LEN :: 32
 			ab := JSObjectMakeArrayBufferWithBytesNoCopy(ctx, &g_probe_d[0], len(g_probe_d), nil, nil, nil)
-			if ab == nil do return // soft
+
+			if ab == nil {return} 	// soft
 			JSValueProtect(ctx, JSValueRef(ab))
 			defer JSValueUnprotect(ctx, JSValueRef(ab))
 			global := JSContextGetGlobalObject(ctx)
 			u8_name := JSStringCreateWithUTF8CString("Uint8Array")
 			defer JSStringRelease(u8_name)
 			u8_ctor := JSObjectGetProperty(ctx, global, u8_name, nil)
+
 			if u8_ctor == nil || !JSValueIsObject(ctx, u8_ctor) {
 				g_view_checked = true
 				return
 			}
+
 			args := [3]JSValueRef{JSValueRef(ab), JSValueMakeNumber(ctx, f64(OFF)), JSValueMakeNumber(ctx, f64(LEN))}
 			ov := JSObjectCallAsConstructor(ctx, JSObjectRef(u8_ctor), 3, &args[0], nil)
-			if ov == nil do return // soft
+
+			if ov == nil {return} 	// soft
 			JSValueProtect(ctx, JSValueRef(ov))
 			defer JSValueUnprotect(ctx, JSValueRef(ov))
 			pv := uintptr(rawptr(ov))
+
 			if (^u8)(pv + JSCELL_TYPE_OFFSET)^ != ty {
 				g_view_checked = true
 				return
 			}
+
 			// m_vector already includes byteOffset.
 			if (^rawptr)(pv + vec_off)^ != rawptr(&g_probe_d[OFF]) {
 				g_view_checked = true
 				return
 			}
+
 			read := len_u64 ? int((^u64)(pv + len_off)^) : int((^u32)(pv + len_off)^)
+
 			if read != LEN {
 				// Wide read folded in byteOffset; the field is really u32.
 				if len_u64 && int((^u32)(pv + len_off)^) == LEN {
@@ -279,9 +314,11 @@ when ODIN_OS == .Linux {
 		defer JSStringRelease(max_name)
 		u8_ctor := JSObjectGetProperty(ctx, global, u8_name, nil)
 		ab_ctor := JSObjectGetProperty(ctx, global, ab_name, nil)
+
 		if u8_ctor == nil || !JSValueIsObject(ctx, u8_ctor) || ab_ctor == nil || !JSValueIsObject(ctx, ab_ctor) {
 			return 0, {}, .Mismatch
 		}
+
 		// Rooted by the global object only while nobody reassigns it; protect.
 		JSValueProtect(ctx, u8_ctor)
 		defer JSValueUnprotect(ctx, u8_ctor)
@@ -290,63 +327,106 @@ when ODIN_OS == .Linux {
 
 		fast_args := [1]JSValueRef{JSValueMakeNumber(ctx, 4)}
 		fast := JSObjectCallAsConstructor(ctx, JSObjectRef(u8_ctor), 1, &fast_args[0], nil)
-		if fast == nil do return 0, {}, .Soft
+
+		if fast == nil {
+			return 0, {}, .Soft
+		}
+
 		JSValueProtect(ctx, JSValueRef(fast))
 		defer JSValueUnprotect(ctx, JSValueRef(fast))
 		big_args := [1]JSValueRef{JSValueMakeNumber(ctx, 4096)}
 		big := JSObjectCallAsConstructor(ctx, JSObjectRef(u8_ctor), 1, &big_args[0], nil)
-		if big == nil do return 0, {}, .Soft
+
+		if big == nil {
+			return 0, {}, .Soft
+		}
+
 		JSValueProtect(ctx, JSValueRef(big))
 		defer JSValueUnprotect(ctx, JSValueRef(big))
 		// The NoCopy offset view from ensure_view is gone by now; one more
 		// ArrayBuffer-backed wasteful view stands in for it.
 		ab := JSObjectMakeArrayBufferWithBytesNoCopy(ctx, &g_probe_d[0], len(g_probe_d), nil, nil, nil)
-		if ab == nil do return 0, {}, .Soft
+
+		if ab == nil {
+			return 0, {}, .Soft
+		}
+
 		JSValueProtect(ctx, JSValueRef(ab))
 		defer JSValueUnprotect(ctx, JSValueRef(ab))
 		wv_args := [1]JSValueRef{JSValueRef(ab)}
 		wv := JSObjectCallAsConstructor(ctx, JSObjectRef(u8_ctor), 1, &wv_args[0], nil)
-		if wv == nil do return 0, {}, .Soft
+
+		if wv == nil {
+			return 0, {}, .Soft
+		}
+
 		JSValueProtect(ctx, JSValueRef(wv))
 		defer JSValueUnprotect(ctx, JSValueRef(wv))
 
 		opts := JSObjectMake(ctx, nil, nil)
-		if opts == nil do return 0, {}, .Soft
+
+		if opts == nil {
+			return 0, {}, .Soft
+		}
+
 		JSValueProtect(ctx, JSValueRef(opts))
 		defer JSValueUnprotect(ctx, JSValueRef(opts))
 		JSObjectSetProperty(ctx, opts, max_name, JSValueMakeNumber(ctx, 16), {}, nil)
 		rab_args := [2]JSValueRef{JSValueMakeNumber(ctx, 8), JSValueRef(opts)}
 		rab := JSObjectCallAsConstructor(ctx, JSObjectRef(ab_ctor), 2, &rab_args[0], nil)
-		if rab == nil do return 0, {}, .Soft
+
+		if rab == nil {
+			return 0, {}, .Soft
+		}
+
 		JSValueProtect(ctx, JSValueRef(rab))
 		defer JSValueUnprotect(ctx, JSValueRef(rab))
 		tracking_args := [1]JSValueRef{JSValueRef(rab)}
 		tracking := JSObjectCallAsConstructor(ctx, JSObjectRef(u8_ctor), 1, &tracking_args[0], nil)
-		if tracking == nil do return 0, {}, .Soft
+
+		if tracking == nil {
+			return 0, {}, .Soft
+		}
+
 		JSValueProtect(ctx, JSValueRef(tracking))
 		defer JSValueUnprotect(ctx, JSValueRef(tracking))
 		fixed_args := [3]JSValueRef{JSValueRef(rab), JSValueMakeNumber(ctx, 0), JSValueMakeNumber(ctx, 4)}
 		bounded := JSObjectCallAsConstructor(ctx, JSObjectRef(u8_ctor), 3, &fixed_args[0], nil)
-		if bounded == nil do return 0, {}, .Soft
+
+		if bounded == nil {
+			return 0, {}, .Soft
+		}
+
 		JSValueProtect(ctx, JSValueRef(bounded))
 		defer JSValueUnprotect(ctx, JSValueRef(bounded))
 
 		pf, pg, pw := uintptr(rawptr(fast)), uintptr(rawptr(big)), uintptr(rawptr(wv))
 		pt, pr := uintptr(rawptr(tracking)), uintptr(rawptr(bounded))
 		for p in ([5]uintptr{pf, pg, pw, pt, pr}) {
-			if (^u8)(p + JSCELL_TYPE_OFFSET)^ != ty do return 0, {}, .Mismatch
+			if (^u8)(p + JSCELL_TYPE_OFFSET)^ != ty {
+				return 0, {}, .Mismatch
+			}
 		}
 
 		byte_at :: #force_inline proc(p, off: uintptr) -> u8 {return (^u8)(p + off)^}
 		for cand := max(vec_off, len_off) + 8; cand <= 120; cand += 1 {
 			w := byte_at(wasteful[0], cand)
+
 			if byte_at(wasteful[1], cand) != w || byte_at(wasteful[2], cand) != w || byte_at(pw, cand) != w {
 				continue
 			}
+
 			set := [3]u8{byte_at(pf, cand), byte_at(pg, cand), w}
 			t, r := byte_at(pt, cand), byte_at(pr, cand)
-			if t == set[0] || t == set[1] || t == set[2] do continue
-			if r == set[0] || r == set[1] || r == set[2] do continue
+
+			if t == set[0] || t == set[1] || t == set[2] {
+				continue
+			}
+
+			if r == set[0] || r == set[1] || r == set[2] {
+				continue
+			}
+
 			return cand, set, .Found
 		}
 		return 0, {}, .Mismatch
@@ -382,24 +462,44 @@ when ODIN_OS == .Linux {
 	// of the native call.
 	typed_array_bytes :: proc(ctx: JSContextRef, value: JSValueRef) -> (data: []byte, ok: bool) {
 		ensure_view(ctx)
-		if !g_view_ok do return nil, false
+
+		if !g_view_ok {
+			return nil, false
+		}
+
 		p := uintptr(value)
-		if p == 0 || (u64(p) & VALUE_NOT_CELL_MASK) != 0 do return nil, false
-		if (^u8)(p + JSCELL_TYPE_OFFSET)^ != g_view_type do return nil, false
+
+		if p == 0 || (u64(p) & VALUE_NOT_CELL_MASK) != 0 {
+			return nil, false
+		}
+
+		if (^u8)(p + JSCELL_TYPE_OFFSET)^ != g_view_type {
+			return nil, false
+		}
+
 		// A resizable- or growable-backed view: m_length is not its length.
 		mode := (^u8)(p + g_mode_off)^
-		if mode != g_mode_fixed[0] && mode != g_mode_fixed[1] && mode != g_mode_fixed[2] do return nil, false
+
+		if mode != g_mode_fixed[0] && mode != g_mode_fixed[1] && mode != g_mode_fixed[2] {
+			return nil, false
+		}
+
 		vec := (^rawptr)(p + g_vec_off)^
 		n := g_len_u64 ? int((^u64)(p + g_len_off)^) : int((^u32)(p + g_len_off)^)
+
 		if vec == nil || n < 0 {
 			// Detached (or zero-length wasteful) views have a null vector and a
 			// zeroed length; report those as a valid empty view.
 			return nil, n == 0
 		}
+
 		// Defense in depth against a mis-probed length field: a real Uint8Array
 		// never exceeds MAX_VIEW_LENGTH, so anything larger means the read is
 		// bogus — fall back to the C API rather than hand out a wild slice.
-		if n > MAX_VIEW_LENGTH do return nil, false
+		if n > MAX_VIEW_LENGTH {
+			return nil, false
+		}
+
 		return ([^]byte)(vec)[:n], true
 	}
 } else {

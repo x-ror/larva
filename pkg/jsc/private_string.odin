@@ -103,13 +103,19 @@ when ODIN_OS == .Linux {
 
 	@(private = "file")
 	ensure_resolved :: proc() {
-		if g_checked do return
+		if g_checked {
+			return
+		}
+
 		g_checked = true
 
 		p8 := dlsym(nil, "_ZN3WTF10StringImpl19createUninitializedEmRSt4spanIhLm18446744073709551615EE")
 		p16 := dlsym(nil, "_ZN3WTF10StringImpl19createUninitializedEmRSt4spanIDsLm18446744073709551615EE")
 		pt := dlsym(nil, "_ZN14OpaqueJSString9tryCreateEON3WTF6StringE")
-		if p8 == nil || p16 == nil || pt == nil do return
+
+		if p8 == nil || p16 == nil || pt == nil {
+			return
+		}
 
 		g_create8 = transmute(Create_Uninit8_Proc)p8
 		g_create16 = transmute(Create_Uninit16_Proc)p16
@@ -119,7 +125,10 @@ when ODIN_OS == .Linux {
 		// (ensure_resolved re-entry is cut off by g_checked above).
 		g_ok = true
 		g_ok = self_test()
-		if g_ok do g_read_ok = probe_read_layout()
+
+		if g_ok {
+			g_read_ok = probe_read_layout()
+		}
 	}
 
 	// string_bridge_latched_off reports whether ensure_resolved reached a
@@ -140,24 +149,47 @@ when ODIN_OS == .Linux {
 	@(private = "file")
 	self_test :: proc() -> bool {
 		str8, d8, ok8 := string_alloc8(3)
-		if !ok8 do return false
+
+		if !ok8 {
+			return false
+		}
+
 		d8[0] = 'a'
 		d8[1] = 'b'
 		d8[2] = 'c'
 		defer JSStringRelease(str8)
-		if JSStringGetLength(str8) != 3 do return false
+
+		if JSStringGetLength(str8) != 3 {
+			return false
+		}
+
 		buf: [8]byte
 		n := JSStringGetUTF8CString(str8, &buf[0], len(buf))
-		if n != 4 || buf[0] != 'a' || buf[1] != 'b' || buf[2] != 'c' do return false
+
+		if n != 4 || buf[0] != 'a' || buf[1] != 'b' || buf[2] != 'c' {
+			return false
+		}
 
 		str16, d16, ok16 := string_alloc16(2)
-		if !ok16 do return false
+
+		if !ok16 {
+			return false
+		}
+
 		defer JSStringRelease(str16)
 		d16[0] = 0x4F60
 		d16[1] = 0x597D
-		if JSStringGetLength(str16) != 2 do return false
+
+		if JSStringGetLength(str16) != 2 {
+			return false
+		}
+
 		chars := JSStringGetCharactersPtr(str16)
-		if chars == nil || chars[0] != 0x4F60 || chars[1] != 0x597D do return false
+
+		if chars == nil || chars[0] != 0x4F60 || chars[1] != 0x597D {
+			return false
+		}
+
 		return true
 	}
 
@@ -172,38 +204,70 @@ when ODIN_OS == .Linux {
 		impl8: rawptr
 		span8: Wtf_Span8
 		g_create8(&impl8, 3, &span8)
-		if impl8 == nil || span8.data == nil do return false
+
+		if impl8 == nil || span8.data == nil {
+			return false
+		}
+
 		span8.data[0] = 'x'
 		span8.data[1] = 'y'
 		span8.data[2] = 'z'
 		s8: rawptr
 		moved8 := impl8
 		g_try_create(&s8, &moved8)
-		if s8 == nil do return false
+
+		if s8 == nil {
+			return false
+		}
+
 		defer JSStringRelease(JSStringRef(s8))
 
 		impl16: rawptr
 		span16: Wtf_Span16
 		g_create16(&impl16, 3, &span16)
-		if impl16 == nil || span16.data == nil do return false
+
+		if impl16 == nil || span16.data == nil {
+			return false
+		}
+
 		span16.data[0] = 0x4F60
 		span16.data[1] = 0x597D
 		span16.data[2] = 0x0021
 		s16: rawptr
 		moved16 := impl16
 		g_try_create(&s16, &moved16)
-		if s16 == nil do return false
+
+		if s16 == nil {
+			return false
+		}
+
 		defer JSStringRelease(JSStringRef(s16))
 
 		// StringImplShape: length and storage pointer where expected, on both widths.
-		if (^u32)(uintptr(impl8) + IMPL_LENGTH_OFFSET)^ != 3 do return false
-		if (^u32)(uintptr(impl16) + IMPL_LENGTH_OFFSET)^ != 3 do return false
-		if (^rawptr)(uintptr(impl8) + IMPL_DATA_OFFSET)^ != rawptr(span8.data) do return false
-		if (^rawptr)(uintptr(impl16) + IMPL_DATA_OFFSET)^ != rawptr(span16.data) do return false
+		if (^u32)(uintptr(impl8) + IMPL_LENGTH_OFFSET)^ != 3 {
+			return false
+		}
+
+		if (^u32)(uintptr(impl16) + IMPL_LENGTH_OFFSET)^ != 3 {
+			return false
+		}
+
+		if (^rawptr)(uintptr(impl8) + IMPL_DATA_OFFSET)^ != rawptr(span8.data) {
+			return false
+		}
+
+		if (^rawptr)(uintptr(impl16) + IMPL_DATA_OFFSET)^ != rawptr(span16.data) {
+			return false
+		}
 
 		// OpaqueJSString holds its String (one StringImpl*) right after the refcount.
-		if (^rawptr)(uintptr(s8) + OPAQUE_STRING_IMPL_OFFSET)^ != impl8 do return false
-		if (^rawptr)(uintptr(s16) + OPAQUE_STRING_IMPL_OFFSET)^ != impl16 do return false
+		if (^rawptr)(uintptr(s8) + OPAQUE_STRING_IMPL_OFFSET)^ != impl8 {
+			return false
+		}
+
+		if (^rawptr)(uintptr(s16) + OPAQUE_STRING_IMPL_OFFSET)^ != impl16 {
+			return false
+		}
 
 		// The two impls were created identically except for storage width, and
 		// neither has a cached hash yet, so the flag words must differ in exactly
@@ -216,7 +280,8 @@ when ODIN_OS == .Linux {
 		f8 := (^u32)(uintptr(impl8) + IMPL_FLAGS_OFFSET)^
 		f16 := (^u32)(uintptr(impl16) + IMPL_FLAGS_OFFSET)^
 		diff := f8 ~ f16
-		if diff == 0 || (diff & (diff - 1)) != 0 do return false // require exactly one bit
+
+		if diff == 0 || (diff & (diff - 1)) != 0 {return false} 	// require exactly one bit
 		g_flag_mask = diff
 		g_flag_val8 = f8 & diff
 
@@ -229,12 +294,18 @@ when ODIN_OS == .Linux {
 		pub8 := JSStringCreateWithUTF8CString("abc")
 		defer JSStringRelease(pub8)
 		d, ok := string_chars8(pub8)
-		if !ok || len(d) != 3 || d[0] != 'a' || d[1] != 'b' || d[2] != 'c' do return false
+
+		if !ok || len(d) != 3 || d[0] != 'a' || d[1] != 'b' || d[2] != 'c' {
+			return false
+		}
 
 		wide := [1]JSChar{0x4F60}
 		pub16 := JSStringCreateWithCharacters(&wide[0], 1)
 		defer JSStringRelease(pub16)
-		if _, ok16 := string_chars8(pub16); ok16 do return false
+
+		if _, ok16 := string_chars8(pub16); ok16 {
+			return false
+		}
 
 		return true
 	}
@@ -260,17 +331,25 @@ when ODIN_OS == .Linux {
 
 	@(private = "file")
 	ensure_value_reads :: proc(ctx: JSContextRef) {
-		if g_val_checked do return
+		if g_val_checked {
+			return
+		}
+
 		// Need StringImpl layout from ensure_resolved → probe_read_layout first.
 		ensure_resolved()
+
 		if !g_read_ok {
 			// Permanent: write path ABI failed. Soft: not yet resolved — retry later.
-			if g_checked do g_val_checked = true
+			if g_checked {
+				g_val_checked = true
+			}
+
 			return
 		}
 
 		str8, d8, ok8 := string_alloc8(3)
-		if !ok8 do return // transient; leave g_val_checked false
+
+		if !ok8 {return} 	// transient; leave g_val_checked false
 		defer JSStringRelease(str8)
 		d8[0] = 'q'
 		d8[1] = 'r'
@@ -282,10 +361,12 @@ when ODIN_OS == .Linux {
 		// unrooted cell cannot be collected under us.)
 		v := JSValueMakeString(ctx, str8)
 		p := uintptr(v)
+
 		if p == 0 || (u64(p) & VALUE_NOT_CELL_MASK) != 0 {
 			g_val_checked = true // layout/value shape wrong
 			return
 		}
+
 		ty := (^u8)(p + JSCELL_TYPE_OFFSET)^
 		off: uintptr
 		found := false
@@ -296,6 +377,7 @@ when ODIN_OS == .Linux {
 				break
 			}
 		}
+
 		if !found {
 			g_val_checked = true
 			return
@@ -303,17 +385,20 @@ when ODIN_OS == .Linux {
 
 		// Cross-check on a 16-bit string.
 		str16, d16, ok16 := string_alloc16(2)
-		if !ok16 do return // transient
+
+		if !ok16 {return} 	// transient
 		defer JSStringRelease(str16)
 		d16[0] = 0x4F60
 		d16[1] = 0x0021
 		impl16 := (^rawptr)(uintptr(str16) + OPAQUE_STRING_IMPL_OFFSET)^
 		v16 := JSValueMakeString(ctx, str16)
 		p16 := uintptr(v16)
+
 		if p16 == 0 || (u64(p16) & VALUE_NOT_CELL_MASK) != 0 {
 			g_val_checked = true
 			return
 		}
+
 		if (^u8)(p16 + JSCELL_TYPE_OFFSET)^ != ty || (^rawptr)(p16 + off)^ != impl16 {
 			g_val_checked = true
 			return
@@ -330,12 +415,24 @@ when ODIN_OS == .Linux {
 	@(private = "file")
 	value_string_impl :: proc(ctx: JSContextRef, value: JSValueRef) -> (impl: uintptr, ok: bool) {
 		ensure_value_reads(ctx)
-		if !g_val_ok do return 0, false
+
+		if !g_val_ok {
+			return 0, false
+		}
+
 		p := uintptr(value)
-		if p == 0 || (u64(p) & VALUE_NOT_CELL_MASK) != 0 do return 0, false
-		if (^u8)(p + JSCELL_TYPE_OFFSET)^ != g_string_type do return 0, false
+
+		if p == 0 || (u64(p) & VALUE_NOT_CELL_MASK) != 0 {
+			return 0, false
+		}
+
+		if (^u8)(p + JSCELL_TYPE_OFFSET)^ != g_string_type {
+			return 0, false
+		}
+
 		w := (^uintptr)(p + g_fiber_off)^
-		if w == 0 || (w & 7) != 0 do return 0, false // rope or empty fiber
+
+		if w == 0 || (w & 7) != 0 {return 0, false} 	// rope or empty fiber
 		return w, true
 	}
 
@@ -345,24 +442,45 @@ when ODIN_OS == .Linux {
 	// for the duration of the native call) and must not be written.
 	value_chars8 :: proc(ctx: JSContextRef, value: JSValueRef) -> (data: []byte, ok: bool) {
 		impl, iok := value_string_impl(ctx, value)
-		if !iok do return nil, false
+
+		if !iok {
+			return nil, false
+		}
+
 		flags := (^u32)(impl + IMPL_FLAGS_OFFSET)^
-		if flags & g_flag_mask != g_flag_val8 do return nil, false
+
+		if flags & g_flag_mask != g_flag_val8 {
+			return nil, false
+		}
+
 		length := int((^u32)(impl + IMPL_LENGTH_OFFSET)^)
 		chars := (^[^]byte)(impl + IMPL_DATA_OFFSET)^
-		if chars == nil do return nil, false
+
+		if chars == nil {
+			return nil, false
+		}
+
 		return chars[:length], true
 	}
 
 	// value_chars16 is value_chars8 for 16-bit storage (UTF-16 code units).
 	value_chars16 :: proc(ctx: JSContextRef, value: JSValueRef) -> (data: []JSChar, ok: bool) {
 		impl, iok := value_string_impl(ctx, value)
-		if !iok do return nil, false
+
+		if !iok {
+			return nil, false
+		}
+
 		flags := (^u32)(impl + IMPL_FLAGS_OFFSET)^
-		if flags & g_flag_mask == g_flag_val8 do return nil, false // 8-bit
+
+		if flags & g_flag_mask == g_flag_val8 {return nil, false} 	// 8-bit
 		length := int((^u32)(impl + IMPL_LENGTH_OFFSET)^)
 		chars := (^[^]JSChar)(impl + IMPL_DATA_OFFSET)^
-		if chars == nil do return nil, false
+
+		if chars == nil {
+			return nil, false
+		}
+
 		return chars[:length], true
 	}
 
@@ -372,14 +490,29 @@ when ODIN_OS == .Linux {
 	// the string's storage: it is valid only while the JSStringRef is alive, and
 	// the caller must not write through it.
 	string_chars8 :: proc(str: JSStringRef) -> (data: []byte, ok: bool) {
-		if !g_read_ok || str == nil do return nil, false
+		if !g_read_ok || str == nil {
+			return nil, false
+		}
+
 		impl := (^rawptr)(uintptr(str) + OPAQUE_STRING_IMPL_OFFSET)^
-		if impl == nil do return nil, false
+
+		if impl == nil {
+			return nil, false
+		}
+
 		flags := (^u32)(uintptr(impl) + IMPL_FLAGS_OFFSET)^
-		if flags & g_flag_mask != g_flag_val8 do return nil, false
+
+		if flags & g_flag_mask != g_flag_val8 {
+			return nil, false
+		}
+
 		length := int((^u32)(uintptr(impl) + IMPL_LENGTH_OFFSET)^)
 		chars := (^[^]byte)(uintptr(impl) + IMPL_DATA_OFFSET)^
-		if chars == nil do return nil, false
+
+		if chars == nil {
+			return nil, false
+		}
+
 		return chars[:length], true
 	}
 
@@ -391,10 +524,18 @@ when ODIN_OS == .Linux {
 	@(private)
 	wtf_string_impl_from_ascii :: proc(s: string) -> (impl: rawptr, ok: bool) {
 		ensure_resolved()
-		if !g_ok || len(s) == 0 do return nil, false
+
+		if !g_ok || len(s) == 0 {
+			return nil, false
+		}
+
 		span: Wtf_Span8
 		g_create8(&impl, c.size_t(len(s)), &span)
-		if impl == nil || span.data == nil || int(span.size) != len(s) do return nil, false
+
+		if impl == nil || span.data == nil || int(span.size) != len(s) {
+			return nil, false
+		}
+
 		copy(span.data[:len(s)], s)
 		return impl, true
 	}
@@ -405,11 +546,15 @@ when ODIN_OS == .Linux {
 	// g_ok is latched false only by ensure_resolved's self-test (ABI mismatch).
 	string_alloc8 :: proc(n: int) -> (str: JSStringRef, data: []byte, ok: bool) {
 		ensure_resolved()
-		if !g_ok || n <= 0 do return nil, nil, false
+
+		if !g_ok || n <= 0 {
+			return nil, nil, false
+		}
 
 		impl: rawptr
 		span: Wtf_Span8
 		g_create8(&impl, c.size_t(n), &span)
+
 		if impl == nil || span.data == nil || int(span.size) != n {
 			return nil, nil, false
 		}
@@ -417,10 +562,12 @@ when ODIN_OS == .Linux {
 		s: rawptr
 		moved := impl
 		g_try_create(&s, &moved)
+
 		if s == nil {
 			// Orphaned StringImpl (no public deref); rare. Fail this call only.
 			return nil, nil, false
 		}
+
 		return JSStringRef(s), span.data[:n], true
 	}
 
@@ -428,11 +575,15 @@ when ODIN_OS == .Linux {
 	// uninitialized storage; units are UTF-16 code units, surrogates preserved.
 	string_alloc16 :: proc(n: int) -> (str: JSStringRef, data: []JSChar, ok: bool) {
 		ensure_resolved()
-		if !g_ok || n <= 0 do return nil, nil, false
+
+		if !g_ok || n <= 0 {
+			return nil, nil, false
+		}
 
 		impl: rawptr
 		span: Wtf_Span16
 		g_create16(&impl, c.size_t(n), &span)
+
 		if impl == nil || span.data == nil || int(span.size) != n {
 			return nil, nil, false
 		}
@@ -440,9 +591,11 @@ when ODIN_OS == .Linux {
 		s: rawptr
 		moved := impl
 		g_try_create(&s, &moved)
+
 		if s == nil {
 			return nil, nil, false
 		}
+
 		return JSStringRef(s), span.data[:n], true
 	}
 } else {

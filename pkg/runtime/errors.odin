@@ -34,10 +34,14 @@ ERROR_INTRINSIC_NAMES := [?]string {
 // different object (Node's internal errors are likewise immune to user globals).
 // The JSValueIs* / JSObjectIsConstructor predicates are ABI-safe (#159).
 capture_error_intrinsics :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) {
-	if state == nil do return
+	if state == nil {
+		return
+	}
+
 	global := jsc.JSContextGetGlobalObject(ctx)
 	for name in ERROR_INTRINSIC_NAMES {
 		ctor := get_named(ctx, global, name)
+
 		if ctor != nil && jsc.JSValueIsObject(ctx, ctor) && jsc.JSObjectIsConstructor(ctx, cast(jsc.JSObjectRef)ctor) {
 			jsc.JSValueProtect(ctx, ctor)
 			state.error_intrinsics[name] = ctor
@@ -52,7 +56,11 @@ capture_error_intrinsics :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) {
 @(private = "file")
 captured_error_ctor :: proc(ctx: jsc.JSContextRef, name: string) -> jsc.JSValueRef {
 	state := get_state_from_ctx(ctx)
-	if state == nil do return nil
+
+	if state == nil {
+		return nil
+	}
+
 	return state.error_intrinsics[name]
 }
 
@@ -77,9 +85,13 @@ make_native_error :: proc(
 	args := [1]jsc.JSValueRef{msg}
 
 	err: jsc.JSValueRef
+
 	if ctor := captured_error_ctor(ctx, ctor_name); ctor != nil {
 		built := jsc.JSObjectCallAsConstructor(ctx, cast(jsc.JSObjectRef)ctor, 1, raw_data(args[:]), nil)
-		if built != nil do err = cast(jsc.JSValueRef)built
+
+		if built != nil {
+			err = cast(jsc.JSValueRef)built
+		}
 	}
 
 	if err == nil {
@@ -87,6 +99,7 @@ make_native_error :: proc(
 		// user-reachable global — JSObjectMakeError is a protected intrinsic.
 		base := jsc.JSObjectMakeError(ctx, 1, raw_data(args[:]), nil)
 		err = cast(jsc.JSValueRef)base
+
 		if ctor_name != "Error" && jsc.JSValueIsObject(ctx, err) {
 			set_named(ctx, cast(jsc.JSObjectRef)err, "name", js_string_value(ctx, ctor_name))
 		}
@@ -95,6 +108,7 @@ make_native_error :: proc(
 	if len(code) > 0 && jsc.JSValueIsObject(ctx, err) {
 		set_named(ctx, cast(jsc.JSObjectRef)err, "code", js_string_value(ctx, code))
 	}
+
 	return err
 }
 
@@ -169,7 +183,11 @@ determine_received_type :: proc(ctx: jsc.JSContextRef, value: jsc.JSValueRef) ->
 	if value_is_bigint(ctx, value) {
 		s, allocated := value_to_string(ctx, value)
 		out := fmt.tprintf("type bigint (%sn)", s)
-		if allocated do delete(s)
+
+		if allocated {
+			delete(s)
+		}
+
 		return out
 	}
 	#partial switch jsc.JSValueGetType(ctx, value) {
@@ -184,30 +202,56 @@ determine_received_type :: proc(ctx: jsc.JSContextRef, value: jsc.JSValueRef) ->
 	case .Boolean:
 		s, allocated := value_to_string(ctx, value)
 		out := fmt.tprintf("type boolean (%s)", s)
-		if allocated do delete(s)
+
+		if allocated {
+			delete(s)
+		}
+
 		return out
 	case .Number:
 		s, allocated := value_to_string(ctx, value)
 		out := fmt.tprintf("type number (%s)", s)
-		if allocated do delete(s)
+
+		if allocated {
+			delete(s)
+		}
+
 		return out
 	case .Object:
 		obj := cast(jsc.JSObjectRef)value
+
 		if jsc.JSObjectIsFunction(ctx, obj) {
 			n, allocated := value_to_string(ctx, get_named(ctx, obj, "name"))
 			out := "function (anonymous)"
-			if len(n) > 0 do out = fmt.tprintf("function %s", n)
-			if allocated do delete(n)
+
+			if len(n) > 0 {
+				out = fmt.tprintf("function %s", n)
+			}
+
+			if allocated {
+				delete(n)
+			}
+
 			return out
 		}
+
 		ctor := get_named(ctx, obj, "constructor")
+
 		if ctor != nil && jsc.JSValueIsObject(ctx, ctor) {
 			cn, allocated := value_to_string(ctx, get_named(ctx, cast(jsc.JSObjectRef)ctor, "name"))
 			out := "type object"
-			if len(cn) > 0 do out = fmt.tprintf("an instance of %s", cn)
-			if allocated do delete(cn)
+
+			if len(cn) > 0 {
+				out = fmt.tprintf("an instance of %s", cn)
+			}
+
+			if allocated {
+				delete(cn)
+			}
+
 			return out
 		}
+
 		return "type object"
 	}
 	return "type object"
@@ -221,7 +265,9 @@ determine_received_type :: proc(ctx: jsc.JSContextRef, value: jsc.JSValueRef) ->
 // object* (Object(10n)) is a real object and is handled as such, not here.
 @(private = "file")
 value_is_bigint :: proc(ctx: jsc.JSContextRef, value: jsc.JSValueRef) -> bool {
-	if jsc.JSValueIsObject(ctx, value) do return false
+	if jsc.JSValueIsObject(ctx, value) {
+		return false
+	}
 	#partial switch jsc.JSValueGetType(ctx, value) {
 	case .Undefined, .Null, .Boolean, .Number, .String, .Symbol:
 		return false

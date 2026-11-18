@@ -53,15 +53,26 @@ Watch :: struct {
 watch_pre_run :: proc(user_data: rawptr) -> bool {
 	w := cast(^Watch)user_data
 	pool := &w.loop.pool
-	if len(pool.outstanding) != 1 do return false
+
+	if len(pool.outstanding) != 1 {
+		return false
+	}
+
 	job := pool.outstanding[0]
 	deadline := time.tick_add(time.tick_now(), 2 * time.Second)
 	for {
 		sync.lock(&pool.mutex)
 		running := job.running
 		sync.unlock(&pool.mutex)
-		if running do break
-		if time.tick_diff(time.tick_now(), deadline) <= 0 do return false
+
+		if running {
+			break
+		}
+
+		if time.tick_diff(time.tick_now(), deadline) <= 0 {
+			return false
+		}
+
 		time.sleep(time.Millisecond)
 	}
 	w.started = true
@@ -82,9 +93,13 @@ watch_proc :: proc(w: ^Watch, slot: ^rawptr) {
 			sync.atomic_store(&w.released, true)
 			break
 		}
+
 		time.sleep(time.Millisecond)
 	}
-	if w.release != nil do w.release(w)
+
+	if w.release != nil {
+		w.release(w)
+	}
 }
 
 // A reader blocked in open(O_RDONLY) gets through once a writer opens; the writer
@@ -94,10 +109,12 @@ release_reader :: proc(w: ^Watch) {
 	deadline := time.tick_add(time.tick_now(), 2 * time.Second)
 	for time.tick_diff(time.tick_now(), deadline) > 0 {
 		fd := posix.open(strings.clone_to_cstring(w.fifo, context.temp_allocator), {.WRONLY, .NONBLOCK})
+
 		if fd >= 0 {
 			posix.close(fd)
 			return
 		}
+
 		time.sleep(time.Millisecond)
 	}
 }
@@ -114,10 +131,12 @@ release_writer :: proc(w: ^Watch) {
 make_test_fifo :: proc(t: ^testing.T, name: string) -> string {
 	path := fmt.aprintf("/tmp/lava-cancel-%d-%s.fifo", os.get_pid(), name)
 	os.remove(path)
+
 	if posix.mkfifo(strings.clone_to_cstring(path, context.temp_allocator), {.IRUSR, .IWUSR}) != .OK {
 		delete(path)
 		testing.fail_now(t, "mkfifo failed")
 	}
+
 	return path
 }
 
@@ -129,8 +148,15 @@ run_watched :: proc(t: ^testing.T, w: ^Watch, src: string, what: string, loc := 
 	w.fifo_fd = -1
 	result := lava.eval(src, what, &loop, false, nil, watch_pre_run, w)
 	lava.result_destroy(&result)
-	if w.th != nil do thread.destroy(w.th)
-	if w.fifo_fd >= 0 do posix.close(w.fifo_fd)
+
+	if w.th != nil {
+		thread.destroy(w.th)
+	}
+
+	if w.fifo_fd >= 0 {
+		posix.close(w.fifo_fd)
+	}
+
 	testing.expectf(t, w.started, "%s: no pool worker took the job", what, loc = loc)
 	testing.expectf(
 		t,
@@ -186,9 +212,11 @@ fs_write_file_cancel_releases_the_callback_of_a_blocked_write :: proc(t: ^testin
 dns_lookup_cancel_releases_the_callback_of_a_hanging_lookup :: proc(t: ^testing.T) {
 	@(static) conf_buf: [64]u8
 	conf := fmt.bprintf(conf_buf[:], "/tmp/lava-cancel-%d-resolv.conf", os.get_pid())
+
 	if err := os.write_entire_file(conf, transmute([]u8)string("nameserver 127.77.0.1\n")); err != nil {
 		testing.fail_now(t, "could not write the stub resolv.conf")
 	}
+
 	saved := net.dns_configuration.resolv_conf
 	net.dns_configuration.resolv_conf = conf
 	defer {

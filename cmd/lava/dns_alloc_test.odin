@@ -83,11 +83,15 @@ watched_allocator_proc :: proc(
 	mem.Allocator_Error,
 ) {
 	w := cast(^Watched_Allocator)data
+
 	if mode == .Alloc || mode == .Alloc_Non_Zeroed {
 		for p in WATCHED_PROCS {
-			if loc.procedure == p do sync.atomic_add(&w.hits, 1)
+			if loc.procedure == p {
+				sync.atomic_add(&w.hits, 1)
+			}
 		}
 	}
+
 	return w.backing.procedure(w.backing.data, mode, size, alignment, old_memory, old_size, loc)
 }
 

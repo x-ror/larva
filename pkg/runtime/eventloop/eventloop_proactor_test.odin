@@ -52,6 +52,7 @@ make_socketpair :: proc(t: ^testing.T) -> (sv: [2]linux.Fd, ok: bool) {
 		testing.expect(t, false, "socketpair failed")
 		return sv, false
 	}
+
 	return sv, true
 }
 
@@ -61,10 +62,17 @@ make_socketpair :: proc(t: ^testing.T) -> (sv: [2]linux.Fd, ok: bool) {
 proactor_recv_send_roundtrip :: proc(t: ^testing.T) {
 	loop := init()
 	defer destroy(&loop)
-	if !proactor_available(&loop) do return
+
+	if !proactor_available(&loop) {
+		return
+	}
 
 	sv, sp_ok := make_socketpair(t)
-	if !sp_ok do return
+
+	if !sp_ok {
+		return
+	}
+
 	defer linux.close(sv[0])
 	defer linux.close(sv[1])
 
@@ -83,7 +91,10 @@ proactor_recv_send_roundtrip :: proc(t: ^testing.T) {
 
 	arm_watchdog(&loop)
 	for i in 0 ..< 5 {
-		if rec.recv_done && rec.send_done do break
+		if rec.recv_done && rec.send_done {
+			break
+		}
+
 		run_once(&loop)
 	}
 	testing.expect(t, rec.send_done, "send did not complete")
@@ -99,10 +110,17 @@ proactor_recv_send_roundtrip :: proc(t: ^testing.T) {
 proactor_recv_short_read :: proc(t: ^testing.T) {
 	loop := init()
 	defer destroy(&loop)
-	if !proactor_available(&loop) do return
+
+	if !proactor_available(&loop) {
+		return
+	}
 
 	sv, sp_ok := make_socketpair(t)
-	if !sp_ok do return
+
+	if !sp_ok {
+		return
+	}
+
 	defer linux.close(sv[0])
 	defer linux.close(sv[1])
 
@@ -115,7 +133,10 @@ proactor_recv_short_read :: proc(t: ^testing.T) {
 	testing.expect(t, submit_send(&loop, uintptr(sv[1]), three[:], proactor_on_send, nil, &rec) != OP_ID_INVALID)
 	arm_watchdog(&loop)
 	for i in 0 ..< 5 {
-		if rec.recv_done && rec.send_done do break
+		if rec.recv_done && rec.send_done {
+			break
+		}
+
 		run_once(&loop)
 	}
 	testing.expect_value(t, rec.recv_res, 3)
@@ -128,10 +149,17 @@ proactor_recv_short_read :: proc(t: ^testing.T) {
 proactor_cancel_op :: proc(t: ^testing.T) {
 	loop := init()
 	defer destroy(&loop)
-	if !proactor_available(&loop) do return
+
+	if !proactor_available(&loop) {
+		return
+	}
 
 	sv, sp_ok := make_socketpair(t)
-	if !sp_ok do return
+
+	if !sp_ok {
+		return
+	}
+
 	defer linux.close(sv[0])
 	defer linux.close(sv[1])
 
@@ -142,7 +170,10 @@ proactor_cancel_op :: proc(t: ^testing.T) {
 
 	arm_watchdog(&loop)
 	for i in 0 ..< 5 {
-		if rec.recv_done do break
+		if rec.recv_done {
+			break
+		}
+
 		run_once(&loop)
 	}
 	testing.expect(t, rec.recv_done, "cancelled recv did not deliver a terminal completion")
@@ -155,15 +186,19 @@ proactor_cancel_op :: proc(t: ^testing.T) {
 @(test)
 proactor_dispose_on_destroy :: proc(t: ^testing.T) {
 	loop := init()
+
 	if !proactor_available(&loop) {
 		destroy(&loop)
 		return
 	}
+
 	sv, sp_ok := make_socketpair(t)
+
 	if !sp_ok {
 		destroy(&loop)
 		return
 	}
+
 	defer linux.close(sv[0])
 	defer linux.close(sv[1])
 
@@ -182,10 +217,17 @@ proactor_dispose_on_destroy :: proc(t: ^testing.T) {
 proactor_send_to_closed_peer :: proc(t: ^testing.T) {
 	loop := init()
 	defer destroy(&loop)
-	if !proactor_available(&loop) do return
+
+	if !proactor_available(&loop) {
+		return
+	}
 
 	sv, sp_ok := make_socketpair(t)
-	if !sp_ok do return
+
+	if !sp_ok {
+		return
+	}
+
 	linux.close(sv[0]) // close the peer; sv[1] sends into a dead connection
 	defer linux.close(sv[1])
 
@@ -194,7 +236,10 @@ proactor_send_to_closed_peer :: proc(t: ^testing.T) {
 	testing.expect(t, submit_send(&loop, uintptr(sv[1]), msg[:], proactor_on_send, nil, &rec) != OP_ID_INVALID)
 	arm_watchdog(&loop)
 	for i in 0 ..< 5 {
-		if rec.send_done do break
+		if rec.send_done {
+			break
+		}
+
 		run_once(&loop)
 	}
 	testing.expect(t, rec.send_done, "send to closed peer did not complete")
@@ -207,10 +252,17 @@ proactor_send_to_closed_peer :: proc(t: ^testing.T) {
 proactor_nil_callback_rejected :: proc(t: ^testing.T) {
 	loop := init()
 	defer destroy(&loop)
-	if !proactor_available(&loop) do return
+
+	if !proactor_available(&loop) {
+		return
+	}
 
 	sv, sp_ok := make_socketpair(t)
-	if !sp_ok do return
+
+	if !sp_ok {
+		return
+	}
+
 	defer linux.close(sv[0])
 	defer linux.close(sv[1])
 
@@ -247,7 +299,10 @@ proactor_token_encoding :: proc(t: ^testing.T) {
 proactor_slot_reuse :: proc(t: ^testing.T) {
 	loop := init()
 	defer destroy(&loop)
-	if !proactor_available(&loop) do return
+
+	if !proactor_available(&loop) {
+		return
+	}
 
 	a := uring_op_alloc_slot(&loop, proactor_on_recv, nil, nil)
 	idx := uring_op_token_index(a)
@@ -279,10 +334,15 @@ Ring_Rec :: struct {
 ring_on_recv :: proc(loop: ^Loop, ud: rawptr, res: i32, bid: u16, has_buf: bool, more: bool) {
 	rec := cast(^Ring_Rec)ud
 	rec.res, rec.has_buf, rec.more = res, has_buf, more
+
 	if has_buf && res > 0 {
 		rec.got_len = copy(rec.got[:], recv_ring_buf(loop, bid, int(res))) // copy BEFORE recycle
 	}
-	if has_buf do recv_ring_recycle(loop, bid)
+
+	if has_buf {
+		recv_ring_recycle(loop, bid)
+	}
+
 	rec.done = true
 }
 
@@ -292,7 +352,10 @@ ring_pump :: proc(t: ^testing.T, loop: ^Loop, rec: ^Ring_Rec, peer: linux.Fd, ms
 	_, _ = linux.send(peer, transmute([]u8)msg, {})
 	arm_watchdog(loop)
 	for _ in 0 ..< 64 {
-		if rec.done do break
+		if rec.done {
+			break
+		}
+
 		run_once(loop)
 	}
 }
@@ -301,10 +364,15 @@ ring_pump :: proc(t: ^testing.T, loop: ^Loop, rec: ^Ring_Rec, peer: linux.Fd, ms
 proactor_ring_recv_recycle :: proc(t: ^testing.T) {
 	loop := init()
 	defer destroy(&loop)
-	if !bufring_available(&loop) do return // ring unsupported on this kernel — skip
+
+	if !bufring_available(&loop) {return} 	// ring unsupported on this kernel — skip
 
 	sv, sp_ok := make_socketpair(t)
-	if !sp_ok do return
+
+	if !sp_ok {
+		return
+	}
+
 	defer linux.close(sv[0])
 	defer linux.close(sv[1])
 
@@ -337,7 +405,10 @@ proactor_ring_recv_recycle :: proc(t: ^testing.T) {
 		testing.expect(t, cancel_op(&loop, id), "cancel of a live multishot must report a queued cancel")
 		arm_watchdog(&loop)
 		for _ in 0 ..< 64 {
-			if loop.active_io_count == 0 do break
+			if loop.active_io_count == 0 {
+				break
+			}
+
 			run_once(&loop)
 		}
 	} else {
@@ -348,6 +419,7 @@ proactor_ring_recv_recycle :: proc(t: ^testing.T) {
 		ring_pump(t, &loop, &rec, sv[1], "world")
 		testing.expect_value(t, string(rec.got[:rec.got_len]), "world")
 	}
+
 	testing.expect_value(t, loop.active_io_count, 0)
 }
 
@@ -360,10 +432,17 @@ proactor_ring_recv_recycle :: proc(t: ^testing.T) {
 proactor_ring_forced_single_shot :: proc(t: ^testing.T) {
 	loop := init()
 	defer destroy(&loop)
-	if !bufring_available(&loop) do return
+
+	if !bufring_available(&loop) {
+		return
+	}
 
 	sv, sp_ok := make_socketpair(t)
-	if !sp_ok do return
+
+	if !sp_ok {
+		return
+	}
+
 	defer linux.close(sv[0])
 	defer linux.close(sv[1])
 
@@ -394,11 +473,19 @@ ring_fairness_timer :: proc(loop: ^Loop, ud: rawptr) {(cast(^bool)ud)^ = true}
 proactor_ring_drain_fairness :: proc(t: ^testing.T) {
 	loop := init()
 	defer destroy(&loop)
-	if !bufring_available(&loop) do return
-	if !recv_ring_multishot(&loop) do return // the monopolization concern is multishot-specific
+
+	if !bufring_available(&loop) {
+		return
+	}
+
+	if !recv_ring_multishot(&loop) {return} 	// the monopolization concern is multishot-specific
 
 	sv, sp_ok := make_socketpair(t)
-	if !sp_ok do return
+
+	if !sp_ok {
+		return
+	}
+
 	defer linux.close(sv[0])
 	defer linux.close(sv[1])
 
@@ -408,11 +495,16 @@ proactor_ring_drain_fairness :: proc(t: ^testing.T) {
 
 	fired := false
 	set_timeout(&loop, ring_fairness_timer, 0, &fired) // already due
-	for _ in 0 ..< 8 do _, _ = linux.send(sv[1], transmute([]u8)string("ping"), {})
+	for _ in 0 ..< 8 {
+		_, _ = linux.send(sv[1], transmute([]u8)string("ping"), {})
+	}
 
 	arm_watchdog(&loop)
 	for _ in 0 ..< 64 {
-		if fired && rec.done do break
+		if fired && rec.done {
+			break
+		}
+
 		run_once(&loop)
 	}
 	testing.expect(t, rec.done, "multishot recv must deliver under the bounded drain")
@@ -421,7 +513,10 @@ proactor_ring_drain_fairness :: proc(t: ^testing.T) {
 	cancel_op(&loop, id)
 	arm_watchdog(&loop)
 	for _ in 0 ..< 64 {
-		if loop.active_io_count == 0 do break
+		if loop.active_io_count == 0 {
+			break
+		}
+
 		run_once(&loop)
 	}
 	testing.expect_value(t, loop.active_io_count, 0)
@@ -434,12 +529,19 @@ proactor_ring_drain_fairness :: proc(t: ^testing.T) {
 proactor_cancel_reports_queued :: proc(t: ^testing.T) {
 	loop := init()
 	defer destroy(&loop)
-	if !proactor_available(&loop) do return
+
+	if !proactor_available(&loop) {
+		return
+	}
 
 	testing.expect(t, !cancel_op(&loop, OP_ID_INVALID), "cancel of OP_ID_INVALID must report no-op")
 
 	sv, sp_ok := make_socketpair(t)
-	if !sp_ok do return
+
+	if !sp_ok {
+		return
+	}
+
 	defer linux.close(sv[0])
 	defer linux.close(sv[1])
 
@@ -450,7 +552,10 @@ proactor_cancel_reports_queued :: proc(t: ^testing.T) {
 
 	arm_watchdog(&loop) // drain the terminal -ECANCELED so the slot releases
 	for _ in 0 ..< 64 {
-		if rec.recv_done do break
+		if rec.recv_done {
+			break
+		}
+
 		run_once(&loop)
 	}
 	testing.expect(t, !cancel_op(&loop, id), "cancel of an already-completed op must report no-op")
@@ -472,17 +577,27 @@ sendzc_on_complete :: proc(loop: ^Loop, ud: rawptr, res: i32, more: bool) {
 	rec := cast(^Send_Rec)ud
 	rec.calls += 1
 	rec.last_res = res
-	if !more do rec.saw_terminal = true
+
+	if !more {
+		rec.saw_terminal = true
+	}
 }
 
 @(test)
 proactor_send_zc_routes_and_accounts :: proc(t: ^testing.T) {
 	loop := init()
 	defer destroy(&loop)
-	if !proactor_available(&loop) do return
+
+	if !proactor_available(&loop) {
+		return
+	}
 
 	sv, sp_ok := make_socketpair(t)
-	if !sp_ok do return
+
+	if !sp_ok {
+		return
+	}
+
 	defer linux.close(sv[0])
 	defer linux.close(sv[1])
 
@@ -493,9 +608,10 @@ proactor_send_zc_routes_and_accounts :: proc(t: ^testing.T) {
 	testing.expect_value(t, loop.active_io_count, 1) // counted once at submit
 	arm_watchdog(&loop)
 	for _ in 0 ..< 64 {
-		if loop.active_io_count == 0 do break // drained to the terminal (F_MORE clear)
+		if loop.active_io_count == 0 {break} 	// drained to the terminal (F_MORE clear)
 		run_once(&loop)
 	}
+
 	testing.expect(t, rec.calls >= 1, "send_cb fired (routed to send_cb, not recv_cb/callback)")
 	testing.expect(t, rec.saw_terminal, "a terminal (more=false) CQE fired")
 	testing.expect_value(t, loop.active_io_count, 0) // released exactly once on the terminal
@@ -507,7 +623,10 @@ proactor_send_zc_routes_and_accounts :: proc(t: ^testing.T) {
 proactor_send_zc_disable :: proc(t: ^testing.T) {
 	loop := init()
 	defer destroy(&loop)
-	if !proactor_available(&loop) do return
+
+	if !proactor_available(&loop) {
+		return
+	}
 
 	disable_zc(&loop)
 	testing.expect(t, !send_zc_ok(&loop), "disable_zc clears zc_ok")

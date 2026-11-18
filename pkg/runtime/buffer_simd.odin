@@ -28,10 +28,18 @@ buffer_codec_tables_init :: proc "contextless" () {
 		g_hex_val[i] = 0xFF
 		g_b64_val[i] = 0xFF
 	}
-	for ch, v in "0123456789" do g_hex_val[ch] = u8(v)
-	for ch, v in "abcdef" do g_hex_val[ch] = u8(v) + 10
-	for ch, v in "ABCDEF" do g_hex_val[ch] = u8(v) + 10
-	for ch, v in B64_ALPHABET do g_b64_val[ch] = u8(v)
+	for ch, v in "0123456789" {
+		g_hex_val[ch] = u8(v)
+	}
+	for ch, v in "abcdef" {
+		g_hex_val[ch] = u8(v) + 10
+	}
+	for ch, v in "ABCDEF" {
+		g_hex_val[ch] = u8(v) + 10
+	}
+	for ch, v in B64_ALPHABET {
+		g_b64_val[ch] = u8(v)
+	}
 }
 
 @(private)
@@ -81,7 +89,11 @@ hex_parse_into :: proc(out: []byte, chars: []$T) -> int {
 			is_digit := transmute(U8x16)simd.lanes_lt(vd, cast(U8x16)u8(10))
 			va := (v | cast(U8x16)u8(0x20)) - cast(U8x16)u8('a')
 			is_alpha := transmute(U8x16)simd.lanes_lt(va, cast(U8x16)u8(6))
-			if simd.reduce_and(is_digit | is_alpha) != 0xFF do break
+
+			if simd.reduce_and(is_digit | is_alpha) != 0xFF {
+				break
+			}
+
 			vals := (is_digit & vd) | (is_alpha & (va + cast(U8x16)u8(10)))
 			ev := simd.shuffle(vals, vals, 0, 2, 4, 6, 8, 10, 12, 14)
 			od := simd.shuffle(vals, vals, 1, 3, 5, 7, 9, 11, 13, 15)
@@ -93,11 +105,17 @@ hex_parse_into :: proc(out: []byte, chars: []$T) -> int {
 		c0 := chars[i * 2]
 		c1 := chars[i * 2 + 1]
 		when size_of(T) > 1 {
-			if c0 >= 256 || c1 >= 256 do return i
+			if c0 >= 256 || c1 >= 256 {
+				return i
+			}
 		}
 		d0 := g_hex_val[c0]
 		d1 := g_hex_val[c1]
-		if d0 == 0xFF || d1 == 0xFF do return i
+
+		if d0 == 0xFF || d1 == 0xFF {
+			return i
+		}
+
 		out[i] = d0 << 4 | d1
 	}
 	return pairs
@@ -157,6 +175,7 @@ base64_write_impl :: proc(dst: []byte, src: []byte, alphabet: string, sub61: u8,
 		v := u32(src[i]) << 16
 		dst[di] = alphabet[v >> 18]
 		dst[di + 1] = alphabet[v >> 12 & 0x3F]
+
 		if padded {
 			dst[di + 2] = '='
 			dst[di + 3] = '='
@@ -166,7 +185,10 @@ base64_write_impl :: proc(dst: []byte, src: []byte, alphabet: string, sub61: u8,
 		dst[di] = alphabet[v >> 18]
 		dst[di + 1] = alphabet[v >> 12 & 0x3F]
 		dst[di + 2] = alphabet[v >> 6 & 0x3F]
-		if padded do dst[di + 3] = '='
+
+		if padded {
+			dst[di + 3] = '='
+		}
 	}
 }
 
@@ -192,7 +214,9 @@ base64_parse :: proc(out: []byte, chars: []$T) -> (n: int, ok: bool) {
 	for g in 0 ..< groups {
 		s := chars[g * 4:g * 4 + 4]
 		when size_of(T) > 1 {
-			if s[0] >= 256 || s[1] >= 256 || s[2] >= 256 || s[3] >= 256 do return 0, false
+			if s[0] >= 256 || s[1] >= 256 || s[2] >= 256 || s[3] >= 256 {
+				return 0, false
+			}
 		}
 		d0 := g_b64_val[s[0]]
 		d1 := g_b64_val[s[1]]
@@ -200,6 +224,7 @@ base64_parse :: proc(out: []byte, chars: []$T) -> (n: int, ok: bool) {
 		pad3 := s[3] == '='
 		d2 := pad2 ? 0 : g_b64_val[s[2]]
 		d3 := pad3 ? 0 : g_b64_val[s[3]]
+
 		if d0 == 0xFF ||
 		   d1 == 0xFF ||
 		   d2 == 0xFF ||
@@ -208,9 +233,11 @@ base64_parse :: proc(out: []byte, chars: []$T) -> (n: int, ok: bool) {
 		   ((pad2 || pad3) && g != groups - 1) {
 			return 0, false
 		}
+
 		v := u32(d0) << 18 | u32(d1) << 12 | u32(d2) << 6 | u32(d3)
 		out[n] = byte(v >> 16)
 		n += 1
+
 		if !pad2 && !pad3 {
 			out[n] = byte(v >> 8)
 			out[n + 1] = byte(v)

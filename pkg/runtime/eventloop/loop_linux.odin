@@ -117,6 +117,7 @@ platform_name :: proc(loop: ^Loop) -> string {
 	if loop.platform.use_uring {
 		return "linux-io_uring"
 	}
+
 	return "linux-epoll"
 }
 
@@ -129,6 +130,7 @@ platform_init :: proc(loop: ^Loop) -> bool {
 	}
 
 	params := uring.DEFAULT_PARAMS
+
 	if !force_readiness_backend && uring.init(&loop.platform.ring, &params, 256) == nil {
 		loop.platform.use_uring = true
 		// Gate the proactor on an actual RECV/SEND opcode probe (see proactor_ok): a successful
@@ -160,6 +162,7 @@ platform_init :: proc(loop: ^Loop) -> bool {
 	}
 
 	fd, err := linux.epoll_create1({.FDCLOEXEC})
+
 	if err != nil {
 		linux.close(loop.platform.wakeup_pipe[0])
 		linux.close(loop.platform.wakeup_pipe[1])
@@ -174,6 +177,7 @@ platform_init :: proc(loop: ^Loop) -> bool {
 		loop.platform.wakeup_pipe = {-1, -1}
 		return false
 	}
+
 	loop.platform.epoll_fd = fd
 
 	ev: linux.EPoll_Event
@@ -198,9 +202,16 @@ platform_close_backend :: proc(loop: ^Loop) {
 		// {callback, dispose} runs per op; here it is dispose.
 		uring.destroy(&loop.platform.ring)
 		for &slot in loop.platform.op_slots {
-			if !slot.in_use do continue
+			if !slot.in_use {
+				continue
+			}
+
 			loop.active_io_count = max(0, loop.active_io_count - 1)
-			if slot.dispose != nil do slot.dispose(slot.user_data)
+
+			if slot.dispose != nil {
+				slot.dispose(slot.user_data)
+			}
+
 			slot.in_use = false
 		}
 		// The io_uring fd is now closed (uring.destroy), which implicitly deregistered the buf_ring
@@ -234,6 +245,7 @@ platform_close_wakeup :: proc(loop: ^Loop) {
 		linux.close(loop.platform.wakeup_pipe[0])
 		loop.platform.wakeup_pipe[0] = -1
 	}
+
 	if loop.platform.wakeup_pipe[1] >= 0 {
 		linux.close(loop.platform.wakeup_pipe[1])
 		loop.platform.wakeup_pipe[1] = -1
@@ -248,7 +260,10 @@ platform_wakeup :: proc(loop: ^Loop) {
 	// `loop^ = Loop{}`): a cross-thread request_shutdown that races teardown past the
 	// shutdown-mutex guard must never write a closed/zeroed fd. The real pipe fd is
 	// always > 2 (stdin/out/err precede it), so this never skips a live wakeup.
-	if loop.platform.wakeup_pipe[1] <= 0 do return
+	if loop.platform.wakeup_pipe[1] <= 0 {
+		return
+	}
+
 	b := [1]u8{1}
 	linux.write(loop.platform.wakeup_pipe[1], b[:])
 }
@@ -270,12 +285,16 @@ drain_wakeup :: proc(loop: ^Loop) {
 	buf: [64]u8
 	for {
 		n, err := linux.read(loop.platform.wakeup_pipe[0], buf[:])
-		if err != nil || n <= 0 do break
+
+		if err != nil || n <= 0 {
+			break
+		}
 	}
 }
 
 platform_watch_fd :: proc(loop: ^Loop, watcher: ^IO_Watcher) -> bool {
 	fd := linux.Fd(watcher.fd)
+
 	if loop.platform.use_uring {
 		events: linux.Fd_Poll_Events = {.IN} if watcher.mode == .Read else {.OUT}
 		// Allocate a fresh table slot and arm the poll under its generation token
@@ -284,12 +303,14 @@ platform_watch_fd :: proc(loop: ^Loop, watcher: ^IO_Watcher) -> bool {
 		// without ever dereferencing the watcher. The loop-level watch_fd wrapper only
 		// reaches here for a NOT-yet-watched watcher, so each call is one new slot.
 		token := uring_alloc_slot(loop, watcher)
+
 		if arm_uring_poll(loop, u64(watcher.fd), token, events) {
 			// Record the slot on the watcher so unwatch_fd reaches it in O(1) without
 			// scanning the table.
 			watcher.backend_slot = uring_token_index(token)
 			return true
 		}
+
 		// Arm failed even after arm_uring_poll's submit-and-retry (the SQ ring is still
 		// full): release the slot so it is not stranded in_use.
 		uring_release_slot(loop, uring_token_index(token))
@@ -323,8 +344,10 @@ platform_unwatch_fd :: proc(loop: ^Loop, watcher: ^IO_Watcher) -> bool {
 		// not the kernel result, drives active_io_count, and a best-effort cancel that
 		// could not get an SQE is still covered by the generation check.
 		index := watcher.backend_slot
+
 		if int(index) < len(loop.platform.watch_slots) {
 			slot := loop.platform.watch_slots[index]
+
 			// Guard the O(1) lookup against a stale backend_slot: act only if the slot
 			// still holds THIS watcher (it always does while watched, but this keeps a
 			// desync from cancelling/releasing an unrelated slot).
@@ -333,6 +356,7 @@ platform_unwatch_fd :: proc(loop: ^Loop, watcher: ^IO_Watcher) -> bool {
 				uring_release_slot(loop, index)
 			}
 		}
+
 		return true
 	}
 
@@ -347,7 +371,9 @@ platform_poll :: proc(loop: ^Loop, timeout_ms: int) {
 		return
 	}
 
-	if loop.platform.epoll_fd < 0 do return
+	if loop.platform.epoll_fd < 0 {
+		return
+	}
 
 	events: [32]linux.EPoll_Event
 	n: int
@@ -360,6 +386,7 @@ platform_poll :: proc(loop: ^Loop, timeout_ms: int) {
 	for {
 		res: i32
 		errno: linux.Errno
+
 		if timeout_ms < 0 {
 			res, errno = linux.epoll_wait(loop.platform.epoll_fd, raw_data(events[:]), i32(len(events)), -1)
 		} else {
@@ -374,6 +401,7 @@ platform_poll :: proc(loop: ^Loop, timeout_ms: int) {
 		if errno == .EINTR {
 			continue
 		}
+
 		// Any other error is fatal (e.g. EBADF on a closed epoll fd): flag it so the
 		// run drivers stop instead of busy-spinning on a syscall that can never make
 		// progress.
@@ -381,11 +409,14 @@ platform_poll :: proc(loop: ^Loop, timeout_ms: int) {
 			loop.backend_error = true
 			return
 		}
+
 		n = int(res)
 		break
 	}
 
-	if n <= 0 do return
+	if n <= 0 {
+		return
+	}
 
 	for i in 0 ..< n {
 		ev := events[i]
@@ -397,6 +428,7 @@ platform_poll :: proc(loop: ^Loop, timeout_ms: int) {
 
 		// A registered socket / file-descriptor event.
 		watcher := cast(^IO_Watcher)ev.data.ptr
+
 		if watcher != nil && watcher.callback != nil {
 			loop.io_events += 1
 			watcher.callback(loop, watcher.user_data)
@@ -414,6 +446,7 @@ platform_poll_uring :: proc(loop: ^Loop, timeout_ms: int) {
 		if uring.sq_ready(&loop.platform.ring) > 0 {
 			uring.submit(&loop.platform.ring, 0, nil)
 		}
+
 		drain_uring_completions(loop)
 		return
 	}
@@ -426,6 +459,7 @@ platform_poll_uring :: proc(loop: ^Loop, timeout_ms: int) {
 	// of the spurious-wake sources behind the premature-exit class (#72).
 	ts: linux.Time_Spec
 	ts_ptr: ^linux.Time_Spec = nil
+
 	if timeout_ms > 0 {
 		ts = linux.Time_Spec {
 			time_sec  = uint(timeout_ms / 1000),
@@ -457,7 +491,11 @@ drain_uring_completions :: proc(loop: ^Loop) {
 	processed := 0
 	for processed < URING_DRAIN_CAP {
 		n, err := uring.copy_cqes(&loop.platform.ring, loop.platform.cqes[:], 0)
-		if err != nil || n == 0 do return
+
+		if err != nil || n == 0 {
+			return
+		}
+
 		processed += int(n)
 
 		for i in 0 ..< int(n) {
@@ -489,6 +527,7 @@ drain_uring_completions :: proc(loop: ^Loop) {
 			if cqe.user_data & URING_OP_DOMAIN != 0 {
 				index := uring_op_token_index(cqe.user_data)
 				gen := uring_op_token_generation(cqe.user_data)
+
 				if uring_op_slot_live(loop, index, gen) {
 					slot := loop.platform.op_slots[index]
 					loop.io_events += 1
@@ -501,10 +540,12 @@ drain_uring_completions :: proc(loop: ^Loop) {
 					// SEND_ZC's result CQE, whose notification (F_MORE clear) is the terminal (3b) — so
 					// the count/slot lifetime is driven by F_MORE alone, uniformly, for both.
 					more := .MORE in cqe.flags
+
 					if !more {
 						loop.active_io_count = max(0, loop.active_io_count - 1)
 						uring_op_release_slot(loop, index)
 					}
+
 					// Dispatch by callback KIND (mutually exclusive: a slot carries exactly one of
 					// recv_cb/send_cb/callback). Order recv → send → plain; a SEND_ZC CQE never reaches
 					// the recv arm (no recv_cb), so its high flag bits are never misread as a buffer id.
@@ -520,6 +561,7 @@ drain_uring_completions :: proc(loop: ^Loop) {
 						slot.callback(loop, slot.user_data, cqe.res)
 					}
 				}
+
 				continue
 			}
 
@@ -529,10 +571,16 @@ drain_uring_completions :: proc(loop: ^Loop) {
 			// already be freed — this is the core stale-poll safety guarantee.
 			index := uring_token_index(cqe.user_data)
 			gen := uring_token_generation(cqe.user_data)
-			if !uring_slot_live(loop, index, gen) do continue
+
+			if !uring_slot_live(loop, index, gen) {
+				continue
+			}
 
 			watcher := loop.platform.watch_slots[index].watcher
-			if watcher == nil || watcher.callback == nil do continue
+
+			if watcher == nil || watcher.callback == nil {
+				continue
+			}
 
 			loop.io_events += 1
 			watcher.callback(loop, watcher.user_data)
@@ -542,9 +590,15 @@ drain_uring_completions :: proc(loop: ^Loop) {
 			// the slot), or unwatched then re-watched (a different slot now owns a
 			// fresh poll) — re-validating index+generation catches both, so we never
 			// re-arm a freed or reassigned slot. A re-watch is left to its own poll.
-			if !uring_slot_live(loop, index, gen) do continue
+			if !uring_slot_live(loop, index, gen) {
+				continue
+			}
+
 			watcher = loop.platform.watch_slots[index].watcher
-			if watcher == nil || watcher.callback == nil do continue
+
+			if watcher == nil || watcher.callback == nil {
+				continue
+			}
 
 			events: linux.Fd_Poll_Events = {.IN} if watcher.mode == .Read else {.OUT}
 			// arm_uring_poll retries once if the SQ ring is momentarily full rather than
@@ -556,6 +610,7 @@ drain_uring_completions :: proc(loop: ^Loop) {
 
 arm_uring_poll :: proc(loop: ^Loop, fd: u64, user_data: u64, events: linux.Fd_Poll_Events) -> bool {
 	sqe, ok := uring.get_sqe(&loop.platform.ring)
+
 	if !ok {
 		// SQ ring momentarily full: submit to flush staged entries to the kernel
 		// (which frees SQEs), then retry once. Every caller — the fresh watch in
@@ -563,7 +618,10 @@ arm_uring_poll :: proc(loop: ^Loop, fd: u64, user_data: u64, events: linux.Fd_Po
 		// this so a transient full ring never strands an fd with no kernel poll.
 		uring.submit(&loop.platform.ring, 0, nil)
 		sqe, ok = uring.get_sqe(&loop.platform.ring)
-		if !ok do return false
+
+		if !ok {
+			return false
+		}
 	}
 
 	// Defensive zero: do not depend on get_sqe clearing the recycled ring entry.
@@ -604,7 +662,10 @@ uring_token_generation :: proc(token: u64) -> u32 {
 // (or reused at a newer generation) by unwatch_fd, so the completion must be
 // dropped without touching the watcher it once referenced.
 uring_slot_live :: proc(loop: ^Loop, index: u32, generation: u32) -> bool {
-	if int(index) >= len(loop.platform.watch_slots) do return false
+	if int(index) >= len(loop.platform.watch_slots) {
+		return false
+	}
+
 	slot := loop.platform.watch_slots[index]
 	return slot.in_use && slot.generation == generation
 }
@@ -623,6 +684,7 @@ uring_alloc_slot :: proc(loop: ^Loop, watcher: ^IO_Watcher) -> u64 {
 		slot.in_use = true
 		return uring_encode_token(index, slot.generation)
 	}
+
 	append(&loop.platform.watch_slots, Uring_Watch_Slot{watcher = watcher, generation = 1, in_use = true})
 	return uring_encode_token(u32(len(loop.platform.watch_slots) - 1), 1)
 }
@@ -633,15 +695,26 @@ uring_alloc_slot :: proc(loop: ^Loop, watcher: ^IO_Watcher) -> u64 {
 // generation 0 on wrap keeps tokens out of the sentinel range. Idempotent: a slot
 // already free is left alone, so its index is never double-pushed onto free_slots.
 uring_release_slot :: proc(loop: ^Loop, index: u32) {
-	if int(index) >= len(loop.platform.watch_slots) do return
+	if int(index) >= len(loop.platform.watch_slots) {
+		return
+	}
+
 	slot := &loop.platform.watch_slots[index]
-	if !slot.in_use do return
+
+	if !slot.in_use {
+		return
+	}
+
 	slot.in_use = false
 	slot.watcher = nil
 	slot.generation += 1
+
 	// Keep generations within 31 bits so a watcher token (generation << 32 | index) never
 	// sets bit 63 — that bit is the op-token domain marker. Skip 0 on wrap (sentinel range).
-	if slot.generation == 0 || slot.generation >= u32(1) << 31 do slot.generation = 1
+	if slot.generation == 0 || slot.generation >= u32(1) << 31 {
+		slot.generation = 1
+	}
+
 	append(&loop.platform.free_slots, index)
 }
 
@@ -654,12 +727,17 @@ uring_release_slot :: proc(loop: ^Loop, index: u32) {
 // so a caller suppressing duplicate cancels knows whether one is genuinely pending.
 uring_cancel_poll :: proc(loop: ^Loop, target_token: u64) -> bool {
 	sqe, ok := uring.get_sqe(&loop.platform.ring)
+
 	if !ok {
 		// SQ ring momentarily full: submit to free slots, then retry once.
 		uring.submit(&loop.platform.ring, 0, nil)
 		sqe, ok = uring.get_sqe(&loop.platform.ring)
-		if !ok do return false
+
+		if !ok {
+			return false
+		}
 	}
+
 	// Zero the recycled SQE slot — get_sqe does not clear it (mirrors arm_uring_poll).
 	sqe^ = {}
 	sqe.opcode = .ASYNC_CANCEL
@@ -716,12 +794,14 @@ Uring_Probe :: struct {
 
 uring_probe_proactor :: proc(ring_fd: linux.Fd) -> (proactor: bool, zc: bool) {
 	probe := Uring_Probe{} // zero-initialized: the kernel requires the whole buffer to be zero.
+
 	// nr_args is the number of ops[] slots offered; the kernel caps its fill to the opcodes it
 	// knows. REGISTER_PROBE itself postdates RECV/SEND, so an error here means an old kernel
 	// without the proactor opcodes — report unsupported and let callers use the readiness path.
 	if errno := linux.io_uring_register(ring_fd, .REGISTER_PROBE, &probe, u32(len(probe.ops))); errno != nil {
 		return false, false
 	}
+
 	proactor = uring_probe_supports(&probe, .RECV) && uring_probe_supports(&probe, .SEND)
 	// SEND_ZC (Slice 3b) is a real OPCODE, so it is probeable here exactly like RECV/SEND — unlike 2b's
 	// RECV_MULTISHOT, which is an ioprio flag and could only be detected via a runtime -EINVAL. Probing
@@ -733,7 +813,8 @@ uring_probe_proactor :: proc(ring_fd: linux.Fd) -> (proactor: bool, zc: bool) {
 
 uring_probe_supports :: proc(probe: ^Uring_Probe, op: linux.IO_Uring_OP) -> bool {
 	idx := u8(op)
-	if idx > probe.last_op do return false // opcode beyond what this kernel reports
+
+	if idx > probe.last_op {return false} 	// opcode beyond what this kernel reports
 	return (probe.ops[idx].flags & URING_OP_SUPPORTED) != 0
 }
 
@@ -747,9 +828,16 @@ platform_submit_recv :: proc(
 	dispose: Op_Dispose,
 	user_data: rawptr,
 ) -> u64 {
-	if !loop.platform.proactor_ok do return 0
+	if !loop.platform.proactor_ok {
+		return 0
+	}
+
 	token := uring_op_alloc_slot(loop, cb, dispose, user_data)
-	if uring_arm_rw(loop, .RECV, fd, buf, token, {}) do return token
+
+	if uring_arm_rw(loop, .RECV, fd, buf, token, {}) {
+		return token
+	}
+
 	uring_op_release_slot(loop, uring_op_token_index(token))
 	return 0
 }
@@ -762,11 +850,18 @@ platform_submit_send :: proc(
 	dispose: Op_Dispose,
 	user_data: rawptr,
 ) -> u64 {
-	if !loop.platform.proactor_ok do return 0
+	if !loop.platform.proactor_ok {
+		return 0
+	}
+
 	token := uring_op_alloc_slot(loop, cb, dispose, user_data)
+
 	// NOSIGNAL: a send to a peer that has closed surfaces as -EPIPE in the completion rather
 	// than raising SIGPIPE (which would kill the process).
-	if uring_arm_rw(loop, .SEND, fd, buf, token, {.NOSIGNAL}) do return token
+	if uring_arm_rw(loop, .SEND, fd, buf, token, {.NOSIGNAL}) {
+		return token
+	}
+
 	uring_op_release_slot(loop, uring_op_token_index(token))
 	return 0
 }
@@ -776,10 +871,14 @@ platform_submit_send :: proc(
 // pending op (e.g. a RECV on a fd being closed) tear down promptly instead of lingering. The
 // generation check avoids issuing a cancel against a slot already reused for a new op.
 platform_cancel_op :: proc(loop: ^Loop, token: u64) -> bool {
-	if !loop.platform.proactor_ok do return false
+	if !loop.platform.proactor_ok {
+		return false
+	}
+
 	if uring_op_slot_live(loop, uring_op_token_index(token), uring_op_token_generation(token)) {
 		return uring_cancel_poll(loop, token) // ASYNC_CANCEL(addr=token); its own CQE is ignored
 	}
+
 	return false
 }
 
@@ -795,11 +894,16 @@ uring_arm_rw :: proc(
 	flags: linux.Socket_Msg,
 ) -> bool {
 	sqe, ok := uring.get_sqe(&loop.platform.ring)
+
 	if !ok {
 		uring.submit(&loop.platform.ring, 0, nil)
 		sqe, ok = uring.get_sqe(&loop.platform.ring)
-		if !ok do return false
+
+		if !ok {
+			return false
+		}
 	}
+
 	sqe^ = {}
 	sqe.opcode = opcode
 	sqe.fd = cast(linux.Fd)fd
@@ -828,7 +932,10 @@ uring_op_token_generation :: proc(token: u64) -> u32 {
 }
 
 uring_op_slot_live :: proc(loop: ^Loop, index: u32, generation: u32) -> bool {
-	if int(index) >= len(loop.platform.op_slots) do return false
+	if int(index) >= len(loop.platform.op_slots) {
+		return false
+	}
+
 	slot := loop.platform.op_slots[index]
 	return slot.in_use && slot.generation == generation
 }
@@ -843,6 +950,7 @@ uring_op_alloc_slot :: proc(loop: ^Loop, cb: Op_Completion, dispose: Op_Dispose,
 		slot.in_use = true
 		return uring_op_encode_token(index, slot.generation)
 	}
+
 	append(
 		&loop.platform.op_slots,
 		Uring_Op_Slot{callback = cb, dispose = dispose, user_data = user_data, generation = 1, in_use = true},
@@ -851,9 +959,16 @@ uring_op_alloc_slot :: proc(loop: ^Loop, cb: Op_Completion, dispose: Op_Dispose,
 }
 
 uring_op_release_slot :: proc(loop: ^Loop, index: u32) {
-	if int(index) >= len(loop.platform.op_slots) do return
+	if int(index) >= len(loop.platform.op_slots) {
+		return
+	}
+
 	slot := &loop.platform.op_slots[index]
-	if !slot.in_use do return
+
+	if !slot.in_use {
+		return
+	}
+
 	slot.in_use = false
 	slot.callback = nil
 	slot.recv_cb = nil
@@ -861,7 +976,11 @@ uring_op_release_slot :: proc(loop: ^Loop, index: u32) {
 	slot.dispose = nil
 	slot.user_data = nil
 	slot.generation += 1
-	if slot.generation == 0 || slot.generation >= u32(1) << 31 do slot.generation = 1
+
+	if slot.generation == 0 || slot.generation >= u32(1) << 31 {
+		slot.generation = 1
+	}
+
 	append(&loop.platform.op_free, index)
 }
 
@@ -918,6 +1037,7 @@ platform_bufring_ok :: proc(loop: ^Loop) -> bool {
 		loop.platform.bufring_tried = true
 		buf_ring_init(loop)
 	}
+
 	return loop.platform.bufring_ok
 }
 
@@ -930,9 +1050,16 @@ platform_submit_recv_ring :: proc(
 	dispose: Op_Dispose,
 	user_data: rawptr,
 ) -> u64 {
-	if !loop.platform.bufring_ok do return 0
+	if !loop.platform.bufring_ok {
+		return 0
+	}
+
 	token := uring_op_alloc_slot_recv(loop, cb, dispose, user_data)
-	if uring_arm_recv_ring(loop, fd, token) do return token
+
+	if uring_arm_recv_ring(loop, fd, token) {
+		return token
+	}
+
 	uring_op_release_slot(loop, uring_op_token_index(token))
 	return 0
 }
@@ -940,7 +1067,10 @@ platform_submit_recv_ring :: proc(
 // platform_buf_ring_recycle returns buffer `bid` to the ring. The caller MUST have already copied
 // any bytes it needs out of the buffer — once the tail is published the kernel may overwrite it.
 platform_buf_ring_recycle :: proc(loop: ^Loop, bid: u16) {
-	if !loop.platform.bufring_ok || int(bid) >= URING_BUFRING_ENTRIES do return
+	if !loop.platform.bufring_ok || int(bid) >= URING_BUFRING_ENTRIES {
+		return
+	}
+
 	off := int(bid) * URING_BUFRING_BUFSIZE
 	buf_ring_add(
 		loop,
@@ -955,7 +1085,10 @@ platform_buf_ring_recycle :: proc(loop: ^Loop, bid: u16) {
 
 // platform_buf_ring_buf returns the kernel-selected bytes for `bid` (the caller copies, does NOT retain).
 platform_buf_ring_buf :: proc(loop: ^Loop, bid: u16, n: int) -> []byte {
-	if !loop.platform.bufring_ok || int(bid) >= URING_BUFRING_ENTRIES || n <= 0 do return nil
+	if !loop.platform.bufring_ok || int(bid) >= URING_BUFRING_ENTRIES || n <= 0 {
+		return nil
+	}
+
 	off := int(bid) * URING_BUFRING_BUFSIZE
 	m := min(n, URING_BUFRING_BUFSIZE)
 	return loop.platform.bufring_pool[off:off + m]
@@ -992,16 +1125,28 @@ buf_ring_publish_tail :: proc(loop: ^Loop) {
 // ring mmap fails, or REGISTER_PBUF_RING errors. bufring_ok gates the whole ring-recv path.
 @(private = "file")
 buf_ring_init :: proc(loop: ^Loop) -> bool {
-	if !loop.platform.proactor_ok do return false
-	if .NODROP not_in loop.platform.ring.features do return false
+	if !loop.platform.proactor_ok {
+		return false
+	}
+
+	if .NODROP not_in loop.platform.ring.features {
+		return false
+	}
+
 	pool := make([]byte, URING_BUFRING_ENTRIES * URING_BUFRING_BUFSIZE, loop.allocator)
-	if pool == nil do return false
+
+	if pool == nil {
+		return false
+	}
+
 	ring_size := uint(URING_BUFRING_ENTRIES * size_of(Uring_Buf))
 	ring_ptr, mmap_err := linux.mmap(0, ring_size, {.READ, .WRITE}, {.PRIVATE, .ANONYMOUS})
+
 	if mmap_err != .NONE {
 		delete(pool, loop.allocator)
 		return false
 	}
+
 	loop.platform.bufring = ring_ptr
 	loop.platform.bufring_size = ring_size
 	loop.platform.bufring_pool = pool
@@ -1017,6 +1162,7 @@ buf_ring_init :: proc(loop: ^Loop) -> bool {
 		ring_entries = u32(URING_BUFRING_ENTRIES),
 		bgid         = URING_BUFRING_BGID,
 	}
+
 	if errno := linux.io_uring_register(loop.platform.ring.fd, .REGISTER_PBUF_RING, &reg, 1); errno != .NONE {
 		linux.munmap(ring_ptr, ring_size)
 		delete(pool, loop.allocator)
@@ -1024,6 +1170,7 @@ buf_ring_init :: proc(loop: ^Loop) -> bool {
 		loop.platform.bufring_pool = nil
 		return false
 	}
+
 	loop.platform.bufring_ok = true
 	// Attempt multishot (2b) by default: RECV_MULTISHOT is an ioprio flag, not a probeable opcode,
 	// so a kernel with buffer rings (5.19) but without multishot recv (added 6.0) accepts the SQE
@@ -1040,10 +1187,12 @@ buf_ring_destroy :: proc(loop: ^Loop) {
 		linux.munmap(loop.platform.bufring, loop.platform.bufring_size)
 		loop.platform.bufring = nil
 	}
+
 	if loop.platform.bufring_pool != nil {
 		delete(loop.platform.bufring_pool, loop.allocator)
 		loop.platform.bufring_pool = nil
 	}
+
 	loop.platform.bufring_ok = false
 }
 
@@ -1052,17 +1201,23 @@ buf_ring_destroy :: proc(loop: ^Loop) {
 @(private = "file")
 uring_arm_recv_ring :: proc(loop: ^Loop, fd: uintptr, token: u64) -> bool {
 	sqe, ok := uring.get_sqe(&loop.platform.ring)
+
 	if !ok {
 		uring.submit(&loop.platform.ring, 0, nil)
 		sqe, ok = uring.get_sqe(&loop.platform.ring)
-		if !ok do return false
+
+		if !ok {
+			return false
+		}
 	}
+
 	sqe^ = {}
 	sqe.opcode = .RECV
 	sqe.fd = cast(linux.Fd)fd
 	sqe.addr = 0
 	sqe.flags = {.BUFFER_SELECT}
 	sqe.buf_group = URING_BUFRING_BGID
+
 	if loop.platform.multishot_ok {
 		// Multishot (2b): RECV_MULTISHOT lives in ioprio (aliased here as sq_send_recv_flags), NOT
 		// msg_flags; one submission then yields many CQEs (each F_MORE-set until it ends). The
@@ -1077,6 +1232,7 @@ uring_arm_recv_ring :: proc(loop: ^Loop, fd: uintptr, token: u64) -> bool {
 		// kernel reports the actual bytes in cqe.res (<= this cap).
 		sqe.len = u32(URING_BUFRING_BUFSIZE)
 	}
+
 	sqe.user_data = token
 	return true
 }
@@ -1120,12 +1276,17 @@ submit_send_zc :: proc(
 	dispose: Op_Dispose,
 	user_data: rawptr,
 ) -> Op_ID {
-	if cb == nil || !loop.platform.proactor_ok do return OP_ID_INVALID
+	if cb == nil || !loop.platform.proactor_ok {
+		return OP_ID_INVALID
+	}
+
 	token := uring_op_alloc_slot_send(loop, cb, dispose, user_data)
+
 	if !uring_arm_rw(loop, .SEND_ZC, fd, buf, token, {.NOSIGNAL}) {
 		uring_op_release_slot(loop, uring_op_token_index(token))
 		return OP_ID_INVALID
 	}
+
 	loop.active_io_count += 1
 	return Op_ID(token)
 }

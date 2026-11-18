@@ -43,21 +43,28 @@ close_ready_is_announced_on_the_wakeup_pipe :: proc(t: ^testing.T) {
 	job: Quick_Job
 	testing.expect(t, pool_submit(&loop, quick_work, quick_done, &job))
 	deadline := time.tick_add(time.tick_now(), 2 * time.Second)
-	for !job.done && time.tick_diff(time.tick_now(), deadline) > 0 do run_once(&loop)
+	for !job.done && time.tick_diff(time.tick_now(), deadline) > 0 {
+		run_once(&loop)
+	}
+
 	if !job.done {
 		destroy(&loop)
 		testing.fail_now(t, "the pool job never completed")
 	}
 
 	pipe_fd, ok := wakeup_fd(&loop)
+
 	if !ok {
 		destroy(&loop)
 		testing.fail_now(t, "the loop has no wakeup pipe")
 	}
+
 	drain_wakeup(&loop)
 
 	testing.expect(t, !close_begin(&loop), "close_begin reported a busy worker with none in a job")
-	for !close_ready(&loop) && time.tick_diff(time.tick_now(), deadline) > 0 do time.sleep(time.Millisecond)
+	for !close_ready(&loop) && time.tick_diff(time.tick_now(), deadline) > 0 {
+		time.sleep(time.Millisecond)
+	}
 	testing.expect(t, close_ready(&loop), "idle workers never counted themselves out")
 
 	// The last worker writes the pipe just after its count moves; allow it a second.

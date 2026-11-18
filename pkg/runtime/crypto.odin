@@ -80,16 +80,25 @@ crypto_random_fill_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 1 do return jsc.JSValueMakeUndefined(ctx)
+
+	if argument_count < 1 {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
 
 	view, ok := typed_array_view(ctx, arguments[0])
+
 	if !ok {
 		if exception != nil {
 			exception^ = make_js_error(ctx, "randomFill expects a Uint8Array")
 		}
+
 		return jsc.JSValueMakeUndefined(ctx)
 	}
-	if len(view) > 0 do crypto.rand_bytes(view)
+
+	if len(view) > 0 {
+		crypto.rand_bytes(view)
+	}
+
 	return arguments[0]
 }
 
@@ -105,12 +114,19 @@ crypto_random_int_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 1 do return jsc.JSValueMakeUndefined(ctx)
+
+	if argument_count < 1 {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
 
 	range := u64(jsc.JSValueToNumber(ctx, arguments[0], nil))
 	max_48 :: u64(1) << 48
+
 	if range == 0 || range > max_48 {
-		if exception != nil do exception^ = make_js_error(ctx, "randomInt range must be in (0, 2^48]")
+		if exception != nil {
+			exception^ = make_js_error(ctx, "randomInt range must be in (0, 2^48]")
+		}
+
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
@@ -130,22 +146,33 @@ crypto_hash_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 2 do return jsc.JSValueMakeUndefined(ctx)
+
+	if argument_count < 2 {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
 
 	name, alloc := jsc_value_to_string_or_default(ctx, arguments[0])
-	defer if alloc do delete(name, context.allocator)
+	defer if alloc {
+		delete(name, context.allocator)
+	}
 
 	algo, valid := crypto_algorithm(name)
+
 	if !valid {
 		if exception != nil {
 			exception^ = make_js_error(ctx, "Digest method not supported")
 		}
+
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
 	data, ok := typed_array_view(ctx, arguments[1])
+
 	if !ok {
-		if exception != nil do exception^ = make_js_error(ctx, "hash expects a Uint8Array")
+		if exception != nil {
+			exception^ = make_js_error(ctx, "hash expects a Uint8Array")
+		}
+
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
@@ -164,23 +191,34 @@ crypto_hmac_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 3 do return jsc.JSValueMakeUndefined(ctx)
+
+	if argument_count < 3 {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
 
 	name, alloc := jsc_value_to_string_or_default(ctx, arguments[0])
-	defer if alloc do delete(name, context.allocator)
+	defer if alloc {
+		delete(name, context.allocator)
+	}
 
 	algo, valid := crypto_algorithm(name)
+
 	if !valid {
 		if exception != nil {
 			exception^ = make_js_error(ctx, "Digest method not supported")
 		}
+
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
 	key, key_ok := typed_array_view(ctx, arguments[1])
 	data, data_ok := typed_array_view(ctx, arguments[2])
+
 	if !key_ok || !data_ok {
-		if exception != nil do exception^ = make_js_error(ctx, "hmac expects Uint8Array key and data")
+		if exception != nil {
+			exception^ = make_js_error(ctx, "hmac expects Uint8Array key and data")
+		}
+
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
@@ -199,16 +237,23 @@ crypto_pbkdf2_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 5 do return jsc.JSValueMakeUndefined(ctx)
+
+	if argument_count < 5 {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
 
 	name, alloc := jsc_value_to_string_or_default(ctx, arguments[0])
-	defer if alloc do delete(name, context.allocator)
+	defer if alloc {
+		delete(name, context.allocator)
+	}
 
 	algo, valid := crypto_algorithm(name)
+
 	if !valid {
 		if exception != nil {
 			exception^ = make_js_error(ctx, "Digest method not supported")
 		}
+
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
@@ -216,15 +261,23 @@ crypto_pbkdf2_cb :: proc "c" (
 	// the views; see the note in buffer_utf16le_write_into_cb (buffer.odin).
 	iterations := u32(jsc.JSValueToNumber(ctx, arguments[3], nil))
 	keylen := int(jsc.JSValueToNumber(ctx, arguments[4], nil))
+
 	if iterations == 0 || keylen <= 0 {
-		if exception != nil do exception^ = make_js_error(ctx, "pbkdf2 requires positive iterations and keylen")
+		if exception != nil {
+			exception^ = make_js_error(ctx, "pbkdf2 requires positive iterations and keylen")
+		}
+
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
 	password, pw_ok := typed_array_view(ctx, arguments[1])
 	salt, salt_ok := typed_array_view(ctx, arguments[2])
+
 	if !pw_ok || !salt_ok {
-		if exception != nil do exception^ = make_js_error(ctx, "pbkdf2 expects Uint8Array password and salt")
+		if exception != nil {
+			exception^ = make_js_error(ctx, "pbkdf2 expects Uint8Array password and salt")
+		}
+
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
@@ -245,14 +298,23 @@ crypto_hkdf_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 5 do return jsc.JSValueMakeUndefined(ctx)
+
+	if argument_count < 5 {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
 
 	name, alloc := jsc_value_to_string_or_default(ctx, arguments[0])
-	defer if alloc do delete(name, context.allocator)
+	defer if alloc {
+		delete(name, context.allocator)
+	}
 
 	algo, valid := crypto_algorithm(name)
+
 	if !valid {
-		if exception != nil do exception^ = make_js_error(ctx, "Digest method not supported")
+		if exception != nil {
+			exception^ = make_js_error(ctx, "Digest method not supported")
+		}
+
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
@@ -260,16 +322,24 @@ crypto_hkdf_cb :: proc "c" (
 	// see the note in buffer_utf16le_write_into_cb (buffer.odin).
 	keylen := int(jsc.JSValueToNumber(ctx, arguments[4], nil))
 	hash_len := hash.DIGEST_SIZES[algo]
+
 	if keylen < 0 || keylen > 255 * hash_len {
-		if exception != nil do exception^ = make_js_error(ctx, "Invalid key length")
+		if exception != nil {
+			exception^ = make_js_error(ctx, "Invalid key length")
+		}
+
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
 	ikm, ikm_ok := typed_array_view(ctx, arguments[1])
 	salt, salt_ok := typed_array_view(ctx, arguments[2])
 	info, info_ok := typed_array_view(ctx, arguments[3])
+
 	if !ikm_ok || !salt_ok || !info_ok {
-		if exception != nil do exception^ = make_js_error(ctx, "hkdf expects Uint8Array ikm, salt, and info")
+		if exception != nil {
+			exception^ = make_js_error(ctx, "hkdf expects Uint8Array ikm, salt, and info")
+		}
+
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
@@ -289,14 +359,22 @@ crypto_timing_safe_equal_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 2 do return jsc.JSValueMakeBoolean(ctx, false)
+
+	if argument_count < 2 {
+		return jsc.JSValueMakeBoolean(ctx, false)
+	}
 
 	a, a_ok := typed_array_view(ctx, arguments[0])
 	b, b_ok := typed_array_view(ctx, arguments[1])
+
 	if !a_ok || !b_ok {
-		if exception != nil do exception^ = make_js_error(ctx, "timingSafeEqual expects Uint8Array arguments")
+		if exception != nil {
+			exception^ = make_js_error(ctx, "timingSafeEqual expects Uint8Array arguments")
+		}
+
 		return jsc.JSValueMakeUndefined(ctx)
 	}
+
 	return jsc.JSValueMakeBoolean(ctx, b32(crypto.compare_constant_time(a, b) == 1))
 }
 

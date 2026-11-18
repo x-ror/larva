@@ -41,7 +41,11 @@ fetch_transport_start :: proc(req: ^Fetch_Request, host: string, port: int) -> (
 	// parse_http_url and is the only host that can contain a colon.
 	if strings.index_byte(host, ':') >= 0 {
 		ip6, ip_ok := net.parse_ip6_address(host)
-		if !ip_ok do return false, "fetch: could not resolve host"
+
+		if !ip_ok {
+			return false, "fetch: could not resolve host"
+		}
+
 		return fetch_connect_ip6(req, ip6, port)
 	}
 
@@ -56,10 +60,12 @@ fetch_transport_start :: proc(req: ^Fetch_Request, host: string, port: int) -> (
 	// does its own async_begin loop keep-alive (and undoes it on a start failure), so we only unwind
 	// our own drive_pending pin here.
 	req.drive_pending += 1
+
 	if !fetch_dns_submit(req, host) {
 		req.drive_pending -= 1
 		return false, "fetch: could not start DNS resolver"
 	}
+
 	return true, ""
 }
 
@@ -76,11 +82,13 @@ fetch_register_socket :: proc(req: ^Fetch_Request, fd: uintptr) -> (ok: bool, er
 		callback  = fetch_watcher_cb,
 		user_data = req,
 	}
+
 	if !eventloop.watch_fd(req.loop, &req.watcher) {
 		fetch_close_fd(fd)
 		req.has_fd = false
 		return false, "fetch: could not register socket with the event loop"
 	}
+
 	return true, ""
 }
 
@@ -98,19 +106,23 @@ fetch_advance_connect :: proc(req: ^Fetch_Request) {
 		fetch_close_fd(req.fd)
 		req.has_fd = false
 	}
+
 	for req.addr_index < req.addr_count {
 		a := req.addrs[req.addr_index]
 		req.addr_index += 1
 		connected: bool
+
 		if a.is_v6 {
 			connected, _ = fetch_connect_ip6(req, a.v6, req.port)
 		} else {
 			connected, _ = fetch_connect_ip4(req, a.v4, req.port)
 		}
-		if connected do return // connect initiated; wait for the writable event
+
+		if connected {return} 	// connect initiated; wait for the writable event
 		// A synchronous connect failure (socket create / immediate connect error)
 		// closed its own socket — fall through to the next address.
 	}
+
 	fetch_settle_error(req, "fetch: could not connect to host")
 }
 
@@ -119,7 +131,10 @@ fetch_advance_connect :: proc(req: ^Fetch_Request) {
 // settle. EAGAIN / WANT_* means "not ready, wait for the next event".
 fetch_watcher_cb :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 	req := cast(^Fetch_Request)user_data
-	if req == nil || req.settled do return
+
+	if req == nil || req.settled {
+		return
+	}
 
 	switch req.phase {
 	case .Connecting:
@@ -129,12 +144,14 @@ fetch_watcher_cb :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 			fetch_advance_connect(req)
 			return
 		}
+
 		if req.is_https {
 			// TLS is a platform-swappable backend: set up the session and run the first
 			// handshake step, settling on its own error if unsupported.
 			fetch_tls_start_handshake(loop, req)
 			return
 		}
+
 		req.phase = .Writing
 		fetch_write(loop, req) // socket is writable now, try sending immediately
 
@@ -160,6 +177,7 @@ fetch_write :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 		fetch_tls_write(loop, req)
 		return
 	}
+
 	for req.write_offset < len(req.request_bytes) {
 		chunk := req.request_bytes[req.write_offset:]
 		n, res := fetch_raw_send(req, chunk)
@@ -169,12 +187,17 @@ fetch_write :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 			if !fetch_set_watch_mode(loop, req, .Write) {
 				fetch_settle_error(req, "fetch: event loop watch failed")
 			}
+
 			return // wait for the next writable event
 		case .Closed, .Failed:
 			fetch_settle_error(req, "fetch: send failed")
 			return
 		}
-		if n <= 0 do return
+
+		if n <= 0 {
+			return
+		}
+
 		req.write_offset += n
 	}
 	fetch_after_write_head(loop, req)
@@ -190,16 +213,20 @@ fetch_read :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 		fetch_tls_read(loop, req)
 		return
 	}
+
 	buf: [16384]byte
 	for {
 		n, res := fetch_raw_recv(req, buf[:])
 		switch res {
 		case .Ok:
-			if !fetch_on_recv(loop, req, buf[:n]) do return
+			if !fetch_on_recv(loop, req, buf[:n]) {
+				return
+			}
 		case .Would_Block:
 			if !fetch_set_watch_mode(loop, req, .Read) {
 				fetch_settle_error(req, "fetch: event loop watch failed")
 			}
+
 			return // wait for more data
 		case .Closed:
 			fetch_eof(req) // EOF — server closed
@@ -246,9 +273,11 @@ fetch_after_write_head :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 			fetch_settle_error(req, "fetch: event loop watch failed")
 			return
 		}
+
 		req.phase = .Reading // next readable event reads the response
 		return
 	}
+
 	req.phase = .Body_Write
 	// Pin the loop for the whole upload so an in-flight chunked upload keeps the
 	// process alive like Node's outgoing socket: while idle (awaiting the producer)
@@ -263,7 +292,7 @@ fetch_after_write_head :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 // writable. While idle (awaiting the producer) the fd is unwatched, so a delivered
 // event always has a partially-written frame to flush.
 fetch_write_body_event :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
-	if req.body_idle do return // defensive: a stale completion while awaiting the producer
+	if req.body_idle {return} 	// defensive: a stale completion while awaiting the producer
 	fetch_pump_body(loop, req)
 }
 
@@ -271,12 +300,17 @@ fetch_write_body_event :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 // pull/push protocol guarantees body_out is empty on entry (one chunk in flight).
 // Runs on the loop thread (push_body_fn, from the JS pump).
 fetch_push_body :: proc(req: ^Fetch_Request, data: []byte) {
-	if req.settled || !req.body_streaming || req.phase != .Body_Write do return
+	if req.settled || !req.body_streaming || req.phase != .Body_Write {
+		return
+	}
+
 	req.body_idle = false
+
 	if len(data) == 0 {
 		fetch_body_go_idle(req) // an empty chunk frames to nothing — pull the next
 		return
 	}
+
 	fetch_frame_chunk(req, data)
 	fetch_pump_body(req.loop, req)
 }
@@ -285,9 +319,13 @@ fetch_push_body :: proc(req: ^Fetch_Request, data: []byte) {
 // Runs on the loop thread (end_body_fn) while idle, so body_out is empty;
 // fetch_pump_body appends and flushes the terminator, then flips to reading.
 fetch_end_body :: proc(req: ^Fetch_Request) {
-	if req.settled || !req.body_streaming || req.phase != .Body_Write do return
+	if req.settled || !req.body_streaming || req.phase != .Body_Write {
+		return
+	}
+
 	req.body_idle = false
 	req.body_end_seen = true
+
 	// Idle ⇒ nothing pending: drive the terminator now. (If a frame were still in
 	// flight, fetch_pump_body's drain would append the terminator itself.)
 	if req.body_out_off >= len(req.body_out) {
@@ -303,7 +341,8 @@ fetch_pump_body :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 	for {
 		for req.body_out_off < len(req.body_out) {
 			n, res := fetch_body_send(req, req.body_out[req.body_out_off:])
-			if req.settled do return // arming the watcher failed and settled the request
+
+			if req.settled {return} 	// arming the watcher failed and settled the request
 			switch res {
 			case .Ok:
 				if n <= 0 {
@@ -314,6 +353,7 @@ fetch_pump_body :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 					fetch_body_arm(req, .Write)
 					return
 				}
+
 				req.body_out_off += n
 			case .Would_Block:
 				return // fetch_body_send armed the fd for the right direction
@@ -325,6 +365,7 @@ fetch_pump_body :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 		// The current frame is fully written.
 		clear(&req.body_out)
 		req.body_out_off = 0
+
 		if req.body_term_written {
 			// Upload complete: drop the body-phase loop hold and watch for the response.
 			fetch_body_release_loop(req)
@@ -332,11 +373,13 @@ fetch_pump_body :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 			req.phase = .Reading
 			return
 		}
+
 		if req.body_end_seen {
 			append(&req.body_out, '0', '\r', '\n', '\r', '\n') // terminating zero chunk
 			req.body_term_written = true
 			continue // loop to flush the terminator
 		}
+
 		fetch_body_go_idle(req) // pull the next chunk from the producer
 		return
 	}
@@ -349,14 +392,19 @@ fetch_pump_body :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 // the TLS backend.
 fetch_body_send :: proc(req: ^Fetch_Request, chunk: []byte) -> (n: int, res: Fetch_IO_Result) {
 	want_read: bool
+
 	if req.is_https {
 		n, res, want_read = fetch_tls_send_chunk(req, chunk)
 	} else {
 		n, res = fetch_raw_send(req, chunk)
 	}
+
 	// Stay in .Body_Write whichever direction we arm: the readiness event re-enters
 	// fetch_write_body_event, which retries the flush regardless of read/write wake.
-	if res == .Would_Block do fetch_body_arm(req, want_read ? .Read : .Write)
+	if res == .Would_Block {
+		fetch_body_arm(req, want_read ? .Read : .Write)
+	}
+
 	return
 }
 
@@ -378,6 +426,7 @@ fetch_append_hex :: proc(buf: ^[dynamic]byte, value: int) {
 		append(buf, '0')
 		return
 	}
+
 	digits := "0123456789abcdef"
 	tmp: [16]byte
 	n := value
@@ -398,12 +447,17 @@ fetch_append_hex :: proc(buf: ^[dynamic]byte, value: int) {
 // microtask auto-drain; async_begin keeps the loop alive across the pull and
 // drive_pending pins the request against reclaim until the deferred pull has run.
 fetch_body_go_idle :: proc(req: ^Fetch_Request) {
-	if req.settled do return
+	if req.settled {
+		return
+	}
+
 	req.body_idle = true
+
 	if req.has_fd && req.watcher.watched {
 		req.watcher.callback = nil
 		eventloop.unwatch_fd(req.loop, &req.watcher)
 	}
+
 	req.drive_pending += 1
 	eventloop.async_begin(req.loop)
 	eventloop.post_async(req.loop, fetch_body_drain_cb, req)
@@ -415,11 +469,20 @@ fetch_body_go_idle :: proc(req: ^Fetch_Request) {
 // pulls when still idle in the body-write phase.
 fetch_body_drain_cb :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 	req := cast(^Fetch_Request)user_data
-	if req == nil do return
+
+	if req == nil {
+		return
+	}
+
 	req.drive_pending -= 1
-	if req.settled || !req.body_idle || req.on_body_drain == nil do return
+
+	if req.settled || !req.body_idle || req.on_body_drain == nil {
+		return
+	}
+
 	exception: jsc.JSValueRef
 	invoke_user_callback(req.ctx, req.on_body_drain, nil, 0, &exception)
+
 	if exception != nil {
 		report_uncaught(req.ctx, exception)
 		mark_async_failed(req.ctx)
@@ -432,14 +495,21 @@ fetch_body_drain_cb :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 // interest at the new direction. Drives the frame-flush write arm, the post-terminator
 // read arm, and a TLS renegotiation read arm mid-write.
 fetch_body_arm :: proc(req: ^Fetch_Request, mode: eventloop.Poll_Mode) {
-	if req.settled || !req.has_fd do return
+	if req.settled || !req.has_fd {
+		return
+	}
+
 	req.watcher.callback = fetch_watcher_cb
 	ok: bool
+
 	if req.watcher.watched {
 		ok = fetch_set_watch_mode(req.loop, req, mode)
 	} else {
 		req.watcher.mode = mode
 		ok = eventloop.watch_fd(req.loop, &req.watcher)
 	}
-	if !ok do fetch_settle_error(req, "fetch: event loop watch failed")
+
+	if !ok {
+		fetch_settle_error(req, "fetch: event loop watch failed")
+	}
 }

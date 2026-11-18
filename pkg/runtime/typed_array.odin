@@ -50,21 +50,37 @@ g_bytes_ptr_mode: BytesPtr_Mode // written once per thread after first offset vi
 typed_array_view :: proc(ctx: jsc.JSContextRef, value: jsc.JSValueRef) -> ([]byte, bool) {
 	// Direct cell read (Uint8Array of any Structure, byteOffset pre-applied) —
 	// zero C-API calls. Other view types and DataView fall through.
-	if data, ok := jsc.typed_array_bytes(ctx, value); ok do return data, true
+	if data, ok := jsc.typed_array_bytes(ctx, value); ok {
+		return data, true
+	}
 
-	if jsc.JSValueGetTypedArrayType(ctx, value, nil) == .None do return nil, false
+	if jsc.JSValueGetTypedArrayType(ctx, value, nil) == .None {
+		return nil, false
+	}
+
 	obj := cast(jsc.JSObjectRef)value
 	n := int(jsc.JSObjectGetTypedArrayByteLength(ctx, obj, nil))
-	if n == 0 do return nil, true
+
+	if n == 0 {
+		return nil, true
+	}
 
 	ptr := jsc.JSObjectGetTypedArrayBytesPtr(ctx, obj, nil)
 	offset := int(jsc.JSObjectGetTypedArrayByteOffset(ctx, obj, nil))
 
 	if ptr == nil {
 		buffer := jsc.JSObjectGetTypedArrayBuffer(ctx, obj, nil)
-		if buffer == nil do return nil, false
+
+		if buffer == nil {
+			return nil, false
+		}
+
 		base := jsc.JSObjectGetArrayBufferBytesPtr(ctx, buffer, nil)
-		if base == nil do return nil, false
+
+		if base == nil {
+			return nil, false
+		}
+
 		return (cast([^]byte)base)[offset:][:n], true
 	}
 
@@ -73,9 +89,11 @@ typed_array_view :: proc(ctx: jsc.JSContextRef, value: jsc.JSValueRef) -> ([]byt
 	}
 
 	mode := g_bytes_ptr_mode
+
 	if mode == .Unknown {
 		buffer := jsc.JSObjectGetTypedArrayBuffer(ctx, obj, nil)
 		base := buffer != nil ? jsc.JSObjectGetArrayBufferBytesPtr(ctx, buffer, nil) : nil
+
 		if base != nil {
 			if ptr == base {
 				mode = .Base_Plus_Offset
@@ -85,6 +103,7 @@ typed_array_view :: proc(ctx: jsc.JSContextRef, value: jsc.JSValueRef) -> ([]byt
 				// Unexpected — use ArrayBuffer base + offset (always correct).
 				return (cast([^]byte)base)[offset:][:n], true
 			}
+
 			g_bytes_ptr_mode = mode
 		} else {
 			// Cannot probe; assume gtk layout (base + offset).
@@ -96,6 +115,7 @@ typed_array_view :: proc(ctx: jsc.JSContextRef, value: jsc.JSValueRef) -> ([]byt
 	if mode == .View_Start {
 		return (cast([^]byte)ptr)[:n], true
 	}
+
 	// Base_Plus_Offset (and default): BytesPtr is the buffer base.
 	return (cast([^]byte)ptr)[offset:][:n], true
 }
@@ -108,7 +128,10 @@ typed_array_view :: proc(ctx: jsc.JSContextRef, value: jsc.JSValueRef) -> ([]byt
 // reset (the CLI's is the heap, so only embedders see the mismatch).
 jsc_buffer_deallocator :: proc "c" (bytes: rawptr, deallocator_context: rawptr) {
 	context = runtime.default_context()
-	if bytes != nil do free(bytes)
+
+	if bytes != nil {
+		free(bytes)
+	}
 }
 
 // make_uint8_array hands a byte slice from runtime.heap_allocator() to JavaScriptCore
@@ -118,11 +141,13 @@ jsc_buffer_deallocator :: proc "c" (bytes: rawptr, deallocator_context: rawptr) 
 make_uint8_array :: proc(ctx: jsc.JSContextRef, data: []byte) -> jsc.JSValueRef {
 	ptr := raw_data(data)
 	n := len(data)
+
 	if ptr == nil {
 		pad := make([]byte, 1, runtime.heap_allocator())
 		ptr = raw_data(pad)
 		n = 0
 	}
+
 	// No free on a nil return: JSC already ran jsc_buffer_deallocator (see
 	// make_uint8_array_uninit).
 	array := jsc.make_uint8_nocopy_locked(ctx, ptr, c.size_t(n), jsc_buffer_deallocator)
@@ -140,11 +165,22 @@ MAX_UNINIT_ALLOC :: 0x7fff_ffff // 2^31 - 1 bytes
 // with the deallocator as its destructor before the typed array is created, so a
 // failed create drops that buffer and frees them. Deleting again is a double free.
 make_uint8_array_uninit :: proc(ctx: jsc.JSContextRef, size: int) -> (jsc.JSValueRef, bool) {
-	if size <= 0 || size > MAX_UNINIT_ALLOC do return nil, false
+	if size <= 0 || size > MAX_UNINIT_ALLOC {
+		return nil, false
+	}
+
 	heap := runtime.heap_allocator()
 	data, err := mem.alloc_bytes_non_zeroed(size, mem.DEFAULT_ALIGNMENT, heap)
-	if err != nil || len(data) != size do return nil, false
+
+	if err != nil || len(data) != size {
+		return nil, false
+	}
+
 	array := jsc.make_uint8_nocopy_locked(ctx, raw_data(data), c.size_t(size), jsc_buffer_deallocator)
-	if array == nil do return nil, false
+
+	if array == nil {
+		return nil, false
+	}
+
 	return cast(jsc.JSValueRef)array, true
 }
