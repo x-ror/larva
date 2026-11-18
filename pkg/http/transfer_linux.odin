@@ -484,7 +484,7 @@ on_head :: proc(t: ^Transfer, status: int, reason: string, headers: []pico.Heade
 	context.allocator = t.allocator
 	t.resp.status = status
 	t.resp.reason = strings.clone(reason)
-	for h in headers {
+	for &h in headers {
 		append(&t.resp.headers, Header{strings.clone(h.name), strings.clone(h.value)})
 	}
 
@@ -532,17 +532,17 @@ body_framing :: proc(t: ^Transfer, status: int) -> (mode: Body_Mode, length: int
 
 	if te, has_te := header(&t.resp, "Transfer-Encoding"); has_te {
 		codings := strings.split(te, ",", context.temp_allocator)
-		last := strings.trim_space(codings[len(codings) - 1])
+		last := strings.trim(codings[len(codings) - 1], OWS)
 		return .Chunked if ascii_equal_fold(last, "chunked") else .Until_Close, 0, true
 	}
 
 	found := false
-	for h in t.resp.headers {
+	for &h in t.resp.headers {
 		if !ascii_equal_fold(h.name, "Content-Length") {
 			continue
 		}
 
-		n, num_ok := parse_length(strings.trim_space(h.value))
+		n, num_ok := parse_length(strings.trim(h.value, OWS))
 
 		if !num_ok || (found && n != length) {
 			return .None, 0, false
@@ -668,7 +668,7 @@ redirect :: proc(t: ^Transfer, status: int, location: string) {
 @(private = "file")
 reset_response :: proc(t: ^Transfer) {
 	context.allocator = t.allocator
-	for h in t.resp.headers {
+	for &h in t.resp.headers {
 		delete(h.name)
 		delete(h.value)
 	}
@@ -737,7 +737,7 @@ finish :: proc(t: ^Transfer, err: Error) {
 	on_done, user_data := t.on_done, t.user_data
 
 	delete(t.method)
-	for h in t.headers {
+	for &h in t.headers {
 		delete(h.name)
 		delete(h.value)
 	}

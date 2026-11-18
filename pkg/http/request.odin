@@ -29,7 +29,7 @@ request_is_valid :: proc(req: Request) -> bool {
 		}
 	}
 
-	for h in req.headers {
+	for &h in req.headers {
 		if h.name == "" ||
 		   strings.index_any(h.name, NAME_FORBIDDEN) >= 0 ||
 		   strings.index_any(h.value, VALUE_FORBIDDEN) >= 0 {
@@ -62,7 +62,7 @@ build_request :: proc(out: ^[dynamic]byte, method: string, url: Url, headers: []
 		{"Accept-Encoding", "identity"},
 		{"Connection", "close"},
 	}
-	for d in defaults {
+	for &d in defaults {
 		if !has_header(headers, d.name) {
 			write_header(&sb, d)
 		}
@@ -72,7 +72,7 @@ build_request :: proc(out: ^[dynamic]byte, method: string, url: Url, headers: []
 		write_header(&sb, {"Content-Length", strconv.write_int(length_buf[:], i64(len(body)), 10)})
 	}
 
-	for h in headers {
+	for &h in headers {
 		write_header(&sb, h)
 	}
 
@@ -85,7 +85,7 @@ build_request :: proc(out: ^[dynamic]byte, method: string, url: Url, headers: []
 @(private)
 drop_headers :: proc(headers: []Header, names: []string, allocator := context.allocator) -> []Header {
 	n := 0
-	for h in headers {
+	for &h in headers {
 		drop := false
 		for name in names {
 			if ascii_equal_fold(h.name, name) {
@@ -129,7 +129,7 @@ write_header :: proc(sb: ^strings.Builder, h: Header) {
 
 @(private = "file")
 has_header :: proc(headers: []Header, name: string) -> bool {
-	for h in headers {
+	for &h in headers {
 		if ascii_equal_fold(h.name, name) {
 			return true
 		}

@@ -91,7 +91,7 @@ url_destroy :: proc(u: ^Url, allocator := context.allocator) {
 // (RFC 3986 §5.2), dot segments included.
 @(private)
 resolve_url :: proc(base: string, ref: string, allocator := context.allocator) -> string {
-	ref := strings.trim_space(ref)
+	ref := strings.trim(ref, OWS)
 
 	if has_scheme(ref) {
 		return strings.clone(ref, allocator)

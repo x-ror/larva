@@ -15,6 +15,11 @@ DEFAULT_MAX_BODY_BYTES :: 64 * 1024 * 1024
 // Status line and headers together. The same bound the runtime's fetch uses.
 MAX_HEAD_BYTES :: 64 * 1024
 
+// RFC 9110 optional whitespace around header values: space and tab only, not every
+// Unicode space strings.trim_space would decode and drop.
+@(private)
+OWS :: " \t"
+
 // The parser's {name, value} pair, reused rather than declared twice. Headers in a
 // Request or Response are owned copies, not views into a parse buffer.
 Header :: pico.Header
@@ -96,7 +101,7 @@ fetch :: proc(
 // case-insensitively; core:strings.equal_fold folds Unicode too, so a server's
 // `Tranſfer-Encoding` would pass for Transfer-Encoding.
 header :: proc(r: ^Response, name: string) -> (value: string, ok: bool) {
-	for h in r.headers {
+	for &h in r.headers {
 		if ascii_equal_fold(h.name, name) {
 			return h.value, true
 		}
@@ -113,15 +118,14 @@ is_html :: proc(r: ^Response) -> bool {
 		return true
 	}
 
-	media := strings.trim_space(
-		content_type[:strings.index_byte(content_type, ';')] if strings.contains_rune(content_type, ';') else content_type,
-	)
+	media, _, _ := strings.partition(content_type, ";")
+	media = strings.trim(media, OWS)
 	return ascii_equal_fold(media, "text/html") || ascii_equal_fold(media, "application/xhtml+xml")
 }
 
 response_destroy :: proc(r: ^Response) {
 	context.allocator = r.allocator
-	for h in r.headers {
+	for &h in r.headers {
 		delete(h.name)
 		delete(h.value)
 	}
