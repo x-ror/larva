@@ -53,13 +53,13 @@ Dns_Lookup_Request :: struct {
 	// worker's, the heap — so plain delete() frees it correctly.)
 	allocator: runtime.Allocator,
 	hostname:  string, // owned clone (the worker reads it off-loop)
-	family:   int, // 0 (any) | 4 | 6
-	order:    int, // ORDER_* (which family to prefer / how to concatenate)
-	all:      bool,
-	results:  [dynamic]Dns_Lookup_Result, // heap (default allocator); full address list
-	last_err: net.DNS_Error, // worst resolver error seen, to distinguish NXDOMAIN from transient
-	ok:       bool,
-	err_code: string, // static literal, e.g. "ENOTFOUND" / "EAI_AGAIN"
+	family:    int, // 0 (any) | 4 | 6
+	order:     int, // ORDER_* (which family to prefer / how to concatenate)
+	all:       bool,
+	results:   [dynamic]Dns_Lookup_Result, // heap (default allocator); full address list
+	last_err:  net.DNS_Error, // worst resolver error seen, to distinguish NXDOMAIN from transient
+	ok:        bool,
+	err_code:  string, // static literal, e.g. "ENOTFOUND" / "EAI_AGAIN"
 }
 
 // make_dns_bindings builds the `native` object handed to js/node/dns.js.
@@ -81,21 +81,33 @@ dns_lookup_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
+
 	if argument_count < 5 {
-		if exception != nil do exception^ = make_js_error(ctx, "dns lookup requires (hostname, family, order, all, callback)")
+		if exception !=
+		   nil {exception^ = make_js_error(ctx, "dns lookup requires (hostname, family, order, all, callback)")}
+
 		return jsc.JSValueMakeUndefined(ctx)
 	}
+
 	args := arguments[:int(argument_count)]
 
 	callback := callback_arg(ctx, args[4])
+
 	if callback == nil {
-		if exception != nil do exception^ = make_js_error(ctx, "dns lookup callback must be a function")
+		if exception != nil {
+			exception^ = make_js_error(ctx, "dns lookup callback must be a function")
+		}
+
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
 	loop := get_loop_from_ctx(ctx)
+
 	if loop == nil {
-		if exception != nil do exception^ = make_js_error(ctx, "dns: no event loop is bound to this context")
+		if exception != nil {
+			exception^ = make_js_error(ctx, "dns: no event loop is bound to this context")
+		}
+
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
@@ -104,7 +116,9 @@ dns_lookup_cb :: proc "c" (
 	alloc := runtime.heap_allocator()
 
 	hostname, host_alloc := jsc_value_to_string_or_default(ctx, args[0])
-	defer if host_alloc do delete(hostname, context.allocator)
+	defer if host_alloc {
+		delete(hostname, context.allocator)
+	}
 
 	req := new(Dns_Lookup_Request, alloc)
 	req.allocator = alloc
@@ -129,9 +143,14 @@ dns_lookup_cb :: proc "c" (
 		jsc.JSValueUnprotect(ctx, cast(jsc.JSValueRef)callback)
 		delete(req.hostname, req.allocator)
 		free(req, req.allocator)
-		if exception != nil do exception^ = make_js_error(ctx, "dns: could not start resolver pool")
+
+		if exception != nil {
+			exception^ = make_js_error(ctx, "dns: could not start resolver pool")
+		}
+
 		return jsc.JSValueMakeUndefined(ctx)
 	}
+
 	return jsc.JSValueMakeUndefined(ctx)
 }
 
@@ -144,16 +163,33 @@ dns_query_family :: proc(req: ^Dns_Lookup_Request, type: net.DNS_Record_Type, fa
 	recs: []net.DNS_Record
 	err: net.DNS_Error
 	is_mdns := ODIN_OS != .Windows && strings.has_suffix(req.hostname, ".local")
+
 	if is_mdns && type == .IP4 {
-		recs, err = net.get_dns_records_from_nameservers(req.hostname, .IP4, {net.IP4_mDNS_Broadcast}, nil, context.temp_allocator)
+		recs, err = net.get_dns_records_from_nameservers(
+			req.hostname,
+			.IP4,
+			{net.IP4_mDNS_Broadcast},
+			nil,
+			context.temp_allocator,
+		)
 	} else if is_mdns {
-		recs, err = net.get_dns_records_from_nameservers(req.hostname, .IP6, {net.IP6_mDNS_Broadcast}, nil, context.temp_allocator)
+		recs, err = net.get_dns_records_from_nameservers(
+			req.hostname,
+			.IP6,
+			{net.IP6_mDNS_Broadcast},
+			nil,
+			context.temp_allocator,
+		)
 	} else {
 		recs, err = net.get_dns_records_from_os(req.hostname, type, context.temp_allocator)
 	}
+
 	// Keep any reported resolver failure so the worker can tell a real "no such
 	// host" (empty + .None) from a transient/system error (see dns_error_to_code).
-	if err != .None do req.last_err = err
+	if err != .None {
+		req.last_err = err
+	}
+
 	for rec in recs {
 		addr: net.Address
 		#partial switch r in rec {
@@ -165,7 +201,10 @@ dns_query_family :: proc(req: ^Dns_Lookup_Request, type: net.DNS_Record_Type, fa
 			continue
 		}
 		append(&req.results, Dns_Lookup_Result{addr = addr, family = family})
-		if first_only do break
+
+		if first_only {
+			break
+		}
 	}
 }
 
@@ -190,30 +229,54 @@ dns_work :: proc(user_data: rawptr) {
 		want4 := req.family == 0 || req.family == 4
 		want6 := req.family == 0 || req.family == 6
 		prefer6 := req.order == ORDER_IPV6FIRST
+
 		if req.all {
 			// Full enumeration of every requested family, concatenated per order.
 			if prefer6 {
-				if want6 do dns_query_family(req, .IP6, 6, false)
-				if want4 do dns_query_family(req, .IP4, 4, false)
+				if want6 {
+					dns_query_family(req, .IP6, 6, false)
+				}
+
+				if want4 {
+					dns_query_family(req, .IP4, 4, false)
+				}
 			} else {
-				if want4 do dns_query_family(req, .IP4, 4, false)
-				if want6 do dns_query_family(req, .IP6, 6, false)
+				if want4 {
+					dns_query_family(req, .IP4, 4, false)
+				}
+
+				if want6 {
+					dns_query_family(req, .IP6, 6, false)
+				}
 			}
 		} else {
 			// Single address: first of the preferred family, else fall back. Querying
 			// the preferred family first also avoids the second query in the common case.
 			if prefer6 {
-				if want6 do dns_query_family(req, .IP6, 6, true)
-				if len(req.results) == 0 && want4 do dns_query_family(req, .IP4, 4, true)
+				if want6 {
+					dns_query_family(req, .IP6, 6, true)
+				}
+
+				if len(req.results) == 0 && want4 {
+					dns_query_family(req, .IP4, 4, true)
+				}
 			} else {
-				if want4 do dns_query_family(req, .IP4, 4, true)
-				if len(req.results) == 0 && want6 do dns_query_family(req, .IP6, 6, true)
+				if want4 {
+					dns_query_family(req, .IP4, 4, true)
+				}
+
+				if len(req.results) == 0 && want6 {
+					dns_query_family(req, .IP6, 6, true)
+				}
 			}
 		}
 	}
 
 	req.ok = len(req.results) > 0
-	if !req.ok do req.err_code = dns_error_to_code(req.last_err)
+
+	if !req.ok {
+		req.err_code = dns_error_to_code(req.last_err)
+	}
 }
 
 // dns_error_to_code maps a failed lookup to a Node getaddrinfo error code. A real
@@ -226,11 +289,7 @@ dns_work :: proc(user_data: rawptr) {
 // Node's EAI_AGAIN for that case needs a resolver that surfaces the timeout.
 dns_error_to_code :: proc(e: net.DNS_Error) -> string {
 	#partial switch e {
-	case .Connection_Error,
-	     .Server_Error,
-	     .System_Error,
-	     .Invalid_Resolv_Config_Error,
-	     .Invalid_Hosts_Config_Error:
+	case .Connection_Error, .Server_Error, .System_Error, .Invalid_Resolv_Config_Error, .Invalid_Hosts_Config_Error:
 		return "EAI_AGAIN"
 	}
 	return "ENOTFOUND"
@@ -244,6 +303,7 @@ dns_lookup_complete_cb :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 	ctx := req.ctx
 
 	code_val, addrs_val: jsc.JSValueRef
+
 	if req.ok {
 		code_val = jsc.JSValueMakeNull(ctx)
 		// Set each entry into the array as it is built — never park unrooted JSValueRefs in
@@ -267,6 +327,7 @@ dns_lookup_complete_cb :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 	cb_args := [2]jsc.JSValueRef{code_val, addrs_val}
 	exception: jsc.JSValueRef
 	invoke_user_callback(ctx, req.callback, raw_data(cb_args[:]), 2, &exception)
+
 	if exception != nil {
 		report_uncaught(ctx, exception)
 		mark_async_failed(ctx)
@@ -283,11 +344,15 @@ dns_lookup_complete_cb :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 // teardown, before it fires). It never races a worker: the pool disposes a job a
 // worker took only once that worker has exited.
 dns_request_free :: proc(req: ^Dns_Lookup_Request) {
-	if req == nil do return
+	if req == nil {
+		return
+	}
+
 	if req.callback != nil {
 		jsc.JSValueUnprotect(req.ctx, cast(jsc.JSValueRef)req.callback)
 		req.callback = nil
 	}
+
 	delete(req.results)
 	delete(req.hostname, req.allocator)
 	free(req, req.allocator)
@@ -310,6 +375,7 @@ dns_dispose :: proc(user_data: rawptr) {
 // before the page releases its context. dns_work never reads req.callback or req.ctx.
 dns_cancel :: proc(user_data: rawptr) {
 	req := cast(^Dns_Lookup_Request)user_data
+
 	if req.callback != nil {
 		jsc.JSValueUnprotect(req.ctx, cast(jsc.JSValueRef)req.callback)
 		req.callback = nil

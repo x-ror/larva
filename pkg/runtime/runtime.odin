@@ -28,10 +28,10 @@ Status :: enum {
 }
 
 Result :: struct {
-	status:       Status,
-	exit_code:    int,
-	message:      string,
-	is_allocated: bool,
+	status:         Status,
+	exit_code:      int,
+	message:        string,
+	is_allocated:   bool,
 	// True when the event loop exited because its backend poll failed fatally (loop.backend_error),
 	// not because work drained or a stop was requested. The multi-worker supervisor reads this to tell
 	// a crashed worker from one that finished cleanly (so a crash stops the other workers).
@@ -102,6 +102,7 @@ result_destroy :: proc(res: ^Result) {
 	if res.is_allocated && len(res.message) > 0 {
 		delete(res.message)
 	}
+
 	res^ = Result{}
 }
 
@@ -137,7 +138,11 @@ create_eval_context :: proc(
 		return nil, jsc.JSGlobalContextCreate(global_class), .None
 	} else {
 		vm, err = vm_acquire(pool != nil ? pool : thread_vm_pool())
-		if err != .None do return nil, nil, err
+
+		if err != .None {
+			return nil, nil, err
+		}
+
 		return vm, vm_create_context(vm, global_class), .None
 	}
 }
@@ -214,7 +219,10 @@ Result_Hook :: proc(result: Result, user_data: rawptr)
 // shape of every `return` in eval and run_file, so that none can skip the hook.
 @(private = "file")
 reported :: proc(result: Result, report: Result_Hook, report_data: rawptr) -> Result {
-	if report != nil do report(result, report_data)
+	if report != nil {
+		report(result, report_data)
+	}
+
 	return result
 }
 
@@ -274,27 +282,41 @@ eval :: proc(
 	// (runtime install + top-level script), drive its loop, close it. The page runner
 	// drives the same three steps for many pages interleaved on one thread.
 	page: Page
-	if page_open(&page, source, source_name, loop, echo_result, script_args, limits, surface = surface) && loop != nil {
+
+	if page_open(&page, source, source_name, loop, echo_result, script_args, limits, surface = surface) &&
+	   loop != nil {
 		// Startup-barrier rendezvous (multi-worker): report this worker ready and block until the
 		// supervisor releases all workers, or aborts startup (some worker failed). On abort, skip the
 		// loop entirely and fall through to the teardown — the loop never ran, so this is a direct
 		// teardown, not a drain. nil hook (single-worker) always proceeds.
 		proceed := true
-		if pre_run != nil do proceed = pre_run(pre_run_data)
+
+		if pre_run != nil {
+			proceed = pre_run(pre_run_data)
+		}
+
 		if proceed {
 			for {
 				alive, _ := page_tick(&page)
-				if !alive do break
+
+				if !alive {
+					break
+				}
 			}
 		}
 	}
+
 	// The report fires inside page_close, before its teardown: the Result is final
 	// there, and close_finish below is where eval joins a pool worker that is still
 	// blocked — a top-level throw must reach stderr before that join, not after it.
 	result, busy_loop := page_close(&page, report = report, report_data = report_data)
+
 	// eval owns its thread, so it waits for blocking pool work as it always has; only
 	// the page runner, which shares its thread with other pages, must not (#34).
-	if busy_loop != nil do eventloop.close_finish(busy_loop)
+	if busy_loop != nil {
+		eventloop.close_finish(busy_loop)
+	}
+
 	return result
 }
 
@@ -303,26 +325,37 @@ eval :: proc(
 // non-zero exit; otherwise a script-assigned process.exitCode is honored, matching
 // Node. (process.exit() is handled separately and terminates immediately.)
 resolve_exit_code :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) -> int {
-	if state != nil && state.async_failed do return 1
+	if state != nil && state.async_failed {
+		return 1
+	}
+
 	return process_exit_code(ctx)
 }
 
 process_exit_code :: proc(ctx: jsc.JSContextRef) -> int {
 	global := jsc.JSContextGetGlobalObject(ctx)
 	process := get_named(ctx, global, "process")
+
 	// JSValueGetType classifies the value in one call (Object vs the Undefined/Null
 	// switch below); the JSValueIs* predicates are equally ABI-safe now that they
 	// return a 1-byte `bool` (see cmd/lava jsc_value_predicates, #159) — the former
 	// "unreliable across the FFI" note described the retired `b32` return.
-	if process == nil || jsc.JSValueGetType(ctx, process) != .Object do return 0
+	if process == nil || jsc.JSValueGetType(ctx, process) != .Object {
+		return 0
+	}
+
 	code := get_named(ctx, cast(jsc.JSObjectRef)process, "exitCode")
-	if code == nil do return 0
+
+	if code == nil {
+		return 0
+	}
 	#partial switch jsc.JSValueGetType(ctx, code) {
 	case .Undefined, .Null:
 		return 0
 	}
 	n := jsc.JSValueToNumber(ctx, code, nil)
-	if n != n do return 0 // NaN guard (e.g. exitCode set to a non-numeric value)
+
+	if n != n {return 0} 	// NaN guard (e.g. exitCode set to a non-numeric value)
 	return int(n)
 }
 
@@ -334,23 +367,31 @@ run_file :: proc(
 	report_data: rawptr = nil,
 ) -> Result {
 	if len(path) == 0 {
-		if loop != nil do eventloop.destroy(loop)
-		return reported(Result {
-			status = .Invalid_Input,
-			exit_code = 2,
-			message = "missing JavaScript file path",
-		}, report, report_data)
+		if loop != nil {
+			eventloop.destroy(loop)
+		}
+
+		return reported(
+			Result{status = .Invalid_Input, exit_code = 2, message = "missing JavaScript file path"},
+			report,
+			report_data,
+		)
 	}
 
 	data, err := os.read_entire_file(path, context.allocator)
+
 	if err != os.ERROR_NONE {
-		if loop != nil do eventloop.destroy(loop)
-		return reported(Result {
-			status = .Read_Error,
-			exit_code = 1,
-			message = "could not read JavaScript file",
-		}, report, report_data)
+		if loop != nil {
+			eventloop.destroy(loop)
+		}
+
+		return reported(
+			Result{status = .Read_Error, exit_code = 1, message = "could not read JavaScript file"},
+			report,
+			report_data,
+		)
 	}
+
 	defer delete(data)
 
 	return eval(string(data), path, loop, false, script_args, report = report, report_data = report_data)
@@ -364,25 +405,32 @@ build_process_argv :: proc(source_name: string, script_args: []string) -> []stri
 	argv := make([dynamic]string, 0, len(script_args) + 2, context.temp_allocator)
 
 	exec_path := "lava"
+
 	if len(os.args) > 0 {
 		exec_path = os.args[0]
+
 		if abs_exec, abs_err := filepath.abs(exec_path, context.temp_allocator);
 		   abs_err == os.ERROR_NONE && len(abs_exec) > 0 {
 			exec_path = abs_exec
 		}
 	}
+
 	append(&argv, exec_path)
 
 	if source_name != "<eval>" {
 		script_path := source_name
+
 		if abs_script, abs_err := filepath.abs(source_name, context.temp_allocator);
 		   abs_err == os.ERROR_NONE && len(abs_script) > 0 {
 			script_path = abs_script
 		}
+
 		append(&argv, script_path)
 	}
 
-	for arg in script_args do append(&argv, arg)
+	for arg in script_args {
+		append(&argv, arg)
+	}
 	return argv[:]
 }
 
@@ -398,11 +446,7 @@ native_runtime_unavailable :: proc() -> Result {
 // Same status and exit code as native_runtime_unavailable (EX_SOFTWARE-style 70: the
 // script never ran), a different cause.
 vm_pool_unavailable :: proc(reason: string) -> Result {
-	return Result {
-		status = .Native_Runtime_Unavailable,
-		exit_code = 70,
-		message = reason,
-	}
+	return Result{status = .Native_Runtime_Unavailable, exit_code = 70, message = reason}
 }
 
 is_success :: proc(result: Result) -> bool {
@@ -411,9 +455,11 @@ is_success :: proc(result: Result) -> bool {
 
 js_string_from_string :: proc(value: string) -> jsc.JSStringRef {
 	c_value, err := strings.clone_to_cstring(value, context.temp_allocator)
+
 	if err != nil {
 		return nil
 	}
+
 	return jsc.JSStringCreateWithUTF8CString(c_value)
 }
 
@@ -423,9 +469,11 @@ js_string_from_string :: proc(value: string) -> jsc.JSStringRef {
 value_to_string :: proc(ctx: jsc.JSContextRef, value: jsc.JSValueRef) -> (string, bool) {
 	exception: jsc.JSValueRef
 	js_string := jsc.JSValueToStringCopy(ctx, value, &exception)
+
 	if js_string == nil {
 		return "JavaScript value could not be converted to string", false
 	}
+
 	defer jsc.JSStringRelease(js_string)
 	return js_string_ref_to_utf8_owned(js_string)
 }

@@ -55,7 +55,11 @@ buffer_natives_detach_during_coercion :: proc(t: ^testing.T) {
 	jsc.lava_jsc_init()
 	gctx := jsc.JSGlobalContextCreate(nil)
 	testing.expect(t, gctx != nil, "could not create a JSC global context")
-	if gctx == nil do return
+
+	if gctx == nil {
+		return
+	}
+
 	defer jsc.JSGlobalContextRelease(gctx)
 	ctx := cast(jsc.JSContextRef)gctx
 
@@ -65,6 +69,7 @@ buffer_natives_detach_during_coercion :: proc(t: ^testing.T) {
 		ctx,
 		reentrancy_eval(ctx, "typeof ArrayBuffer.prototype.transfer === 'function'"),
 	)
+
 	if !has_transfer {
 		// Older JSC without the detach primitive: nothing to exercise.
 		return
@@ -112,10 +117,7 @@ buffer_natives_detach_during_coercion :: proc(t: ^testing.T) {
 	// bytes; the call must be a no-op (undefined return, no write).
 	{
 		view, _ := reentrancy_setup(ctx)
-		evil2 := reentrancy_eval(
-			ctx,
-			"({ valueOf: function () { globalThis.__ab.transfer(); return 2; } })",
-		)
+		evil2 := reentrancy_eval(ctx, "({ valueOf: function () { globalThis.__ab.transfer(); return 2; } })")
 		args := [2]jsc.JSValueRef{view, evil2}
 		r := lava.buffer_swap_cb(ctx, nil, nil, 2, raw_data(args[:]), &exc)
 		testing.expect(t, jsc.JSValueIsUndefined(ctx, r), "swapInPlace must no-op on a detached target")

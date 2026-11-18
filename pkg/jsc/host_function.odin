@@ -93,20 +93,31 @@ when ODIN_OS == .Linux {
 	// calling thread's (thread-confined) context, and g_probe_seen/g_probe_callee
 	// are written by that probe callback on the same thread. Per-thread state
 	// keeps concurrent worker startups from clobbering each other's probe.
-	@(private = "file", thread_local) g_host_checked: bool
-	@(private = "file", thread_local) g_host_ok: bool
-	@(private = "file", thread_local) g_host_create: Create_Host_Fn_Proc
-	@(private = "file", thread_local) g_host_lock_ctor: Lock_Ctor_Proc
-	@(private = "file", thread_local) g_host_lock_dtor: Lock_Dtor_Proc
-	@(private = "file", thread_local) g_vm_throw: Vm_Throw_Proc
-	@(private = "file", thread_local) g_probe_seen: bool
-	@(private = "file", thread_local) g_probe_callee: rawptr
+	@(private = "file", thread_local)
+	g_host_checked: bool
+	@(private = "file", thread_local)
+	g_host_ok: bool
+	@(private = "file", thread_local)
+	g_host_create: Create_Host_Fn_Proc
+	@(private = "file", thread_local)
+	g_host_lock_ctor: Lock_Ctor_Proc
+	@(private = "file", thread_local)
+	g_host_lock_dtor: Lock_Dtor_Proc
+	@(private = "file", thread_local)
+	g_vm_throw: Vm_Throw_Proc
+	@(private = "file", thread_local)
+	g_probe_seen: bool
+	@(private = "file", thread_local)
+	g_probe_callee: rawptr
 
 	// debug_log reports probe outcomes on stderr when LAVA_HOSTFN_DEBUG is set —
 	// the fallback is silent by design, so this is the diagnostic switch.
 	@(private = "file")
 	debug_log :: proc(msg: string) {
-		if len(os.get_env("LAVA_HOSTFN_DEBUG", context.temp_allocator)) == 0 do return
+		if len(os.get_env("LAVA_HOSTFN_DEBUG", context.temp_allocator)) == 0 {
+			return
+		}
+
 		os.write_string(os.stderr, msg)
 		os.write_string(os.stderr, "\n")
 	}
@@ -117,33 +128,57 @@ when ODIN_OS == .Linux {
 		// Guard the frame reads: if the layout assumption were wrong, the count
 		// almost certainly won't be 3, and we bail before touching "arguments".
 		argc := u32(cf[CALL_FRAME_ARGC_SLOT] & 0xFFFFFFFF)
+
 		if argc == 3 && rawptr(uintptr(cf[CALL_FRAME_CALLEE_SLOT])) == g_probe_callee {
 			a0 := JSValueRef(uintptr(cf[CALL_FRAME_FIRST_ARG_SLOT]))
 			a1 := JSValueRef(uintptr(cf[CALL_FRAME_FIRST_ARG_SLOT + 1]))
-			if JSValueIsNumber(ctx, a0) && JSValueIsString(ctx, a1) &&
-			   JSValueToNumber(ctx, a0, nil) == 42 {
+
+			if JSValueIsNumber(ctx, a0) && JSValueIsString(ctx, a1) && JSValueToNumber(ctx, a0, nil) == 42 {
 				s := JSValueToStringCopy(ctx, a1, nil)
+
 				if s != nil {
 					equal := JSStringIsEqualToUTF8CString(s, "ab")
 					JSStringRelease(s)
-					if equal do g_probe_seen = true
+
+					if equal {
+						g_probe_seen = true
+					}
 				}
 			}
 		}
+
 		return transmute(i64)JSValueMakeNumber(ctx, 7)
 	}
 
 	@(private = "file")
 	create_raw :: proc(ctx: JSContextRef, name: string, fn: Host_Function_Proc, arity: int) -> JSObjectRef {
 		impl, name_ok := wtf_string_impl_from_ascii(name)
-		if !name_ok do return nil
+
+		if !name_ok {
+			return nil
+		}
+
 		vm := JSContextGetGroup(ctx)
-		if vm == nil do return nil
+
+		if vm == nil {
+			return nil
+		}
+
 		holder: rawptr
 		g_host_lock_ctor(&holder, rawptr(ctx))
 		// The same fn doubles as the constructor slot: our natives are never
 		// `new`ed, and a non-null pointer can never null-deref if one is.
-		fptr := g_host_create(vm, rawptr(ctx), c.uint(arity), &impl, transmute(rawptr)fn, 0, 0, transmute(rawptr)fn, nil)
+		fptr := g_host_create(
+			vm,
+			rawptr(ctx),
+			c.uint(arity),
+			&impl,
+			transmute(rawptr)fn,
+			0,
+			0,
+			transmute(rawptr)fn,
+			nil,
+		)
 		g_host_lock_dtor(&holder)
 		return JSObjectRef(fptr)
 	}
@@ -163,7 +198,9 @@ when ODIN_OS == .Linux {
 	// not cost every later native on that thread its host-call path.
 	@(private = "file")
 	ensure_host :: proc(ctx: JSContextRef) {
-		if g_host_checked do return
+		if g_host_checked {
+			return
+		}
 
 		// TEST-ONLY switch, same shape and purpose as net.odin's
 		// LAVA_NET_FORCE_READINESS: force the C-API fallback so CI can exercise the
@@ -180,15 +217,20 @@ when ODIN_OS == .Linux {
 		// Resolved once even across a transient retry: dlsym is the expensive half
 		// and its answer is definitive either way.
 		if g_host_create == nil {
-			pc := host_dlsym(nil, "_ZN3JSC10JSFunction6createERNS_2VMEPNS_14JSGlobalObjectEjRKN3WTF6StringENS5_11FunctionPtrILNS5_6PtrTagE1EFlS4_PNS_9CallFrameEELNS5_18FunctionAttributesE2EEENS_24ImplementationVisibilityENS_9IntrinsicESF_PKNS_6DOMJIT9SignatureE")
+			pc := host_dlsym(
+				nil,
+				"_ZN3JSC10JSFunction6createERNS_2VMEPNS_14JSGlobalObjectEjRKN3WTF6StringENS5_11FunctionPtrILNS5_6PtrTagE1EFlS4_PNS_9CallFrameEELNS5_18FunctionAttributesE2EEENS_24ImplementationVisibilityENS_9IntrinsicESF_PKNS_6DOMJIT9SignatureE",
+			)
 			pl := host_dlsym(nil, "_ZN3JSC12JSLockHolderC1EPNS_14JSGlobalObjectE")
 			pd := host_dlsym(nil, "_ZN3JSC12JSLockHolderD1Ev")
 			pt := host_dlsym(nil, "_ZN3JSC2VM14throwExceptionEPNS_14JSGlobalObjectENS_7JSValueE")
+
 			if pc == nil || pl == nil || pd == nil || pt == nil {
 				debug_log("hostfn: dlsym miss")
 				g_host_checked = true // definitive: this JSC does not export the path
 				return
 			}
+
 			g_host_create = transmute(Create_Host_Fn_Proc)pc
 			g_host_lock_ctor = transmute(Lock_Ctor_Proc)pl
 			g_host_lock_dtor = transmute(Lock_Dtor_Proc)pd
@@ -207,6 +249,7 @@ when ODIN_OS == .Linux {
 		}
 
 		fn := create_raw(ctx, "__lava_hostcall_probe", host_probe, 2)
+
 		if fn == nil {
 			// Two distinct causes, only one transient. create_raw builds its name
 			// through the private string bridge; if THAT probe latched off (missing
@@ -217,6 +260,7 @@ when ODIN_OS == .Linux {
 				g_host_checked = true
 				return
 			}
+
 			// Otherwise a WTF string-impl or GC-cell allocation failed. Nothing about
 			// the ABI was disproved, so do NOT latch — this call falls back, the next
 			// injection tries again. Neither arm here is pinnable by an in-repo test
@@ -229,21 +273,21 @@ when ODIN_OS == .Linux {
 		// result is permanent whichever way it goes.
 		g_host_checked = true
 
-		args := [2]JSValueRef{
-			JSValueMakeNumber(ctx, 42),
-			js_probe_string(ctx),
-		}
+		args := [2]JSValueRef{JSValueMakeNumber(ctx, 42), js_probe_string(ctx)}
 		g_probe_callee = rawptr(fn)
 		g_probe_seen = false
 		res := JSObjectCallAsFunction(ctx, fn, nil, 2, &args[0], nil)
+
 		if !g_probe_seen || res == nil {
 			debug_log("hostfn: probe not seen / res nil")
 			return
 		}
+
 		if !JSValueIsNumber(ctx, res) || JSValueToNumber(ctx, res, nil) != 7 {
 			debug_log("hostfn: bad probe result")
 			return
 		}
+
 		debug_log("hostfn: ACTIVE")
 		g_host_ok = true
 	}
@@ -259,9 +303,21 @@ when ODIN_OS == .Linux {
 	// The returned object is an ordinary JS function value (attach it with
 	// JSObjectSetProperty). ok=false whenever the private path is unavailable —
 	// callers must fall back to JSObjectMakeFunctionWithCallback.
-	host_function_create :: proc(ctx: JSContextRef, name: string, fn: Host_Function_Proc, arity: int) -> (function: JSObjectRef, ok: bool) {
+	host_function_create :: proc(
+		ctx: JSContextRef,
+		name: string,
+		fn: Host_Function_Proc,
+		arity: int,
+	) -> (
+		function: JSObjectRef,
+		ok: bool,
+	) {
 		ensure_host(ctx)
-		if !g_host_ok do return nil, false
+
+		if !g_host_ok {
+			return nil, false
+		}
+
 		function = create_raw(ctx, name, fn, arity)
 		return function, function != nil
 	}
@@ -293,14 +349,29 @@ when ODIN_OS == .Linux {
 	// nil-value/nil-vm cases, where refusing to claim a raise is what keeps the
 	// caller from returning the Error as a value.
 	host_throw :: proc "contextless" (ctx: JSContextRef, value: JSValueRef) -> bool {
-		if !g_host_ok || value == nil do return false
+		if !g_host_ok || value == nil {
+			return false
+		}
+
 		vm := JSContextGetGroup(ctx)
-		if vm == nil do return false
+
+		if vm == nil {
+			return false
+		}
+
 		g_vm_throw(vm, rawptr(ctx), transmute(u64)value)
 		return true
 	}
 } else {
-	host_function_create :: proc(_: JSContextRef, _: string, _: Host_Function_Proc, _: int) -> (function: JSObjectRef, ok: bool) {
+	host_function_create :: proc(
+		_: JSContextRef,
+		_: string,
+		_: Host_Function_Proc,
+		_: int,
+	) -> (
+		function: JSObjectRef,
+		ok: bool,
+	) {
 		return nil, false
 	}
 

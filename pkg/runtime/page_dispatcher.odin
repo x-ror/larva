@@ -144,7 +144,11 @@ page_dispatcher_init :: proc(
 	allocator: runtime.Allocator = {},
 ) -> bool {
 	d^ = {}
-	if threads < 1 || pages_per_thread < 1 || on_done == nil do return false
+
+	if threads < 1 || pages_per_thread < 1 || on_done == nil {
+		return false
+	}
+
 	alloc := allocator.procedure != nil ? allocator : runtime.heap_allocator()
 	d.allocator = alloc
 	d.on_done = on_done
@@ -155,10 +159,12 @@ page_dispatcher_init :: proc(
 	// the dispatcher's too.
 	context.allocator = alloc
 	workers, err := make([]^Dispatch_Worker, threads, alloc)
+
 	if err != nil {
 		d^ = {}
 		return false
 	}
+
 	d.workers = workers
 	ok := true
 	// One worker at a time, each waited for before the next starts: a refusal stops
@@ -166,39 +172,49 @@ page_dispatcher_init :: proc(
 	// not worth overlapping.
 	for i in 0 ..< threads {
 		w, werr := new(Dispatch_Worker, alloc)
+
 		if werr != nil {
 			ok = false
 			break
 		}
+
 		d.workers[i] = w
 		w.d = d
 		w.wake_read = -1
 		w.wake_write = -1
+
 		if queue.init(&w.inbox, 16, alloc) != nil {
 			ok = false
 			break
 		}
+
 		// A pipe, as the event loop's own wakeup (loop_linux.odin, Platform_Loop.
 		// wakeup_pipe): an eventfd would serve under epoll, but #74 found io_uring
 		// POLL_ADD unreliable on one, and a pipe keeps a single wake shape in the tree.
 		fds: [2]linux.Fd
+
 		if linux.pipe2(&fds, {.CLOEXEC, .NONBLOCK}) != .NONE {
 			ok = false
 			break
 		}
+
 		w.wake_read = fds[0]
 		w.wake_write = fds[1]
 		w.thread = thread.create_and_start_with_data(w, worker_main)
+
 		if w.thread == nil {
 			ok = false
 			break
 		}
+
 		sync.wait(&w.ready)
+
 		if !w.init_ok {
 			ok = false
 			break
 		}
 	}
+
 	if !ok {
 		// No submit can have seen the dispatcher (state is still Closed), so this is a
 		// plain stop: the started workers find their inboxes empty and exit.
@@ -206,6 +222,7 @@ page_dispatcher_init :: proc(
 		d^ = {}
 		return false
 	}
+
 	sync.lock(&d.gate)
 	sync.atomic_store(&d.state, Dispatcher_State.Open)
 	sync.unlock(&d.gate)
@@ -235,14 +252,24 @@ page_dispatcher_submit :: proc(
 	surface: Global_Surface = .Node,
 ) -> bool {
 	// A zero dispatcher has no allocator to copy through; it is Closed anyway.
-	if d.allocator.procedure == nil do return false
+	if d.allocator.procedure == nil {
+		return false
+	}
+
 	// Early refusal without the gate, so a late submit after shutdown allocates
 	// nothing. Only a hint: the state can still change before the gate is taken, and
 	// the check under it below is the one that decides.
-	if !dispatcher_accepts(d) do return false
+	if !dispatcher_accepts(d) {
+		return false
+	}
+
 	// Copies outside the gate: a shutdown waiting on it should not wait on a memcpy.
 	job, jerr := new(Dispatch_Job, d.allocator)
-	if jerr != nil do return false
+
+	if jerr != nil {
+		return false
+	}
+
 	src, serr := strings.clone(source, d.allocator)
 	name, nerr := strings.clone(source_name, d.allocator)
 	job^ = {
@@ -252,6 +279,7 @@ page_dispatcher_submit :: proc(
 		user_data   = user_data,
 		surface     = surface,
 	}
+
 	if serr != nil || nerr != nil {
 		job_free(d, job)
 		return false
@@ -259,6 +287,7 @@ page_dispatcher_submit :: proc(
 
 	sync.shared_lock(&d.gate)
 	defer sync.shared_unlock(&d.gate)
+
 	// The deciding check. It only differs from the early one above for a submit that
 	// races the flip, which no deterministic test can schedule, so deleting it alone
 	// survives every test and has no mutation entry — it is not redundant: without it
@@ -267,17 +296,20 @@ page_dispatcher_submit :: proc(
 		job_free(d, job)
 		return false
 	}
+
 	w := dispatcher_pick(d)
 	job.worker = w
 	sync.atomic_add(&w.load, 1)
 	sync.lock(&w.mutex)
 	_, perr := queue.push_back(&w.inbox, job)
 	sync.unlock(&w.mutex)
+
 	if perr != nil {
 		sync.atomic_sub(&w.load, 1)
 		job_free(d, job)
 		return false
 	}
+
 	// Under the gate: once it is released a shutdown may join this worker and close
 	// the pipe, and a write after that could land on a reused descriptor number.
 	worker_wake(w)
@@ -308,6 +340,7 @@ page_dispatcher_submit :: proc(
 page_dispatcher_shutdown :: proc(d: ^Page_Dispatcher, cancel := false) {
 	self := sync.current_thread_id()
 	sync.shared_lock(&d.gate)
+
 	if d.state != .Closed {
 		for w in d.workers {
 			if sync.atomic_load(&w.thread_id) == self {
@@ -316,15 +349,18 @@ page_dispatcher_shutdown :: proc(d: ^Page_Dispatcher, cancel := false) {
 			}
 		}
 	}
+
 	sync.shared_unlock(&d.gate)
 
 	sync.lock(&d.shutdown_mutex)
 	defer sync.unlock(&d.shutdown_mutex)
 	sync.lock(&d.gate)
+
 	if d.state != .Open {
 		sync.unlock(&d.gate)
 		return
 	}
+
 	sync.atomic_store(&d.state, Dispatcher_State.Closing)
 	sync.unlock(&d.gate)
 	dispatcher_stop_and_free(d, cancel)
@@ -336,9 +372,15 @@ page_dispatcher_shutdown :: proc(d: ^Page_Dispatcher, cancel := false) {
 page_dispatcher_load :: proc(d: ^Page_Dispatcher, out: []int) -> int {
 	sync.shared_lock(&d.gate)
 	defer sync.shared_unlock(&d.gate)
-	if d.state == .Closed do return 0
+
+	if d.state == .Closed {
+		return 0
+	}
+
 	for w, i in d.workers {
-		if i < len(out) do out[i] = sync.atomic_load(&w.load)
+		if i < len(out) {
+			out[i] = sync.atomic_load(&w.load)
+		}
 	}
 	return len(d.workers)
 }
@@ -364,6 +406,7 @@ dispatcher_pick :: proc(d: ^Page_Dispatcher) -> ^Dispatch_Worker {
 	for k in 1 ..< n {
 		i := (start + k) % n
 		l := sync.atomic_load(&d.workers[i].load)
+
 		if l < best_load {
 			best = i
 			best_load = l
@@ -380,26 +423,45 @@ dispatcher_pick :: proc(d: ^Page_Dispatcher) -> ^Dispatch_Worker {
 dispatcher_stop_and_free :: proc(d: ^Page_Dispatcher, cancel: bool) {
 	context.allocator = d.allocator
 	for w in d.workers {
-		if w == nil do continue
+		if w == nil {
+			continue
+		}
+
 		sync.atomic_store(&w.cancel, cancel)
 		sync.atomic_store(&w.stop, true)
 		worker_wake(w)
 	}
 	for w in d.workers {
-		if w != nil && w.thread != nil do thread.join(w.thread)
+		if w != nil && w.thread != nil {
+			thread.join(w.thread)
+		}
 	}
 	sync.lock(&d.gate)
 	sync.atomic_store(&d.state, Dispatcher_State.Closed)
 	sync.unlock(&d.gate)
 	for w in d.workers {
-		if w == nil do continue
-		if w.thread != nil do thread.destroy(w.thread)
-		if w.wake_read >= 0 do linux.close(w.wake_read)
-		if w.wake_write >= 0 do linux.close(w.wake_write)
+		if w == nil {
+			continue
+		}
+
+		if w.thread != nil {
+			thread.destroy(w.thread)
+		}
+
+		if w.wake_read >= 0 {
+			linux.close(w.wake_read)
+		}
+
+		if w.wake_write >= 0 {
+			linux.close(w.wake_write)
+		}
+
 		// Empty after a worker that ran (it drains or cancels its inbox before it
 		// exits); jobs can only be left by a worker that never started, before any
 		// submit could reach it — kept as a belt for that path.
-		for queue.len(w.inbox) > 0 do job_free(d, queue.pop_front(&w.inbox))
+		for queue.len(w.inbox) > 0 {
+			job_free(d, queue.pop_front(&w.inbox))
+		}
 		queue.destroy(&w.inbox)
 		free(w, d.allocator)
 	}
@@ -429,7 +491,10 @@ dispatcher_stop_and_free :: proc(d: ^Page_Dispatcher, cancel: bool) {
 // round).
 @(private = "file")
 worker_wake :: proc(w: ^Dispatch_Worker) {
-	if w.wake_write < 0 do return
+	if w.wake_write < 0 {
+		return
+	}
+
 	if !sync.atomic_exchange(&w.posted, true) {
 		b := [1]u8{1}
 		// EAGAIN means the pipe is full, so already readable: nothing lost.
@@ -447,13 +512,19 @@ worker_main :: proc(data: rawptr) {
 	context.allocator = d.allocator
 	sync.atomic_store(&w.thread_id, sync.current_thread_id())
 	ok := page_runner_init(&w.runner, d.pages_per_thread, worker_page_done, d.allocator)
+
 	if ok {
 		w.runner.heap_sample_every = d.heap_sample_every
 		ok = page_runner_watch_fd(&w.runner, i32(w.wake_read))
 	}
+
 	w.init_ok = ok
 	sync.post(&w.ready)
-	if ok do worker_loop(w)
+
+	if ok {
+		worker_loop(w)
+	}
+
 	// Running pages are reported .Cancelled here (cancel); after a drain none is left.
 	page_runner_destroy(&w.runner)
 	// Thread-lived state no exit hook frees: the implicit VM pool (unused by runner
@@ -480,24 +551,35 @@ worker_loop :: proc(w: ^Dispatch_Worker) {
 			worker_drain_wake(w)
 			sync.atomic_exchange(&w.posted, false)
 		}
+
 		stop := sync.atomic_load(&w.stop)
+
 		if stop && sync.atomic_load(&w.cancel) {
 			worker_cancel_queued(w)
 			return
 		}
+
 		// Only while a slot is free: a page opened past capacity would be refused for
 		// want of a VM, so the rest wait in the inbox instead of failing.
 		for page_runner_live(&w.runner) < d.pages_per_thread {
 			job := worker_pop(w)
-			if job == nil do break
+
+			if job == nil {
+				break
+			}
+
 			page_runner_open(&w.runner, job.source, job.source_name, job.limits, job, job.surface)
 		}
+
 		// Done once nothing is live. That also means the inbox is empty — the open loop
 		// above stops only at a full runner or an empty inbox — and it stays empty:
 		// `stop` was read after the reset, and every accepted push happened before the
 		// flip that preceded the stop (the gate). Pages that failed at open sit in the
 		// runner's done list, which page_runner_destroy still reports.
-		if stop && page_runner_live(&w.runner) == 0 do return
+		if stop && page_runner_live(&w.runner) == 0 {
+			return
+		}
+
 		woke = !page_runner_step(&w.runner)
 	}
 }
@@ -520,7 +602,11 @@ worker_cancel_queued :: proc(w: ^Dispatch_Worker) {
 	d := w.d
 	for {
 		job := worker_pop(w)
-		if job == nil do return
+
+		if job == nil {
+			return
+		}
+
 		sync.atomic_sub(&w.load, 1)
 		d.on_done(d, job.user_data, page_killed_result(.Cancelled))
 		job_free(d, job)
@@ -540,7 +626,10 @@ worker_drain_wake :: proc(w: ^Dispatch_Worker) {
 	buf: [64]u8
 	for {
 		n, err := linux.read(w.wake_read, buf[:])
-		if err != .NONE || n <= 0 do return
+
+		if err != .NONE || n <= 0 {
+			return
+		}
 	}
 }
 

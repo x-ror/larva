@@ -154,17 +154,17 @@ Poll_Mode :: enum {
 
 // fd is platform-agnostic here; cast to the right type in platform code
 IO_Watcher :: struct {
-	fd:        uintptr,
-	mode:      Poll_Mode,
-	callback:  Callback,
-	user_data: rawptr,
+	fd:           uintptr,
+	mode:         Poll_Mode,
+	callback:     Callback,
+	user_data:    rawptr,
 	// watched tracks whether this watcher is currently in the loop's registered set.
 	// It is the single source of truth for active_io_count accounting: the watch/
 	// unwatch wrappers count off this flag, not the platform syscall result, so no
 	// backend can desync the count (io_uring's logical-only unwatch, an EPOLL_CTL_DEL
 	// that fails because the fd is already closed, a duplicate watch). Owned by the
 	// wrappers; callers must zero-initialize the watcher (a fresh IO_Watcher literal).
-	watched:   bool,
+	watched:      bool,
 	// backend_slot is io_uring-only scratch: the index of this watcher's entry in
 	// Platform_Loop.watch_slots while watched, so unwatch_fd reaches its slot in O(1)
 	// instead of scanning the table. Set by platform_watch_fd, read by
@@ -221,7 +221,11 @@ init :: proc(allocator := context.allocator, real_time := false) -> Loop {
 // started. Only meaningful in real_time mode.
 real_now_ms :: proc(loop: ^Loop) -> u64 {
 	elapsed := time.duration_milliseconds(time.tick_since(loop.start_tick))
-	if elapsed < 0 do return 0
+
+	if elapsed < 0 {
+		return 0
+	}
+
 	return u64(elapsed)
 }
 
@@ -344,16 +348,23 @@ close_ready :: proc(loop: ^Loop) -> bool {
 // calling thread itself, since Odin sets `Done` after the thread proc returns.
 close_detach :: proc(loop: ^Loop) -> (detached: bool) {
 	pool := &loop.pool
+
 	if pool.started {
 		sync.lock(&pool.mutex)
+
 		if pool.exited < len(pool.threads) {
 			pool.detached = true
 			detached = true
 		}
+
 		// From the unlock on, the last worker may free the loop at any moment.
 		sync.unlock(&pool.mutex)
 	}
-	if !detached do close_finish(loop)
+
+	if !detached {
+		close_finish(loop)
+	}
+
 	return
 }
 
@@ -429,7 +440,10 @@ async_cancel :: proc(loop: ^Loop) {
 // (passed to init) must therefore be thread-safe — the default heap allocator is.
 // Do not back a loop with a non-thread-safe arena if any worker calls post_async.
 post_async :: proc(loop: ^Loop, callback: Callback, user_data: rawptr = nil) {
-	if callback == nil do return
+	if callback == nil {
+		return
+	}
+
 	sync.lock(&loop.async_mutex)
 	append(&loop.async_queue, Task{callback = callback, user_data = user_data})
 	sync.unlock(&loop.async_mutex)
@@ -440,10 +454,12 @@ post_async :: proc(loop: ^Loop, callback: Callback, user_data: rawptr = nil) {
 // in-flight count per completion. Returns true if any ran.
 drain_async :: proc(loop: ^Loop) -> bool {
 	sync.lock(&loop.async_mutex)
+
 	if len(loop.async_queue) == 0 {
 		sync.unlock(&loop.async_mutex)
 		return false
 	}
+
 	// Swap producer queue with the scratch buffer (O(1)) so callbacks — which may
 	// post more async work — run without holding the lock.
 	loop.async_queue, loop.async_scratch = loop.async_scratch, loop.async_queue
@@ -542,20 +558,16 @@ queue_next_tick :: proc(loop: ^Loop, callback: Callback, user_data: rawptr = nil
 	if callback == nil {
 		return
 	}
-	append(
-		&loop.next_ticks,
-		Task{callback = callback, user_data = user_data, seq = next_sequence(loop)},
-	)
+
+	append(&loop.next_ticks, Task{callback = callback, user_data = user_data, seq = next_sequence(loop)})
 }
 
 queue_microtask :: proc(loop: ^Loop, callback: Callback, user_data: rawptr = nil) {
 	if callback == nil {
 		return
 	}
-	append(
-		&loop.microtasks,
-		Task{callback = callback, user_data = user_data, seq = next_sequence(loop)},
-	)
+
+	append(&loop.microtasks, Task{callback = callback, user_data = user_data, seq = next_sequence(loop)})
 }
 
 set_timeout :: proc(
@@ -578,25 +590,15 @@ set_interval :: proc(
 	return set_timer(loop, callback, interval_ms, interval_ms, true, user_data, dispose)
 }
 
-set_immediate :: proc(
-	loop: ^Loop,
-	callback: Callback,
-	user_data: rawptr = nil,
-	dispose: Dispose = nil,
-) -> Timer_ID {
+set_immediate :: proc(loop: ^Loop, callback: Callback, user_data: rawptr = nil, dispose: Dispose = nil) -> Timer_ID {
 	if callback == nil {
 		return 0
 	}
+
 	id := next_handle_id(loop)
 	append(
 		&loop.immediates,
-		Task {
-			id = id,
-			callback = callback,
-			user_data = user_data,
-			dispose = dispose,
-			seq = next_sequence(loop),
-		},
+		Task{id = id, callback = callback, user_data = user_data, dispose = dispose, seq = next_sequence(loop)},
 	)
 	return id
 }
@@ -613,16 +615,11 @@ queue_io_callback :: proc(
 	if callback == nil {
 		return 0
 	}
+
 	id := next_handle_id(loop)
 	append(
 		&loop.io_callbacks,
-		Task {
-			id = id,
-			callback = callback,
-			user_data = user_data,
-			dispose = dispose,
-			seq = next_sequence(loop),
-		},
+		Task{id = id, callback = callback, user_data = user_data, dispose = dispose, seq = next_sequence(loop)},
 	)
 	return id
 }
@@ -633,11 +630,9 @@ queue_close_callback :: proc(loop: ^Loop, callback: Callback, user_data: rawptr 
 	if callback == nil {
 		return
 	}
+
 	id := next_handle_id(loop)
-	append(
-		&loop.close_callbacks,
-		Task{id = id, callback = callback, user_data = user_data, seq = next_sequence(loop)},
-	)
+	append(&loop.close_callbacks, Task{id = id, callback = callback, user_data = user_data, seq = next_sequence(loop)})
 }
 
 // timer_ref marks a timer as ref'd (default). Ref'd timers keep the loop alive. O(1) via
@@ -648,6 +643,7 @@ timer_ref :: proc(loop: ^Loop, id: Timer_ID) {
 		if loop.timers[idx].unreffed && !loop.timers[idx].cancelled {
 			loop.reffed_timer_count += 1
 		}
+
 		loop.timers[idx].unreffed = false
 	}
 }
@@ -658,6 +654,7 @@ timer_unref :: proc(loop: ^Loop, id: Timer_ID) {
 		if !loop.timers[idx].unreffed && !loop.timers[idx].cancelled {
 			loop.reffed_timer_count -= 1
 		}
+
 		loop.timers[idx].unreffed = true
 	}
 }
@@ -711,6 +708,7 @@ clear_timeout :: proc(loop: ^Loop, id: Timer_ID) -> bool {
 		if !loop.timers[idx].unreffed {
 			loop.reffed_timer_count -= 1
 		}
+
 		run_dispose(loop.timers[idx].dispose, loop.timers[idx].user_data)
 		timer_heap_remove_at(loop, idx)
 		return true
@@ -760,9 +758,11 @@ drain_microtasks :: proc(loop: ^Loop) {
 		for len(loop.next_ticks) > 0 {
 			drain_task_queue(loop, &loop.next_ticks, &loop.next_ticks_scratch)
 		}
+
 		if len(loop.microtasks) == 0 {
 			break
 		}
+
 		drain_task_queue(loop, &loop.microtasks, &loop.microtasks_scratch)
 	}
 }
@@ -775,14 +775,18 @@ drain_microtasks :: proc(loop: ^Loop) {
 drain_io_callbacks :: proc(loop: ^Loop, limit: u64) -> (did_work: bool) {
 	for {
 		index := next_io_callback_index(loop, limit)
+
 		if index < 0 {
 			break
 		}
+
 		task := loop.io_callbacks[index]
 		ordered_remove(&loop.io_callbacks, index)
+
 		if task.cancelled || is_cancel_requested(loop, task.id) {
 			continue
 		}
+
 		did_work = true
 		loop.running_id = task.id
 		task.callback(loop, task.user_data)
@@ -813,11 +817,17 @@ run_once :: proc(loop: ^Loop) -> bool {
 	// condition then returns.
 	if !loop.shutdown_observed && sync.atomic_load(&loop.stop_requested) {
 		loop.shutdown_observed = true
-		if loop.on_shutdown != nil do loop.on_shutdown(loop, loop.on_shutdown_data)
+
+		if loop.on_shutdown != nil {
+			loop.on_shutdown(loop, loop.on_shutdown_data)
+		}
 	}
+
 	// Forced: skip this tick's blocking poll and return at once so run()'s condition can exit. Covers
 	// both a hook that drained immediately (force_exit set just above) and a prior tick's drain driver.
-	if loop.force_exit do return false
+	if loop.force_exit {
+		return false
+	}
 
 	// Sample the real clock first so the timer phase fires every timer whose
 	// deadline has actually elapsed (no-op in virtual-clock mode).
@@ -833,6 +843,7 @@ run_once :: proc(loop: ^Loop) -> bool {
 	if len(loop.next_ticks) > 0 || len(loop.microtasks) > 0 {
 		did_work = true
 	}
+
 	drain_microtasks(loop)
 
 	// Phase 3: timers
@@ -851,11 +862,18 @@ run_once :: proc(loop: ^Loop) -> bool {
 		}
 
 		root := loop.timers[0]
-		if root.seq >= timer_phase_sequence_limit do break
-		if root.due_ms > loop.now_ms do break
+
+		if root.seq >= timer_phase_sequence_limit {
+			break
+		}
+
+		if root.due_ms > loop.now_ms {
+			break
+		}
 
 		timer := timer_heap_pop_min(loop)
 		did_work = true
+
 		// A one-shot cannot re-arm, so it leaves the active set the instant it is
 		// popped — drop its ref now, before the callback, not after. This keeps
 		// has_pending_work honest *while the callback runs* (a running task is not
@@ -868,6 +886,7 @@ run_once :: proc(loop: ^Loop) -> bool {
 		if !timer.repeating && !timer.unreffed {
 			loop.reffed_timer_count -= 1
 		}
+
 		loop.running_id = timer.id
 		timer.callback(loop, timer.user_data)
 		// Drain microtasks while running_id still names this timer: a task the
@@ -888,6 +907,7 @@ run_once :: proc(loop: ^Loop) -> bool {
 			// here — and drop the ref it kept across the fire. A one-shot freed its
 			// binding when it fired and dropped its ref above, so neither applies.
 			run_dispose(timer.dispose, timer.user_data)
+
 			if !timer.unreffed {
 				loop.reffed_timer_count -= 1
 			}
@@ -920,6 +940,7 @@ run_once :: proc(loop: ^Loop) -> bool {
 		// queued. The blocking wait below is only for when there is nothing else to do.
 		io_before := loop.io_events
 		platform_poll(loop, 0)
+
 		if loop.io_events != io_before {
 			did_work = true
 		}
@@ -927,12 +948,17 @@ run_once :: proc(loop: ^Loop) -> bool {
 
 	if has_nothing_to_do {
 		timeout_ms := get_next_timer_timeout(loop)
-		if loop.never_block do timeout_ms = 0
+
+		if loop.never_block {
+			timeout_ms = 0
+		}
+
 		// With no timers but pending I/O, block indefinitely until an fd is ready
 		// rather than spinning (get_next_timer_timeout returns -1 in that case).
 		if timeout_ms != 0 || loop.active_io_count > 0 || loop.active_async > 0 {
 			io_before := loop.io_events
 			platform_poll(loop, timeout_ms)
+
 			if loop.io_events != io_before {
 				// A fired I/O callback counts as progress so the run-until-idle
 				// driver does not treat an I/O-only tick as "nothing happened".
@@ -947,6 +973,7 @@ run_once :: proc(loop: ^Loop) -> bool {
 				if !loop.real_time {
 					advance_time(loop, u64(timeout_ms))
 				}
+
 				did_work = true
 			}
 		}
@@ -974,12 +1001,14 @@ run_once :: proc(loop: ^Loop) -> bool {
 	immediate_phase_sequence_limit := loop.next_sequence
 	for {
 		index := next_immediate_index(loop, immediate_phase_sequence_limit)
+
 		if index < 0 {
 			break
 		}
 
 		immediate := loop.immediates[index]
 		ordered_remove(&loop.immediates, index)
+
 		if immediate.cancelled || is_cancel_requested(loop, immediate.id) {
 			continue
 		}
@@ -995,12 +1024,14 @@ run_once :: proc(loop: ^Loop) -> bool {
 	close_phase_sequence_limit := loop.next_sequence
 	for {
 		index := next_close_index(loop, close_phase_sequence_limit)
+
 		if index < 0 {
 			break
 		}
 
 		cb := loop.close_callbacks[index]
 		ordered_remove(&loop.close_callbacks, index)
+
 		if cb.cancelled {
 			continue
 		}
@@ -1038,6 +1069,7 @@ run_next :: proc(loop: ^Loop) -> bool {
 	}
 
 	next_due, ok := next_timer_due(loop)
+
 	if !ok {
 		return false
 	}
@@ -1095,8 +1127,10 @@ run_until_idle :: proc(loop: ^Loop, max_iterations := 1024) -> bool {
 			if loop.active_io_count == 0 && loop.active_async == 0 {
 				return did_work
 			}
+
 			continue
 		}
+
 		did_work = true
 	}
 
@@ -1127,7 +1161,10 @@ run :: proc(loop: ^Loop) {
 // once. ok is false on backends that have no such descriptor (darwin, windows: they
 // are stubs for this use) and when the backend failed to initialize.
 backend_fd :: proc(loop: ^Loop) -> (fd: uintptr, ok: bool) {
-	if loop.backend != .Native do return 0, false
+	if loop.backend != .Native {
+		return 0, false
+	}
+
 	return platform_backend_fd(loop)
 }
 
@@ -1137,6 +1174,7 @@ backend_fd :: proc(loop: ^Loop) -> (fd: uintptr, ok: bool) {
 // first, so a timer that came due while another loop ran reports 0.
 wait_hint_ms :: proc(loop: ^Loop) -> int {
 	sync_real_clock(loop)
+
 	if len(loop.next_ticks) > 0 ||
 	   len(loop.microtasks) > 0 ||
 	   active_immediate_count(loop) > 0 ||
@@ -1144,6 +1182,7 @@ wait_hint_ms :: proc(loop: ^Loop) -> int {
 	   active_close_count(loop) > 0 {
 		return 0
 	}
+
 	return get_next_timer_timeout(loop)
 }
 
@@ -1151,12 +1190,15 @@ wait_hint_ms :: proc(loop: ^Loop) -> int {
 // Returns 0 if a timer is already due, -1 if there are no timers.
 get_next_timer_timeout :: proc(loop: ^Loop) -> int {
 	next_due, ok := next_timer_due(loop)
+
 	if !ok {
 		return -1
 	}
+
 	if next_due <= loop.now_ms {
 		return 0
 	}
+
 	return int(next_due - loop.now_ms)
 }
 
@@ -1177,6 +1219,7 @@ drain_task_queue :: proc(loop: ^Loop, queue: ^[dynamic]Task, scratch: ^[dynamic]
 		if task.cancelled || (task.id != 0 && is_cancel_requested(loop, task.id)) {
 			continue
 		}
+
 		task.callback(loop, task.user_data)
 	}
 	clear(scratch)
@@ -1202,6 +1245,7 @@ is_cancel_requested :: proc(loop: ^Loop, id: Timer_ID) -> bool {
 	if id == 0 {
 		return false
 	}
+
 	return loop.cancelled_ids[id]
 }
 
@@ -1237,9 +1281,11 @@ timer_heap_sift_up :: proc(loop: ^Loop, start: int) {
 	i := start
 	for i > 0 {
 		parent := (i - 1) / 2
+
 		if !timer_less(&loop.timers[i], &loop.timers[parent]) {
 			break
 		}
+
 		timer_heap_swap(loop, i, parent)
 		i = parent
 	}
@@ -1253,14 +1299,17 @@ timer_heap_sift_up :: proc(loop: ^Loop, start: int) {
 timer_heap_remove_at :: proc(loop: ^Loop, idx: int) {
 	delete_key(&loop.timer_index, loop.timers[idx].id)
 	last := len(loop.timers) - 1
+
 	if idx == last {
 		ordered_remove(&loop.timers, last) // removing the tail: nothing to re-heap
 		return
 	}
+
 	moved := loop.timers[last]
 	ordered_remove(&loop.timers, last)
 	loop.timers[idx] = moved
 	loop.timer_index[moved.id] = idx
+
 	// The moved tail can violate the heap upward or downward, never both: sift the
 	// direction it needs.
 	if idx > 0 && timer_less(&loop.timers[idx], &loop.timers[(idx - 1) / 2]) {
@@ -1278,11 +1327,13 @@ timer_heap_pop_min :: proc(loop: ^Loop) -> Timer {
 	delete_key(&loop.timer_index, root.id)
 	last := loop.timers[n - 1]
 	ordered_remove(&loop.timers, n - 1) // pop the tail (O(1) on the last element)
+
 	if n - 1 > 0 {
 		loop.timers[0] = last
 		loop.timer_index[last.id] = 0
 		timer_heap_sift_down(loop, 0)
 	}
+
 	return root
 }
 
@@ -1293,15 +1344,19 @@ timer_heap_sift_down :: proc(loop: ^Loop, start: int) {
 		left := 2 * i + 1
 		right := 2 * i + 2
 		smallest := i
+
 		if left < n && timer_less(&loop.timers[left], &loop.timers[smallest]) {
 			smallest = left
 		}
+
 		if right < n && timer_less(&loop.timers[right], &loop.timers[smallest]) {
 			smallest = right
 		}
+
 		if smallest == i {
 			break
 		}
+
 		timer_heap_swap(loop, i, smallest)
 		i = smallest
 	}
@@ -1311,8 +1366,7 @@ timer_heap_sift_down :: proc(loop: ^Loop, start: int) {
 // timer. Cancelled timers were already disposed and uncounted at cancel time, so
 // no further bookkeeping is needed here.
 timer_heap_clean_root :: proc(loop: ^Loop) {
-	for len(loop.timers) > 0 &&
-	    (loop.timers[0].cancelled || is_cancel_requested(loop, loop.timers[0].id)) {
+	for len(loop.timers) > 0 && (loop.timers[0].cancelled || is_cancel_requested(loop, loop.timers[0].id)) {
 		timer_heap_pop_min(loop)
 	}
 }
@@ -1325,12 +1379,15 @@ has_due_timer :: proc(loop: ^Loop) -> bool {
 next_immediate_index :: proc(loop: ^Loop, sequence_limit: u64) -> int {
 	for i in 0 ..< len(loop.immediates) {
 		immediate := loop.immediates[i]
+
 		if immediate.cancelled || is_cancel_requested(loop, immediate.id) {
 			continue
 		}
+
 		if immediate.seq >= sequence_limit {
 			continue
 		}
+
 		return i
 	}
 	return -1
@@ -1339,12 +1396,15 @@ next_immediate_index :: proc(loop: ^Loop, sequence_limit: u64) -> int {
 next_io_callback_index :: proc(loop: ^Loop, sequence_limit: u64) -> int {
 	for i in 0 ..< len(loop.io_callbacks) {
 		task := loop.io_callbacks[i]
+
 		if task.cancelled || is_cancel_requested(loop, task.id) {
 			continue
 		}
+
 		if task.seq >= sequence_limit {
 			continue
 		}
+
 		return i
 	}
 	return -1
@@ -1353,12 +1413,15 @@ next_io_callback_index :: proc(loop: ^Loop, sequence_limit: u64) -> int {
 next_close_index :: proc(loop: ^Loop, sequence_limit: u64) -> int {
 	for i in 0 ..< len(loop.close_callbacks) {
 		cb := loop.close_callbacks[i]
+
 		if cb.cancelled {
 			continue
 		}
+
 		if cb.seq >= sequence_limit {
 			continue
 		}
+
 		return i
 	}
 	return -1
@@ -1368,9 +1431,11 @@ next_close_index :: proc(loop: ^Loop, sequence_limit: u64) -> int {
 // any cancelled timers off it), or false if no timer is pending.
 next_timer_due :: proc(loop: ^Loop) -> (u64, bool) {
 	timer_heap_clean_root(loop)
+
 	if len(loop.timers) == 0 {
 		return 0, false
 	}
+
 	return loop.timers[0].due_ms, true
 }
 
@@ -1391,6 +1456,7 @@ discard_cancelled_immediates :: proc(loop: ^Loop) {
 			ordered_remove(&loop.immediates, i)
 			continue
 		}
+
 		i += 1
 	}
 }
@@ -1402,7 +1468,10 @@ discard_cancelled_immediates :: proc(loop: ^Loop) {
 // forever) has no deadline to track and is returned unchanged; a finite timeout
 // returns max(0, timeout_ms - elapsed). Shared by the epoll and kqueue backends.
 poll_remaining_ms :: proc(start: time.Tick, timeout_ms: int) -> int {
-	if timeout_ms <= 0 do return timeout_ms
+	if timeout_ms <= 0 {
+		return timeout_ms
+	}
+
 	elapsed := int(time.duration_milliseconds(time.tick_since(start)))
 	return max(0, timeout_ms - elapsed)
 }
@@ -1419,25 +1488,38 @@ poll_remaining_ms :: proc(start: time.Tick, timeout_ms: int) -> int {
 // watcher (watched == false), so a false return can only mean the backend failed.
 // fetch_set_watch_mode relies on this: it unwatch_fd's first, clearing the flag.
 watch_fd :: proc(loop: ^Loop, watcher: ^IO_Watcher) -> bool {
-	if watcher == nil || watcher.callback == nil do return false
+	if watcher == nil || watcher.callback == nil {
+		return false
+	}
+
 	// Already in the registered set: a re-arm, not a new watcher. Do not call the
 	// backend again (io_uring would over-count by arming a duplicate poll) or bump
 	// active_io_count a second time.
-	if watcher.watched do return false
+	if watcher.watched {
+		return false
+	}
+
 	if platform_watch_fd(loop, watcher) {
 		watcher.watched = true
 		loop.active_io_count += 1
 		return true
 	}
+
 	return false
 }
 
 unwatch_fd :: proc(loop: ^Loop, watcher: ^IO_Watcher) -> bool {
-	if watcher == nil do return false
+	if watcher == nil {
+		return false
+	}
+
 	// Only a watcher that is actually registered may decrement the count. A no-op
 	// unwatch (never watched, or already unwatched) must not drift active_io_count
 	// down — a spurious decrement can let the loop exit with I/O still pending.
-	if !watcher.watched do return false
+	if !watcher.watched {
+		return false
+	}
+
 	// The platform op is best-effort: a failed EPOLL_CTL_DEL (fd already closed →
 	// the kernel auto-removed it) or io_uring's logical-only unwatch must still drop
 	// the count, or has_pending_work stays true forever and the loop parks. The
@@ -1512,9 +1594,16 @@ submit_recv_ring :: proc(
 	dispose: Op_Dispose,
 	user_data: rawptr,
 ) -> Op_ID {
-	if cb == nil do return OP_ID_INVALID
+	if cb == nil {
+		return OP_ID_INVALID
+	}
+
 	token := platform_submit_recv_ring(loop, fd, cb, dispose, user_data)
-	if token != 0 do loop.active_io_count += 1
+
+	if token != 0 {
+		loop.active_io_count += 1
+	}
+
 	return Op_ID(token)
 }
 
@@ -1556,9 +1645,13 @@ submit_recv :: proc(
 	dispose: Op_Dispose,
 	user_data: rawptr,
 ) -> Op_ID {
-	if cb == nil do return OP_ID_INVALID // exactly-once completion has no observer; refuse
+	if cb == nil {return OP_ID_INVALID} 	// exactly-once completion has no observer; refuse
 	token := platform_submit_recv(loop, fd, buf, cb, dispose, user_data)
-	if token != 0 do loop.active_io_count += 1
+
+	if token != 0 {
+		loop.active_io_count += 1
+	}
+
 	return Op_ID(token)
 }
 
@@ -1574,9 +1667,16 @@ submit_send :: proc(
 	dispose: Op_Dispose,
 	user_data: rawptr,
 ) -> Op_ID {
-	if cb == nil do return OP_ID_INVALID
+	if cb == nil {
+		return OP_ID_INVALID
+	}
+
 	token := platform_submit_send(loop, fd, buf, cb, dispose, user_data)
-	if token != 0 do loop.active_io_count += 1
+
+	if token != 0 {
+		loop.active_io_count += 1
+	}
+
 	return Op_ID(token)
 }
 
@@ -1589,7 +1689,10 @@ submit_send :: proc(
 // unavailable, the slot already completed, or the SQ was momentarily full), so a caller
 // suppressing duplicate cancels can distinguish a real cancel from a no-op.
 cancel_op :: proc(loop: ^Loop, id: Op_ID) -> bool {
-	if id == OP_ID_INVALID do return false
+	if id == OP_ID_INVALID {
+		return false
+	}
+
 	return platform_cancel_op(loop, u64(id))
 }
 
@@ -1612,7 +1715,11 @@ set_shutdown_hook :: proc(loop: ^Loop, hook: Shutdown_Hook, user_data: rawptr) {
 request_shutdown :: proc(loop: ^Loop) {
 	sync.lock(&loop.shutdown_mutex)
 	defer sync.unlock(&loop.shutdown_mutex)
-	if loop.destroyed do return
+
+	if loop.destroyed {
+		return
+	}
+
 	sync.atomic_store(&loop.stop_requested, true)
 	platform_wakeup(loop)
 }

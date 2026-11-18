@@ -45,7 +45,11 @@ foreign crypt32 {
 
 tls_load_platform_roots :: proc(ctx: SSL_CTX) {
 	store := SSL_CTX_get_cert_store(ctx)
-	if store == nil do return
+
+	if store == nil {
+		return
+	}
+
 	load_windows_store(store, win.utf8_to_wstring("ROOT"))
 	load_windows_store(store, win.utf8_to_wstring("CA"))
 }
@@ -56,18 +60,26 @@ tls_load_platform_roots :: proc(ctx: SSL_CTX) {
 @(private = "file")
 load_windows_store :: proc(store: X509_STORE, name: win.wstring) {
 	hstore := CertOpenSystemStoreW(nil, name)
-	if hstore == nil do return
+
+	if hstore == nil {
+		return
+	}
+
 	defer CertCloseStore(hstore, 0)
 
 	cert: PCCERT_CONTEXT
 	for {
 		cert = CertEnumCertificatesInStore(hstore, cert)
-		if cert == nil do break
+
+		if cert == nil {
+			break
+		}
 
 		// d2i_X509 advances the pointer it's given, so hand it a local copy.
 		der := cert.pbCertEncoded
 		x := d2i_X509(nil, &der, c.long(cert.cbCertEncoded))
-		if x == nil do continue // not a DER X.509 cert we understand
+
+		if x == nil {continue} 	// not a DER X.509 cert we understand
 
 		// add_cert up-refs on success and returns 0 for a duplicate (already in the
 		// store) — both are fine. Either way we drop our own reference.

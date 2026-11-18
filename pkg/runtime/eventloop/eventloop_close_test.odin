@@ -60,7 +60,10 @@ Releaser :: struct {
 releaser_proc :: proc(r: ^Releaser) {
 	deadline := time.tick_add(time.tick_now(), r.delay)
 	for time.tick_diff(time.tick_now(), deadline) > 0 {
-		if sync.atomic_load(&r.stop) do return
+		if sync.atomic_load(&r.stop) {
+			return
+		}
+
 		time.sleep(5 * time.Millisecond)
 	}
 	sync.sema_post(&r.job.gate)
@@ -70,7 +73,10 @@ releaser_proc :: proc(r: ^Releaser) {
 wait_started :: proc(job: ^Blocking_Job) -> bool {
 	deadline := time.tick_add(time.tick_now(), 2 * time.Second)
 	for !sync.atomic_load(&job.started) {
-		if time.tick_diff(time.tick_now(), deadline) <= 0 do return false
+		if time.tick_diff(time.tick_now(), deadline) <= 0 {
+			return false
+		}
+
 		time.sleep(time.Millisecond)
 	}
 	return true
@@ -92,9 +98,11 @@ close_begin_cancels_a_running_job_without_waiting_for_it :: proc(t: ^testing.T) 
 	loop := heap_loop()
 	job: Blocking_Job
 	testing.expect(t, pool_submit(loop, blocking_work, blocking_done, &job, blocking_dispose, blocking_cancel))
+
 	if !wait_started(&job) {
 		testing.fail_now(t, "the worker never started the job")
 	}
+
 	rel := Releaser {
 		job   = &job,
 		delay = 2 * time.Second,
@@ -114,7 +122,9 @@ close_begin_cancels_a_running_job_without_waiting_for_it :: proc(t: ^testing.T) 
 	thread.destroy(th)
 	sync.sema_post(&job.gate)
 	deadline := time.tick_add(time.tick_now(), 3 * time.Second)
-	for !close_ready(loop) && time.tick_diff(time.tick_now(), deadline) > 0 do time.sleep(time.Millisecond)
+	for !close_ready(loop) && time.tick_diff(time.tick_now(), deadline) > 0 {
+		time.sleep(time.Millisecond)
+	}
 	testing.expect(t, close_ready(loop), "workers never reported their exit")
 	close_finish(loop)
 	free(loop, runtime.heap_allocator())
@@ -134,9 +144,11 @@ close_detach_leaves_the_loop_to_its_last_worker :: proc(t: ^testing.T) {
 	loop := heap_loop()
 	job: Blocking_Job
 	testing.expect(t, pool_submit(loop, blocking_work, blocking_done, &job, blocking_dispose, blocking_cancel))
+
 	if !wait_started(&job) {
 		testing.fail_now(t, "the worker never started the job")
 	}
+
 	rel := Releaser {
 		job   = &job,
 		delay = 2 * time.Second,
@@ -154,14 +166,22 @@ close_detach_leaves_the_loop_to_its_last_worker :: proc(t: ^testing.T) {
 	testing.expect(t, detached, "close_detach finished a loop whose worker is still blocked")
 	// The loop belongs to its workers now: nothing below reads it.
 	still := fd_link(int(pipe_fd))
-	testing.expectf(t, still == pipe_link, "wakeup pipe fd %d changed from %q to %q while its worker was blocked", pipe_fd, pipe_link, still)
+	testing.expectf(
+		t,
+		still == pipe_link,
+		"wakeup pipe fd %d changed from %q to %q while its worker was blocked",
+		pipe_fd,
+		pipe_link,
+		still,
+	)
 	delete(still)
 
 	sync.atomic_store(&rel.stop, true)
 	thread.destroy(th)
 	sync.sema_post(&job.gate)
 	deadline := time.tick_add(time.tick_now(), 3 * time.Second)
-	for sync.atomic_load(&job.dispose) == 0 && time.tick_diff(time.tick_now(), deadline) > 0 do time.sleep(time.Millisecond)
+	for sync.atomic_load(&job.dispose) == 0 &&
+	    time.tick_diff(time.tick_now(), deadline) > 0 {time.sleep(time.Millisecond)}
 	testing.expect_value(t, sync.atomic_load(&job.dispose), 1)
 	testing.expect_value(t, sync.atomic_load(&job.cancel), 1)
 	testing.expect_value(t, job.done, 0)
@@ -171,7 +191,11 @@ close_detach_leaves_the_loop_to_its_last_worker :: proc(t: ^testing.T) {
 		now := fd_link(int(pipe_fd))
 		closed = now != pipe_link
 		delete(now)
-		if closed do break
+
+		if closed {
+			break
+		}
+
 		time.sleep(time.Millisecond)
 	}
 	testing.expectf(t, closed, "the detached loop's wakeup pipe (fd %d) was never closed", pipe_fd)
@@ -182,6 +206,10 @@ close_detach_leaves_the_loop_to_its_last_worker :: proc(t: ^testing.T) {
 @(private = "file")
 fd_link :: proc(fd: int) -> string {
 	target, err := os.read_link(fmt.tprintf("/proc/self/fd/%d", fd), context.allocator)
-	if err != nil do return ""
+
+	if err != nil {
+		return ""
+	}
+
 	return target
 }

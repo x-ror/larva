@@ -116,18 +116,22 @@ os_process_rss_bytes :: proc() -> u64 {
 os_totalmem :: proc() -> u64 {
 	status: windows.MEMORYSTATUSEX
 	status.dwLength = windows.DWORD(size_of(windows.MEMORYSTATUSEX))
+
 	if !windows.GlobalMemoryStatusEx(&status) {
 		return 0
 	}
+
 	return u64(status.ullTotalPhys)
 }
 
 os_freemem :: proc() -> u64 {
 	status: windows.MEMORYSTATUSEX
 	status.dwLength = windows.DWORD(size_of(windows.MEMORYSTATUSEX))
+
 	if !windows.GlobalMemoryStatusEx(&status) {
 		return 0
 	}
+
 	return u64(status.ullAvailPhys)
 }
 
@@ -149,9 +153,11 @@ os_avail_parallelism :: proc() -> int {
 	si: windows.SYSTEM_INFO
 	windows.GetSystemInfo(&si)
 	n := int(si.dwNumberOfProcessors)
+
 	if n < 1 {
 		return 1
 	}
+
 	return n
 }
 
@@ -167,10 +173,13 @@ os_cpus :: proc() -> []Os_Cpu {
 
 	// Core 0 supplies the fallback brand/speed for any core lacking its own key.
 	model0 := reg_get_string(cpu_reg_key(0), "ProcessorNameString")
+
 	if model0 == "" {
 		model0 = os_getenv_or("PROCESSOR_IDENTIFIER", "unknown")
 	}
+
 	speed0 := 0
+
 	if mhz, ok := reg_get_dword(cpu_reg_key(0), "~MHz"); ok {
 		speed0 = int(mhz)
 	}
@@ -178,6 +187,7 @@ os_cpus :: proc() -> []Os_Cpu {
 	perf := make([]System_Processor_Perf_Info, count, context.temp_allocator)
 	got := 0
 	ret_len: u32
+
 	if NtQuerySystemInformation(
 		   SYSTEM_PROCESSOR_PERFORMANCE_INFO_CLASS,
 		   raw_data(perf),
@@ -192,17 +202,22 @@ os_cpus :: proc() -> []Os_Cpu {
 	for i in 0 ..< count {
 		key := cpu_reg_key(i)
 		model := reg_get_string(key, "ProcessorNameString")
+
 		if model == "" {
 			model = model0
 		}
+
 		speed := speed0
+
 		if mhz, ok := reg_get_dword(key, "~MHz"); ok {
 			speed = int(mhz)
 		}
+
 		c := Os_Cpu {
 			model = model,
 			speed = speed,
 		}
+
 		if i < got {
 			p := perf[i]
 			c.user = p.UserTime / 10000
@@ -210,6 +225,7 @@ os_cpus :: proc() -> []Os_Cpu {
 			c.idle = p.IdleTime / 10000
 			c.irq = p.InterruptTime / 10000
 		}
+
 		cpus[i] = c
 	}
 	return cpus
@@ -237,11 +253,13 @@ os_network_interfaces :: proc() -> []Os_Net_Iface {
 	buf := make([]u8, size, context.temp_allocator)
 	base := cast([^]windows.IP_Adapter_Addresses)raw_data(buf)
 	ret := windows.GetAdaptersAddresses(.Unspecified, flags, nil, base, &size)
+
 	if ret == ERROR_BUFFER_OVERFLOW {
 		buf = make([]u8, size, context.temp_allocator)
 		base = cast([^]windows.IP_Adapter_Addresses)raw_data(buf)
 		ret = windows.GetAdaptersAddresses(.Unspecified, flags, nil, base, &size)
 	}
+
 	if ret != windows.ERROR_SUCCESS {
 		return nil
 	}
@@ -252,19 +270,24 @@ os_network_interfaces :: proc() -> []Os_Net_Iface {
 		if adapter.OperStatus != .Up {
 			continue
 		}
+
 		name, _ := windows.wstring_to_utf8(adapter.FriendlyName, -1, context.temp_allocator)
 		internal := adapter.IfType == IF_TYPE_SOFTWARE_LOOPBACK
 		// Node/libuv report a MAC only for a standard 6-byte hardware address;
 		// loopback / tunnel adapters (other lengths) are reported as all-zero.
 		mac := "00:00:00:00:00:00"
+
 		if adapter.PhysicalAddressLength == 6 {
 			mac = format_mac(adapter.PhysicalAddress[:6])
 		}
+
 		for ua := adapter.FirstUnicastAddress; ua != nil; ua = ua.Next {
 			sa := ua.Address.lpSockaddr
+
 			if sa == nil {
 				continue
 			}
+
 			rec := Os_Net_Iface {
 				name     = name,
 				mac      = mac,
@@ -297,11 +320,16 @@ os_network_interfaces :: proc() -> []Os_Net_Iface {
 // current process: GetCurrentProcess returns a pseudo-handle needing no close.
 os_get_priority :: proc(pid: int) -> (value: int, err: int) {
 	current := pid == 0
-	handle := current ? windows.GetCurrentProcess() : windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, windows.FALSE, windows.DWORD(pid))
+	handle :=
+		current ? windows.GetCurrentProcess() : windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, windows.FALSE, windows.DWORD(pid))
+
 	if handle == nil {
 		return 0, win_errno(windows.GetLastError())
 	}
-	defer if !current do windows.CloseHandle(handle)
+
+	defer if !current {
+		windows.CloseHandle(handle)
+	}
 
 	switch GetPriorityClass(handle) {
 	case 0:
@@ -345,14 +373,19 @@ os_set_priority :: proc(pid: int, value: int) -> (err: int) {
 	current := pid == 0
 	handle :=
 		current ? windows.GetCurrentProcess() : windows.OpenProcess(windows.PROCESS_SET_INFORMATION, windows.FALSE, windows.DWORD(pid))
+
 	if handle == nil {
 		return win_errno(windows.GetLastError())
 	}
-	defer if !current do windows.CloseHandle(handle)
+
+	defer if !current {
+		windows.CloseHandle(handle)
+	}
 
 	if !SetPriorityClass(handle, cls) {
 		return win_errno(windows.GetLastError())
 	}
+
 	return 0
 }
 
@@ -364,9 +397,11 @@ os_set_priority :: proc(pid: int, value: int) -> (err: int) {
 win_os_version :: proc() -> (major, minor, build: u32) {
 	osvi: windows.OSVERSIONINFOEXW
 	osvi.dwOSVersionInfoSize = u32(size_of(windows.OSVERSIONINFOEXW))
+
 	if windows.RtlGetVersion(&osvi) == 0 { 	// STATUS_SUCCESS
 		return osvi.dwMajorVersion, osvi.dwMinorVersion, osvi.dwBuildNumber
 	}
+
 	return 10, 0, 0
 }
 
@@ -376,12 +411,15 @@ win_os_version :: proc() -> (major, minor, build: u32) {
 @(private = "file")
 win_product_name :: proc() -> string {
 	name := reg_get_string(REG_CURRENT_VERSION, "ProductName")
+
 	if name == "" {
 		return "Windows"
 	}
+
 	if _, _, build := win_os_version(); build >= 22000 && strings.has_prefix(name, "Windows 10") {
 		return fmt.tprintf("Windows 11%s", name[len("Windows 10"):])
 	}
+
 	return name
 }
 
@@ -391,20 +429,14 @@ reg_get_string :: proc(subkey, value: string) -> string {
 	wsub := windows.utf8_to_wstring(subkey, context.temp_allocator)
 	wval := windows.utf8_to_wstring(value, context.temp_allocator)
 	size: windows.DWORD
-	if windows.RegGetValueW(
-		   windows.HKEY_LOCAL_MACHINE,
-		   wsub,
-		   wval,
-		   windows.RRF_RT_REG_SZ,
-		   nil,
-		   nil,
-		   &size,
-	   ) !=
-		   0 ||
+
+	if windows.RegGetValueW(windows.HKEY_LOCAL_MACHINE, wsub, wval, windows.RRF_RT_REG_SZ, nil, nil, &size) != 0 ||
 	   size < 2 {
 		return ""
 	}
+
 	buf := make([]u16, int(size) / 2, context.temp_allocator)
+
 	if windows.RegGetValueW(
 		   windows.HKEY_LOCAL_MACHINE,
 		   wsub,
@@ -417,6 +449,7 @@ reg_get_string :: proc(subkey, value: string) -> string {
 	   0 {
 		return ""
 	}
+
 	s, _ := windows.utf16_to_utf8(buf[:], context.temp_allocator)
 	return s
 }
@@ -428,6 +461,7 @@ reg_get_dword :: proc(subkey, value: string) -> (u32, bool) {
 	wval := windows.utf8_to_wstring(value, context.temp_allocator)
 	data: windows.DWORD
 	size := windows.DWORD(size_of(data))
+
 	if windows.RegGetValueW(
 		   windows.HKEY_LOCAL_MACHINE,
 		   wsub,
@@ -440,6 +474,7 @@ reg_get_dword :: proc(subkey, value: string) -> (u32, bool) {
 	   0 {
 		return 0, false
 	}
+
 	return u32(data), true
 }
 
@@ -461,7 +496,8 @@ win_errno :: proc(gle: windows.DWORD) -> int {
 	EACCES :: 13
 	EINVAL :: 22
 	switch gle {
-	case windows.ERROR_INVALID_PARAMETER: // OpenProcess on a non-existent pid
+	case windows.ERROR_INVALID_PARAMETER:
+		// OpenProcess on a non-existent pid
 		return ESRCH
 	case windows.ERROR_ACCESS_DENIED:
 		return EACCES
@@ -477,6 +513,7 @@ format_mac :: proc(b: []u8) -> string {
 	if len(b) == 0 {
 		return "00:00:00:00:00:00"
 	}
+
 	hex := "0123456789abcdef"
 	out := make([]u8, len(b) * 3 - 1, context.temp_allocator)
 	j := 0
@@ -485,6 +522,7 @@ format_mac :: proc(b: []u8) -> string {
 			out[j] = ':'
 			j += 1
 		}
+
 		out[j] = hex[x >> 4]
 		out[j + 1] = hex[x & 0xf]
 		j += 2
@@ -505,9 +543,11 @@ format_v4 :: proc(s_addr: u32) -> string {
 format_v6 :: proc(addr: ^windows.in6_addr) -> string {
 	buf: [64]u8
 	res := inet_ntop(windows.AF_INET6, addr, raw_data(buf[:]), uint(len(buf)))
+
 	if res == nil {
 		return ""
 	}
+
 	return strings.clone(string(res), context.temp_allocator)
 }
 

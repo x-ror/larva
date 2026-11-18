@@ -30,7 +30,13 @@ make_http_bindings :: proc(ctx: jsc.JSContextRef) -> jsc.JSObjectRef {
 	inject_native_function(ctx, bindings, "parseRequest", http_parse_request_cb, http_parse_request_host)
 	// Response-head serialization: same latin1WriteInto as node:buffer (package-local
 	// callback). Avoids a Buffer require + intermediate array on every writeHead/end.
-	inject_native_function(ctx, bindings, "latin1WriteInto", buffer_latin1_write_into_cb, buffer_latin1_write_into_host)
+	inject_native_function(
+		ctx,
+		bindings,
+		"latin1WriteInto",
+		buffer_latin1_write_into_cb,
+		buffer_latin1_write_into_host,
+	)
 	return bindings
 }
 
@@ -56,18 +62,31 @@ http_parse_request_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 2 do return http_parse_status(ctx, PARSE_ERROR)
+
+	if argument_count < 2 {
+		return http_parse_status(ctx, PARSE_ERROR)
+	}
+
 	args := arguments[:int(argument_count)]
 	// js_int_arg can run JS (valueOf) — read it before borrowing the view; see
 	// the note in buffer_utf16le_write_into_cb (buffer.odin).
 	last_len := js_int_arg(ctx, args[1])
 	view, ok := typed_array_view(ctx, args[0])
-	if !ok do return http_parse_status(ctx, PARSE_ERROR)
+
+	if !ok {
+		return http_parse_status(ctx, PARSE_ERROR)
+	}
 
 	hdrs: [pico.MAX_HEADERS]pico.Header
 	consumed, minor, num, method, path, res := pico.parse_request(view, last_len, hdrs[:])
-	if res == .Partial do return http_parse_status(ctx, PARSE_PARTIAL)
-	if res == .Error do return http_parse_status(ctx, PARSE_ERROR)
+
+	if res == .Partial {
+		return http_parse_status(ctx, PARSE_PARTIAL)
+	}
+
+	if res == .Error {
+		return http_parse_status(ctx, PARSE_ERROR)
+	}
 
 	// Interleaved [name, value, ...]; RFC 7230 obs-fold continuations (empty name) are
 	// merged into the previous value with a single space. NAMES are kept in their
@@ -77,6 +96,7 @@ http_parse_request_cb :: proc "c" (
 	last_val_idx := -1
 	for i in 0 ..< num {
 		h := hdrs[i]
+
 		if h.name == "" {
 			if last_val_idx >= 0 {
 				cont := strings.trim_space(h.value)
@@ -85,8 +105,10 @@ http_parse_request_cb :: proc "c" (
 					context.temp_allocator,
 				)
 			}
+
 			continue
 		}
+
 		append(&hdr_list, h.name)
 		append(&hdr_list, strings.trim_space(h.value))
 		last_val_idx = len(hdr_list) - 1

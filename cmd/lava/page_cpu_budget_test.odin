@@ -69,7 +69,12 @@ entry_limit_kills_runaway_top_level :: proc(t: ^testing.T) {
 	defer lava.result_destroy(&result)
 	testing.expect_value(t, result.status, lava.Status.Execution_Error)
 	testing.expect_value(t, result.kill, lava.Kill_Reason.Entry_Limit)
-	testing.expectf(t, strings.contains(result.message, "execution time limit"), "unexpected message: %q", result.message)
+	testing.expectf(
+		t,
+		strings.contains(result.message, "execution time limit"),
+		"unexpected message: %q",
+		result.message,
+	)
 }
 
 // A runaway callback kills the whole page: the interval that would otherwise keep
@@ -132,7 +137,11 @@ cpu_budget_is_cleared_on_release :: proc(t: ^testing.T) {
 	defer lava.vm_pool_destroy(&pool)
 
 	vm, _ := lava.vm_acquire(&pool)
-	if vm == nil do testing.fail_now(t, "no VM")
+
+	if vm == nil {
+		testing.fail_now(t, "no VM")
+	}
+
 	lava.vm_set_cpu_budget(vm, 0.1)
 	ctx := lava.vm_create_context(vm, nil)
 	lava.vm_cpu_enter(vm)
@@ -208,7 +217,11 @@ cpu_nested_enter_charges_once :: proc(t: ^testing.T) {
 	lava.vm_pool_init(&pool, 1, context.allocator)
 	defer lava.vm_pool_destroy(&pool)
 	vm, _ := lava.vm_acquire(&pool)
-	if vm == nil do testing.fail_now(t, "no VM")
+
+	if vm == nil {
+		testing.fail_now(t, "no VM")
+	}
+
 	defer lava.vm_release(vm)
 	lava.vm_set_cpu_budget(vm, 100)
 
@@ -319,4 +332,3 @@ entry_limit_kill_latches_over_queued_microtasks :: proc(t: ^testing.T) {
 	testing.expect_value(t, result.kill, lava.Kill_Reason.Entry_Limit)
 	testing.expectf(t, spent < 0.45, "killed page ran %.3fs of CPU against a 0.3s entry limit", spent)
 }
-

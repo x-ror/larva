@@ -28,7 +28,11 @@ import "core:sys/posix"
 // either as fatal is what silently truncated output to exactly one pipe buffer.
 stdio_retryable :: proc(err: os.Error) -> bool {
 	perr, ok := err.(os.Platform_Error)
-	if !ok do return false
+
+	if !ok {
+		return false
+	}
+
 	// Cross-package enum reinterpret: on Linux `perr` is a linux.Errno and this reads it as
 	// a posix.Errno. Sound only because Linux's posix.Errno is defined from the same ABI —
 	// verified equal for the two that matter (EAGAIN 11, EINTR 4). On darwin it is identity.

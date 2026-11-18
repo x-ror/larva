@@ -9,6 +9,7 @@ utf16_js_utf8_byte_len :: proc "contextless" (chars: [^]JSChar, n: int) -> int {
 	i := 0
 	for i < n {
 		u := u32(chars[i])
+
 		if u < 0x80 {
 			total += 1
 			i += 1
@@ -19,12 +20,14 @@ utf16_js_utf8_byte_len :: proc "contextless" (chars: [^]JSChar, n: int) -> int {
 			// High surrogate: pair with a following low, else U+FFFD (3 bytes).
 			if i + 1 < n {
 				lo := u32(chars[i + 1])
+
 				if lo >= 0xDC00 && lo <= 0xDFFF {
 					total += 4 // astral scalar
 					i += 2
 					continue
 				}
 			}
+
 			total += 3 // unpaired → U+FFFD
 			i += 1
 		} else if u >= 0xDC00 && u <= 0xDFFF {
@@ -48,6 +51,7 @@ utf16_js_to_utf8_capped :: proc "contextless" (chars: [^]JSChar, n: int, out: []
 	for i < n {
 		u := u32(chars[i])
 		need: int
+
 		// Pre-compute how many bytes this unit (or pair) wants.
 		if u < 0x80 {
 			need = 1
@@ -56,6 +60,7 @@ utf16_js_to_utf8_capped :: proc "contextless" (chars: [^]JSChar, n: int, out: []
 		} else if u >= 0xD800 && u <= 0xDBFF {
 			if i + 1 < n {
 				lo := u32(chars[i + 1])
+
 				if lo >= 0xDC00 && lo <= 0xDFFF {
 					need = 4
 				} else {
@@ -69,7 +74,11 @@ utf16_js_to_utf8_capped :: proc "contextless" (chars: [^]JSChar, n: int, out: []
 		} else {
 			need = 3
 		}
-		if o + need > cap do break
+
+		if o + need > cap {
+			break
+		}
+
 		// Encode one scalar / replacement using the uncapped helper on a 4-byte window.
 		// Advance i by the whole (paired) code point.
 		if u < 0x80 {
@@ -84,6 +93,7 @@ utf16_js_to_utf8_capped :: proc "contextless" (chars: [^]JSChar, n: int, out: []
 		} else if u >= 0xD800 && u <= 0xDBFF {
 			if i + 1 < n {
 				lo := u32(chars[i + 1])
+
 				if lo >= 0xDC00 && lo <= 0xDFFF {
 					cp := 0x10000 + ((u - 0xD800) << 10) + (lo - 0xDC00)
 					out[o] = byte(0xF0 | (cp >> 18))
@@ -95,6 +105,7 @@ utf16_js_to_utf8_capped :: proc "contextless" (chars: [^]JSChar, n: int, out: []
 					continue
 				}
 			}
+
 			out[o] = 0xEF
 			out[o + 1] = 0xBF
 			out[o + 2] = 0xBD

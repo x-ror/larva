@@ -71,15 +71,23 @@ page_open :: proc(
 	// The loop is consumed on EVERY path (eval's OWNERSHIP contract). Until the page
 	// owns a context it holds no handles, so these early exits destroy it directly.
 	finish_early :: proc(page: ^Page, loop: ^eventloop.Loop, result: Result) -> bool {
-		if loop != nil do eventloop.destroy(loop)
+		if loop != nil {
+			eventloop.destroy(loop)
+		}
+
 		page.finished = true
 		page.result = result
 		return false
 	}
 
 	if len(source) == 0 {
-		return finish_early(page, loop, Result{status = .Invalid_Input, exit_code = 2, message = "empty JavaScript source"})
+		return finish_early(
+			page,
+			loop,
+			Result{status = .Invalid_Input, exit_code = 2, message = "empty JavaScript source"},
+		)
 	}
+
 	if strings.has_prefix(source_name, "node:") {
 		return finish_early(
 			page,
@@ -122,6 +130,7 @@ page_open :: proc(
 	// stash Runtime_State (loop + module cache) out of reach of user JavaScript.
 	global_class := make_global_class()
 	vm, ctx, vm_err := create_eval_context(global_class, pool)
+
 	if ctx == nil {
 		vm_release(vm)
 		jsc.JSClassRelease(global_class)
@@ -129,13 +138,22 @@ page_open :: proc(
 		// "install JavaScriptCoreGTK" there would send the user after the wrong cause.
 		switch vm_err {
 		case .Exhausted:
-			return finish_early(page, loop, vm_pool_unavailable("VM pool exhausted: every JavaScriptCore VM on this thread is busy"))
+			return finish_early(
+				page,
+				loop,
+				vm_pool_unavailable("VM pool exhausted: every JavaScriptCore VM on this thread is busy"),
+			)
 		case .Create_Failed:
-			return finish_early(page, loop, vm_pool_unavailable("JavaScriptCore could not create a VM (JSContextGroupCreate failed)"))
+			return finish_early(
+				page,
+				loop,
+				vm_pool_unavailable("JavaScriptCore could not create a VM (JSContextGroupCreate failed)"),
+			)
 		case .None:
 		}
 		return finish_early(page, loop, native_runtime_unavailable())
 	}
+
 	// Limits live on the VM, so without one (Windows: see create_eval_context) they
 	// cannot be enforced. Refuse rather than run the page unlimited. Reached only on
 	// Windows, which CI does not run, so this path has no test.
@@ -152,9 +170,11 @@ page_open :: proc(
 			},
 		)
 	}
+
 	page.vm = vm
 	page.ctx = ctx
 	page.global_class = global_class
+
 	if limits != {} {
 		vm_set_entry_limit(vm, limits.entry_limit)
 		vm_set_cpu_budget(vm, limits.cpu_budget)
@@ -182,7 +202,9 @@ page_open :: proc(
 	// (LAVA_WORKERS unset/1) — there SIGTERM still terminates immediately without draining, as it did
 	// before Slice 3a. Routing the single-worker path through the same machinery is a follow-up.
 	when ODIN_OS == .Linux {
-		if loop != nil do eventloop.set_shutdown_hook(loop, net_drain_begin, state)
+		if loop != nil {
+			eventloop.set_shutdown_hook(loop, net_drain_begin, state)
+		}
 	}
 
 	// Snapshot the standard error constructors while globalThis is still pristine —
@@ -211,11 +233,18 @@ page_open :: proc(
 	eval_source := source
 	mjs_wrapped: string
 	mjs_allocated := false
-	defer if mjs_allocated do delete(mjs_wrapped)
+	defer if mjs_allocated {
+		delete(mjs_wrapped)
+	}
+
 	if strings.has_suffix(source_name, ".mjs") {
 		wrap_exception: jsc.JSValueRef
 		wrapped, ok := esm_wrap_source(cast(jsc.JSContextRef)ctx, source, source_name, &wrap_exception)
-		if !ok do return page_fail_with_exception(page, wrap_exception)
+
+		if !ok {
+			return page_fail_with_exception(page, wrap_exception)
+		}
+
 		eval_source = wrapped
 		mjs_wrapped = wrapped
 		mjs_allocated = true
@@ -242,6 +271,7 @@ page_open :: proc(
 	// (install_microtasks). The post-evaluation drain_next_ticks_settled below still
 	// runs on both surfaces; it goes through Runtime_State, not a global.
 	TOP_LEVEL_DRAIN :: "\n;var __lava_tl_drain = (typeof __lavaDrainNextTicks === 'function') && __lavaDrainNextTicks();\n"
+
 	if surface == .Node {
 		if combined, concat_err := strings.concatenate({eval_source, TOP_LEVEL_DRAIN}, context.temp_allocator);
 		   concat_err == nil {
@@ -250,25 +280,46 @@ page_open :: proc(
 	}
 
 	script := js_string_from_string(eval_source)
+
 	if script == nil {
-		return page_fail(page, Result{status = .Invalid_Input, exit_code = 2, message = "could not allocate JavaScript source string"})
+		return page_fail(
+			page,
+			Result{status = .Invalid_Input, exit_code = 2, message = "could not allocate JavaScript source string"},
+		)
 	}
+
 	defer jsc.JSStringRelease(script)
 
 	c_source_name, c_source_name_err := strings.clone_to_cstring(source_name, context.temp_allocator)
+
 	if c_source_name_err != nil {
-		return page_fail(page, Result{status = .Invalid_Input, exit_code = 2, message = "could not allocate JavaScript source name"})
+		return page_fail(
+			page,
+			Result{status = .Invalid_Input, exit_code = 2, message = "could not allocate JavaScript source name"},
+		)
 	}
 
 	source_url := jsc.JSStringCreateWithUTF8CString(c_source_name)
+
 	if source_url == nil {
-		return page_fail(page, Result{status = .Invalid_Input, exit_code = 2, message = "could not allocate JavaScript source URL object"})
+		return page_fail(
+			page,
+			Result {
+				status = .Invalid_Input,
+				exit_code = 2,
+				message = "could not allocate JavaScript source URL object",
+			},
+		)
 	}
+
 	defer jsc.JSStringRelease(source_url)
 
 	exception: jsc.JSValueRef
 	value := jsc.JSEvaluateScript(cast(jsc.JSContextRef)ctx, script, nil, source_url, 1, &exception)
-	if exception != nil do return page_fail_with_exception(page, exception)
+
+	if exception != nil {
+		return page_fail_with_exception(page, exception)
+	}
 
 	// Refresh the cached entry exports: a CommonJS entry body may have reassigned
 	// module.exports, so the pre-eval partial registered above is now stale.
@@ -289,7 +340,10 @@ page_open :: proc(
 	// after-the-boundary re-drain that invoke_user_callback does per callback.
 	drain_next_ticks_settled(cast(jsc.JSContextRef)ctx, state)
 	vm_cpu_exit(vm)
-	if ended, result := page_ended(page); ended do return page_fail(page, result)
+
+	if ended, result := page_ended(page); ended {
+		return page_fail(page, result)
+	}
 
 	return loop != nil
 }
@@ -310,16 +364,25 @@ page_open :: proc(
 // condition there belongs here too.
 page_tick :: proc(page: ^Page) -> (alive: bool, did_work: bool) {
 	loop := page.loop
-	if page.finished || loop == nil do return false, false
-	if !eventloop.has_pending_work(loop) || loop.backend_error || loop.force_exit do return false, false
+
+	if page.finished || loop == nil {
+		return false, false
+	}
+
+	if !eventloop.has_pending_work(loop) || loop.backend_error || loop.force_exit {
+		return false, false
+	}
+
 	vm_cpu_enter(page.vm)
 	did_work = eventloop.run_next(loop)
 	vm_cpu_exit(page.vm)
+
 	if ended, result := page_ended(page); ended {
 		loop.force_exit = true
 		page_fail(page, result)
 		return false, did_work
 	}
+
 	return true, did_work
 }
 
@@ -380,12 +443,14 @@ page_close :: proc(
 	busy_loop: ^eventloop.Loop,
 ) {
 	ctx := cast(jsc.JSContextRef)page.ctx
+
 	if !page.finished && page.state != nil {
 		// process.exitCode can be a getter or carry a valueOf: user JS, so charged and
 		// checked like any other entry.
 		vm_cpu_enter(page.vm)
 		exit_code := resolve_exit_code(ctx, page.state)
 		vm_cpu_exit(page.vm)
+
 		if ended, result := page_ended(page); ended {
 			page.result = result
 		} else {
@@ -396,12 +461,14 @@ page_close :: proc(
 				exit_code      = exit_code,
 				backend_failed = page.loop != nil && page.loop.backend_error,
 			}
+
 			if page.completion != nil {
 				msg, allocated := value_to_string(ctx, page.completion)
 				page.result.message = msg
 				page.result.is_allocated = allocated
 			}
 		}
+
 		page.finished = true
 	}
 
@@ -424,25 +491,51 @@ page_close :: proc(
 	// jsc.heap_size_bytes calls after each; median per K, 5 launches, -o:speed): 0.18-
 	// 0.28 ms at K = 0, 0.35-0.59 ms at 10k, 1.45-2.38 ms at 50k, 5.2-9.3 ms at 200k —
 	// it grows with the heap it walks. Hence every Nth.
-	if heap_sample_every > 0 && page.vm != nil && page.ctx != nil &&
-	   page.vm.pages_hosted % heap_sample_every == 0 && page.result.kill == .None {
-		if bytes, ok := jsc.heap_size_bytes(ctx); ok do page.result.heap_bytes = bytes
+	if heap_sample_every > 0 &&
+	   page.vm != nil &&
+	   page.ctx != nil &&
+	   page.vm.pages_hosted % heap_sample_every == 0 &&
+	   page.result.kill == .None {
+		if bytes, ok := jsc.heap_size_bytes(ctx); ok {
+			page.result.heap_bytes = bytes
+		}
 	}
 
 	// Borrowed, not handed over: the caller of page_close still owns page.result.
-	if report != nil do report(page.result, report_data)
+	if report != nil {
+		report(page.result, report_data)
+	}
 
-	if page.completion != nil do jsc.JSValueUnprotect(ctx, page.completion)
+	if page.completion != nil {
+		jsc.JSValueUnprotect(ctx, page.completion)
+	}
+
 	if page.loop != nil {
 		fetch_shutdown_active(page.state)
 		net_shutdown_active(page.state)
-		if eventloop.close_begin(page.loop) do busy_loop = page.loop
+
+		if eventloop.close_begin(page.loop) {
+			busy_loop = page.loop
+		}
 	}
-	if page.state != nil do destroy_runtime_state(ctx, page.state)
-	if page.ctx != nil do release_global_context_after_eval(page.ctx)
+
+	if page.state != nil {
+		destroy_runtime_state(ctx, page.state)
+	}
+
+	if page.ctx != nil {
+		release_global_context_after_eval(page.ctx)
+	}
+
 	vm_release(page.vm)
-	if page.global_class != nil do jsc.JSClassRelease(page.global_class)
-	if page.loop != nil && busy_loop == nil do eventloop.close_finish(page.loop)
+
+	if page.global_class != nil {
+		jsc.JSClassRelease(page.global_class)
+	}
+
+	if page.loop != nil && busy_loop == nil {
+		eventloop.close_finish(page.loop)
+	}
 
 	result = page.result
 	page^ = {}
@@ -461,7 +554,10 @@ page_fail :: proc(page: ^Page, result: Result) -> bool {
 // wrap — unless a limit killed it, in which case the kill is the result.
 @(private = "file")
 page_fail_with_exception :: proc(page: ^Page, exception: jsc.JSValueRef) -> bool {
-	if ended, result := page_ended(page); ended do return page_fail(page, result)
+	if ended, result := page_ended(page); ended {
+		return page_fail(page, result)
+	}
+
 	msg, allocated := value_to_string(cast(jsc.JSContextRef)page.ctx, exception)
 	return page_fail(page, Result{status = .Execution_Error, exit_code = 1, message = msg, is_allocated = allocated})
 }
@@ -471,17 +567,24 @@ page_fail_with_exception :: proc(page: ^Page, exception: jsc.JSValueRef) -> bool
 // with the exit code the page asked for.
 @(private = "file")
 page_ended :: proc(page: ^Page) -> (bool, Result) {
-	if kill := vm_kill_reason(page.vm); kill != .None do return true, page_killed(kill)
+	if kill := vm_kill_reason(page.vm); kill != .None {
+		return true, page_killed(kill)
+	}
+
 	if page.vm != nil && page.vm.stop_requested && page.state != nil {
 		return true, Result{status = .Ok, exit_code = page.state.page_exit_code}
 	}
+
 	return false, {}
 }
 
 // page_cancel ends a page that is still running without ticking it further — the
 // runner's destroy. Its Result says so rather than reading as a page that finished.
 page_cancel :: proc(page: ^Page) {
-	if page.finished do return
+	if page.finished {
+		return
+	}
+
 	page_fail(page, page_killed(.Cancelled))
 }
 

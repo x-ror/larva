@@ -41,10 +41,12 @@ zc_free :: proc(conn: ^Net_Connection) {
 @(test)
 zc_result_records_off_only :: proc(t: ^testing.T) {
 	loop := eventloop.init()
+
 	if !eventloop.proactor_available(&loop) {
 		eventloop.destroy(&loop)
 		return
 	}
+
 	conn := zc_conn(&loop, 100)
 	defer zc_free(conn) // runs LAST
 	defer eventloop.destroy(&loop) // registered 2nd -> runs FIRST: dispose ops while conn is still live, then free
@@ -61,10 +63,12 @@ zc_result_records_off_only :: proc(t: ^testing.T) {
 @(test)
 zc_result_errored_pinned_records_err :: proc(t: ^testing.T) {
 	loop := eventloop.init()
+
 	if !eventloop.proactor_available(&loop) {
 		eventloop.destroy(&loop)
 		return
 	}
+
 	conn := zc_conn(&loop, 100)
 	defer zc_free(conn) // runs LAST
 	defer eventloop.destroy(&loop) // registered 2nd -> runs FIRST: dispose ops while conn is still live, then free
@@ -79,10 +83,12 @@ zc_result_errored_pinned_records_err :: proc(t: ^testing.T) {
 @(test)
 zc_terminal_drained :: proc(t: ^testing.T) {
 	loop := eventloop.init()
+
 	if !eventloop.proactor_available(&loop) {
 		eventloop.destroy(&loop)
 		return
 	}
+
 	conn := zc_conn(&loop, 100)
 	defer zc_free(conn) // runs LAST
 	defer eventloop.destroy(&loop) // registered 2nd -> runs FIRST: dispose ops while conn is still live, then free
@@ -100,10 +106,12 @@ zc_terminal_drained :: proc(t: ^testing.T) {
 @(test)
 zc_terminal_copied_success_not_close :: proc(t: ^testing.T) {
 	loop := eventloop.init()
+
 	if !eventloop.proactor_available(&loop) {
 		eventloop.destroy(&loop)
 		return
 	}
+
 	conn := zc_conn(&loop, 50)
 	defer zc_free(conn) // runs LAST
 	defer eventloop.destroy(&loop) // registered 2nd -> runs FIRST: dispose ops while conn is still live, then free
@@ -118,10 +126,12 @@ zc_terminal_copied_success_not_close :: proc(t: ^testing.T) {
 @(test)
 zc_terminal_stall_closes :: proc(t: ^testing.T) {
 	loop := eventloop.init()
+
 	if !eventloop.proactor_available(&loop) {
 		eventloop.destroy(&loop)
 		return
 	}
+
 	conn := zc_conn(&loop, 100)
 	defer zc_free(conn) // runs LAST
 	defer eventloop.destroy(&loop) // registered 2nd -> runs FIRST: dispose ops while conn is still live, then free
@@ -136,10 +146,12 @@ zc_terminal_stall_closes :: proc(t: ^testing.T) {
 @(test)
 zc_terminal_einval_falls_back_plain :: proc(t: ^testing.T) {
 	loop := eventloop.init()
+
 	if !eventloop.proactor_available(&loop) {
 		eventloop.destroy(&loop)
 		return
 	}
+
 	conn := zc_conn(&loop, 100)
 	defer zc_free(conn) // runs LAST
 	defer eventloop.destroy(&loop) // registered 2nd -> runs FIRST: dispose ops while conn is still live, then free
@@ -156,10 +168,12 @@ zc_terminal_einval_falls_back_plain :: proc(t: ^testing.T) {
 @(test)
 zc_terminal_enobufs_not_fatal :: proc(t: ^testing.T) {
 	loop := eventloop.init()
+
 	if !eventloop.proactor_available(&loop) {
 		eventloop.destroy(&loop)
 		return
 	}
+
 	conn := zc_conn(&loop, 100)
 	defer zc_free(conn) // runs LAST
 	defer eventloop.destroy(&loop) // registered 2nd -> runs FIRST: dispose ops while conn is still live, then free
@@ -177,10 +191,12 @@ zc_terminal_enobufs_not_fatal :: proc(t: ^testing.T) {
 @(test)
 zc_errored_pinned_terminal_closes :: proc(t: ^testing.T) {
 	loop := eventloop.init()
+
 	if !eventloop.proactor_available(&loop) {
 		eventloop.destroy(&loop)
 		return
 	}
+
 	conn := zc_conn(&loop, 100)
 	defer zc_free(conn) // runs LAST
 	defer eventloop.destroy(&loop) // registered 2nd -> runs FIRST: dispose ops while conn is still live, then free
@@ -198,10 +214,12 @@ zc_errored_pinned_terminal_closes :: proc(t: ^testing.T) {
 @(test)
 zc_carried_einval_falls_back_loopwide :: proc(t: ^testing.T) {
 	loop := eventloop.init()
+
 	if !eventloop.proactor_available(&loop) {
 		eventloop.destroy(&loop)
 		return
 	}
+
 	conn := zc_conn(&loop, 100)
 	defer zc_free(conn) // runs LAST
 	defer eventloop.destroy(&loop) // registered 2nd -> runs FIRST: dispose ops while conn is still live, then free
@@ -221,10 +239,12 @@ zc_carried_einval_falls_back_loopwide :: proc(t: ^testing.T) {
 @(test)
 zc_eopnotsupp_is_per_conn :: proc(t: ^testing.T) {
 	loop := eventloop.init()
+
 	if !eventloop.proactor_available(&loop) {
 		eventloop.destroy(&loop)
 		return
 	}
+
 	conn := zc_conn(&loop, 100)
 	defer zc_free(conn) // runs LAST
 	defer eventloop.destroy(&loop) // registered 2nd -> runs FIRST: dispose ops while conn is still live, then free
@@ -244,10 +264,12 @@ zc_eopnotsupp_is_per_conn :: proc(t: ^testing.T) {
 @(test)
 zc_partial_then_tail_resubmit :: proc(t: ^testing.T) {
 	loop := eventloop.init()
+
 	if !eventloop.proactor_available(&loop) {
 		eventloop.destroy(&loop)
 		return
 	}
+
 	conn := zc_conn(&loop, 100)
 	defer zc_free(conn) // runs LAST
 	defer eventloop.destroy(&loop) // registered 2nd -> runs FIRST: dispose ops while conn is still live, then free
@@ -287,10 +309,12 @@ zc_pinned_at_teardown_predicate :: proc(t: ^testing.T) {
 @(test)
 zc_want_drain_keeps_reads_paused :: proc(t: ^testing.T) {
 	loop := eventloop.init()
+
 	if !eventloop.proactor_available(&loop) {
 		eventloop.destroy(&loop)
 		return
 	}
+
 	conn := zc_conn(&loop, 0) // empty body → net_proactor_buffered == 0 (< HWM): a "partial drain" state
 	defer zc_free(conn) // runs LAST
 	defer eventloop.destroy(&loop) // registered 2nd -> runs FIRST

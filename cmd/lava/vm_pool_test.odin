@@ -34,7 +34,9 @@ repeated_eval_reuses_pooled_vm :: proc(t: ^testing.T) {
 	run_one(t)
 	_, created_before := lava.vm_pool_stats(lava.thread_vm_pool())
 	fds_before := fd_census(timerfds_only = true)
-	for _ in 0 ..< 40 do run_one(t)
+	for _ in 0 ..< 40 {
+		run_one(t)
+	}
 	busy, created_after := lava.vm_pool_stats(lava.thread_vm_pool())
 	testing.expect_value(t, created_after, created_before)
 	testing.expect_value(t, busy, 0)
@@ -58,7 +60,11 @@ vm_entry_limit_terminates_runaway_script :: proc(t: ^testing.T) {
 
 	vm, err := lava.vm_acquire(&pool)
 	testing.expect_value(t, err, lava.VM_Pool_Error.None)
-	if vm == nil do return
+
+	if vm == nil {
+		return
+	}
+
 	lava.vm_set_entry_limit(vm, 0.1)
 
 	ctx := lava.vm_create_context(vm, nil)
@@ -73,7 +79,11 @@ vm_entry_limit_terminates_runaway_script :: proc(t: ^testing.T) {
 	testing.expect(t, !vm2.limit_hit, "limit_hit not cleared on acquire")
 	ctx2 := lava.vm_create_context(vm2, nil)
 	// Released VMs drop their limit, so a long-but-finite script now completes.
-	testing.expect(t, eval_source(ctx2, "var s = Date.now(); while (Date.now() - s < 150) {}"), "limit leaked past vm_release")
+	testing.expect(
+		t,
+		eval_source(ctx2, "var s = Date.now(); while (Date.now() - s < 150) {}"),
+		"limit leaked past vm_release",
+	)
 	jsc.JSGlobalContextRelease(ctx2)
 	lava.vm_release(vm2)
 }
@@ -109,9 +119,11 @@ vm_pool_reuses_most_recently_released :: proc(t: ^testing.T) {
 	defer lava.vm_pool_destroy(&pool)
 	a, _ := lava.vm_acquire(&pool)
 	b, _ := lava.vm_acquire(&pool)
+
 	if a == nil || b == nil {
 		testing.fail_now(t, "could not create two VMs")
 	}
+
 	lava.vm_release(b)
 	lava.vm_release(a)
 	next, err := lava.vm_acquire(&pool)
@@ -137,7 +149,12 @@ vm_pool_destroy_frees_through_pool_allocator :: proc(t: ^testing.T) {
 	lava.vm_release(b)
 	testing.expect(t, len(track.allocation_map) > 0, "the pool allocated nothing through its allocator")
 	lava.vm_pool_destroy(&pool)
-	testing.expectf(t, len(track.allocation_map) == 0, "vm_pool_destroy leaked %d allocation(s)", len(track.allocation_map))
+	testing.expectf(
+		t,
+		len(track.allocation_map) == 0,
+		"vm_pool_destroy leaked %d allocation(s)",
+		len(track.allocation_map),
+	)
 	testing.expect_value(t, len(track.bad_free_array), 0)
 }
 
@@ -150,14 +167,20 @@ eval_reports_exhausted_vm_pool :: proc(t: ^testing.T) {
 	defer delete(held)
 	for {
 		vm, err := lava.vm_acquire(pool)
-		if err != .None do break
+
+		if err != .None {
+			break
+		}
+
 		append(&held, vm)
 	}
 	// Release, then drop the whole thread pool, so the 16 VMs this test forced into
 	// existence do not idle under every later test on this runner thread. Also the
 	// worker-exit path (thread_vm_pool_destroy) run on a pool that has been used.
 	defer {
-		for vm in held do lava.vm_release(vm)
+		for vm in held {
+			lava.vm_release(vm)
+		}
 		lava.thread_vm_pool_destroy()
 		busy, _ := lava.vm_pool_stats(lava.thread_vm_pool())
 		testing.expect_value(t, busy, 0)
@@ -168,7 +191,11 @@ eval_reports_exhausted_vm_pool :: proc(t: ^testing.T) {
 	defer lava.result_destroy(&result)
 	testing.expect(t, result.status != .Ok, "eval ran with every pooled VM busy")
 	testing.expectf(t, strings.contains(result.message, "VM pool exhausted"), "unexpected message: %q", result.message)
-	testing.expect(t, !strings.contains(result.message, "JavaScriptCoreGTK"), "pool exhaustion reported as a missing runtime")
+	testing.expect(
+		t,
+		!strings.contains(result.message, "JavaScriptCoreGTK"),
+		"pool exhaustion reported as a missing runtime",
+	)
 }
 
 // JSC's job queue belongs to the VM, not the context. When the watchdog cuts an
@@ -193,7 +220,11 @@ vm_watchdog_cut_job_chain_does_not_outlive_the_next_api_exits :: proc(t: ^testin
 	lava.vm_pool_init(&pool, 1, context.allocator)
 	defer lava.vm_pool_destroy(&pool)
 	vm, _ := lava.vm_acquire(&pool)
-	if vm == nil do testing.fail_now(t, "no VM")
+
+	if vm == nil {
+		testing.fail_now(t, "no VM")
+	}
+
 	defer lava.vm_release(vm)
 	lava.vm_set_entry_limit(vm, 0.05)
 	ctx1 := lava.vm_create_context(vm, nil)
@@ -211,5 +242,11 @@ vm_watchdog_cut_job_chain_does_not_outlive_the_next_api_exits :: proc(t: ^testin
 	ctx2 := lava.vm_create_context(vm, nil)
 	defer jsc.JSGlobalContextRelease(ctx2)
 	testing.expect(t, eval_source(ctx2, "var s = Date.now(); while (Date.now() - s < 20) {}"), "second context failed")
-	testing.expectf(t, read_n(ctx1) == settled, "the cut chain ran again in another context's entry (n %v -> %v)", settled, read_n(ctx1))
+	testing.expectf(
+		t,
+		read_n(ctx1) == settled,
+		"the cut chain ran again in another context's entry (n %v -> %v)",
+		settled,
+		read_n(ctx1),
+	)
 }

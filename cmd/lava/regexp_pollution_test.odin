@@ -20,8 +20,8 @@ package main
 // actually check: the script simply has to finish.
 
 import "core:testing"
-import "lava:pkg/runtime/eventloop"
 import lava "lava:pkg/runtime"
+import "lava:pkg/runtime/eventloop"
 
 REGEXP_POLLUTION_SCRIPT :: `
 const real = RegExp.prototype.exec;

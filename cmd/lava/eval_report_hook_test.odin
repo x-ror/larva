@@ -3,8 +3,8 @@ package main
 
 import "core:strings"
 import "core:testing"
-import eventloop "lava:pkg/runtime/eventloop"
 import lava "lava:pkg/runtime"
+import eventloop "lava:pkg/runtime/eventloop"
 
 // Pins eval's `report` hook (runtime.odin, Result_Hook): it fires exactly once per eval,
 // with the Result eval returns, and BEFORE eval's deferred teardown — the loop is not

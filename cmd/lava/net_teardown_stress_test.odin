@@ -5,8 +5,8 @@ package main
 
 import "core:log"
 import "core:testing"
-import eventloop "lava:pkg/runtime/eventloop"
 import lava "lava:pkg/runtime"
+import eventloop "lava:pkg/runtime/eventloop"
 
 // eval_fd_delta runs one eval and reports how many file descriptors it left
 // behind. `src` is expected to throw at top level; ok=false means it did not,
@@ -14,14 +14,22 @@ import lava "lava:pkg/runtime"
 @(private = "file")
 eval_fd_delta :: proc(src: string) -> (delta: int, ok: bool) {
 	before := fd_census()
-	if before < 0 do return 0, false
+
+	if before < 0 {
+		return 0, false
+	}
+
 	loop := eventloop.init()
 	// eval CONSUMES the loop — it destroys it on every path, including this
 	// top-level-throw one (see the OWNERSHIP note in runtime.odin).
 	result := lava.eval(src, "<net-teardown-stress-test>", &loop, false)
 	defer lava.result_destroy(&result)
 	after := fd_census()
-	if after < 0 do return 0, false
+
+	if after < 0 {
+		return 0, false
+	}
+
 	return after - before, result.status != .Ok
 }
 
@@ -65,9 +73,7 @@ eval_fd_delta :: proc(src: string) -> (delta: int, ok: bool) {
 @(test)
 eval_teardown_with_live_net_connections :: proc(t: ^testing.T) {
 	when RUNNER_THREADS != 1 {
-		log.info(
-			"skipped: the /proc/self/fd census needs -define:ODIN_TEST_THREADS=1 (make test-odin-serial)",
-		)
+		log.info("skipped: the /proc/self/fd census needs -define:ODIN_TEST_THREADS=1 (make test-odin-serial)")
 		return
 	}
 
@@ -75,11 +81,17 @@ eval_teardown_with_live_net_connections :: proc(t: ^testing.T) {
 	// Same script as the baseline, so whatever loading node:net costs once is paid here too.
 	_, warm_ok := eval_fd_delta("const net = require('node:net'); throw new Error('warm-up');")
 	testing.expect(t, warm_ok, "the warm-up script was supposed to throw at top level")
-	if !warm_ok do return
+
+	if !warm_ok {
+		return
+	}
 
 	baseline, base_ok := eval_fd_delta("const net = require('node:net'); throw new Error('x');")
 	testing.expect(t, base_ok, "the baseline script was supposed to throw at top level")
-	if !base_ok do return
+
+	if !base_ok {
+		return
+	}
 
 	withconns, conn_ok := eval_fd_delta(
 		`
@@ -91,7 +103,10 @@ eval_teardown_with_live_net_connections :: proc(t: ^testing.T) {
 	`,
 	)
 	testing.expect(t, conn_ok, "the connect script was supposed to throw at top level")
-	if !conn_ok do return
+
+	if !conn_ok {
+		return
+	}
 
 	testing.expectf(
 		t,

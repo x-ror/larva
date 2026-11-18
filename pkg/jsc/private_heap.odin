@@ -56,43 +56,72 @@ when ODIN_OS == .Linux {
 	// library.
 	// A nil result (nothing in JSC returns one for a live context) is not a verdict
 	// and is not latched.
-	@(private = "file", thread_local) g_heap_checked: bool
-	@(private = "file", thread_local) g_heap_ok: bool
-	@(private = "file", thread_local) g_heap_stats: Memory_Stats_Proc
+	@(private = "file", thread_local)
+	g_heap_checked: bool
+	@(private = "file", thread_local)
+	g_heap_ok: bool
+	@(private = "file", thread_local)
+	g_heap_stats: Memory_Stats_Proc
 
 	heap_size_bytes :: proc "contextless" (ctx: JSContextRef) -> (bytes: i64, ok: bool) {
-		if ctx == nil do return 0, false
+		if ctx == nil {
+			return 0, false
+		}
+
 		if !g_heap_checked {
 			if g_heap_stats == nil {
 				p := heap_dlsym(nil, "JSGetMemoryUsageStatistics")
+
 				if p == nil {
 					g_heap_checked = true // definitive: this JSC does not export it
 					return 0, false
 				}
+
 				g_heap_stats = transmute(Memory_Stats_Proc)p
 			}
 		} else if !g_heap_ok {
 			return 0, false
 		}
+
 		stats := g_heap_stats(ctx)
-		if stats == nil do return 0, false
+
+		if stats == nil {
+			return 0, false
+		}
+
 		name := JSStringCreateWithUTF8CString("heapCapacity")
-		if name == nil do return 0, false
+
+		if name == nil {
+			return 0, false
+		}
+
 		v := JSObjectGetProperty(ctx, stats, name, nil)
 		JSStringRelease(name)
+
 		// No answer at all says nothing about the library's shape: not latched, like a
 		// nil `stats` (CLAUDE.md §4 probe rule). Only an answer of the wrong shape is.
-		if v == nil do return 0, false
+		if v == nil {
+			return 0, false
+		}
+
 		n: f64 = 0
 		is_number := JSValueIsNumber(ctx, v)
-		if is_number do n = JSValueToNumber(ctx, v, nil)
+
+		if is_number {
+			n = JSValueToNumber(ctx, v, nil)
+		}
+
 		// `!(n > 0)` also catches NaN. A live VM's heap never holds no block: the global
 		// object alone is in one.
 		if !g_heap_checked {
 			g_heap_checked = true
 			g_heap_ok = is_number && n > 0 && n < 1e18
 		}
-		if !g_heap_ok || !(n > 0) do return 0, false
+
+		if !g_heap_ok || !(n > 0) {
+			return 0, false
+		}
+
 		return i64(n), true
 	}
 } else {
