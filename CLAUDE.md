@@ -15,6 +15,8 @@ Layering (never blur it):
 | Engine FFI / private ABI | `pkg/jsc`               | JSC C API, string/view/host ABI, probes    |
 | Event loop               | `pkg/runtime/eventloop` | phases, timers, io_uring/epoll, threadpool |
 | HTML parser              | `pkg/html`              | lexbor FFI + C shim, incremental `Parser`  |
+| HTTP client              | `pkg/http`              | HTTP/1.1 over the event loop, no JS        |
+| TLS (OpenSSL bindings)   | `pkg/tls`               | client/server SSL, shared by both stacks   |
 
 ---
 

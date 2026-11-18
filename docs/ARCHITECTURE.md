@@ -363,6 +363,34 @@ per-search state and is one per thread.
 
 `lava html [--scripts] [--chunk N] [--select CSS] <file|->` drives it from the CLI.
 
+### 3.7 HTTP client (`pkg/http`) and TLS (`pkg/tls`)
+
+`pkg/http` fetches a URL with no JS engine involved: DNS on the loop's worker pool,
+a non-blocking connect over the resolved addresses in turn, TLS through `pkg/tls`,
+one HTTP/1.1 exchange per connection (`Connection: close`), responses framed by
+Content-Length, chunked encoding or connection close, and up to 20 redirects on fresh
+connections (303, and a POST answered with 301 or 302, become a GET; credentials are
+dropped when a redirect leaves the origin). It runs on the same event loop as pages;
+`lava fetch <url>` drives it from the CLI.
+
+What a server can make it hold is bounded: 64 KiB of response head, 64 MiB of body by
+default (`Request.max_body_bytes`), the whole transfer by a timeout. A URL with control
+characters is refused and other unsafe target bytes are percent-encoded, so a crawled
+link cannot add a header. Over TLS, only a peer closing TCP without close_notify reads
+as the end of a body framed by the connection; a reset or an unauthenticated record is
+a TLS error.
+
+The runtime's `fetch()` still has its own transport and chunked decoder, bound to JS
+callbacks; moving it onto `pkg/http` is stage-2 work.
+
+`pkg/tls` holds the OpenSSL bindings that used to live in `pkg/runtime/tls.odin`, so
+the client and the runtime's `fetch()` and `node:https` share one set without the
+client importing the runtime.
+
+What it does not do yet, all stage 2 (docs/LARVA.md decision 3): connection reuse,
+HTTP/2, content decoding (it asks for `identity`), cookies, proxies and client
+profiles. Linux only; elsewhere `fetch` returns `.Unsupported`.
+
 ---
 
 ## 4. Cross-cutting concerns
