@@ -278,42 +278,44 @@ select_and_print :: proc(p: ^html.Parser, css: string) {
 	}
 }
 
+// Exit codes of `lava fetch`: any HTTP status is a success.
+EXIT_FETCH_FAILED :: 1
+EXIT_USAGE :: 2
+
 // fetch_command loads a page over pkg/http with no JS engine involved, prints the
 // status line, final URL and headers on stderr, and the document re-serialized by
-// pkg/html on stdout. A body that is not HTML is written out as it came. Exit 1 when
-// the transfer fails, 0 for any HTTP status.
+// pkg/html on stdout. A body that is not HTML is written out as it came.
 fetch_command :: proc(args: []string) {
-	if len(args) != 1 || len(args[0]) > 0 && args[0][0] == '-' {
+	if len(args) != 1 || (len(args[0]) > 0 && args[0][0] == '-') {
 		fmt.eprintln("usage: lava fetch <url>")
-		os.exit(2)
+		os.exit(EXIT_USAGE)
 	}
 
-	Outcome :: struct {
-		resp: http.Response,
-		done: bool,
-	}
-	outcome: Outcome
 	on_done :: proc(resp: http.Response, user_data: rawptr) {
-		o := cast(^Outcome)user_data
-		o.resp, o.done = resp, true
+		(cast(^http.Response)user_data)^ = resp
 	}
 
+	resp: http.Response
 	loop := eventloop.init(real_time = true)
 
-	if ok, err := http.fetch(&loop, {url = args[0]}, on_done, &outcome); !ok {
+	if err := http.fetch(&loop, {url = args[0]}, on_done, &resp); err != .None {
 		fmt.eprintfln("lava fetch: %v", err)
 		eventloop.destroy(&loop)
-		os.exit(2)
+		os.exit(EXIT_USAGE)
 	}
 
 	eventloop.run(&loop)
 	eventloop.destroy(&loop)
-	resp := &outcome.resp
-	defer http.response_destroy(resp)
+	exit_code := print_fetched(&resp)
+	http.response_destroy(&resp)
+	os.exit(exit_code)
+}
 
-	if !outcome.done || resp.error != .None {
-		fmt.eprintfln("lava fetch: %v", resp.error if outcome.done else http.Error.Read)
-		os.exit(1)
+@(private = "file")
+print_fetched :: proc(resp: ^http.Response) -> int {
+	if resp.error != .None {
+		fmt.eprintfln("lava fetch: %v", resp.error)
+		return EXIT_FETCH_FAILED
 	}
 
 	fmt.eprintfln("HTTP %d %s", resp.status, resp.reason)
@@ -322,11 +324,9 @@ fetch_command :: proc(args: []string) {
 		fmt.eprintfln("%s: %s", h.name, h.value)
 	}
 
-	content_type, _ := http.header(resp, "Content-Type")
-
-	if content_type != "" && !strings.contains(strings.to_lower(content_type, context.temp_allocator), "html") {
+	if !http.is_html(resp) {
 		os.write(os.stdout, resp.body[:])
-		return
+		return 0
 	}
 
 	p: html.Parser
@@ -340,8 +340,9 @@ fetch_command :: proc(args: []string) {
 
 	if !ok {
 		fmt.eprintfln("lava fetch: %s", html.error_message(&p))
-		os.exit(1)
+		return EXIT_FETCH_FAILED
 	}
 
 	fmt.println(markup)
+	return 0
 }

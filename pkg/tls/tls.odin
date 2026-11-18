@@ -58,6 +58,21 @@ SSL_ERROR_WANT_WRITE :: 3
 SSL_ERROR_SYSCALL :: 5
 SSL_ERROR_ZERO_RETURN :: 6
 
+// openssl/err.h, openssl/sslerr.h: the reason of a queued error, and the one OpenSSL 3
+// reports when the peer closes TCP without a TLS close_notify.
+ERR_SYSTEM_FLAG :: c.ulong(max(c.int)) + 1
+ERR_REASON_MASK :: 0x7FFFFF
+SSL_R_UNEXPECTED_EOF_WHILE_READING :: 294
+
+// err_get_reason is OpenSSL's ERR_GET_REASON, an inline function in the header.
+err_get_reason :: proc(e: c.ulong) -> c.int {
+	if e & ERR_SYSTEM_FLAG != 0 {
+		return c.int(e & ~ERR_SYSTEM_FLAG)
+	}
+
+	return c.int(e & ERR_REASON_MASK)
+}
+
 SSL_VERIFY_PEER :: 0x01
 
 // Values for the SSL_ctrl / SSL_CTX_ctrl macros we bind directly.
@@ -148,6 +163,7 @@ foreign openssl_lib {
 	SSL_CTX_check_private_key :: proc(ctx: SSL_CTX) -> c.int ---
 	// Clear the thread's error queue (PEM end-of-stream leaves a benign error there).
 	ERR_clear_error :: proc() ---
+	ERR_peek_error :: proc() -> c.ulong ---
 }
 
 // g_tls_ctx is a process-wide client context, created lazily on the first
