@@ -1,5 +1,5 @@
 #+build linux, windows
-package lava_runtime
+package lava_tls
 
 import "core:c"
 import "core:net"
@@ -52,6 +52,7 @@ EVP_PKEY :: distinct rawptr
 PEM_password_cb :: #type proc "c" (buf: rawptr, size: c.int, rwflag: c.int, userdata: rawptr) -> c.int
 
 // SSL_get_error result codes (openssl/ssl.h) that the transport acts on.
+SSL_ERROR_SSL :: 1
 SSL_ERROR_WANT_READ :: 2
 SSL_ERROR_WANT_WRITE :: 3
 SSL_ERROR_SYSCALL :: 5

@@ -3,7 +3,9 @@ package main
 import "core:fmt"
 import "core:os"
 import "core:strconv"
+import "core:strings"
 import html "lava:pkg/html"
+import http "lava:pkg/http"
 import lava_runtime "lava:pkg/runtime"
 import eventloop "lava:pkg/runtime/eventloop"
 
@@ -28,6 +30,8 @@ main :: proc() {
 		run_command(args[2:])
 	case "html":
 		html_command(args[2:])
+	case "fetch":
+		fetch_command(args[2:])
 	case:
 		fmt.eprintfln("unknown command: %s", args[1])
 		fmt.eprintln("try `lava --help`")
@@ -44,6 +48,8 @@ Usage:
   lava run <file>       Run a JavaScript file
   lava html [--scripts] [--chunk N] [--select CSS] <file|->
                         Parse HTML and print the serialized document
+  lava fetch <url>      Fetch a page without JS; status and headers on stderr,
+                        the serialized HTML on stdout
   lava --version        Print version
   lava --help           Print help
 
@@ -270,4 +276,72 @@ select_and_print :: proc(p: ^html.Parser, css: string) {
 		markup, _ := html.outer_html(node, context.temp_allocator)
 		fmt.println(markup)
 	}
+}
+
+// fetch_command loads a page over pkg/http with no JS engine involved, prints the
+// status line, final URL and headers on stderr, and the document re-serialized by
+// pkg/html on stdout. A body that is not HTML is written out as it came. Exit 1 when
+// the transfer fails, 0 for any HTTP status.
+fetch_command :: proc(args: []string) {
+	if len(args) != 1 || len(args[0]) > 0 && args[0][0] == '-' {
+		fmt.eprintln("usage: lava fetch <url>")
+		os.exit(2)
+	}
+
+	Outcome :: struct {
+		resp: http.Response,
+		done: bool,
+	}
+	outcome: Outcome
+	on_done :: proc(resp: http.Response, user_data: rawptr) {
+		o := cast(^Outcome)user_data
+		o.resp, o.done = resp, true
+	}
+
+	loop := eventloop.init(real_time = true)
+
+	if ok, err := http.fetch(&loop, {url = args[0]}, on_done, &outcome); !ok {
+		fmt.eprintfln("lava fetch: %v", err)
+		eventloop.destroy(&loop)
+		os.exit(2)
+	}
+
+	eventloop.run(&loop)
+	eventloop.destroy(&loop)
+	resp := &outcome.resp
+	defer http.response_destroy(resp)
+
+	if !outcome.done || resp.error != .None {
+		fmt.eprintfln("lava fetch: %v", resp.error if outcome.done else http.Error.Read)
+		os.exit(1)
+	}
+
+	fmt.eprintfln("HTTP %d %s", resp.status, resp.reason)
+	fmt.eprintfln("url: %s (%d redirects)", resp.url, resp.redirects)
+	for h in resp.headers {
+		fmt.eprintfln("%s: %s", h.name, h.value)
+	}
+
+	content_type, _ := http.header(resp, "Content-Type")
+
+	if content_type != "" && !strings.contains(strings.to_lower(content_type, context.temp_allocator), "html") {
+		os.write(os.stdout, resp.body[:])
+		return
+	}
+
+	p: html.Parser
+	defer html.destroy(&p)
+	markup: string
+	ok := html.init(&p) && html.parse_all(&p, resp.body[:])
+
+	if ok {
+		markup, ok = html.serialize(&p)
+	}
+
+	if !ok {
+		fmt.eprintfln("lava fetch: %s", html.error_message(&p))
+		os.exit(1)
+	}
+
+	fmt.println(markup)
 }

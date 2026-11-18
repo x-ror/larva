@@ -1,5 +1,5 @@
 #+build linux
-package lava_runtime
+package lava_tls
 
 // Platform TLS root policy for Linux: a no-op. OpenSSL's
 // SSL_CTX_set_default_verify_paths (called in tls_client_ctx) already loads the
