@@ -81,6 +81,12 @@ rss_kb :: proc() -> int {
 // Every page the bench opens carries one of these as user_data, so every completion
 // is counted — the cold and warm rounds too, not only the churn. A round with
 // `total` 0 never refills; the churn round reopens until `total` pages have run.
+// The global surface every bench page opens on. `.Node` unless BENCH_SURFACE=web,
+// which measures the same pages without the Node names (and without stdio and the
+// node-streams stack compiling at start-up). The page sources name no Node global,
+// so they run unchanged on both.
+bench_surface: lava.Global_Surface
+
 Round :: struct {
 	opened, finished, failed, total: int,
 	limits:                          lava.Page_Limits,
@@ -101,7 +107,7 @@ discard :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Resul
 	}
 	if r.opened < r.total {
 		r.opened += 1
-		lava.page_runner_open(runner, r.source, "<bench>", r.limits, r)
+		lava.page_runner_open(runner, r.source, "<bench>", r.limits, r, bench_surface)
 	}
 	lava.result_destroy(&result)
 }
@@ -112,11 +118,12 @@ discard :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Resul
 // whether these were really pages is only known from `r.failed` after the round runs.
 open_n :: proc(runner: ^lava.Page_Runner, r: ^Round, n: int, source: string) -> f64 {
 	start := time.tick_now()
-	for _ in 0 ..< n do lava.page_runner_open(runner, source, "<bench>", r.limits, r)
+	for _ in 0 ..< n do lava.page_runner_open(runner, source, "<bench>", r.limits, r, bench_surface)
 	return time.duration_milliseconds(time.tick_since(start)) / f64(n)
 }
 
 main :: proc() {
+	if v, ok := os.lookup_env("BENCH_SURFACE", context.temp_allocator); ok && v == "web" do bench_surface = .Web
 	if len(os.args) < 2 {
 		fmt.eprintln("usage: bench-pages <N> [total] [budget] [heap_every] [trivial|heavy] | dispatch <threads> <slots> [total]")
 		os.exit(2)
@@ -172,7 +179,7 @@ main :: proc() {
 	start := time.tick_now()
 	for _ in 0 ..< min(n, total) {
 		churn.opened += 1
-		lava.page_runner_open(&runner, shape, "<bench>", limits, &churn)
+		lava.page_runner_open(&runner, shape, "<bench>", limits, &churn, bench_surface)
 	}
 	lava.page_runner_run(&runner)
 	secs := time.duration_seconds(time.tick_since(start))
@@ -234,7 +241,7 @@ dispatch_main :: proc() {
 	start := time.tick_now()
 	refused := 0
 	for _ in 0 ..< total {
-		if !lava.page_dispatcher_submit(&d, TRIVIAL, "<bench>", BENCH_LIMITS, &tally) do refused += 1
+		if !lava.page_dispatcher_submit(&d, TRIVIAL, "<bench>", BENCH_LIMITS, &tally, bench_surface) do refused += 1
 	}
 	for sync.atomic_load(&tally.done) < total - refused do time.sleep(time.Millisecond)
 	secs := time.duration_seconds(time.tick_since(start))

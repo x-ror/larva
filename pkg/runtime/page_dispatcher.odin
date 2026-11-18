@@ -74,6 +74,7 @@ Dispatch_Job :: struct {
 	source_name: string,
 	limits:      Page_Limits,
 	user_data:   rawptr,
+	surface:     Global_Surface,
 }
 
 @(private = "file")
@@ -217,6 +218,7 @@ page_dispatcher_init :: proc(
 // Params:
 //   source, source_name  Copied through the dispatcher's allocator; the caller's
 //                        strings may go away as soon as this returns.
+//   surface              As page_runner_open's; `.Node` by default.
 //   limits               As page_runner_open's: a page without a CPU budget is still
 //                        accepted, and reported .Invalid_Input through on_done — one
 //                        path for every per-page failure.
@@ -230,6 +232,7 @@ page_dispatcher_submit :: proc(
 	source, source_name: string,
 	limits: Page_Limits,
 	user_data: rawptr = nil,
+	surface: Global_Surface = .Node,
 ) -> bool {
 	// A zero dispatcher has no allocator to copy through; it is Closed anyway.
 	if d.allocator.procedure == nil do return false
@@ -247,6 +250,7 @@ page_dispatcher_submit :: proc(
 		source_name = name,
 		limits      = limits,
 		user_data   = user_data,
+		surface     = surface,
 	}
 	if serr != nil || nerr != nil {
 		job_free(d, job)
@@ -486,7 +490,7 @@ worker_loop :: proc(w: ^Dispatch_Worker) {
 		for page_runner_live(&w.runner) < d.pages_per_thread {
 			job := worker_pop(w)
 			if job == nil do break
-			page_runner_open(&w.runner, job.source, job.source_name, job.limits, job)
+			page_runner_open(&w.runner, job.source, job.source_name, job.limits, job, job.surface)
 		}
 		// Done once nothing is live. That also means the inbox is empty — the open loop
 		// above stops only at a full runner or an empty inbox — and it stays empty:
