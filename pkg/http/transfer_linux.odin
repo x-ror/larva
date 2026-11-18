@@ -6,6 +6,7 @@ import "core:c"
 import "core:net"
 import "core:slice"
 import "core:strings"
+import "core:sync"
 import "core:sys/linux"
 import eventloop "lava:pkg/runtime/eventloop"
 import pico "lava:pkg/runtime/picohttpparser"
@@ -50,7 +51,8 @@ IO :: enum {
 	Ok,
 	Would_Block_Read,
 	Would_Block_Write,
-	Closed,
+	Closed, // an orderly end: TCP EOF in the clear, or a TLS close_notify
+	Unclean_EOF, // TLS without close_notify: no proof the peer meant to stop there
 	Failed,
 }
 
@@ -61,7 +63,7 @@ Transfer :: struct {
 	on_done:     Done_Proc,
 	user_data:   rawptr,
 	method:      string,
-	headers:     []Header,
+	headers:     [dynamic]Header,
 	body:        []byte,
 	max_body:    int,
 	url_text:    string,
@@ -83,6 +85,8 @@ Transfer :: struct {
 	chunked:     Chunked,
 	resp:        Response,
 	timer:       eventloop.Timer_ID,
+	start_id:    eventloop.Timer_ID, // the immediate that runs begin; 0 once it has
+	head_total:  int, // head bytes of this response, interim 1xx ones included
 }
 
 // transfer_start takes ownership of `url`. The work starts on the next loop turn, so
@@ -113,20 +117,24 @@ transfer_start :: proc(
 		head = make([dynamic]byte),
 		resp = {allocator = allocator, headers = make([dynamic]Header), body = make([dynamic]byte)},
 	}
-	t.headers = make([]Header, len(req.headers))
-	for &h, i in req.headers {
-		t.headers[i] = {strings.clone(h.name), strings.clone(h.value)}
+	t.headers = make([dynamic]Header, 0, len(req.headers))
+	for &h in req.headers {
+		append(&t.headers, Header{strings.clone(h.name), strings.clone(h.value)})
 	}
 
 	timeout := req.timeout_ms if req.timeout_ms > 0 else DEFAULT_TIMEOUT_MS
 	t.timer = eventloop.set_timeout(loop, on_timeout, u64(timeout), t)
-	eventloop.set_immediate(loop, on_start, t)
+	// Timers run before immediates in a tick, so finish cancels this if the timeout
+	// comes first.
+	t.start_id = eventloop.set_immediate(loop, on_start, t)
 	return .None
 }
 
 @(private = "file")
 on_start :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
-	begin(cast(^Transfer)user_data)
+	t := cast(^Transfer)user_data
+	t.start_id = 0
+	begin(t)
 }
 
 // begin opens a connection to t.url: straight away for an IP literal, after a pool
@@ -142,7 +150,7 @@ begin :: proc(t: ^Transfer) {
 	}
 
 	t.state = .Resolving
-	t.dns = dns_lookup(t.loop, t.url.host, on_resolved, t, t.allocator)
+	t.dns = dns_lookup(t.loop, t.url.host, on_resolved, t)
 
 	if t.dns == nil {
 		finish(t, .DNS)
@@ -252,6 +260,7 @@ on_io :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 		t.ssl = openssl.tls_new_client(uintptr(t.fd), t.url.host)
 
 		if t.ssl == nil {
+			openssl.ERR_clear_error()
 			finish(t, .TLS)
 			return
 		}
@@ -269,6 +278,7 @@ on_io :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 
 @(private = "file")
 handshake :: proc(t: ^Transfer) {
+	openssl.ERR_clear_error()
 	ret := openssl.SSL_connect(t.ssl)
 
 	if ret == 1 {
@@ -293,7 +303,7 @@ handshake :: proc(t: ^Transfer) {
 
 @(private = "file")
 start_write :: proc(t: ^Transfer) {
-	build_request(&t.out, t.method, t.url, t.headers, t.body)
+	build_request(&t.out, t.method, t.url, t.headers[:], t.body)
 	t.out_off = 0
 	t.state = .Writing
 	write(t)
@@ -318,7 +328,7 @@ write :: proc(t: ^Transfer) {
 			}
 
 			return
-		case .Closed, .Failed:
+		case .Closed, .Unclean_EOF, .Failed:
 			finish(t, .Write)
 			return
 		}
@@ -356,8 +366,8 @@ read :: proc(t: ^Transfer) {
 			}
 
 			return
-		case .Closed:
-			on_eof(t)
+		case .Closed, .Unclean_EOF:
+			on_eof(t, io == .Closed)
 			return
 		case .Failed:
 			finish(t, .TLS if t.ssl != nil else .Read)
@@ -369,6 +379,7 @@ read :: proc(t: ^Transfer) {
 @(private = "file")
 send :: proc(t: ^Transfer, data: []byte) -> (n: int, io: IO) {
 	if t.ssl != nil {
+		openssl.ERR_clear_error()
 		ret := openssl.SSL_write(t.ssl, raw_data(data), c.int(min(len(data), int(max(c.int)))))
 
 		if ret > 0 {
@@ -392,6 +403,7 @@ send :: proc(t: ^Transfer, data: []byte) -> (n: int, io: IO) {
 @(private = "file")
 recv :: proc(t: ^Transfer, buf: []byte) -> (n: int, io: IO) {
 	if t.ssl != nil {
+		openssl.ERR_clear_error()
 		ret := openssl.SSL_read(t.ssl, raw_data(buf), c.int(len(buf)))
 
 		if ret > 0 {
@@ -412,11 +424,10 @@ recv :: proc(t: ^Transfer, buf: []byte) -> (n: int, io: IO) {
 	return 0, .Failed
 }
 
-// ssl_io maps a failed SSL_read/SSL_write. A peer that closes TCP without a TLS
-// close_notify is common and reads as an end of stream (the body framing in on_eof then
-// decides whether the response was cut short). Anything else — a reset, a record that
-// fails to authenticate — is a failure, so a truncation forged by a party without the
-// keys never passes for a complete response.
+// ssl_io maps a failed SSL_read/SSL_write. A close_notify is an orderly end. A peer that
+// closes TCP without one is common, but proves nothing: anyone on the path can forge the
+// FIN, so on_eof accepts it only where the framing shows the body was complete. Anything
+// else — a reset, a record that fails to authenticate — is a failure.
 @(private = "file")
 ssl_io :: proc(t: ^Transfer, ret: c.int) -> IO {
 	e := openssl.SSL_get_error(t.ssl, ret)
@@ -430,9 +441,9 @@ ssl_io :: proc(t: ^Transfer, ret: c.int) -> IO {
 	case openssl.SSL_ERROR_ZERO_RETURN:
 		return .Closed
 	case openssl.SSL_ERROR_SYSCALL:
-		return .Closed if ret == 0 else .Failed
+		return .Unclean_EOF if ret == 0 else .Failed
 	case openssl.SSL_ERROR_SSL:
-		return .Closed if reason == openssl.SSL_R_UNEXPECTED_EOF_WHILE_READING else .Failed
+		return .Unclean_EOF if reason == openssl.SSL_R_UNEXPECTED_EOF_WHILE_READING else .Failed
 	}
 
 	return .Failed
@@ -476,13 +487,23 @@ feed :: proc(t: ^Transfer, data: []byte) -> bool {
 		case .Complete:
 		}
 
-		if consumed > MAX_HEAD_BYTES {
+		// Interim 1xx heads count too, so an endless stream of them is bounded.
+		t.head_total += consumed
+
+		if t.head_total > MAX_HEAD_BYTES {
 			finish(t, .Head_Too_Large)
 			return false
 		}
 
-		// 1xx interim responses (100 Continue, 103 Early Hints) precede the real one.
-		if status >= 100 && status < 200 {
+		// RFC 9110 §15 defines 100..599. A 101 switches protocols, which this client never
+		// asks for.
+		if status < 100 || status > 599 || status == 101 {
+			finish(t, .Malformed_Response)
+			return false
+		}
+
+		// Interim responses (100 Continue, 103 Early Hints) precede the real one.
+		if status < 200 {
 			if buffered {
 				remove_range(&t.head, 0, consumed)
 				buf = t.head[:]
@@ -499,10 +520,19 @@ feed :: proc(t: ^Transfer, data: []byte) -> bool {
 }
 
 // on_head handles a complete head; `tail` is what followed it in the same bytes. A
-// redirect is followed before anything is copied out of the head.
+// redirect is followed before anything is copied out of the head, unless the head has
+// obs-fold lines, which have to be joined first.
 @(private = "file")
 on_head :: proc(t: ^Transfer, status: int, reason: string, headers: []pico.Header, tail: []byte) -> bool {
-	if is_redirect(status) {
+	folded := false
+	for &h in headers {
+		if h.name == "" {
+			folded = true
+			break
+		}
+	}
+
+	if !folded && is_redirect(status) {
 		if location, ok := find_header(headers, "Location"); ok {
 			redirect(t, status, location)
 			return false
@@ -512,9 +542,17 @@ on_head :: proc(t: ^Transfer, status: int, reason: string, headers: []pico.Heade
 	context.allocator = t.allocator
 	t.resp.status = status
 	t.resp.reason = strings.clone(reason)
-	non_zero_reserve(&t.resp.headers, len(headers))
-	for &h in headers {
-		append(&t.resp.headers, Header{strings.clone(h.name), strings.clone(h.value)})
+
+	if !copy_headers(t, headers) {
+		finish(t, .Malformed_Response)
+		return false
+	}
+
+	if folded && is_redirect(status) {
+		if location, ok := header(&t.resp, "Location"); ok {
+			redirect(t, status, location)
+			return false
+		}
 	}
 
 	mode, length, framing_ok := body_framing(t, status)
@@ -551,10 +589,36 @@ on_head :: proc(t: ^Transfer, status: int, reason: string, headers: []pico.Heade
 	return true
 }
 
+// copy_headers clones the parsed headers into the response. An obs-fold line (empty
+// name) continues the previous value; RFC 9112 §5.2 has a user agent join it with a
+// space. A fold before any header is malformed.
+@(private = "file")
+copy_headers :: proc(t: ^Transfer, headers: []pico.Header) -> bool {
+	context.allocator = t.allocator
+	non_zero_reserve(&t.resp.headers, len(headers))
+	for &h in headers {
+		if h.name != "" {
+			append(&t.resp.headers, Header{strings.clone(h.name), strings.clone(h.value)})
+			continue
+		}
+
+		if len(t.resp.headers) == 0 {
+			return false
+		}
+
+		prev := &t.resp.headers[len(t.resp.headers) - 1]
+		joined := strings.concatenate({prev.value, " ", trim_ows(h.value)})
+		delete(prev.value)
+		prev.value = joined
+	}
+
+	return true
+}
+
 // body_framing applies RFC 9112 §6.3: no body for HEAD, 204 and 304; with
 // Transfer-Encoding, chunked only when it is the final coding (of the last such
-// header, the lines forming one list), else read to close; otherwise one
-// Content-Length, all copies equal, digits only; else read to close.
+// header, the lines forming one list), else read to close; otherwise a Content-Length
+// whose copies and list items all agree, digits only; else read to close.
 @(private = "file")
 body_framing :: proc(t: ^Transfer, status: int) -> (mode: Body_Mode, length: int, ok: bool) {
 	if t.method == "HEAD" || status == 204 || status == 304 {
@@ -581,13 +645,17 @@ body_framing :: proc(t: ^Transfer, status: int) -> (mode: Body_Mode, length: int
 			continue
 		}
 
-		n, num_ok := parse_length(trim_ows(h.value))
+		// RFC 9110 §8.6: `42, 42`, as a proxy may join repeated headers, is one length.
+		values := h.value
+		for part in strings.split_iterator(&values, ",") {
+			n, num_ok := parse_length(trim_ows(part))
 
-		if !num_ok || (found && n != length) {
-			return .None, 0, false
+			if !num_ok || (found && n != length) {
+				return .None, 0, false
+			}
+
+			found, length = true, n
 		}
-
-		found, length = true, n
 	}
 
 	return .Length if found else .Until_Close, length, true
@@ -655,12 +723,13 @@ feed_body :: proc(t: ^Transfer, data: []byte) -> bool {
 }
 
 @(private = "file")
-on_eof :: proc(t: ^Transfer) {
+on_eof :: proc(t: ^Transfer, clean: bool) {
 	switch {
 	case t.state == .Reading_Head:
 		finish(t, .Read if len(t.head) == 0 else .Malformed_Response)
 	case t.mode == .Until_Close:
-		finish(t, .None)
+		// The connection's end is the body's end, so only a proven end will do.
+		finish(t, .None if clean else .TLS)
 	case:
 		// Fewer bytes than Content-Length, or chunks without the last one.
 		finish(t, .Read)
@@ -703,11 +772,11 @@ redirect :: proc(t: ^Transfer, status: int, location: string) {
 		t.method = strings.clone("GET")
 		delete(t.body)
 		t.body = nil
-		t.headers = drop_headers(t.headers, body_headers())
+		drop_headers(&t.headers, body_headers())
 	}
 
 	if !same_origin(t.url, url) {
-		t.headers = drop_headers(t.headers, credential_headers())
+		drop_headers(&t.headers, credential_headers())
 	}
 
 	close_conn(t)
@@ -734,6 +803,7 @@ reset_response :: proc(t: ^Transfer) {
 	t.resp.status = 0
 	clear(&t.head)
 	t.head_parsed = 0
+	t.head_total = 0
 	t.chunked = {}
 	t.mode = .None
 	t.remaining = 0
@@ -776,9 +846,14 @@ finish :: proc(t: ^Transfer, err: Error) {
 		eventloop.clear_timeout(t.loop, t.timer)
 	}
 
+	if t.start_id != 0 {
+		eventloop.clear_immediate(t.loop, t.start_id)
+	}
+
 	if t.dns != nil {
-		// The lookup still runs on a worker; it frees its job when it comes back.
+		// The lookup may still run on a worker; the job frees itself when it comes back.
 		t.dns.user_data = nil
+		sync.atomic_store(&t.dns.cancelled, true)
 	}
 
 	if err != .None {

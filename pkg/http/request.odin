@@ -5,11 +5,6 @@ import "core:strings"
 // RFC 9110 `tchar`: what a method token may contain.
 @(private = "file")
 TOKEN_PUNCTUATION :: Ascii_Set{'!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~'}
-// A header name may not hold these; a header value may not hold CR or LF.
-@(private = "file")
-NAME_FORBIDDEN :: Ascii_Set{':', '\r', '\n', ' ', '\t'}
-@(private = "file")
-VALUE_FORBIDDEN :: Ascii_Set{'\r', '\n'}
 
 // Dropped when a redirect leaves the origin, as Fetch and Node's undici do: they would
 // hand the next host credentials meant for this one.
@@ -33,19 +28,25 @@ DEFAULT_HEADERS := [?]Header {
 	{"Connection", "close"},
 }
 
+// request_is_valid accepts what HTTP/1.1 can carry as given: a method and header names
+// made of token characters (RFC 9110 §5.1), header values without control characters
+// other than tab (§5.5). Transfer-Encoding is refused: the body is always sent whole,
+// with a Content-Length, and the two must not be sent together (RFC 9112 §6.1).
 @(private)
 request_is_valid :: proc(req: Request) -> bool {
-	for b in transmute([]byte)req.method {
-		if !is_token_char(b) {
-			return false
-		}
+	if req.method != "" && !is_token(req.method) {
+		return false
 	}
 
 	for &h in req.headers {
-		if h.name == "" ||
-		   index_byte_set(h.name, NAME_FORBIDDEN) >= 0 ||
-		   index_byte_set(h.value, VALUE_FORBIDDEN) >= 0 {
+		if !is_token(h.name) || ascii_equal_fold(h.name, "Transfer-Encoding") {
 			return false
+		}
+
+		for b in transmute([]byte)h.value {
+			if (b < ' ' && b != '\t') || b == 0x7F {
+				return false
+			}
 		}
 	}
 
@@ -99,9 +100,11 @@ build_request :: proc(out: ^[dynamic]byte, method: string, url: Url, headers: []
 	out^ = sb.buf
 }
 
-// drop_headers removes every header named in `names`, freeing its strings.
+// drop_headers removes every header named in `names`, freeing its strings and keeping
+// the list's allocation, so it is freed with the size it was made with.
 @(private)
-drop_headers :: proc(headers: []Header, names: []string, allocator := context.allocator) -> []Header {
+drop_headers :: proc(headers: ^[dynamic]Header, names: []string) {
+	allocator := headers.allocator
 	n := 0
 	for &h in headers {
 		drop := false
@@ -122,7 +125,7 @@ drop_headers :: proc(headers: []Header, names: []string, allocator := context.al
 		n += 1
 	}
 
-	return headers[:n]
+	resize(headers, n)
 }
 
 @(private)
@@ -164,4 +167,19 @@ method_has_body :: proc(method: string) -> bool {
 @(private = "file")
 is_token_char :: proc(b: byte) -> bool {
 	return ('A' <= b && b <= 'Z') || ('a' <= b && b <= 'z') || ('0' <= b && b <= '9') || b in TOKEN_PUNCTUATION
+}
+
+@(private = "file")
+is_token :: proc(s: string) -> bool {
+	if s == "" {
+		return false
+	}
+
+	for b in transmute([]byte)s {
+		if !is_token_char(b) {
+			return false
+		}
+	}
+
+	return true
 }

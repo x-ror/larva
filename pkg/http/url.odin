@@ -1,5 +1,6 @@
 package larva_http
 
+import "core:net"
 import "core:strings"
 
 // core:net.split_url is not used: it parses the query into a map, which loses order and
@@ -20,6 +21,88 @@ AUTHORITY_END :: Ascii_Set{'/', '?'}
 PATH_END :: Ascii_Set{'/', '?', '#'}
 @(private = "file")
 QUERY_OR_FRAGMENT :: Ascii_Set{'?', '#'}
+// RFC 3986 reg-name: unreserved, pct-encoded and sub-delims characters.
+@(private = "file")
+HOST_CHARS :: Ascii_Set {
+	'a',
+	'b',
+	'c',
+	'd',
+	'e',
+	'f',
+	'g',
+	'h',
+	'i',
+	'j',
+	'k',
+	'l',
+	'm',
+	'n',
+	'o',
+	'p',
+	'q',
+	'r',
+	's',
+	't',
+	'u',
+	'v',
+	'w',
+	'x',
+	'y',
+	'z',
+	'A',
+	'B',
+	'C',
+	'D',
+	'E',
+	'F',
+	'G',
+	'H',
+	'I',
+	'J',
+	'K',
+	'L',
+	'M',
+	'N',
+	'O',
+	'P',
+	'Q',
+	'R',
+	'S',
+	'T',
+	'U',
+	'V',
+	'W',
+	'X',
+	'Y',
+	'Z',
+	'0',
+	'1',
+	'2',
+	'3',
+	'4',
+	'5',
+	'6',
+	'7',
+	'8',
+	'9',
+	'-',
+	'.',
+	'_',
+	'~',
+	'%',
+	'!',
+	'$',
+	'&',
+	'\'',
+	'(',
+	')',
+	'*',
+	'+',
+	',',
+	';',
+	'=',
+}
 @(private = "file")
 HEX_DIGITS :: "0123456789ABCDEF"
 
@@ -47,7 +130,10 @@ parse_url :: proc(s: string, allocator := context.allocator) -> (u: Url, err: Er
 	case has_prefix_fold(s, "http" + SCHEME_SEP):
 		u.port, rest = HTTP_PORT, s[len("http" + SCHEME_SEP):]
 	case has_scheme(s):
-		return {}, .Unsupported_Scheme
+		// `http:host` or `https:/x` is a broken http URL, not another scheme.
+		scheme := s[:strings.index_byte(s, ':')]
+		is_http := ascii_equal_fold(scheme, "http") || ascii_equal_fold(scheme, "https")
+		return {}, .Invalid_URL if is_http else .Unsupported_Scheme
 	case:
 		return {}, .Invalid_URL
 	}
@@ -84,29 +170,35 @@ url_destroy :: proc(u: ^Url, allocator := context.allocator) {
 	u^ = {}
 }
 
-// resolve_url resolves a Location header against the URL that answered with it
-// (RFC 3986 §5.2), dot segments included, into one buffer sized up front.
+// resolve_url resolves a Location header against the URL that answered with it (RFC 3986
+// §5.2.2), dot segments removed in every case, into one buffer sized up front.
 @(private)
 resolve_url :: proc(base: string, ref: string, allocator := context.allocator) -> string {
 	ref := trim_ows(ref)
 
 	if has_scheme(ref) {
-		return strings.clone(ref, allocator)
+		return normalize_absolute(ref, allocator)
 	}
 
 	// base is a validated http(s) URL, so its first ':' starts "://".
 	authority_start := strings.index_byte(base, ':') + len(SCHEME_SEP)
 
 	if strings.has_prefix(ref, "//") {
-		return strings.concatenate({base[:authority_start - len("//")], ref}, allocator)
+		absolute := strings.concatenate({base[:authority_start - len("//")], ref}, context.temp_allocator)
+		return normalize_absolute(absolute, allocator)
 	}
 
 	path_start := index_byte_set(base[authority_start:], PATH_END)
 	origin := base if path_start < 0 else base[:authority_start + path_start]
-	base_path := "/" if path_start < 0 else base[authority_start + path_start:]
+	base_rest := "/" if path_start < 0 else base[authority_start + path_start:]
+	base_path, base_query := base_rest, ""
 
-	if i := index_byte_set(base_path, QUERY_OR_FRAGMENT); i >= 0 {
-		base_path = base_path[:i]
+	if i := index_byte_set(base_rest, QUERY_OR_FRAGMENT); i >= 0 {
+		base_path = base_rest[:i]
+
+		if base_rest[i] == '?' {
+			base_query = strings.truncate_to_byte(base_rest[i:], '#')
+		}
 	}
 
 	if base_path == "" {
@@ -117,6 +209,12 @@ resolve_url :: proc(base: string, ref: string, allocator := context.allocator) -
 
 	if i := index_byte_set(ref, QUERY_OR_FRAGMENT); i >= 0 {
 		ref_path, suffix = ref[:i], ref[i:]
+	}
+
+	// An empty path without a query of its own keeps the base's query: `#top` against
+	// `/s?q=1` is `/s?q=1#top`.
+	if ref_path == "" && !strings.has_prefix(suffix, "?") {
+		suffix = strings.concatenate({base_query, suffix}, context.temp_allocator)
 	}
 
 	dir := ""
@@ -149,6 +247,37 @@ resolve_url :: proc(base: string, ref: string, allocator := context.allocator) -
 	return strings.to_string(sb)
 }
 
+// normalize_absolute copies an absolute URL with dot segments removed from its path. A
+// URL that is not hierarchical (`mailto:x`) is copied as it is; parse_url rejects it.
+@(private = "file")
+normalize_absolute :: proc(url: string, allocator := context.allocator) -> string {
+	sep := strings.index(url, SCHEME_SEP)
+
+	if sep < 0 {
+		return strings.clone(url, allocator)
+	}
+
+	authority_start := sep + len(SCHEME_SEP)
+	path_start := index_byte_set(url[authority_start:], PATH_END)
+
+	if path_start < 0 || url[authority_start + path_start] != '/' {
+		return strings.clone(url, allocator)
+	}
+
+	path_start += authority_start
+	path_end := len(url)
+
+	if i := index_byte_set(url[path_start:], QUERY_OR_FRAGMENT); i >= 0 {
+		path_end = path_start + i
+	}
+
+	sb := strings.builder_make(0, len(url), allocator)
+	strings.write_string(&sb, url[:path_start])
+	write_normalized_path(&sb, url[path_start:path_end])
+	strings.write_string(&sb, url[path_end:])
+	return strings.to_string(sb)
+}
+
 // write_host_header writes the Host value: an IPv6 literal in brackets, the port only
 // when it is not the scheme's default.
 @(private)
@@ -174,7 +303,9 @@ same_origin :: proc(a, b: Url) -> bool {
 }
 
 // split_authority splits `host[:port]` or `[v6]:port` in one pass over the bytes and one
-// over the port. port 0 means none was given; a port is digits only, 1 to 65535.
+// over the port. Inside brackets must be an IPv6 address; a name may hold only RFC 3986
+// reg-name characters, so `evil.com\path` and the like, read differently by other URL
+// parsers, are refused. port 0 means none was given; a port is digits only, 1 to 65535.
 @(private = "file")
 split_authority :: proc(authority: string) -> (host: string, port: int, ok: bool) {
 	if authority == "" {
@@ -184,22 +315,22 @@ split_authority :: proc(authority: string) -> (host: string, port: int, ok: bool
 	port_text := ""
 
 	if authority[0] == '[' {
-		close := -1
-		for b, i in transmute([]byte)authority {
-			if b <= ' ' || b >= 0x7F || b == '@' {
-				return "", 0, false
-			}
-
-			if b == ']' && close < 0 {
-				close = i
-			}
-		}
+		close := strings.index_byte(authority, ']')
 
 		if close < 0 {
 			return "", 0, false
 		}
 
 		host = authority[1:close]
+
+		if strings.index_byte(host, '[') >= 0 {
+			return "", 0, false
+		}
+
+		if _, is_v6 := net.parse_ip6_address(host); !is_v6 {
+			return "", 0, false
+		}
+
 		after := authority[close + 1:]
 		switch {
 		case after == "":
@@ -211,16 +342,14 @@ split_authority :: proc(authority: string) -> (host: string, port: int, ok: bool
 	} else {
 		colon := -1
 		for b, i in transmute([]byte)authority {
-			if b <= ' ' || b >= 0x7F || b == '@' || b == '[' || b == ']' {
-				return "", 0, false
-			}
-
 			if b == ':' {
 				if colon >= 0 {
 					return "", 0, false
 				}
 
 				colon = i
+			} else if colon < 0 && !(b in HOST_CHARS) {
+				return "", 0, false
 			}
 		}
 
