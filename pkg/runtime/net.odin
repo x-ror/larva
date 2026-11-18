@@ -10,6 +10,7 @@ import "core:strconv"
 import "core:sys/linux"
 import jsc "lava:pkg/jsc"
 import eventloop "lava:pkg/runtime/eventloop"
+import openssl "lava:pkg/tls"
 
 // node:net (TCP) — minimal server primitives on the event-loop reactor (M1). This
 // is the inbound mirror of fetch's outbound socket transport (fetch_transport.odin /
@@ -282,7 +283,7 @@ net_listen_cb :: proc "c" (
 
 	listen_ok := false
 	defer if !listen_ok && tls_enabled {
-		tls_server_ctx_free(cast(SSL_CTX)tls_ctx)
+		tls_server_ctx_free(cast(openssl.SSL_CTX)tls_ctx)
 	}
 
 	// Multi-worker (Slice 3a): every worker binds the same addr:port and the kernel load-balances
@@ -479,7 +480,7 @@ net_accept_cb :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 		// stalled handshake is a TLS-layer slowloris that http.js's post-handshake timeouts can't
 		// bound). The handshake itself is driven by the recv completions armed in net_start_cb.
 		if server.tls {
-			if !tls_server_attach(conn, cast(SSL_CTX)server.tls_ctx) {
+			if !tls_server_attach(conn, cast(openssl.SSL_CTX)server.tls_ctx) {
 				net_close_conn(conn, true) // SSL/BIO alloc failed — drop this conn (no JS yet)
 				continue
 			}
@@ -2013,7 +2014,7 @@ net_close_server :: proc(server: ^Net_Server) {
 	// connections keep their own SSL (per-conn, freed at their own teardown); SSL_CTX is refcounted,
 	// so freeing it here while conns still hold SSL_new references is safe.
 	if server.tls {
-		tls_server_ctx_free(cast(SSL_CTX)server.tls_ctx)
+		tls_server_ctx_free(cast(openssl.SSL_CTX)server.tls_ctx)
 		server.tls = false
 		server.tls_ctx = nil
 	}
@@ -2179,7 +2180,7 @@ net_shutdown_active :: proc(state: ^Runtime_State) {
 		// Free the per-listener SSL_CTX for every server about to be cleared (TLS or not, closing or
 		// not) so a drain_begin-closed listener doesn't leak its context at teardown.
 		if server.tls {
-			tls_server_ctx_free(cast(SSL_CTX)server.tls_ctx)
+			tls_server_ctx_free(cast(openssl.SSL_CTX)server.tls_ctx)
 			server.tls_ctx = nil
 		}
 
@@ -2211,7 +2212,7 @@ net_destroy_state :: proc(state: ^Runtime_State) {
 	// Free any TLS contexts still parked in the registry (createServer without a successful listen);
 	// listened ones moved to their Net_Server and were freed in net_shutdown_active.
 	for _, ctx_ptr in state.tls_server_ctxs {
-		tls_server_ctx_free(cast(SSL_CTX)ctx_ptr)
+		tls_server_ctx_free(cast(openssl.SSL_CTX)ctx_ptr)
 	}
 	delete(state.tls_server_ctxs)
 	// net_starved is an intrusive list (head/tail pointers, no backing allocation) — nothing to free.
