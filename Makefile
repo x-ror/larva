@@ -378,6 +378,9 @@ test-lava-nohostfn: build
 fmt:
 	$(ODIN) strip-semicolon cmd/lava -collection:lava=.
 	$(ODIN) strip-semicolon pkg/jsc -no-entry-point
+	# Larva's own C (.clang-format). pkg/jsc's C++ comes from Lava and is left as Lava
+	# formats it, so a sync does not fight over whitespace.
+	clang-format -i pkg/html/shim/*.c
 
 # `rm` isn't a Windows command and can't take the $(RUNSCRIPT) prefix (bash would treat
 # `rm` as a script), so invoke the shell explicitly: $(SHELL) is Git Bash on Windows and

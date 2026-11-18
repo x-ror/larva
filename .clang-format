@@ -1,0 +1,22 @@
+# C/C++ style for the code we own (pkg/html/shim, pkg/jsc): tabs, attached braces, short
+# statements on one line. Editors that format on save pick this up; `make fmt` applies it.
+# Same style as the owner's other C code (cbor-extract).
+BasedOnStyle: LLVM
+UseTab: Always
+IndentWidth: 4
+TabWidth: 4
+ContinuationIndentWidth: 8
+ColumnLimit: 120
+AccessModifierOffset: -4
+IndentCaseLabels: true
+NamespaceIndentation: None
+AlignAfterOpenBracket: DontAlign
+AlignOperands: DontAlign
+BreakBeforeTernaryOperators: false
+AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: All
+AllowShortLambdasOnASingleLine: All
+AllowShortBlocksOnASingleLine: Empty
+PointerAlignment: Left
+IncludeBlocks: Preserve
