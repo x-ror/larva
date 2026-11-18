@@ -292,6 +292,36 @@ native codec at every size. Removed rather than left as folklore steering review
   `index`, and `node_modules` walking. **`package.json` `"exports"` conditional
   resolution is not yet implemented** — a real gap for modern packages.
 
+### 3.4.1 Global surfaces (`Global_Surface`, `runtime.odin`)
+
+`eval` takes a trailing `surface` (default `.Node`), threaded through
+`setup_module_environment` into `install_globals`. `.Node` is everything `lava run`
+exposes; `run_file` and the CLI never select anything else. `.Web` is for an embedder
+that runs untrusted web-platform code: the context keeps fetch, URL, the Web Streams
+family, TextEncoder/TextDecoder, Blob/File, AbortController, structuredClone,
+atob/btoa, crypto, performance, console, queueMicrotask and the four timer functions,
+while `process`, `require`, `module`, `exports`, `__filename`, `__dirname`, `Buffer`,
+`global`, `setImmediate`/`clearImmediate` and every `__lava*` hook are unreachable by
+name. The bootstrap still needs some of those names while it runs, so `.Web` works in
+three groups:
+
+1. **Never injected** — the CommonJS entry bindings (`__filename`, `__dirname`,
+   `require`, `__lava_precache`, `module`, `exports`) and the top-level drain's
+   `__lavaDrainNextTicks`/`__lava_tl_drain`. Builtins get `require` as a factory
+   argument, and native dispatch drains nextTicks through `Runtime_State`, so nothing
+   internal reads them. `eval` appends no top-level drain and registers no entry module;
+   an `.mjs` source is `Invalid_Input`, since the ESM transform emits `require`.
+2. **Not installed** — `install_stdio`. `internal/stdio` and the node-streams stack it
+   pulls in are never compiled; `console` writes through its own native writer.
+3. **Installed, then removed** as the last step before user code — `process`,
+   `Buffer`, `setImmediate`, `clearImmediate`, `global`. The loader hands `process` to
+   `node:process`, `microtasks.js` installs `nextTick` on it, and the eager modules
+   capture at module-eval.
+
+`.Web` promises only that the names are gone: web APIs still hand out Node-shaped
+values (Buffer-backed bytes, `ERR_*` codes), so `Buffer` stays reachable through a
+value's `.constructor`. Pinned by `cmd/lava/global_surface_test.odin`.
+
 ### 3.5 I/O transports (`fetch_*`, `dns.odin`, `tls.odin`)
 
 `fetch_transport.odin` is a platform-agnostic connect→[TLS]→write→read state

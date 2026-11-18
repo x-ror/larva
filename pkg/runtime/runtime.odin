@@ -38,6 +38,57 @@ Result :: struct {
 	backend_failed: bool,
 }
 
+// Global_Surface selects which global names a context's script can reach — the
+// trailing `surface` parameter of eval, threaded through setup_module_environment
+// into install_globals.
+//
+//   .Node  Everything `lava run` exposes: the web-platform set below plus
+//          `process`, `require`, `module`, `exports`, `__filename`, `__dirname`,
+//          `Buffer`, `global`, `setImmediate`/`clearImmediate`, and the internal
+//          `__lava_precache`/`__lavaDrainNextTicks`/`__lava_tl_drain` hooks.
+//          The default; `run_file` and the CLI never select anything else.
+//   .Web   The web-platform subset only: fetch/Request/Response/Headers,
+//          URL/URLSearchParams, the Web Streams family and its queuing strategies,
+//          TextEncoder/TextDecoder, Blob/File, AbortController/AbortSignal,
+//          structuredClone, atob/btoa, crypto, performance, console,
+//          queueMicrotask, and setTimeout/setInterval/clearTimeout/clearInterval.
+//          A classic script only: an `.mjs` source name is Invalid_Input (exit 2),
+//          because the ESM transform emits `require` and `__lava_precache`.
+// Node:
+//   No counterpart — node has one global surface. `.Node` is the one the oracle
+//   suites check, byte for byte.
+// Deviates:
+//   `.Web` is a Lava-only surface; pinned by cmd/lava/global_surface_test.odin
+//   (every hidden name by `typeof`, every kept API exercised, `.mjs` refused, stdio
+//   never compiled, Node/Web/Node alternating on one thread).
+//
+// How `.Web` gets there, in three groups, because the bootstrap needs some of the
+// Node names while it runs:
+//   1. Never injected: `__filename`, `__dirname`, `require`, `__lava_precache`,
+//      `module`, `exports` (setup_module_environment). Nothing internal reads them —
+//      builtins get `require` as a factory argument. `__lava_tl_drain`/
+//      `__lavaDrainNextTicks` are not defined either (install_microtasks): eval
+//      appends no top-level drain, since nothing a `.Web` script can name queues a
+//      nextTick, so node's nextTick-before-promise ordering has nothing to order.
+//      Native dispatch still drains through Runtime_State.next_tick_drain.
+//   2. Not installed: install_stdio. internal/stdio and the node-streams stack it
+//      pulls in are never compiled; console writes through its own native writer.
+//   3. Installed, then removed as the last step before user code (remove_node_globals):
+//      `process`, `Buffer`, `setImmediate`, `clearImmediate`, `global`. The loader
+//      hands `process` to node:process and microtasks.js installs nextTick on it;
+//      the eager modules capture at module-eval (blob.js's EOL reads
+//      process.platform), so these must exist until the bootstrap is done.
+//
+// What `.Web` does NOT promise: the web APIs still hand out Node-shaped values —
+// Buffer-backed bytes, `ERR_*` codes — so `Buffer` stays reachable through a value's
+// `.constructor`. The NAMES are gone, nothing more (x-ror/larva#5). And
+// internal/url.js reads `process.platform` live inside fileURLToPath/pathToFileURL;
+// those are node:url APIs, unreachable without `require`.
+Global_Surface :: enum {
+	Node, // everything `lava run` exposes today. Default.
+	Web, // the web-platform subset only.
+}
+
 result_destroy :: proc(res: ^Result) {
 	if res.is_allocated && len(res.message) > 0 {
 		delete(res.message)
@@ -135,6 +186,11 @@ reported :: proc(result: Result, report: Result_Hook, report_data: rawptr) -> Re
 // REPORT: a non-nil `report` (Result_Hook) fires exactly once on every return —
 // pre-flight rejections included — with the Result being returned, before eval's
 // deferred loop teardown and context release run.
+//
+// SURFACE: `surface` picks the global names the script can reach (Global_Surface).
+// `.Web` runs a classic script only — an `.mjs` source name is refused up front —
+// and the entry is neither registered in the module cache nor given the top-level
+// nextTick drain, both of which exist for CommonJS and process.nextTick.
 eval :: proc(
 	source: string,
 	source_name := "<eval>",
@@ -145,8 +201,9 @@ eval :: proc(
 	pre_run_data: rawptr = nil,
 	report: Result_Hook = nil,
 	report_data: rawptr = nil,
+	surface: Global_Surface = .Node,
 ) -> Result {
-	// eval consumes the loop on EVERY path (see the OWNERSHIP note above). These two
+	// eval consumes the loop on EVERY path (see the OWNERSHIP note above). These three
 	// pre-flight rejections return before the JS context (and the deferred teardown
 	// below) exists, so they destroy the loop explicitly. It holds no handles yet, so
 	// this single destroy needs no live context.
@@ -165,6 +222,18 @@ eval :: proc(
 			status = .Invalid_Input,
 			exit_code = 2,
 			message = "node: specifiers are module names, not eval source names",
+		}, report, report_data)
+	}
+
+	// The ESM transform rewrites an `.mjs` entry to CommonJS that calls `require` and
+	// `__lava_precache`, neither of which a `.Web` context has; refused here, before a
+	// context exists, rather than failing inside the transformed body.
+	if surface == .Web && strings.has_suffix(source_name, ".mjs") {
+		if loop != nil do eventloop.destroy(loop)
+		return reported(Result {
+			status = .Invalid_Input,
+			exit_code = 2,
+			message = "the web global surface runs classic scripts only; .mjs sources need the node surface",
 		}, report, report_data)
 	}
 
@@ -258,7 +327,7 @@ eval :: proc(
 		eventloop.destroy(loop)
 	}
 
-	setup_module_environment(cast(jsc.JSContextRef)ctx, source_name, loop)
+	setup_module_environment(cast(jsc.JSContextRef)ctx, source_name, loop, surface)
 
 	// ESM entrypoints (.mjs) are rewritten to CommonJS via the same transform the
 	// loader applies to imported .mjs modules; script (.js) and `lava eval`
@@ -287,7 +356,7 @@ eval :: proc(
 		eval_source = wrapped
 		mjs_wrapped = wrapped
 		mjs_allocated = true
-	} else {
+	} else if surface == .Node {
 		// Register the CommonJS/script entry in the module cache before it runs, so
 		// requiring the entry by path returns the same instance (and an entry-
 		// involved require cycle terminates instead of re-executing the entry). The
@@ -304,12 +373,19 @@ eval :: proc(
 	// completion value) so it does not clobber the script's completion value used by
 	// `lava eval`'s echo; the leading "\n;" guards a trailing line comment / missing
 	// semicolon; typeof keeps it a no-op if the microtask shim failed to install.
+	//
+	// Not on `.Web`: nothing a `.Web` script can name queues a nextTick, so there is no
+	// ordering to keep, and the drain's two globals are deliberately absent there
+	// (install_microtasks). The post-evaluation drain_next_ticks_settled below still
+	// runs on both surfaces; it goes through Runtime_State, not a global.
 	TOP_LEVEL_DRAIN :: "\n;var __lava_tl_drain = (typeof __lavaDrainNextTicks === 'function') && __lavaDrainNextTicks();\n"
-	if combined, concat_err := strings.concatenate(
-		{eval_source, TOP_LEVEL_DRAIN},
-		context.temp_allocator,
-	); concat_err == nil {
-		eval_source = combined
+	if surface == .Node {
+		if combined, concat_err := strings.concatenate(
+			{eval_source, TOP_LEVEL_DRAIN},
+			context.temp_allocator,
+		); concat_err == nil {
+			eval_source = combined
+		}
 	}
 
 	script := js_string_from_string(eval_source)
@@ -366,7 +442,7 @@ eval :: proc(
 
 	// Refresh the cached entry exports: a CommonJS entry body may have reassigned
 	// module.exports, so the pre-eval partial registered above is now stale.
-	if !mjs_allocated {
+	if !mjs_allocated && surface == .Node {
 		register_entry_module(cast(jsc.JSContextRef)ctx, state, source_name)
 	}
 
