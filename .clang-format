@@ -1,22 +1,17 @@
-# C/C++ style for the code we own (pkg/html/shim, pkg/jsc): tabs, attached braces, short
-# statements on one line. Editors that format on save pick this up; `make fmt` applies it.
-# Same style as the owner's other C code (cbor-extract).
+# C/C++ style for the code we own (pkg/html/shim): 2-space indent, attached braces,
+# 100 columns, `T *p`. Editors that format on save pick this up; `make fmt` applies it.
 BasedOnStyle: LLVM
-UseTab: Always
-IndentWidth: 4
-TabWidth: 4
-ContinuationIndentWidth: 8
-ColumnLimit: 120
-AccessModifierOffset: -4
-IndentCaseLabels: true
-NamespaceIndentation: None
-AlignAfterOpenBracket: DontAlign
-AlignOperands: DontAlign
-BreakBeforeTernaryOperators: false
-AllowShortIfStatementsOnASingleLine: AllIfsAndElse
-AllowShortCaseLabelsOnASingleLine: true
-AllowShortFunctionsOnASingleLine: All
+Language: Cpp
+Standard: c++17
+IndentWidth: 2
+ColumnLimit: 100
+BreakBeforeBraces: Attach
+NamespaceIndentation: All
+PointerAlignment: Right
+ReferenceAlignment: Right
+AccessModifierOffset: -2
+AllowShortFunctionsOnASingleLine: Inline
 AllowShortLambdasOnASingleLine: All
-AllowShortBlocksOnASingleLine: Empty
-PointerAlignment: Left
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
 IncludeBlocks: Preserve
