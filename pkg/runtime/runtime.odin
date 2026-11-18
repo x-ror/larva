@@ -47,6 +47,57 @@ Result :: struct {
 	heap_bytes:     i64,
 }
 
+// Global_Surface selects which global names a context's script can reach — the
+// trailing `surface` parameter of eval, threaded through setup_module_environment
+// into install_globals.
+//
+//   .Node  Everything `lava run` exposes: the web-platform set below plus
+//          `process`, `require`, `module`, `exports`, `__filename`, `__dirname`,
+//          `Buffer`, `global`, `setImmediate`/`clearImmediate`, and the internal
+//          `__lava_precache`/`__lavaDrainNextTicks`/`__lava_tl_drain` hooks.
+//          The default; `run_file` and the CLI never select anything else.
+//   .Web   The web-platform subset only: fetch/Request/Response/Headers,
+//          URL/URLSearchParams, the Web Streams family and its queuing strategies,
+//          TextEncoder/TextDecoder, Blob/File, AbortController/AbortSignal,
+//          structuredClone, atob/btoa, crypto, performance, console,
+//          queueMicrotask, and setTimeout/setInterval/clearTimeout/clearInterval.
+//          A classic script only: an `.mjs` source name is Invalid_Input (exit 2),
+//          because the ESM transform emits `require` and `__lava_precache`.
+// Node:
+//   No counterpart — node has one global surface. `.Node` is the one the oracle
+//   suites check, byte for byte.
+// Deviates:
+//   `.Web` is a Lava-only surface; pinned by cmd/lava/global_surface_test.odin
+//   (every hidden name by `typeof`, every kept API exercised, `.mjs` refused, stdio
+//   never compiled, Node/Web/Node alternating on one thread).
+//
+// How `.Web` gets there, in three groups, because the bootstrap needs some of the
+// Node names while it runs:
+//   1. Never injected: `__filename`, `__dirname`, `require`, `__lava_precache`,
+//      `module`, `exports` (setup_module_environment). Nothing internal reads them —
+//      builtins get `require` as a factory argument. `__lava_tl_drain`/
+//      `__lavaDrainNextTicks` are not defined either (install_microtasks): eval
+//      appends no top-level drain, since nothing a `.Web` script can name queues a
+//      nextTick, so node's nextTick-before-promise ordering has nothing to order.
+//      Native dispatch still drains through Runtime_State.next_tick_drain.
+//   2. Not installed: install_stdio. internal/stdio and the node-streams stack it
+//      pulls in are never compiled; console writes through its own native writer.
+//   3. Installed, then removed as the last step before user code (remove_node_globals):
+//      `process`, `Buffer`, `setImmediate`, `clearImmediate`, `global`. The loader
+//      hands `process` to node:process and microtasks.js installs nextTick on it;
+//      the eager modules capture at module-eval (blob.js's EOL reads
+//      process.platform), so these must exist until the bootstrap is done.
+//
+// What `.Web` does NOT promise: the web APIs still hand out Node-shaped values —
+// Buffer-backed bytes, `ERR_*` codes — so `Buffer` stays reachable through a value's
+// `.constructor`. The NAMES are gone, nothing more (x-ror/larva#5). And
+// internal/url.js reads `process.platform` live inside fileURLToPath/pathToFileURL;
+// those are node:url APIs, unreachable without `require`.
+Global_Surface :: enum {
+	Node, // everything `lava run` exposes today. Default.
+	Web, // the web-platform subset only.
+}
+
 result_destroy :: proc(res: ^Result) {
 	if res.is_allocated && len(res.message) > 0 {
 		delete(res.message)
@@ -184,12 +235,18 @@ reported :: proc(result: Result, report: Result_Hook, report_data: rawptr) -> Re
 // once the Result is decided and before its teardown (page.odin); a pre-flight
 // rejection page_open makes has destroyed the loop already, as in Lava.
 //
+// SURFACE: `surface` picks the global names the script can reach (Global_Surface).
+// `.Web` runs a classic script only — an `.mjs` source name is refused up front —
+// and the entry is neither registered in the module cache nor given the top-level
+// nextTick drain, both of which exist for CommonJS and process.nextTick. eval hands
+// it to page_open, which applies all three (page.odin).
+//
 // LIMITS: `limits` (Page_Limits, vm_pool.odin) puts the eval under a per-entry CPU
 // limit and a cumulative CPU budget on its VM. The budget is charged from runtime
 // install to the last loop tick; the first entry or tick that ends over a limit stops
 // the loop (force_exit) and eval returns .Execution_Error with Result.kill naming the
 // limit. Zero limits (the default) read no clocks. Larva policy with no Node counterpart. Pinned by
-// cmd/lava/page_cpu_budget_test.odin. It follows `report` so that Lava's positional
+// cmd/lava/page_cpu_budget_test.odin. It follows `surface`, Lava's last parameter, so that Lava's positional
 // calls (cmd/lava/eval_report_hook_test.odin) bind the same parameters here.
 eval :: proc(
 	source: string,
@@ -201,6 +258,7 @@ eval :: proc(
 	pre_run_data: rawptr = nil,
 	report: Result_Hook = nil,
 	report_data: rawptr = nil,
+	surface: Global_Surface = .Node,
 	limits: Page_Limits = {},
 ) -> Result {
 	// Per-eval temp arena boundary, mirroring the per-tick reset in
@@ -216,7 +274,7 @@ eval :: proc(
 	// (runtime install + top-level script), drive its loop, close it. The page runner
 	// drives the same three steps for many pages interleaved on one thread.
 	page: Page
-	if page_open(&page, source, source_name, loop, echo_result, script_args, limits) && loop != nil {
+	if page_open(&page, source, source_name, loop, echo_result, script_args, limits, surface = surface) && loop != nil {
 		// Startup-barrier rendezvous (multi-worker): report this worker ready and block until the
 		// supervisor releases all workers, or aborts startup (some worker failed). On abort, skip the
 		// loop entirely and fall through to the teardown — the loop never ran, so this is a direct

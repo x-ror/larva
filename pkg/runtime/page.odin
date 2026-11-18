@@ -51,6 +51,10 @@ Page :: struct {
 // pinned by every oracle suite that runs through `lava run`/`lava eval`.
 // `runner_page` makes process.exit() end this page instead of the process (the page
 // runner hosts siblings on the same thread).
+// `surface` (Global_Surface, runtime.odin) picks the global names the script can
+// reach. `.Web` runs a classic script only: an `.mjs` source name is refused before
+// a context exists, and the entry is neither registered in the module cache nor
+// given the top-level nextTick drain. Lava's eval does the same three things.
 page_open :: proc(
 	page: ^Page,
 	source: string,
@@ -61,6 +65,7 @@ page_open :: proc(
 	limits: Page_Limits = {},
 	pool: ^VM_Pool = nil,
 	runner_page := false,
+	surface: Global_Surface = .Node,
 ) -> bool {
 	page^ = {}
 	// The loop is consumed on EVERY path (eval's OWNERSHIP contract). Until the page
@@ -83,6 +88,21 @@ page_open :: proc(
 				status = .Invalid_Input,
 				exit_code = 2,
 				message = "node: specifiers are module names, not eval source names",
+			},
+		)
+	}
+
+	// The ESM transform rewrites an `.mjs` entry to CommonJS that calls `require` and
+	// `__lava_precache`, neither of which a `.Web` context has; refused here, before a
+	// context exists, rather than failing inside the transformed body.
+	if surface == .Web && strings.has_suffix(source_name, ".mjs") {
+		return finish_early(
+			page,
+			loop,
+			Result {
+				status = .Invalid_Input,
+				exit_code = 2,
+				message = "the web global surface runs classic scripts only; .mjs sources need the node surface",
 			},
 		)
 	}
@@ -183,7 +203,7 @@ page_open :: proc(
 	vm_cpu_enter(vm)
 	defer vm_cpu_exit(vm)
 
-	setup_module_environment(cast(jsc.JSContextRef)ctx, source_name, loop)
+	setup_module_environment(cast(jsc.JSContextRef)ctx, source_name, loop, surface)
 
 	// ESM entrypoints (.mjs) are rewritten to CommonJS via the same transform the
 	// loader applies to imported .mjs modules; script (.js) and `lava eval`
@@ -199,7 +219,7 @@ page_open :: proc(
 		eval_source = wrapped
 		mjs_wrapped = wrapped
 		mjs_allocated = true
-	} else {
+	} else if surface == .Node {
 		// Register the CommonJS/script entry in the module cache before it runs, so
 		// requiring the entry by path returns the same instance (and an entry-
 		// involved require cycle terminates instead of re-executing the entry). The
@@ -216,10 +236,17 @@ page_open :: proc(
 	// completion value) so it does not clobber the script's completion value used by
 	// `lava eval`'s echo; the leading "\n;" guards a trailing line comment / missing
 	// semicolon; typeof keeps it a no-op if the microtask shim failed to install.
+	//
+	// Not on `.Web`: nothing a `.Web` script can name queues a nextTick, so there is no
+	// ordering to keep, and the drain's two globals are deliberately absent there
+	// (install_microtasks). The post-evaluation drain_next_ticks_settled below still
+	// runs on both surfaces; it goes through Runtime_State, not a global.
 	TOP_LEVEL_DRAIN :: "\n;var __lava_tl_drain = (typeof __lavaDrainNextTicks === 'function') && __lavaDrainNextTicks();\n"
-	if combined, concat_err := strings.concatenate({eval_source, TOP_LEVEL_DRAIN}, context.temp_allocator);
-	   concat_err == nil {
-		eval_source = combined
+	if surface == .Node {
+		if combined, concat_err := strings.concatenate({eval_source, TOP_LEVEL_DRAIN}, context.temp_allocator);
+		   concat_err == nil {
+			eval_source = combined
+		}
 	}
 
 	script := js_string_from_string(eval_source)
@@ -245,7 +272,7 @@ page_open :: proc(
 
 	// Refresh the cached entry exports: a CommonJS entry body may have reassigned
 	// module.exports, so the pre-eval partial registered above is now stale.
-	if !mjs_allocated {
+	if !mjs_allocated && surface == .Node {
 		register_entry_module(cast(jsc.JSContextRef)ctx, state, source_name)
 	}
 

@@ -3595,6 +3595,69 @@
       "replace": "",
       "gate": "compat:tests/node-compat/cases/86-os-internal-modules.js",
       "expect_detail": "node: constants dlopen object"
+    },
+    {
+      "name": "global_surface_web_hides_node_names dies when Buffer is dropped from the .Web removal list",
+      "why": "WEB_REMOVED_GLOBALS is the only thing that takes the bootstrap-only Node globals back off a .Web context; a name missing from it stays reachable by name, which is exactly what .Web promises it is not.",
+      "source": "pkg/runtime/environment.odin",
+      "find": "[?]cstring{\"process\", \"Buffer\", \"setImmediate\", \"clearImmediate\", \"global\"}",
+      "replace": "[?]cstring{\"process\", \"setImmediate\", \"clearImmediate\", \"global\"}",
+      "gate": "odin:cmd/lava:main.global_surface_web_hides_node_names",
+      "expect_detail": "want Buffer=undefined got Buffer=function"
+    },
+    {
+      "name": "global_surface_web_hides_node_names dies when .Web falls through to the CommonJS entry bindings",
+      "why": "The early return after remove_node_globals is what keeps require, __lava_precache, module and exports off a .Web context; without it a .Web script reaches the filesystem loader.",
+      "source": "pkg/runtime/environment.odin",
+      "find": "\t\tremove_node_globals(ctx, global_obj)\n\t\treturn\n",
+      "replace": "\t\tremove_node_globals(ctx, global_obj)\n",
+      "gate": "odin:cmd/lava:main.global_surface_web_hides_node_names",
+      "expect_detail": "want require=undefined got require=function"
+    },
+    {
+      "name": "global_surface_web_skips_stdio dies when install_stdio runs on .Web",
+      "why": "stdio compiles internal/stdio and the node-streams stack for a process object .Web removes; the surface gate is what keeps that cost off .Web contexts.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tif surface == .Node do install_stdio(ctx, global)",
+      "replace": "\tinstall_stdio(ctx, global)",
+      "gate": "odin:cmd/lava:main.global_surface_web_skips_stdio",
+      "expect_detail": "web: resolving events compiled nothing"
+    },
+    {
+      "name": "global_surface_web_rejects_mjs dies when eval stops refusing .mjs on .Web",
+      "why": "The ESM transform emits require and __lava_precache, which .Web never injects; the pre-flight refusal is the contract a .Web caller gets instead of a body that depends on names it cannot have.",
+      "source": "pkg/runtime/page.odin",
+      "find": "if surface == .Web && strings.has_suffix(source_name, \".mjs\") {",
+      "replace": "if false && surface == .Web && strings.has_suffix(source_name, \".mjs\") {",
+      "gate": "odin:cmd/lava:main.global_surface_web_rejects_mjs",
+      "expect_detail": "web .mjs status=Ok (want Invalid_Input)"
+    },
+    {
+      "name": "global_surface_web_hides_node_names dies when install_microtasks defines the drain hooks on .Web",
+      "why": "__lavaDrainNextTicks and __lava_tl_drain are non-configurable, so .Web cannot delete them afterwards; the surface check in install_microtasks is the only thing that keeps them off.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "if surface == .Node && drain != nil && jsc.JSValueIsObject(ctx, drain) {",
+      "replace": "if drain != nil && jsc.JSValueIsObject(ctx, drain) {",
+      "gate": "odin:cmd/lava:main.global_surface_web_hides_node_names",
+      "expect_detail": "want __lavaDrainNextTicks=undefined got __lavaDrainNextTicks=function"
+    },
+    {
+      "name": "global_surface_web_hides_node_names dies when eval appends the top-level drain on .Web",
+      "why": "The appended `var __lava_tl_drain = ...` declares a __lava* global in the script's global scope once the entry body finishes; only the post-body typeof/in check sees it, because JSC keeps the program-level var out of getOwnPropertyNames.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\tif surface == .Node {\n\t\tif combined, concat_err := strings.concatenate(",
+      "replace": "\tif true {\n\t\tif combined, concat_err := strings.concatenate(",
+      "gate": "odin:cmd/lava:main.global_surface_web_hides_node_names",
+      "expect_detail": "want tl-drain-after=undefined,false got tl-drain-after=boolean,true"
+    },
+    {
+      "name": "global_surface_alternates_on_one_thread dies when eval's default surface is not .Node",
+      "why": "run_file, the CLI and every existing embedder call eval without a surface; the default is what keeps them byte-identical to the pre-seam runtime.",
+      "source": "pkg/runtime/runtime.odin",
+      "find": "\tsurface: Global_Surface = .Node,\n\tlimits: Page_Limits = {},\n) -> Result {",
+      "replace": "\tsurface: Global_Surface = .Web,\n\tlimits: Page_Limits = {},\n) -> Result {",
+      "gate": "odin:cmd/lava:main.global_surface_alternates_on_one_thread",
+      "expect_detail": "node before web: status=Execution_Error"
     }
   ]
 }
