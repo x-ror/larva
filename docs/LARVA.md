@@ -181,6 +181,17 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
      against the partial tree), accepts `document.write` input into the
      tokenizer stream, then resumes. Fragment parsing (`innerHTML`) builds into
      the live tree. A batch `parse(string) → Document` API is not the design.
+   - **Parser decision (#10, settled 2026-11-18).** lexbor, unmodified, as the
+     tokenizer and tree builder (`pkg/html`, #68). lexbor has neither the pause
+     nor `document.write` — its tree builder leaves both as `TODO` at
+     `</script>` — and needs neither, because the caller holds the input:
+     slices handed to lexbor never run past a script end tag, a C shim on its
+     token callback reports which script that tag closed, and written text is
+     parsed at the insertion point before the rest of the input. So no fork of
+     lexbor and no own tokenizer. The comparison of "lexbor as the DOM" against
+     "lexbor tokenizer + our own tree builder" on real pages waits for the
+     oracle corpus (#2); until then lexbor's tree is the DOM, and the wrapper
+     rule above applies to its nodes.
 5. **Wire protocols stay in adapters.** The HTTP crawling server contract,
    domain routing lists and compatibility shims live in an adapter package
    (`pkg/adapters`), keeping the browser engine independent of any single
