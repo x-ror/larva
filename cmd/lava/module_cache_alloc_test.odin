@@ -3,8 +3,8 @@ package main
 
 import "core:mem"
 import "core:testing"
-import eventloop "lava:pkg/runtime/eventloop"
 import lava "lava:pkg/runtime"
+import eventloop "lava:pkg/runtime/eventloop"
 
 // Guards the module_cache key-allocator fix. Cache keys are cloned inside the native
 // require callback (a `proc "c"` where context resets to runtime.default_context — the

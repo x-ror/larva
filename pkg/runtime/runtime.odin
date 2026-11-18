@@ -28,10 +28,10 @@ Status :: enum {
 }
 
 Result :: struct {
-	status:       Status,
-	exit_code:    int,
-	message:      string,
-	is_allocated: bool,
+	status:         Status,
+	exit_code:      int,
+	message:        string,
+	is_allocated:   bool,
 	// True when the event loop exited because its backend poll failed fatally (loop.backend_error),
 	// not because work drained or a stop was requested. The multi-worker supervisor reads this to tell
 	// a crashed worker from one that finished cleanly (so a crash stops the other workers).
@@ -93,6 +93,7 @@ result_destroy :: proc(res: ^Result) {
 	if res.is_allocated && len(res.message) > 0 {
 		delete(res.message)
 	}
+
 	res^ = Result{}
 }
 
@@ -168,7 +169,10 @@ Result_Hook :: proc(result: Result, user_data: rawptr)
 // shape of every `return` in eval and run_file, so that none can skip the hook.
 @(private = "file")
 reported :: proc(result: Result, report: Result_Hook, report_data: rawptr) -> Result {
-	if report != nil do report(result, report_data)
+	if report != nil {
+		report(result, report_data)
+	}
+
 	return result
 }
 
@@ -208,7 +212,10 @@ eval :: proc(
 	// below) exists, so they destroy the loop explicitly. It holds no handles yet, so
 	// this single destroy needs no live context.
 	if len(source) == 0 {
-		if loop != nil do eventloop.destroy(loop)
+		if loop != nil {
+			eventloop.destroy(loop)
+		}
+
 		return reported(
 			Result{status = .Invalid_Input, exit_code = 2, message = "empty JavaScript source"},
 			report,
@@ -217,24 +224,38 @@ eval :: proc(
 	}
 
 	if strings.has_prefix(source_name, "node:") {
-		if loop != nil do eventloop.destroy(loop)
-		return reported(Result {
-			status = .Invalid_Input,
-			exit_code = 2,
-			message = "node: specifiers are module names, not eval source names",
-		}, report, report_data)
+		if loop != nil {
+			eventloop.destroy(loop)
+		}
+
+		return reported(
+			Result {
+				status = .Invalid_Input,
+				exit_code = 2,
+				message = "node: specifiers are module names, not eval source names",
+			},
+			report,
+			report_data,
+		)
 	}
 
 	// The ESM transform rewrites an `.mjs` entry to CommonJS that calls `require` and
 	// `__lava_precache`, neither of which a `.Web` context has; refused here, before a
 	// context exists, rather than failing inside the transformed body.
 	if surface == .Web && strings.has_suffix(source_name, ".mjs") {
-		if loop != nil do eventloop.destroy(loop)
-		return reported(Result {
-			status = .Invalid_Input,
-			exit_code = 2,
-			message = "the web global surface runs classic scripts only; .mjs sources need the node surface",
-		}, report, report_data)
+		if loop != nil {
+			eventloop.destroy(loop)
+		}
+
+		return reported(
+			Result {
+				status = .Invalid_Input,
+				exit_code = 2,
+				message = "the web global surface runs classic scripts only; .mjs sources need the node surface",
+			},
+			report,
+			report_data,
+		)
 	}
 
 	// A JS runtime must survive writes to closed pipes/sockets (Node parity):
@@ -261,12 +282,18 @@ eval :: proc(
 	// stash Runtime_State (loop + module cache) out of reach of user JavaScript.
 	global_class := make_global_class()
 	ctx := jsc.JSGlobalContextCreate(global_class)
+
 	if ctx == nil {
 		jsc.JSClassRelease(global_class)
+
 		// Still consume the loop (no context was created, so no handles exist).
-		if loop != nil do eventloop.destroy(loop)
+		if loop != nil {
+			eventloop.destroy(loop)
+		}
+
 		return reported(native_runtime_unavailable(), report, report_data)
 	}
+
 	defer jsc.JSClassRelease(global_class)
 	defer release_global_context_after_eval(ctx)
 
@@ -276,10 +303,7 @@ eval :: proc(
 	// script path (omitted for `lava eval`, where there is no script file). Built in
 	// the per-eval temp arena, which outlives install_process (see the defer above).
 	state.script_argv = build_process_argv(source_name, script_args)
-	jsc.JSObjectSetPrivate(
-		jsc.JSContextGetGlobalObject(cast(jsc.JSContextRef)ctx),
-		cast(rawptr)state,
-	)
+	jsc.JSObjectSetPrivate(jsc.JSContextGetGlobalObject(cast(jsc.JSContextRef)ctx), cast(rawptr)state)
 	// Runs before the context is released (defers execute in reverse order), so
 	// JSValueUnprotect on cached modules still has a live context.
 	defer destroy_runtime_state(cast(jsc.JSContextRef)ctx, state)
@@ -291,7 +315,9 @@ eval :: proc(
 	// (LAVA_WORKERS unset/1) — there SIGTERM still terminates immediately without draining, as it did
 	// before Slice 3a. Routing the single-worker path through the same machinery is a follow-up.
 	when ODIN_OS == .Linux {
-		if loop != nil do eventloop.set_shutdown_hook(loop, net_drain_begin, state)
+		if loop != nil {
+			eventloop.set_shutdown_hook(loop, net_drain_begin, state)
+		}
 	}
 
 	// Snapshot the standard error constructors while globalThis is still pristine —
@@ -335,24 +361,23 @@ eval :: proc(
 	eval_source := source
 	mjs_wrapped: string
 	mjs_allocated := false
-	defer if mjs_allocated do delete(mjs_wrapped)
+	defer if mjs_allocated {
+		delete(mjs_wrapped)
+	}
+
 	if strings.has_suffix(source_name, ".mjs") {
 		wrap_exception: jsc.JSValueRef
-		wrapped, ok := esm_wrap_source(
-			cast(jsc.JSContextRef)ctx,
-			source,
-			source_name,
-			&wrap_exception,
-		)
+		wrapped, ok := esm_wrap_source(cast(jsc.JSContextRef)ctx, source, source_name, &wrap_exception)
+
 		if !ok {
 			msg, allocated := value_to_string(cast(jsc.JSContextRef)ctx, wrap_exception)
-			return reported(Result {
-				status = .Execution_Error,
-				exit_code = 1,
-				message = msg,
-				is_allocated = allocated,
-			}, report, report_data)
+			return reported(
+				Result{status = .Execution_Error, exit_code = 1, message = msg, is_allocated = allocated},
+				report,
+				report_data,
+			)
 		}
+
 		eval_source = wrapped
 		mjs_wrapped = wrapped
 		mjs_allocated = true
@@ -379,65 +404,62 @@ eval :: proc(
 	// (install_microtasks). The post-evaluation drain_next_ticks_settled below still
 	// runs on both surfaces; it goes through Runtime_State, not a global.
 	TOP_LEVEL_DRAIN :: "\n;var __lava_tl_drain = (typeof __lavaDrainNextTicks === 'function') && __lavaDrainNextTicks();\n"
+
 	if surface == .Node {
-		if combined, concat_err := strings.concatenate(
-			{eval_source, TOP_LEVEL_DRAIN},
-			context.temp_allocator,
-		); concat_err == nil {
+		if combined, concat_err := strings.concatenate({eval_source, TOP_LEVEL_DRAIN}, context.temp_allocator);
+		   concat_err == nil {
 			eval_source = combined
 		}
 	}
 
 	script := js_string_from_string(eval_source)
+
 	if script == nil {
-		return reported(Result {
-			status = .Invalid_Input,
-			exit_code = 2,
-			message = "could not allocate JavaScript source string",
-		}, report, report_data)
+		return reported(
+			Result{status = .Invalid_Input, exit_code = 2, message = "could not allocate JavaScript source string"},
+			report,
+			report_data,
+		)
 	}
+
 	defer jsc.JSStringRelease(script)
 
-	c_source_name, c_source_name_err := strings.clone_to_cstring(
-		source_name,
-		context.temp_allocator,
-	)
+	c_source_name, c_source_name_err := strings.clone_to_cstring(source_name, context.temp_allocator)
+
 	if c_source_name_err != nil {
-		return reported(Result {
-			status = .Invalid_Input,
-			exit_code = 2,
-			message = "could not allocate JavaScript source name",
-		}, report, report_data)
+		return reported(
+			Result{status = .Invalid_Input, exit_code = 2, message = "could not allocate JavaScript source name"},
+			report,
+			report_data,
+		)
 	}
 
 	source_url := jsc.JSStringCreateWithUTF8CString(c_source_name)
+
 	if source_url == nil {
-		return reported(Result {
-			status = .Invalid_Input,
-			exit_code = 2,
-			message = "could not allocate JavaScript source URL object",
-		}, report, report_data)
+		return reported(
+			Result {
+				status = .Invalid_Input,
+				exit_code = 2,
+				message = "could not allocate JavaScript source URL object",
+			},
+			report,
+			report_data,
+		)
 	}
+
 	defer jsc.JSStringRelease(source_url)
 
 	exception: jsc.JSValueRef
-	value := jsc.JSEvaluateScript(
-		cast(jsc.JSContextRef)ctx,
-		script,
-		nil,
-		source_url,
-		1,
-		&exception,
-	)
+	value := jsc.JSEvaluateScript(cast(jsc.JSContextRef)ctx, script, nil, source_url, 1, &exception)
 
 	if exception != nil {
 		msg, allocated := value_to_string(cast(jsc.JSContextRef)ctx, exception)
-		return reported(Result {
-			status = .Execution_Error,
-			exit_code = 1,
-			message = msg,
-			is_allocated = allocated,
-		}, report, report_data)
+		return reported(
+			Result{status = .Execution_Error, exit_code = 1, message = msg, is_allocated = allocated},
+			report,
+			report_data,
+		)
 	}
 
 	// Refresh the cached entry exports: a CommonJS entry body may have reassigned
@@ -459,7 +481,11 @@ eval :: proc(
 		// loop entirely and fall through to the deferred teardown — the loop never ran, so this is a
 		// direct teardown, not a drain. nil hook (single-worker) always proceeds.
 		proceed := true
-		if pre_run != nil do proceed = pre_run(pre_run_data)
+
+		if pre_run != nil {
+			proceed = pre_run(pre_run_data)
+		}
+
 		if proceed {
 			eventloop.run(loop)
 			// Loop teardown is the deferred eventloop.destroy declared above — it covers
@@ -481,13 +507,17 @@ eval :: proc(
 	}
 
 	msg, allocated := value_to_string(cast(jsc.JSContextRef)ctx, value)
-	return reported(Result {
-		status = .Ok,
-		exit_code = exit_code,
-		message = msg,
-		is_allocated = allocated,
-		backend_failed = backend_failed,
-	}, report, report_data)
+	return reported(
+		Result {
+			status = .Ok,
+			exit_code = exit_code,
+			message = msg,
+			is_allocated = allocated,
+			backend_failed = backend_failed,
+		},
+		report,
+		report_data,
+	)
 }
 
 // resolve_exit_code computes the final process exit code after the event loop
@@ -495,26 +525,37 @@ eval :: proc(
 // non-zero exit; otherwise a script-assigned process.exitCode is honored, matching
 // Node. (process.exit() is handled separately and terminates immediately.)
 resolve_exit_code :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) -> int {
-	if state != nil && state.async_failed do return 1
+	if state != nil && state.async_failed {
+		return 1
+	}
+
 	return process_exit_code(ctx)
 }
 
 process_exit_code :: proc(ctx: jsc.JSContextRef) -> int {
 	global := jsc.JSContextGetGlobalObject(ctx)
 	process := get_named(ctx, global, "process")
+
 	// JSValueGetType classifies the value in one call (Object vs the Undefined/Null
 	// switch below); the JSValueIs* predicates are equally ABI-safe now that they
 	// return a 1-byte `bool` (see cmd/lava jsc_value_predicates, #159) — the former
 	// "unreliable across the FFI" note described the retired `b32` return.
-	if process == nil || jsc.JSValueGetType(ctx, process) != .Object do return 0
+	if process == nil || jsc.JSValueGetType(ctx, process) != .Object {
+		return 0
+	}
+
 	code := get_named(ctx, cast(jsc.JSObjectRef)process, "exitCode")
-	if code == nil do return 0
+
+	if code == nil {
+		return 0
+	}
 	#partial switch jsc.JSValueGetType(ctx, code) {
 	case .Undefined, .Null:
 		return 0
 	}
 	n := jsc.JSValueToNumber(ctx, code, nil)
-	if n != n do return 0 // NaN guard (e.g. exitCode set to a non-numeric value)
+
+	if n != n {return 0} 	// NaN guard (e.g. exitCode set to a non-numeric value)
 	return int(n)
 }
 
@@ -526,23 +567,31 @@ run_file :: proc(
 	report_data: rawptr = nil,
 ) -> Result {
 	if len(path) == 0 {
-		if loop != nil do eventloop.destroy(loop)
-		return reported(Result {
-			status = .Invalid_Input,
-			exit_code = 2,
-			message = "missing JavaScript file path",
-		}, report, report_data)
+		if loop != nil {
+			eventloop.destroy(loop)
+		}
+
+		return reported(
+			Result{status = .Invalid_Input, exit_code = 2, message = "missing JavaScript file path"},
+			report,
+			report_data,
+		)
 	}
 
 	data, err := os.read_entire_file(path, context.allocator)
+
 	if err != os.ERROR_NONE {
-		if loop != nil do eventloop.destroy(loop)
-		return reported(Result {
-			status = .Read_Error,
-			exit_code = 1,
-			message = "could not read JavaScript file",
-		}, report, report_data)
+		if loop != nil {
+			eventloop.destroy(loop)
+		}
+
+		return reported(
+			Result{status = .Read_Error, exit_code = 1, message = "could not read JavaScript file"},
+			report,
+			report_data,
+		)
 	}
+
 	defer delete(data)
 
 	return eval(string(data), path, loop, false, script_args, report = report, report_data = report_data)
@@ -556,25 +605,32 @@ build_process_argv :: proc(source_name: string, script_args: []string) -> []stri
 	argv := make([dynamic]string, 0, len(script_args) + 2, context.temp_allocator)
 
 	exec_path := "lava"
+
 	if len(os.args) > 0 {
 		exec_path = os.args[0]
+
 		if abs_exec, abs_err := filepath.abs(exec_path, context.temp_allocator);
 		   abs_err == os.ERROR_NONE && len(abs_exec) > 0 {
 			exec_path = abs_exec
 		}
 	}
+
 	append(&argv, exec_path)
 
 	if source_name != "<eval>" {
 		script_path := source_name
+
 		if abs_script, abs_err := filepath.abs(source_name, context.temp_allocator);
 		   abs_err == os.ERROR_NONE && len(abs_script) > 0 {
 			script_path = abs_script
 		}
+
 		append(&argv, script_path)
 	}
 
-	for arg in script_args do append(&argv, arg)
+	for arg in script_args {
+		append(&argv, arg)
+	}
 	return argv[:]
 }
 
@@ -592,9 +648,11 @@ is_success :: proc(result: Result) -> bool {
 
 js_string_from_string :: proc(value: string) -> jsc.JSStringRef {
 	c_value, err := strings.clone_to_cstring(value, context.temp_allocator)
+
 	if err != nil {
 		return nil
 	}
+
 	return jsc.JSStringCreateWithUTF8CString(c_value)
 }
 
@@ -604,9 +662,11 @@ js_string_from_string :: proc(value: string) -> jsc.JSStringRef {
 value_to_string :: proc(ctx: jsc.JSContextRef, value: jsc.JSValueRef) -> (string, bool) {
 	exception: jsc.JSValueRef
 	js_string := jsc.JSValueToStringCopy(ctx, value, &exception)
+
 	if js_string == nil {
 		return "JavaScript value could not be converted to string", false
 	}
+
 	defer jsc.JSStringRelease(js_string)
 	return js_string_ref_to_utf8_owned(js_string)
 }

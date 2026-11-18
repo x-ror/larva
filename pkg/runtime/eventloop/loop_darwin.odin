@@ -21,9 +21,11 @@ platform_init :: proc(loop: ^Loop) -> bool {
 	loop.platform.wakeup_pipe = {-1, -1}
 
 	kq, kq_err := kqueue.kqueue()
+
 	if kq_err != .NONE {
 		return false
 	}
+
 	loop.platform.kq = kq
 
 	if posix.pipe(&loop.platform.wakeup_pipe) != .OK {
@@ -49,6 +51,7 @@ platform_init :: proc(loop: ^Loop) -> bool {
 		flags  = {.Add, .Enable},
 	}
 	_, err := kqueue.kevent(loop.platform.kq, {ev}, nil, nil)
+
 	if err != .NONE {
 		posix.close(loop.platform.wakeup_pipe[0])
 		posix.close(loop.platform.wakeup_pipe[1])
@@ -76,6 +79,7 @@ platform_close_wakeup :: proc(loop: ^Loop) {
 		posix.close(loop.platform.wakeup_pipe[0])
 		loop.platform.wakeup_pipe[0] = -1
 	}
+
 	if loop.platform.wakeup_pipe[1] >= 0 {
 		posix.close(loop.platform.wakeup_pipe[1])
 		loop.platform.wakeup_pipe[1] = -1
@@ -122,6 +126,7 @@ platform_poll :: proc(loop: ^Loop, timeout_ms: int) {
 	for {
 		ts: posix.timespec
 		timeout: ^posix.timespec = nil
+
 		if timeout_ms >= 0 {
 			remaining := poll_remaining_ms(poll_start, timeout_ms)
 			ts.tv_sec = posix.time_t(remaining / 1000)
@@ -130,9 +135,11 @@ platform_poll :: proc(loop: ^Loop, timeout_ms: int) {
 		}
 
 		res, err := kqueue.kevent(loop.platform.kq, nil, events[:], timeout)
+
 		if err == .EINTR {
 			continue
 		}
+
 		// Any other error is fatal (e.g. EBADF on a closed kqueue fd): flag it so the
 		// run drivers stop instead of busy-spinning on a syscall that can never
 		// make progress.
@@ -140,9 +147,11 @@ platform_poll :: proc(loop: ^Loop, timeout_ms: int) {
 			loop.backend_error = true
 			return
 		}
+
 		n = res
 		break
 	}
+
 	if n == 0 {
 		return
 	}
@@ -157,6 +166,7 @@ platform_poll :: proc(loop: ^Loop, timeout_ms: int) {
 		}
 
 		watcher := cast(^IO_Watcher)ev.udata
+
 		if watcher != nil && watcher.callback != nil {
 			loop.io_events += 1
 			watcher.callback(loop, watcher.user_data)

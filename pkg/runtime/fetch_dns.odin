@@ -55,12 +55,14 @@ fetch_dns_submit :: proc(req: ^Fetch_Request, host: string) -> bool {
 	job.host = strings.clone(host, job.allocator)
 	job.req = req
 	req.dns_job = job // back-pointer so an abort before the completion can cancel it
+
 	if !eventloop.pool_submit(req.loop, dns_resolve_work, dns_resolve_done, job, dns_resolve_dispose) {
 		req.dns_job = nil
 		delete(job.host, job.allocator)
 		free(job, job.allocator)
 		return false
 	}
+
 	return true
 }
 
@@ -71,7 +73,11 @@ fetch_dns_submit :: proc(req: ^Fetch_Request, host: string) -> bool {
 @(private = "file")
 dns_resolve_work :: proc(user_data: rawptr) {
 	job := cast(^DNS_Job)user_data
-	if sync.atomic_load(&job.cancelled) do return
+
+	if sync.atomic_load(&job.cancelled) {
+		return
+	}
+
 	if ep4, ep6, dns_err := net.resolve(job.host); dns_err == nil {
 		if ip4, ip_ok := ep4.address.(net.IP4_Address); ip_ok {
 			job.addrs[job.addr_count] = Fetch_Addr {
@@ -80,6 +86,7 @@ dns_resolve_work :: proc(user_data: rawptr) {
 			}
 			job.addr_count += 1
 		}
+
 		if ip6, ip_ok := ep6.address.(net.IP6_Address); ip_ok {
 			job.addrs[job.addr_count] = Fetch_Addr {
 				is_v6 = true,
@@ -99,16 +106,26 @@ dns_resolve_done :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 	req := job.req
 	addrs := job.addrs
 	addr_count := job.addr_count
-	if req != nil do req.dns_job = nil // drop the back-pointer before the job is freed
+
+	if req != nil {req.dns_job = nil} 	// drop the back-pointer before the job is freed
 	delete(job.host, job.allocator)
 	free(job, job.allocator)
-	if req == nil do return
+
+	if req == nil {
+		return
+	}
+
 	req.drive_pending -= 1
-	if req.settled do return
+
+	if req.settled {
+		return
+	}
+
 	if addr_count == 0 {
 		fetch_settle_error(req, "fetch: could not resolve host")
 		return
 	}
+
 	// Hand the resolved list to the request and connect to the first address;
 	// fetch_advance_connect falls through to the next on a connect failure (#145).
 	req.addrs = addrs

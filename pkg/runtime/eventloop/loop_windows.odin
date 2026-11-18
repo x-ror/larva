@@ -37,9 +37,11 @@ platform_init :: proc(loop: ^Loop) -> bool {
 	loop.platform.wake_send = windows.INVALID_SOCKET
 
 	wsadata: windows.WSADATA
+
 	if windows.WSAStartup(windows.MAKEWORD(2, 2), &wsadata) != 0 {
 		return false
 	}
+
 	loop.platform.started = true
 
 	if !make_wakeup_pair(loop) {
@@ -60,7 +62,11 @@ platform_init :: proc(loop: ^Loop) -> bool {
 @(private = "file")
 make_wakeup_pair :: proc(loop: ^Loop) -> bool {
 	listener := windows.socket(windows.AF_INET, windows.SOCK_STREAM, 0)
-	if listener == windows.INVALID_SOCKET do return false
+
+	if listener == windows.INVALID_SOCKET {
+		return false
+	}
+
 	defer windows.closesocket(listener)
 
 	addr := windows.sockaddr_in {
@@ -68,38 +74,43 @@ make_wakeup_pair :: proc(loop: ^Loop) -> bool {
 		sin_port = 0, // ask the kernel for an ephemeral port
 		sin_addr = {s_addr = transmute(u32)[4]u8{127, 0, 0, 1}},
 	}
-	if windows.bind(listener, cast(^windows.SOCKADDR_STORAGE_LH)&addr, size_of(addr)) ==
-	   windows.SOCKET_ERROR {
+
+	if windows.bind(listener, cast(^windows.SOCKADDR_STORAGE_LH)&addr, size_of(addr)) == windows.SOCKET_ERROR {
 		return false
 	}
-	if windows.listen(listener, 1) == windows.SOCKET_ERROR do return false
+
+	if windows.listen(listener, 1) == windows.SOCKET_ERROR {
+		return false
+	}
 
 	// Recover the bound ephemeral port to connect back to.
 	bound: windows.sockaddr_in
 	bound_len := i32(size_of(bound))
-	if windows.getsockname(listener, cast(^windows.SOCKADDR_STORAGE_LH)&bound, &bound_len) ==
-	   windows.SOCKET_ERROR {
+
+	if windows.getsockname(listener, cast(^windows.SOCKADDR_STORAGE_LH)&bound, &bound_len) == windows.SOCKET_ERROR {
 		return false
 	}
 
 	send_sock := windows.socket(windows.AF_INET, windows.SOCK_STREAM, 0)
-	if send_sock == windows.INVALID_SOCKET do return false
+
+	if send_sock == windows.INVALID_SOCKET {
+		return false
+	}
+
 	connect_addr := windows.sockaddr_in {
 		sin_family = u16(windows.AF_INET),
 		sin_port = bound.sin_port,
 		sin_addr = {s_addr = transmute(u32)[4]u8{127, 0, 0, 1}},
 	}
-	if windows.connect(
-		   send_sock,
-		   cast(^windows.SOCKADDR_STORAGE_LH)&connect_addr,
-		   size_of(connect_addr),
-	   ) ==
+
+	if windows.connect(send_sock, cast(^windows.SOCKADDR_STORAGE_LH)&connect_addr, size_of(connect_addr)) ==
 	   windows.SOCKET_ERROR {
 		windows.closesocket(send_sock)
 		return false
 	}
 
 	recv_sock := windows.accept(listener, nil, nil)
+
 	if recv_sock == windows.INVALID_SOCKET {
 		windows.closesocket(send_sock)
 		return false
@@ -127,10 +138,7 @@ set_nonblocking :: proc(sock: windows.SOCKET) -> bool {
 	nonblock: windows.c_ulong = 1
 	// FIONBIO has its high bit set (0x8004667e), so a checked cast to signed c_long
 	// overflows; reinterpret the bits instead.
-	return(
-		windows.ioctlsocket(sock, transmute(windows.c_long)windows.FIONBIO, &nonblock) !=
-		windows.SOCKET_ERROR \
-	)
+	return windows.ioctlsocket(sock, transmute(windows.c_long)windows.FIONBIO, &nonblock) != windows.SOCKET_ERROR
 }
 
 // platform_close_backend / platform_close_wakeup: the two halves of the teardown,
@@ -146,10 +154,12 @@ platform_close_wakeup :: proc(loop: ^Loop) {
 		windows.closesocket(loop.platform.wake_recv)
 		loop.platform.wake_recv = windows.INVALID_SOCKET
 	}
+
 	if loop.platform.wake_send != windows.INVALID_SOCKET {
 		windows.closesocket(loop.platform.wake_send)
 		loop.platform.wake_send = windows.INVALID_SOCKET
 	}
+
 	if loop.platform.started {
 		windows.WSACleanup()
 		loop.platform.started = false
@@ -176,10 +186,14 @@ platform_wakeup :: proc(loop: ^Loop) {
 // reject (honestly, returning false) once the set is full, rather than silently
 // dropping a watcher that could then never fire.
 platform_watch_fd :: proc(loop: ^Loop, watcher: ^IO_Watcher) -> bool {
-	if len(loop.platform.watchers) >= windows.FD_SETSIZE - 1 do return false
-	for w in loop.platform.watchers {
-		if w == watcher do return false // already registered, already counted
+	if len(loop.platform.watchers) >= windows.FD_SETSIZE - 1 {
+		return false
 	}
+
+	for w in loop.platform.watchers {
+		if w == watcher {return false} 	// already registered, already counted
+	}
+
 	append(&loop.platform.watchers, watcher)
 	return true
 }
@@ -208,7 +222,9 @@ fd_set_add :: proc(set: ^windows.fd_set, sock: windows.SOCKET) {
 @(private = "file")
 fd_set_has :: proc(set: ^windows.fd_set, sock: windows.SOCKET) -> bool {
 	for i in 0 ..< set.fd_count {
-		if set.fd_array[i] == sock do return true
+		if set.fd_array[i] == sock {
+			return true
+		}
 	}
 	return false
 }
@@ -221,11 +237,13 @@ platform_poll :: proc(loop: ^Loop, timeout_ms: int) {
 
 	for w in loop.platform.watchers {
 		sock := windows.SOCKET(w.fd)
+
 		if w.mode == .Read {
 			fd_set_add(&readfds, sock)
 		} else {
 			fd_set_add(&writefds, sock)
 		}
+
 		// A socket error (incl. a failed non-blocking connect) shows in exceptfds;
 		// surface it as readiness so the watcher's callback runs and handles it.
 		fd_set_add(&exceptfds, sock)
@@ -233,6 +251,7 @@ platform_poll :: proc(loop: ^Loop, timeout_ms: int) {
 
 	tv: windows.timeval
 	timeout: ^windows.timeval = nil
+
 	if timeout_ms >= 0 {
 		tv.tv_sec = windows.c_long(timeout_ms / 1000)
 		tv.tv_usec = windows.c_long((timeout_ms % 1000) * 1000)
@@ -248,11 +267,13 @@ platform_poll :: proc(loop: ^Loop, timeout_ms: int) {
 		cast([^]windows.fd_set)&exceptfds,
 		timeout,
 	)
+
 	if n == windows.SOCKET_ERROR {
 		loop.backend_error = true
 		return
 	}
-	if n == 0 do return // timeout
+
+	if n == 0 {return} 	// timeout
 
 	// Drain the wakeup byte(s); the read end is non-blocking.
 	if fd_set_has(&readfds, loop.platform.wake_recv) {
@@ -266,9 +287,8 @@ platform_poll :: proc(loop: ^Loop, timeout_ms: int) {
 	count := 0
 	for w in loop.platform.watchers {
 		sock := windows.SOCKET(w.fd)
-		if fd_set_has(&readfds, sock) ||
-		   fd_set_has(&writefds, sock) ||
-		   fd_set_has(&exceptfds, sock) {
+
+		if fd_set_has(&readfds, sock) || fd_set_has(&writefds, sock) || fd_set_has(&exceptfds, sock) {
 			if count < len(ready) {
 				ready[count] = w
 				count += 1
@@ -277,6 +297,7 @@ platform_poll :: proc(loop: ^Loop, timeout_ms: int) {
 	}
 	for i in 0 ..< count {
 		w := ready[i]
+
 		if w.callback != nil {
 			loop.io_events += 1
 			w.callback(loop, w.user_data)

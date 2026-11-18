@@ -28,25 +28,44 @@ lava_resolve_worker_count :: proc() -> (count: int, ok: bool, msg: string) {
 // degrade: malformed / partial (e.g. "0x10", "1_0", trailing junk) / 0 / negative / oversized, or
 // LAVA_WORKERS>1 on a non-Linux platform (multi-worker needs SO_REUSEPORT/signalfd/io_uring — Linux only).
 lava_parse_worker_count :: proc(raw: string, has_env: bool, cpu_count: int) -> (count: int, ok: bool, msg: string) {
-	if !has_env || raw == "" || raw == "1" do return 1, true, ""
+	if !has_env || raw == "" || raw == "1" {
+		return 1, true, ""
+	}
 
 	n: int
+
 	if raw == "auto" {
 		n = cpu_count
-		if n < 1 do n = 1
+
+		if n < 1 {
+			n = 1
+		}
 	} else {
 		// Base 10 explicitly + require the WHOLE string consumed, so "0x10" is not reinterpreted as hex
 		// and trailing junk ("10abc") is rejected rather than partially parsed. (parse_int still accepts
 		// an underscore separator, so "1_0" -> 10 — benign, still bounded by [1,256].)
 		consumed: int
 		parsed, pok := strconv.parse_int(raw, 10, &consumed)
-		if !pok || consumed != len(raw) do return 0, false, "LAVA_WORKERS must be a positive integer or 'auto'"
+
+		if !pok || consumed != len(raw) {
+			return 0, false, "LAVA_WORKERS must be a positive integer or 'auto'"
+		}
+
 		n = parsed
 	}
-	if n < 1 do return 0, false, "LAVA_WORKERS must be >= 1"
-	if n > LAVA_WORKERS_MAX do return 0, false, "LAVA_WORKERS exceeds the maximum of 256"
+
+	if n < 1 {
+		return 0, false, "LAVA_WORKERS must be >= 1"
+	}
+
+	if n > LAVA_WORKERS_MAX {
+		return 0, false, "LAVA_WORKERS exceeds the maximum of 256"
+	}
+
 	when ODIN_OS != .Linux {
-		if n > 1 do return 0, false, "multi-worker (LAVA_WORKERS > 1) is supported only on Linux"
+		if n > 1 {
+			return 0, false, "multi-worker (LAVA_WORKERS > 1) is supported only on Linux"
+		}
 	}
 	return n, true, ""
 }
@@ -63,13 +82,13 @@ g_multi_worker: bool
 //   - g_worker_crashed: a worker's loop died abnormally (backend_failed); the supervisor stops the rest.
 //   - g_worker_exits: incremented by each worker as it exits, so the supervisor knows when all are done
 //     (non-server scripts) without treating a clean finish as a crash.
-g_shutdown:        bool
-g_worker_crashed:  bool
-g_worker_exits:    int
+g_shutdown: bool
+g_worker_crashed: bool
+g_worker_exits: int
 // Set by net_startup_failed when a listener fails to bind / set SO_REUSEPORT during startup, or
 // listen(0) is rejected under multi-worker. A worker checks it in its pre-run hook and aborts startup
 // (M7: all listeners bind or the whole startup aborts — no running with partial/partitioned capacity).
-g_listen_failed:   bool
+g_listen_failed: bool
 
 // net_startup_failed records a fatal startup listener failure (called from net.odin, Linux). Aborting
 // is process-wide: every worker runs the same script, so a bind failure on one means the deployment
@@ -110,7 +129,11 @@ barrier_maybe_decide :: proc(b: ^Worker_Barrier) {
 barrier_settle :: proc(b: ^Worker_Barrier, failed: bool) {
 	sync.lock(&b.mutex)
 	defer sync.unlock(&b.mutex)
-	if failed do b.any_failed = true
+
+	if failed {
+		b.any_failed = true
+	}
+
 	b.reported += 1
 	barrier_maybe_decide(b)
 	sync.cond_broadcast(&b.cond)
@@ -124,7 +147,9 @@ barrier_ready_wait :: proc(b: ^Worker_Barrier) -> bool {
 	b.reported += 1
 	barrier_maybe_decide(b)
 	sync.cond_broadcast(&b.cond)
-	for !b.decided do sync.cond_wait(&b.cond, &b.mutex)
+	for !b.decided {
+		sync.cond_wait(&b.cond, &b.mutex)
+	}
 	return b.released
 }
 
@@ -153,15 +178,20 @@ Worker :: struct {
 worker_pre_run :: proc(user_data: rawptr) -> bool {
 	w := cast(^Worker)user_data
 	w.reported = true
+
 	// A listener that failed to bind during startup aborts the whole startup (M7): report a failure so
 	// the barrier releases everyone to abort, rather than reporting ready and serving partial capacity.
 	if sync.atomic_load(&g_listen_failed) {
 		barrier_settle(w.barrier, true)
 		return false
 	}
+
 	// Block at the barrier until all workers are ready (or one failed -> abort). Then proceed to run
 	// UNLESS a shutdown was already requested — a signal during startup must not start serving.
-	if !barrier_ready_wait(w.barrier) do return false
+	if !barrier_ready_wait(w.barrier) {
+		return false
+	}
+
 	return !sync.atomic_load(&g_shutdown)
 }
 
@@ -184,8 +214,13 @@ worker_main :: proc(data: rawptr) {
 	sync.lock(&w.sig_mutex)
 	w.loop = nil
 	sync.unlock(&w.sig_mutex)
-	if !w.reported do barrier_settle(w.barrier, true) // eval failed before the ready hook
-	if w.result.backend_failed do sync.atomic_store(&g_worker_crashed, true)
+
+	if !w.reported {barrier_settle(w.barrier, true)} 	// eval failed before the ready hook
+
+	if w.result.backend_failed {
+		sync.atomic_store(&g_worker_crashed, true)
+	}
+
 	// This thread is about to end: give back its thread_local host-native tables, which nothing else
 	// ever deletes. eval has already destroyed its context on every return path once one existed
 	// (destroy_runtime_state -> host_natives_release_context), which is the teardown's precondition;
@@ -201,10 +236,12 @@ worker_main :: proc(data: rawptr) {
 // spawn + the startup barrier + join, exercisable with a non-server script.)
 lava_run_workers :: proc(path: string, count: int, script_args: []string) -> int {
 	data, err := os.read_entire_file(path, context.allocator)
+
 	if err != os.ERROR_NONE {
 		process_write(os.stderr, "lava: could not read ", path, "\n")
 		return 1
 	}
+
 	defer delete(data, context.allocator)
 	source := string(data)
 
@@ -230,6 +267,7 @@ lava_run_workers :: proc(path: string, count: int, script_args: []string) -> int
 			barrier     = &barrier,
 		}
 		t := thread.create_and_start_with_data(&workers[i], worker_main, nil, .Normal, false)
+
 		if t != nil {
 			append(&threads, t)
 		} else {
@@ -256,6 +294,7 @@ lava_run_workers :: proc(path: string, count: int, script_args: []string) -> int
 	// come up" must not be masked by a worker that happened to set process.exitCode. Otherwise the
 	// first non-zero worker exit code wins. (Destroy every Result regardless.)
 	code := 0
+
 	if barrier.any_failed || sync.atomic_load(&g_worker_crashed) {
 		code = 1
 	} else {
@@ -266,6 +305,9 @@ lava_run_workers :: proc(path: string, count: int, script_args: []string) -> int
 			}
 		}
 	}
-	for i in 0 ..< count do result_destroy(&workers[i].result)
+
+	for i in 0 ..< count {
+		result_destroy(&workers[i].result)
+	}
 	return code
 }

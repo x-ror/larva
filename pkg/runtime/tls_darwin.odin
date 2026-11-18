@@ -190,10 +190,12 @@ darwin_ssl_read_cb :: proc "c" (connection: SSLConnectionRef, data: rawptr, data
 	status: OSStatus = errSecSuccess
 	for total < requested {
 		n := posix.recv(posix.FD(sess.fd), rawptr(&buf[total]), requested - total, {})
+
 		if n > 0 {
 			total += c.size_t(n)
 			continue
 		}
+
 		if n == 0 {
 			status = errSSLClosedGraceful // orderly peer close
 			break
@@ -201,7 +203,8 @@ darwin_ssl_read_cb :: proc "c" (connection: SSLConnectionRef, data: rawptr, data
 		#partial switch posix.get_errno() {
 		case .EINTR:
 			continue // interrupted before any byte arrived — retry
-		case .EAGAIN: // == EWOULDBLOCK on Darwin
+		case .EAGAIN:
+			// == EWOULDBLOCK on Darwin
 			sess.want = .Read
 			status = errSSLWouldBlock
 		case:
@@ -227,6 +230,7 @@ darwin_ssl_write_cb :: proc "c" (connection: SSLConnectionRef, data: rawptr, dat
 	status: OSStatus = errSecSuccess
 	for total < requested {
 		n := posix.send(posix.FD(sess.fd), rawptr(&buf[total]), requested - total, {})
+
 		if n > 0 {
 			total += c.size_t(n)
 			continue
@@ -234,7 +238,8 @@ darwin_ssl_write_cb :: proc "c" (connection: SSLConnectionRef, data: rawptr, dat
 		#partial switch posix.get_errno() {
 		case .EINTR:
 			continue // interrupted before any byte was sent — retry
-		case .EAGAIN: // == EWOULDBLOCK on Darwin
+		case .EAGAIN:
+			// == EWOULDBLOCK on Darwin
 			sess.want = .Write
 			status = errSSLWouldBlock
 		case:
@@ -257,12 +262,18 @@ darwin_ssl_write_cb :: proc "c" (connection: SSLConnectionRef, data: rawptr, dat
 //     iPAddress SAN by a policy attached in darwin_tls_verify_peer.
 darwin_tls_new_client :: proc(fd: uintptr, host: string) -> ^Darwin_TLS_Session {
 	ctx := SSLCreateContext(nil, .Client, .Stream)
-	if ctx == nil do return nil
+
+	if ctx == nil {
+		return nil
+	}
+
 	sess := new(Darwin_TLS_Session)
+
 	if sess == nil {
 		CFRelease(rawptr(ctx))
 		return nil
 	}
+
 	sess.ctx = ctx
 	sess.fd = fd
 	sess.want = .Write
@@ -286,15 +297,18 @@ darwin_tls_new_client :: proc(fd: uintptr, host: string) -> ^Darwin_TLS_Session 
 	// name, so a temp-allocator cstring is fine; fail closed if it can't be set.
 	if !sess.is_ip {
 		chost, clone_err := strings.clone_to_cstring(host, context.temp_allocator)
+
 		if clone_err != nil {
 			darwin_tls_free(sess)
 			return nil
 		}
+
 		if SSLSetPeerDomainName(ctx, chost, c.size_t(len(host))) != errSecSuccess {
 			darwin_tls_free(sess)
 			return nil
 		}
 	}
+
 	return sess
 }
 
@@ -307,7 +321,11 @@ darwin_tls_new_client :: proc(fd: uintptr, host: string) -> ^Darwin_TLS_Session 
 // the event-loop thread (matching OpenSSL's local-only verification).
 darwin_tls_verify_peer :: proc(sess: ^Darwin_TLS_Session, host: string) -> bool {
 	trust: SecTrustRef
-	if SSLCopyPeerTrust(sess.ctx, &trust) != errSecSuccess || trust == nil do return false
+
+	if SSLCopyPeerTrust(sess.ctx, &trust) != errSecSuccess || trust == nil {
+		return false
+	}
+
 	defer CFRelease(rawptr(trust))
 
 	// An IP literal had no peer domain name set (no SNI), so the trust object carries
@@ -316,14 +334,29 @@ darwin_tls_verify_peer :: proc(sess: ^Darwin_TLS_Session, host: string) -> bool 
 	// accept any root-trusted cert for the IP).
 	if sess.is_ip {
 		chost, clone_err := strings.clone_to_cstring(host, context.temp_allocator)
-		if clone_err != nil do return false
+
+		if clone_err != nil {
+			return false
+		}
+
 		host_cf := CFStringCreateWithCString(nil, chost, kCFStringEncodingUTF8)
-		if host_cf == nil do return false
+
+		if host_cf == nil {
+			return false
+		}
+
 		defer CFRelease(rawptr(host_cf))
 		policy := SecPolicyCreateSSL(true, host_cf)
-		if policy == nil do return false
+
+		if policy == nil {
+			return false
+		}
+
 		defer CFRelease(rawptr(policy))
-		if SecTrustSetPolicies(trust, CFTypeRef(policy)) != errSecSuccess do return false
+
+		if SecTrustSetPolicies(trust, CFTypeRef(policy)) != errSecSuccess {
+			return false
+		}
 	}
 
 	// Add SSL_CERT_FILE anchors (if any) on top of the system roots
@@ -331,8 +364,13 @@ darwin_tls_verify_peer :: proc(sess: ^Darwin_TLS_Session, host: string) -> bool 
 	// behavior. A missing/empty/unparseable file leaves anchors nil and verification
 	// falls back to the system trust store — it never weakens verification.
 	if anchors := darwin_tls_extra_anchors(); anchors != nil {
-		if SecTrustSetAnchorCertificates(trust, anchors) != errSecSuccess do return false
-		if SecTrustSetAnchorCertificatesOnly(trust, false) != errSecSuccess do return false
+		if SecTrustSetAnchorCertificates(trust, anchors) != errSecSuccess {
+			return false
+		}
+
+		if SecTrustSetAnchorCertificatesOnly(trust, false) != errSecSuccess {
+			return false
+		}
 	}
 
 	// Keep evaluation off the network: no AIA intermediate fetching or OCSP, so it
@@ -343,7 +381,11 @@ darwin_tls_verify_peer :: proc(sess: ^Darwin_TLS_Session, host: string) -> bool 
 
 	err: CFErrorRef
 	ok := SecTrustEvaluateWithError(trust, &err)
-	if err != nil do CFRelease(rawptr(err))
+
+	if err != nil {
+		CFRelease(rawptr(err))
+	}
+
 	return bool(ok)
 }
 
@@ -352,11 +394,15 @@ darwin_tls_verify_peer :: proc(sess: ^Darwin_TLS_Session, host: string) -> bool 
 // fd is ignored — we are tearing down). CFRelease frees the context; the fd itself
 // is closed separately by the transport after fetch_tls_cleanup.
 darwin_tls_free :: proc(sess: ^Darwin_TLS_Session) {
-	if sess == nil do return
+	if sess == nil {
+		return
+	}
+
 	if sess.ctx != nil {
 		SSLClose(sess.ctx)
 		CFRelease(rawptr(sess.ctx))
 	}
+
 	free(sess)
 }
 
@@ -366,8 +412,14 @@ darwin_tls_free :: proc(sess: ^Darwin_TLS_Session) {
 // tls_host_is_ip in the OpenSSL backend.
 @(private = "file")
 darwin_tls_host_is_ip :: proc(host: string) -> bool {
-	if _, ok := net.parse_ip4_address(host); ok do return true
-	if _, ok := net.parse_ip6_address(host); ok do return true
+	if _, ok := net.parse_ip4_address(host); ok {
+		return true
+	}
+
+	if _, ok := net.parse_ip6_address(host); ok {
+		return true
+	}
+
 	return false
 }
 
@@ -389,6 +441,7 @@ darwin_tls_extra_anchors :: proc() -> CFArrayRef {
 		g_extra_anchors_built = true
 		g_extra_anchors = darwin_tls_load_env_anchors()
 	}
+
 	return g_extra_anchors
 }
 
@@ -399,33 +452,54 @@ darwin_tls_extra_anchors :: proc() -> CFArrayRef {
 @(private = "file")
 darwin_tls_load_env_anchors :: proc() -> CFArrayRef {
 	path, found := os.lookup_env("SSL_CERT_FILE", context.temp_allocator)
-	if !found || path == "" do return nil
+
+	if !found || path == "" {
+		return nil
+	}
 
 	data, read_err := os.read_entire_file(path, context.temp_allocator)
-	if read_err != nil do return nil
+
+	if read_err != nil {
+		return nil
+	}
 
 	certs: [dynamic]rawptr
 	defer delete(certs)
 	rest := data
 	for len(rest) > 0 {
 		blk, remaining, decode_err := pem.decode(rest, context.temp_allocator)
-		if decode_err != nil || blk == nil do break
+
+		if decode_err != nil || blk == nil {
+			break
+		}
+
 		rest = remaining
+
 		if blk.label == pem.LABEL_CERTIFICATE && len(blk.data) > 0 {
 			cfdata := CFDataCreate(nil, raw_data(blk.data[:]), CFIndex(len(blk.data)))
+
 			if cfdata != nil {
 				cert := SecCertificateCreateWithData(nil, cfdata)
 				CFRelease(rawptr(cfdata))
-				if cert != nil do append(&certs, rawptr(cert))
+
+				if cert != nil {
+					append(&certs, rawptr(cert))
+				}
 			}
 		}
+
 		pem.block_delete(blk)
 	}
-	if len(certs) == 0 do return nil
+
+	if len(certs) == 0 {
+		return nil
+	}
 
 	// CFArrayCreate with kCFTypeArrayCallBacks retains each cert, so we release our own
 	// references and let the (process-lifetime) array own them.
 	arr := CFArrayCreate(nil, raw_data(certs[:]), CFIndex(len(certs)), &kCFTypeArrayCallBacks)
-	for cert in certs do CFRelease(cert)
+	for cert in certs {
+		CFRelease(cert)
+	}
 	return arr
 }

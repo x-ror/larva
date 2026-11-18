@@ -99,22 +99,27 @@ clone_cstring :: proc(s: cstring) -> string {
 	if s == nil {
 		return ""
 	}
+
 	return strings.clone(string(s), context.temp_allocator)
 }
 
 os_hostname :: proc() -> string {
 	buf: [256]c.char
+
 	if posix.gethostname(raw_data(buf[:]), len(buf)) != .OK {
 		return ""
 	}
+
 	return clone_c_field(buf[:])
 }
 
 os_uname :: proc(field: Uname_Field) -> string {
 	u: posix.utsname
+
 	if posix.uname(&u) != 0 {
 		return ""
 	}
+
 	switch field {
 	case .SYSNAME:
 		return clone_c_field(u.sysname[:])
@@ -130,9 +135,11 @@ os_uname :: proc(field: Uname_Field) -> string {
 
 os_loadavg :: proc() -> [3]f64 {
 	out: [3]f64
+
 	if getloadavg(raw_data(out[:]), 3) != 3 {
 		return {0, 0, 0}
 	}
+
 	return out
 }
 
@@ -144,22 +151,27 @@ os_user_info :: proc() -> Os_User_Info {
 		gid = int(u32(gid)),
 	}
 	pw := posix.getpwuid(uid)
+
 	if pw != nil {
 		ui.username = clone_cstring(pw.pw_name)
 		ui.homedir = clone_cstring(pw.pw_dir)
+
 		if pw.pw_shell != nil && len(string(pw.pw_shell)) > 0 {
 			ui.shell = clone_cstring(pw.pw_shell)
 			ui.has_shell = true
 		}
 	}
+
 	// Fall back to the environment when there is no passwd entry (e.g. a bare
 	// container UID); Node would throw here, but a best-effort answer is friendlier.
 	if ui.username == "" {
 		ui.username = os_getenv_or("USER", os_getenv_or("LOGNAME", ""))
 	}
+
 	if ui.homedir == "" {
 		ui.homedir = os_getenv_or("HOME", "")
 	}
+
 	return ui
 }
 
@@ -171,11 +183,13 @@ os_user_info :: proc() -> Os_User_Info {
 os_get_priority :: proc(pid: int) -> (value: int, err: int) {
 	posix.set_errno(.NONE)
 	v := posix.getpriority(.PROCESS, posix.id_t(pid))
+
 	if v == -1 {
 		if e := posix.errno(); e != .NONE {
 			return 0, int(e)
 		}
 	}
+
 	return int(v), 0
 }
 
@@ -183,13 +197,17 @@ os_get_priority :: proc(pid: int) -> (value: int, err: int) {
 // (EPERM when lowering another user's nice value, ESRCH for an unknown pid).
 os_set_priority :: proc(pid: int, value: int) -> (err: int) {
 	posix.set_errno(.NONE)
+
 	if posix.setpriority(.PROCESS, posix.id_t(pid), c.int(value)) != .OK {
 		e := posix.errno()
+
 		if e == .NONE {
 			e = .EPERM
 		}
+
 		return int(e)
 	}
+
 	return 0
 }
 
@@ -200,9 +218,11 @@ os_set_priority :: proc(pid: int, value: int) -> (err: int) {
 // Node). js/node/os.js groups them by name and adds the family string + CIDR.
 os_network_interfaces :: proc() -> []Os_Net_Iface {
 	head: ^ifaddrs
+
 	if getifaddrs(&head) != 0 || head == nil {
 		return nil
 	}
+
 	defer freeifaddrs(head)
 
 	macs := make(map[string]string, 8, context.temp_allocator)
@@ -210,6 +230,7 @@ os_network_interfaces :: proc() -> []Os_Net_Iface {
 		if cur.ifa_addr == nil || int(cur.ifa_addr.sa_family) != AF_LINK_LOCAL {
 			continue
 		}
+
 		if mac, ok := link_mac(cur.ifa_addr); ok {
 			macs[clone_cstring(cur.ifa_name)] = mac
 		}
@@ -220,12 +241,15 @@ os_network_interfaces :: proc() -> []Os_Net_Iface {
 		if cur.ifa_addr == nil {
 			continue
 		}
+
 		family := cur.ifa_addr.sa_family
 		name := clone_cstring(cur.ifa_name)
 		mac := "00:00:00:00:00:00"
+
 		if m, ok := macs[name]; ok {
 			mac = m
 		}
+
 		rec := Os_Net_Iface {
 			name     = name,
 			mac      = mac,
@@ -236,6 +260,7 @@ os_network_interfaces :: proc() -> []Os_Net_Iface {
 			a := cast(^posix.sockaddr_in)cur.ifa_addr
 			rec.family = 4
 			rec.address = format_v4(a.sin_addr.s_addr)
+
 			if cur.ifa_netmask != nil {
 				m := cast(^posix.sockaddr_in)cur.ifa_netmask
 				rec.netmask = format_v4(m.sin_addr.s_addr)
@@ -245,6 +270,7 @@ os_network_interfaces :: proc() -> []Os_Net_Iface {
 			rec.family = 6
 			rec.address = format_v6(&a.sin6_addr)
 			rec.scopeid = u32(a.sin6_scope_id)
+
 			if cur.ifa_netmask != nil {
 				m := cast(^posix.sockaddr_in6)cur.ifa_netmask
 				rec.netmask = format_v6(&m.sin6_addr)
@@ -265,17 +291,21 @@ link_mac :: proc(sa: ^posix.sockaddr) -> (string, bool) {
 	when ODIN_OS == .Linux {
 		ll := cast(^sockaddr_ll)sa
 		n := int(ll.sll_halen)
+
 		if n <= 0 || n > len(ll.sll_addr) {
 			return "", false
 		}
+
 		return format_mac(ll.sll_addr[:n]), true
 	} else {
 		dl := cast(^sockaddr_dl)sa
 		n := int(dl.sdl_alen)
 		start := 8 + int(dl.sdl_nlen)
+
 		if n <= 0 || start + n > int(dl.sdl_len) {
 			return "", false
 		}
+
 		base := cast([^]u8)sa
 		return format_mac(base[start:start + n]), true
 	}
@@ -288,6 +318,7 @@ format_mac :: proc(b: []u8) -> string {
 	if len(b) == 0 {
 		return "00:00:00:00:00:00"
 	}
+
 	hex := "0123456789abcdef"
 	out := make([]u8, len(b) * 3 - 1, context.temp_allocator)
 	j := 0
@@ -296,6 +327,7 @@ format_mac :: proc(b: []u8) -> string {
 			out[j] = ':'
 			j += 1
 		}
+
 		out[j] = hex[x >> 4]
 		out[j + 1] = hex[x & 0xf]
 		j += 2
@@ -317,8 +349,10 @@ format_v4 :: proc(addr: posix.in_addr_t) -> string {
 format_v6 :: proc(addr: rawptr) -> string {
 	buf: [posix.INET6_ADDRSTRLEN]u8
 	res := posix.inet_ntop(.INET6, addr, raw_data(buf[:]), posix.socklen_t(len(buf)))
+
 	if res == nil {
 		return ""
 	}
+
 	return strings.clone(string(res), context.temp_allocator)
 }

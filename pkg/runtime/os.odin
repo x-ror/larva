@@ -63,9 +63,11 @@ Uname_Field :: enum {
 // fallback when unset. Used by the platform layer for password-db / user fallbacks.
 os_getenv_or :: proc(key: string, fallback: string) -> string {
 	v := os.get_env(key, context.temp_allocator)
+
 	if v == "" {
 		return fallback
 	}
+
 	return v
 }
 
@@ -213,7 +215,11 @@ os_avail_parallelism_cb :: proc "c" (
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
 	n := os_avail_parallelism()
-	if n < 1 do n = 1
+
+	if n < 1 {
+		n = 1
+	}
+
 	return jsc.JSValueMakeNumber(ctx, f64(n))
 }
 
@@ -314,11 +320,13 @@ os_userinfo_cb :: proc "c" (
 	set_named(ctx, o, "gid", jsc.JSValueMakeNumber(ctx, f64(ui.gid)))
 	set_named(ctx, o, "username", js_string_value(ctx, ui.username))
 	set_named(ctx, o, "homedir", js_string_value(ctx, ui.homedir))
+
 	if ui.has_shell {
 		set_named(ctx, o, "shell", js_string_value(ctx, ui.shell))
 	} else {
 		set_named(ctx, o, "shell", jsc.JSValueMakeNull(ctx))
 	}
+
 	return cast(jsc.JSValueRef)o
 }
 
@@ -339,14 +347,21 @@ os_getpriority_cb :: proc "c" (
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
 	pid := 0
+
 	if argument_count >= 1 {
 		pid = int(jsc.JSValueToNumber(ctx, arguments[0], nil))
 	}
+
 	value, err := os_get_priority(pid)
+
 	if err != 0 {
-		if exception != nil do exception^ = make_os_system_error(ctx, "getpriority", err)
+		if exception != nil {
+			exception^ = make_os_system_error(ctx, "getpriority", err)
+		}
+
 		return jsc.JSValueMakeUndefined(ctx)
 	}
+
 	return jsc.JSValueMakeNumber(ctx, f64(value))
 }
 
@@ -359,16 +374,26 @@ os_setpriority_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
+
 	if argument_count < 2 {
-		if exception != nil do exception^ = make_js_error(ctx, "os.setPriority requires (pid, priority)")
+		if exception != nil {
+			exception^ = make_js_error(ctx, "os.setPriority requires (pid, priority)")
+		}
+
 		return jsc.JSValueMakeUndefined(ctx)
 	}
+
 	pid := int(jsc.JSValueToNumber(ctx, arguments[0], nil))
 	value := int(jsc.JSValueToNumber(ctx, arguments[1], nil))
+
 	if err := os_set_priority(pid, value); err != 0 {
-		if exception != nil do exception^ = make_os_system_error(ctx, "setpriority", err)
+		if exception != nil {
+			exception^ = make_os_system_error(ctx, "setpriority", err)
+		}
+
 		return jsc.JSValueMakeUndefined(ctx)
 	}
+
 	return jsc.JSValueMakeUndefined(ctx)
 }
 
@@ -383,10 +408,12 @@ os_setpriority_cb :: proc "c" (
 make_os_system_error :: proc(ctx: jsc.JSContextRef, syscall: string, err: int) -> jsc.JSValueRef {
 	msg := fmt.tprintf("A system error occurred: %s returned errno %d", syscall, err)
 	e := make_native_error(ctx, "SystemError", msg, "ERR_SYSTEM_ERROR")
+
 	if jsc.JSValueIsObject(ctx, e) {
 		o := cast(jsc.JSObjectRef)e
 		set_named(ctx, o, "errno", jsc.JSValueMakeNumber(ctx, f64(-err)))
 		set_named(ctx, o, "syscall", js_string_value(ctx, syscall))
 	}
+
 	return e
 }

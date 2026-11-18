@@ -23,59 +23,77 @@ read_sysinfo :: proc() -> (si: linux.Sys_Info, ok: bool) {
 @(private = "file")
 sysinfo_unit :: proc(si: linux.Sys_Info) -> u64 {
 	unit := u64(si.mem_unit)
+
 	if unit == 0 {
 		return 1
 	}
+
 	return unit
 }
 
 os_process_rss_bytes :: proc() -> u64 {
 	data, err := os.read_entire_file("/proc/self/statm", context.temp_allocator)
+
 	if err != os.ERROR_NONE || len(data) == 0 {
 		return 0
 	}
+
 	s := string(data)
 	sp := strings.index_byte(s, ' ')
+
 	if sp < 0 {
 		return 0
 	}
+
 	rest := s[sp + 1:]
 	end := strings.index_byte(rest, ' ')
+
 	if end < 0 {
 		end = len(rest)
 	}
+
 	pages, ok := strconv.parse_u64(rest[:end])
+
 	if !ok {
 		return 0
 	}
+
 	page := u64(posix.sysconf(._PAGESIZE))
+
 	if page == 0 {
 		page = 4096
 	}
+
 	return pages * page
 }
 
 os_totalmem :: proc() -> u64 {
 	si, ok := read_sysinfo()
+
 	if !ok {
 		return 0
 	}
+
 	return u64(si.totalram) * sysinfo_unit(si)
 }
 
 os_freemem :: proc() -> u64 {
 	si, ok := read_sysinfo()
+
 	if !ok {
 		return 0
 	}
+
 	return u64(si.freeram) * sysinfo_unit(si)
 }
 
 os_uptime :: proc() -> f64 {
 	si, ok := read_sysinfo()
+
 	if !ok {
 		return 0
 	}
+
 	return f64(si.uptime)
 }
 
@@ -86,9 +104,11 @@ os_uptime :: proc() -> f64 {
 // reports the same split (cpus() = all online CPUs, availableParallelism() = mask).
 os_avail_parallelism :: proc() -> int {
 	n := os.get_processor_core_count()
+
 	if n < 1 {
 		return 1
 	}
+
 	return n
 }
 
@@ -99,9 +119,11 @@ os_avail_parallelism :: proc() -> int {
 @(private = "file")
 clk_tck :: proc() -> i64 {
 	hz := i64(posix.sysconf(._CLK_TCK))
+
 	if hz <= 0 {
 		return 100
 	}
+
 	return hz
 }
 
@@ -116,17 +138,21 @@ field_i64 :: proc(line: string, n: int) -> i64 {
 		for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
 			i += 1
 		}
+
 		if i >= len(line) {
 			break
 		}
+
 		start := i
 		for i < len(line) && line[i] != ' ' && line[i] != '\t' {
 			i += 1
 		}
+
 		if idx == n {
 			v, _ := strconv.parse_i64(line[start:i])
 			return v
 		}
+
 		idx += 1
 	}
 	return 0
@@ -135,9 +161,11 @@ field_i64 :: proc(line: string, n: int) -> i64 {
 @(private = "file")
 value_after_colon :: proc(line: string) -> string {
 	idx := strings.index_byte(line, ':')
+
 	if idx < 0 {
 		return ""
 	}
+
 	return strings.trim_space(line[idx + 1:])
 }
 
@@ -147,15 +175,16 @@ os_cpus :: proc() -> []Os_Cpu {
 
 	// Per-CPU tick counters: the "cpuN" lines of /proc/stat (the bare "cpu " total
 	// is skipped). Columns are user, nice, system, idle, iowait, irq, softirq, ...
-	if data, err := os.read_entire_file("/proc/stat", context.temp_allocator);
-	   err == os.ERROR_NONE {
+	if data, err := os.read_entire_file("/proc/stat", context.temp_allocator); err == os.ERROR_NONE {
 		for line in strings.split(string(data), "\n", context.temp_allocator) {
 			if len(line) < 4 || !strings.has_prefix(line, "cpu") {
 				continue
 			}
+
 			if line[3] < '0' || line[3] > '9' {
 				continue // the aggregate "cpu " line
 			}
+
 			append(
 				&cpus,
 				Os_Cpu {
@@ -174,8 +203,8 @@ os_cpus :: proc() -> []Os_Cpu {
 	// is exactly what Node reports in the same situation.
 	models := make([dynamic]string, 0, 8, context.temp_allocator)
 	speeds := make([dynamic]int, 0, 8, context.temp_allocator)
-	if data, err := os.read_entire_file("/proc/cpuinfo", context.temp_allocator);
-	   err == os.ERROR_NONE {
+
+	if data, err := os.read_entire_file("/proc/cpuinfo", context.temp_allocator); err == os.ERROR_NONE {
 		cur_model := ""
 		cur_speed := 0
 		have := false
@@ -188,9 +217,12 @@ os_cpus :: proc() -> []Os_Cpu {
 					cur_speed = 0
 					have = false
 				}
+
 				continue
 			}
+
 			have = true
+
 			if strings.has_prefix(line, "model name") {
 				cur_model = value_after_colon(line)
 			} else if strings.has_prefix(line, "cpu MHz") {
@@ -198,6 +230,7 @@ os_cpus :: proc() -> []Os_Cpu {
 				cur_speed = int(f)
 			}
 		}
+
 		if have {
 			append(&models, cur_model)
 			append(&speeds, cur_speed)

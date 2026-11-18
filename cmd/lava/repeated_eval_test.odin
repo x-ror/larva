@@ -45,7 +45,9 @@ repeated_eval_stays_correct :: proc(t: ^testing.T) {
 	// on unfixed code. Assert the precondition so a green run means something.
 	{
 		gctx := jsc.JSGlobalContextCreate(nil)
-		defer if gctx != nil do jsc.JSGlobalContextRelease(gctx)
+		defer if gctx != nil {
+			jsc.JSGlobalContextRelease(gctx)
+		}
 		testing.expect(
 			t,
 			gctx != nil && jsc.host_calls_active(jsc.JSContextRef(gctx)),

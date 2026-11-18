@@ -36,11 +36,11 @@
 #include <mutex>
 
 namespace WTF {
-void initializeMainThread();
+	void initializeMainThread();
 }
 
 namespace JSC {
-void initialize();
+	void initialize();
 }
 
 extern "C" void lava_jsc_init(void) {
@@ -90,27 +90,26 @@ typedef const struct OpaqueJSContext *JSContextRef;
 typedef const struct OpaqueJSValue *JSValueRef;
 typedef struct OpaqueJSValue *JSObjectRef;
 typedef void (*JSTypedArrayBytesDeallocator)(void *bytes, void *deallocatorContext);
-JSObjectRef JSObjectMakeTypedArrayWithBytesNoCopy(
-	JSContextRef ctx, int arrayType, void *bytes, size_t byteLength,
-	JSTypedArrayBytesDeallocator bytesDeallocator, void *deallocatorContext,
-	JSValueRef *exception);
+JSObjectRef JSObjectMakeTypedArrayWithBytesNoCopy(JSContextRef ctx, int arrayType, void *bytes, size_t byteLength,
+												  JSTypedArrayBytesDeallocator bytesDeallocator,
+												  void *deallocatorContext, JSValueRef *exception);
 }
 
 namespace JSC {
-class JSGlobalObject;
-class JSLockHolder {
-public:
-	JSLockHolder(JSGlobalObject *);
-	~JSLockHolder();
-private:
-	void *m_vm; // RefPtr<VM> — single pointer
-};
+	class JSGlobalObject;
+	class JSLockHolder {
+	public:
+		JSLockHolder(JSGlobalObject *);
+		~JSLockHolder();
+
+	private:
+		void *m_vm; // RefPtr<VM> — single pointer
+	};
 } // namespace JSC
 
-extern "C" JSObjectRef lava_make_uint8_nocopy(
-	JSContextRef ctx, void *bytes, size_t length, JSTypedArrayBytesDeallocator dealloc) {
-	JSC::JSLockHolder lock(
-		reinterpret_cast<JSC::JSGlobalObject *>(const_cast<OpaqueJSContext *>(ctx)));
-	return JSObjectMakeTypedArrayWithBytesNoCopy(
-		ctx, 3 /* kJSTypedArrayTypeUint8Array */, bytes, length, dealloc, nullptr, nullptr);
+extern "C" JSObjectRef lava_make_uint8_nocopy(JSContextRef ctx, void *bytes, size_t length,
+											  JSTypedArrayBytesDeallocator dealloc) {
+	JSC::JSLockHolder lock(reinterpret_cast<JSC::JSGlobalObject *>(const_cast<OpaqueJSContext *>(ctx)));
+	return JSObjectMakeTypedArrayWithBytesNoCopy(ctx, 3 /* kJSTypedArrayTypeUint8Array */, bytes, length, dealloc,
+												 nullptr, nullptr);
 }

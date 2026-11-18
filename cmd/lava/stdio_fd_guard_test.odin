@@ -34,7 +34,11 @@ stdio_write_sync_rejects_every_fd_but_1_and_2 :: proc(t: ^testing.T) {
 	jsc.lava_jsc_init()
 	gctx := jsc.JSGlobalContextCreate(nil)
 	testing.expect(t, gctx != nil, "could not create a JSC global context")
-	if gctx == nil do return
+
+	if gctx == nil {
+		return
+	}
+
 	defer jsc.JSGlobalContextRelease(gctx)
 	ctx := cast(jsc.JSContextRef)gctx
 

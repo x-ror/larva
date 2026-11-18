@@ -19,9 +19,7 @@ SUPERVISOR_TICK_MS :: 200
 shutdown_sigset :: proc() -> linux.Sig_Set {
 	set: linux.Sig_Set
 	// Sig_Set is a bitmask; signal n is bit (n-1). SIGINT(2) and SIGTERM(15) both fall in word 0.
-	set[0] =
-		(uint(1) << (uint(linux.Signal.SIGINT) - 1)) |
-		(uint(1) << (uint(linux.Signal.SIGTERM) - 1))
+	set[0] = (uint(1) << (uint(linux.Signal.SIGINT) - 1)) | (uint(1) << (uint(linux.Signal.SIGTERM) - 1))
 	return set
 }
 
@@ -42,11 +40,15 @@ supervisor_wait :: proc(workers: []Worker) {
 			time_nsec = SUPERVISOR_TICK_MS * 1_000_000,
 		}
 		_, err := linux.rt_sigtimedwait(&set, nil, &ts)
-		if err == .NONE do break // SIGINT/SIGTERM received -> graceful shutdown
+
+		if err == .NONE {break} 	// SIGINT/SIGTERM received -> graceful shutdown
+
 		// EAGAIN (timeout) / EINTR: poll the worker-exit state.
-		if sync.atomic_load(&g_worker_crashed) do break // a worker died -> stop the rest
-		if sync.atomic_load(&g_worker_exits) >= n do return // all finished cleanly -> nothing to signal
+		if sync.atomic_load(&g_worker_crashed) {break} 	// a worker died -> stop the rest
+
+		if sync.atomic_load(&g_worker_exits) >= n {return} 	// all finished cleanly -> nothing to signal
 	}
+
 	// Signal every worker. g_shutdown first closes the startup-vs-signal race (a worker that publishes
 	// its loop after this sweep sees g_shutdown in its pre-run hook and aborts). Then request_shutdown
 	// each published loop UNDER the worker's sig_mutex: holding it across the read + the call keeps that
@@ -55,7 +57,11 @@ supervisor_wait :: proc(workers: []Worker) {
 	sync.atomic_store(&g_shutdown, true)
 	for &w in workers {
 		sync.lock(&w.sig_mutex)
-		if w.loop != nil do eventloop.request_shutdown(w.loop)
+
+		if w.loop != nil {
+			eventloop.request_shutdown(w.loop)
+		}
+
 		sync.unlock(&w.sig_mutex)
 	}
 }

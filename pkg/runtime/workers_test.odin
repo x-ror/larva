@@ -14,7 +14,17 @@ import eventloop "lava:pkg/runtime/eventloop"
 worker_count_parsing :: proc(t: ^testing.T) {
 	expect_ok :: proc(t: ^testing.T, raw: string, has: bool, cpu: int, want: int) {
 		n, ok, _ := lava_parse_worker_count(raw, has, cpu)
-		testing.expectf(t, ok && n == want, "parse(%q,%v,cpu=%d): got (n=%d ok=%v), want n=%d ok", raw, has, cpu, n, ok, want)
+		testing.expectf(
+			t,
+			ok && n == want,
+			"parse(%q,%v,cpu=%d): got (n=%d ok=%v), want n=%d ok",
+			raw,
+			has,
+			cpu,
+			n,
+			ok,
+			want,
+		)
 	}
 	expect_fail :: proc(t: ^testing.T, raw: string, has: bool, cpu: int) {
 		_, ok, msg := lava_parse_worker_count(raw, has, cpu)
@@ -56,11 +66,13 @@ Barrier_Probe :: struct {
 @(private = "file")
 barrier_probe_run :: proc(data: rawptr) {
 	p := cast(^Barrier_Probe)data
+
 	if p.fail {
 		barrier_settle(p.barrier, true)
 	} else {
 		p.released = barrier_ready_wait(p.barrier)
 	}
+
 	sync.atomic_store(&p.done, true)
 }
 
@@ -81,7 +93,10 @@ run_barrier :: proc(t: ^testing.T, n_ready, n_fail: int) -> (released_all: bool,
 		}
 		th := thread.create_and_start_with_data(&probes[i], barrier_probe_run, nil, .Normal, false)
 		testing.expect(t, th != nil, "probe thread spawned")
-		if th != nil do append(&threads, th)
+
+		if th != nil {
+			append(&threads, th)
+		}
 	}
 	// join — this completes only if the barrier is deadlock-free (every reporter unblocked).
 	for th in threads {
@@ -89,7 +104,11 @@ run_barrier :: proc(t: ^testing.T, n_ready, n_fail: int) -> (released_all: bool,
 		thread.destroy(th)
 	}
 	released_all = true
-	for i in 0 ..< n_ready do if !probes[i].released do released_all = false
+	for i in 0 ..< n_ready {
+		if !probes[i].released {
+			released_all = false
+		}
+	}
 	return released_all, b.any_failed
 }
 
@@ -138,7 +157,11 @@ workers_give_back_their_host_tables :: proc(t: ^testing.T) {
 		// eval destroyed its context on every path, which is the teardown's precondition; harmless when
 		// nothing bound. Leaving the runner thread's tables bound would offset every later count.
 		host_native_thread_teardown()
-		if !testing.expectf(t, probe_exit == 0, "probe eval exit code %d", probe_exit) do return
+
+		if !testing.expectf(t, probe_exit == 0, "probe eval exit code %d", probe_exit) {
+			return
+		}
+
 		if !bound {
 			log.warnf(
 				"SKIP workers_give_back_their_host_tables: an eval bound no host-native tables on this thread " +
@@ -146,7 +169,14 @@ workers_give_back_their_host_tables :: proc(t: ^testing.T) {
 			)
 			return
 		}
-		if !testing.expectf(t, host_native_tables_live() == baseline, "probe teardown left %d tables live, want baseline %d", host_native_tables_live(), baseline) do return
+
+		if !testing.expectf(
+			t,
+			host_native_tables_live() == baseline,
+			"probe teardown left %d tables live, want baseline %d",
+			host_native_tables_live(),
+			baseline,
+		) {return}
 	}
 
 	barrier := Worker_Barrier {
@@ -161,7 +191,10 @@ workers_give_back_their_host_tables :: proc(t: ^testing.T) {
 			barrier     = &barrier,
 		}
 		threads[i] = thread.create_and_start_with_data(&workers[i], worker_main, nil, .Normal, false)
-		if !testing.expect(t, threads[i] != nil, "thread create failed") do return
+
+		if !testing.expect(t, threads[i] != nil, "thread create failed") {
+			return
+		}
 	}
 	for th in threads {
 		thread.join(th)
@@ -177,5 +210,11 @@ workers_give_back_their_host_tables :: proc(t: ^testing.T) {
 		testing.expectf(t, workers[i].result.exit_code == 0, "worker %d exit code %d", i, workers[i].result.exit_code)
 		result_destroy(&workers[i].result)
 	}
-	testing.expectf(t, host_native_tables_live() == baseline, "host-native tables live after workers exited: %d, want baseline %d", host_native_tables_live(), baseline)
+	testing.expectf(
+		t,
+		host_native_tables_live() == baseline,
+		"host-native tables live after workers exited: %d, want baseline %d",
+		host_native_tables_live(),
+		baseline,
+	)
 }

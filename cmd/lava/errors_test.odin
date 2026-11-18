@@ -23,10 +23,12 @@ node_error_factory :: proc(t: ^testing.T) {
 	gclass := lava.make_global_class()
 	gctx := jsc.JSGlobalContextCreate(gclass)
 	testing.expect(t, gctx != nil, "could not create a JSC global context")
+
 	if gctx == nil {
 		jsc.JSClassRelease(gclass)
 		return
 	}
+
 	defer jsc.JSClassRelease(gclass)
 	defer jsc.JSGlobalContextRelease(gctx)
 	ctx := cast(jsc.JSContextRef)gctx
@@ -81,7 +83,11 @@ node_error_received_types :: proc(t: ^testing.T) {
 	jsc.lava_jsc_init()
 	gctx := jsc.JSGlobalContextCreate(nil)
 	testing.expect(t, gctx != nil, "could not create a JSC global context")
-	if gctx == nil do return
+
+	if gctx == nil {
+		return
+	}
+
 	defer jsc.JSGlobalContextRelease(gctx)
 	ctx := cast(jsc.JSContextRef)gctx
 
@@ -108,13 +114,18 @@ node_error_received_types :: proc(t: ^testing.T) {
 	for c in cases {
 		val := eval_value(ctx, c.expr)
 		e := lava.err_invalid_arg_type(ctx, "x", "string", val)
+
 		if !testing.expectf(t, jsc.JSValueIsObject(ctx, e), "%s: error must be an object", c.expr) {
 			continue
 		}
+
 		msg, allocated := lava.value_to_string(ctx, lava.get_named(ctx, cast(jsc.JSObjectRef)e, "message"))
 		want := fmt.tprintf("The \"x\" argument must be of type string. Received %s", c.want)
 		testing.expectf(t, msg == want, "%s: got %q want %q", c.expr, msg, want)
-		if allocated do delete(msg)
+
+		if allocated {
+			delete(msg)
+		}
 	}
 }
 
@@ -131,7 +142,11 @@ expect_error_shape :: proc(
 	want_name, want_message, want_code: string,
 ) {
 	testing.expect(t, jsc.JSValueIsObject(ctx, err), "error value must be an object")
-	if !jsc.JSValueIsObject(ctx, err) do return
+
+	if !jsc.JSValueIsObject(ctx, err) {
+		return
+	}
+
 	obj := cast(jsc.JSObjectRef)err
 
 	global := jsc.JSContextGetGlobalObject(ctx)
@@ -143,6 +158,7 @@ expect_error_shape :: proc(
 	check_string_prop(t, ctx, obj, "message", want_message)
 
 	code_v := lava.get_named(ctx, obj, "code")
+
 	if want_code == "" {
 		testing.expect(t, jsc.JSValueIsUndefined(ctx, code_v), "plain error should have no code")
 	} else {
@@ -154,19 +170,29 @@ expect_error_shape :: proc(
 check_string_prop :: proc(t: ^testing.T, ctx: jsc.JSContextRef, obj: jsc.JSObjectRef, prop, want: string) {
 	v := lava.get_named(ctx, obj, prop)
 	got, allocated := lava.value_to_string(ctx, v)
-	defer if allocated do delete(got)
+	defer if allocated {
+		delete(got)
+	}
 	testing.expectf(t, got == want, "%s: got %q want %q", prop, got, want)
 }
 
 @(private = "file")
 eval_truthy :: proc(ctx: jsc.JSContextRef, expr: string) -> bool {
 	c_expr, err := strings.clone_to_cstring(expr, context.temp_allocator)
-	if err != nil do return false
+
+	if err != nil {
+		return false
+	}
+
 	src := jsc.JSStringCreateWithUTF8CString(c_expr)
 	defer jsc.JSStringRelease(src)
 	exc: jsc.JSValueRef
 	v := jsc.JSEvaluateScript(ctx, src, nil, nil, 1, &exc)
-	if exc != nil || v == nil do return false
+
+	if exc != nil || v == nil {
+		return false
+	}
+
 	return jsc.JSValueToBoolean(ctx, v)
 }
 
@@ -175,11 +201,19 @@ eval_truthy :: proc(ctx: jsc.JSContextRef, expr: string) -> bool {
 @(private = "file")
 eval_value :: proc(ctx: jsc.JSContextRef, expr: string) -> jsc.JSValueRef {
 	c_expr, err := strings.clone_to_cstring(expr, context.temp_allocator)
-	if err != nil do return jsc.JSValueMakeUndefined(ctx)
+
+	if err != nil {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
+
 	src := jsc.JSStringCreateWithUTF8CString(c_expr)
 	defer jsc.JSStringRelease(src)
 	exc: jsc.JSValueRef
 	v := jsc.JSEvaluateScript(ctx, src, nil, nil, 1, &exc)
-	if exc != nil || v == nil do return jsc.JSValueMakeUndefined(ctx)
+
+	if exc != nil || v == nil {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
+
 	return v
 }
