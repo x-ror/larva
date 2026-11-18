@@ -121,7 +121,8 @@ function formatSource(src, isC) {
     const { code, state: next } = scan(line, state, isC);
     state = next;
     const indent = line.match(/^\s*/)[0];
-    const spread = !isC && !startState.raw && !startState.block ? spreadOneLineBlock(line, code, indent) : null;
+    const spread =
+      !isC && !startState.raw && !startState.block ? spreadOneLineBlock(line, code, indent) : null;
     out.push(...(spread ?? [line]));
   }
 
@@ -162,11 +163,13 @@ function formatSource(src, isC) {
       if (!seenOpen && !isC && / do /.test(src2[j])) break; // a `do` form odinfmt left
       if (j - i > 2000) break;
     }
-    if (end + 1 < src2.length && !isBlank(src2[end + 1]) && !closesOrLabels(src2[end + 1])) blankAfter.add(end);
+    if (end + 1 < src2.length && !isBlank(src2[end + 1]) && !closesOrLabels(src2[end + 1]))
+      blankAfter.add(end);
   }
 
   for (let i = 0; i < src2.length; i++) {
-    if (blankBefore.has(i) && !(result.length && isBlank(result[result.length - 1]))) result.push('');
+    if (blankBefore.has(i) && !(result.length && isBlank(result[result.length - 1])))
+      result.push('');
     result.push(src2[i]);
     if (blankAfter.has(i)) result.push('');
   }
