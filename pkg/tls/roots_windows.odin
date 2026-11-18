@@ -1,5 +1,5 @@
 #+build windows
-package lava_runtime
+package lava_tls
 
 import "core:c"
 import win "core:sys/windows"

@@ -3,6 +3,7 @@ package lava_runtime
 
 import "core:c"
 import eventloop "lava:pkg/runtime/eventloop"
+import openssl "lava:pkg/tls"
 
 // OpenSSL TLS backend for the fetch transport on Linux and Windows.
 // fetch_transport.odin is kept OpenSSL-free and platform-agnostic; the https
@@ -24,7 +25,7 @@ FETCH_HTTPS_UNSUPPORTED_MSG :: "fetch: HTTPS is not yet supported on this platfo
 // close the fd). Safe to call when no TLS session was created.
 fetch_tls_cleanup :: proc(req: ^Fetch_Request) {
 	if req.tls != nil {
-		SSL_free(cast(SSL)req.tls)
+		openssl.SSL_free(cast(openssl.SSL)req.tls)
 		req.tls = nil
 	}
 }
@@ -33,7 +34,7 @@ fetch_tls_cleanup :: proc(req: ^Fetch_Request) {
 // (called once the TCP connect completes) and runs the first handshake step. On a
 // setup failure it settles the request with an error.
 fetch_tls_start_handshake :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
-	ssl := tls_new_client(req.fd, req.host)
+	ssl := openssl.tls_new_client(req.fd, req.host)
 
 	if ssl == nil {
 		fetch_settle_error(req, "fetch: TLS setup failed")
@@ -58,15 +59,15 @@ Fetch_TLS_Outcome :: enum {
 // for HTTP/1.1 Connection: close), while ret < 0 is a genuine syscall failure
 // and stays Fatal so truncation is not silently treated as completion.
 fetch_tls_classify :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request, ret: c.int) -> Fetch_TLS_Outcome {
-	switch SSL_get_error(cast(SSL)req.tls, ret) {
-	case SSL_ERROR_WANT_READ:
+	switch openssl.SSL_get_error(cast(openssl.SSL)req.tls, ret) {
+	case openssl.SSL_ERROR_WANT_READ:
 		// A failed re-arm becomes Fatal so the caller settles instead of stalling.
 		return fetch_set_watch_mode(loop, req, .Read) ? .Pending : .Fatal
-	case SSL_ERROR_WANT_WRITE:
+	case openssl.SSL_ERROR_WANT_WRITE:
 		return fetch_set_watch_mode(loop, req, .Write) ? .Pending : .Fatal
-	case SSL_ERROR_ZERO_RETURN:
+	case openssl.SSL_ERROR_ZERO_RETURN:
 		return .Eof
-	case SSL_ERROR_SYSCALL:
+	case openssl.SSL_ERROR_SYSCALL:
 		return ret == 0 ? .Eof : .Fatal
 	case:
 		return .Fatal
@@ -80,7 +81,7 @@ fetch_tls_classify :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request, ret: c.in
 // SSL_set1_host, so a bad/mismatched cert surfaces here as a handshake failure.
 // An EOF mid-handshake is fatal — there is no response to complete yet.
 fetch_tls_handshake :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
-	ret := SSL_connect(cast(SSL)req.tls)
+	ret := openssl.SSL_connect(cast(openssl.SSL)req.tls)
 
 	if ret == 1 {
 		req.phase = .Writing
@@ -98,7 +99,7 @@ fetch_tls_handshake :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 fetch_tls_write :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 	for req.write_offset < len(req.request_bytes) {
 		chunk := req.request_bytes[req.write_offset:]
-		n := SSL_write(cast(SSL)req.tls, raw_data(chunk), c.int(len(chunk)))
+		n := openssl.SSL_write(cast(openssl.SSL)req.tls, raw_data(chunk), c.int(len(chunk)))
 
 		if n <= 0 {
 			// An EOF while still sending the request is a failure, not completion,
@@ -124,20 +125,20 @@ fetch_tls_write :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 // would spin on writable events, or deadlock when the send buffer is full and the
 // peer's renegotiation bytes can only be read.
 fetch_tls_send_chunk :: proc(req: ^Fetch_Request, chunk: []byte) -> (n: int, res: Fetch_IO_Result, want_read: bool) {
-	ret := SSL_write(cast(SSL)req.tls, raw_data(chunk), c.int(len(chunk)))
+	ret := openssl.SSL_write(cast(openssl.SSL)req.tls, raw_data(chunk), c.int(len(chunk)))
 
 	if ret > 0 {
 		return int(ret), .Ok, false
 	}
 
-	switch SSL_get_error(cast(SSL)req.tls, ret) {
-	case SSL_ERROR_WANT_READ:
+	switch openssl.SSL_get_error(cast(openssl.SSL)req.tls, ret) {
+	case openssl.SSL_ERROR_WANT_READ:
 		return 0, .Would_Block, true
-	case SSL_ERROR_WANT_WRITE:
+	case openssl.SSL_ERROR_WANT_WRITE:
 		return 0, .Would_Block, false
-	case SSL_ERROR_ZERO_RETURN:
+	case openssl.SSL_ERROR_ZERO_RETURN:
 		return 0, .Closed, false
-	case SSL_ERROR_SYSCALL:
+	case openssl.SSL_ERROR_SYSCALL:
 		return 0, ret == 0 ? .Closed : .Failed, false
 	case:
 		return 0, .Failed, false
@@ -151,7 +152,7 @@ fetch_tls_send_chunk :: proc(req: ^Fetch_Request, chunk: []byte) -> (n: int, res
 fetch_tls_read :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 	buf: [16384]byte
 	for {
-		n := SSL_read(cast(SSL)req.tls, raw_data(buf[:]), c.int(len(buf)))
+		n := openssl.SSL_read(cast(openssl.SSL)req.tls, raw_data(buf[:]), c.int(len(buf)))
 
 		if n <= 0 {
 			switch fetch_tls_classify(loop, req, n) {

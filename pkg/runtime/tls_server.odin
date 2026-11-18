@@ -5,6 +5,7 @@ import "base:runtime"
 import "core:c"
 import jsc "lava:pkg/jsc"
 import eventloop "lava:pkg/runtime/eventloop"
+import openssl "lava:pkg/tls"
 
 // TLS server state machine for https.createServer (design reviewed in PR #298, implemented in #299).
 // Transparent at the native net layer: net.odin wraps an accepted connection in an SSL
@@ -32,17 +33,17 @@ TLS_Step :: enum {
 	Fatal, // a real TLS or socket error
 }
 
-tls_step :: proc(ssl: SSL, ret: c.int) -> TLS_Step {
+tls_step :: proc(ssl: openssl.SSL, ret: c.int) -> TLS_Step {
 	if ret > 0 {
 		return .Ok
 	}
 
-	switch SSL_get_error(ssl, ret) {
-	case SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE:
+	switch openssl.SSL_get_error(ssl, ret) {
+	case openssl.SSL_ERROR_WANT_READ, openssl.SSL_ERROR_WANT_WRITE:
 		return .Want_IO
-	case SSL_ERROR_ZERO_RETURN:
+	case openssl.SSL_ERROR_ZERO_RETURN:
 		return .Eof
-	case SSL_ERROR_SYSCALL:
+	case openssl.SSL_ERROR_SYSCALL:
 		return ret == 0 ? .Eof : .Fatal
 	case:
 		return .Fatal
@@ -62,12 +63,12 @@ tls_no_password_cb :: proc "c" (buf: rawptr, size: c.int, rwflag: c.int, u: rawp
 // failure returns ok=false (the binding throws ERR_TLS_*-shaped from https.createServer, which
 // is where a Node caller's try/catch expects bad-cert errors). The returned ctx is owned by the
 // caller and freed with tls_server_ctx_free on server close.
-tls_server_ctx_new :: proc(key: []byte, cert: []byte) -> (ctx: SSL_CTX, ok: bool) {
+tls_server_ctx_new :: proc(key: []byte, cert: []byte) -> (ctx: openssl.SSL_CTX, ok: bool) {
 	if len(key) == 0 || len(cert) == 0 {
 		return nil, false
 	}
 
-	method := TLS_server_method()
+	method := openssl.TLS_server_method()
 
 	if method == nil {
 		return nil, false
@@ -77,29 +78,29 @@ tls_server_ctx_new :: proc(key: []byte, cert: []byte) -> (ctx: SSL_CTX, ok: bool
 	// `return nil, false` would assign ctx=nil BEFORE the defer runs, so the defer would free nil and
 	// leak the context. Every failure below is a bare `return` (ctx stays nil, ok stays false) and
 	// `c` is freed by the defer; only success assigns ctx = c. Mirrors the client builder.
-	c := SSL_CTX_new(method)
+	c := openssl.SSL_CTX_new(method)
 
 	if c == nil {
 		return nil, false
 	}
 
 	defer if !ok {
-		SSL_CTX_free(c)
-		ERR_clear_error() // PEM end-of-stream leaves a benign error on the queue; don't strand it
+		openssl.SSL_CTX_free(c)
+		openssl.ERR_clear_error() // PEM end-of-stream leaves a benign error on the queue; don't strand it
 	}
 
 	// Security baseline (design §8): TLS 1.2 floor (also disables SSLv3/TLS1.0/1.1), refuse
 	// peer renegotiation, suppress tickets (resumption is deferred — keep it honest + bounded),
 	// and release per-SSL buffers when idle so many keep-alive conns stay cheap. SSL_CTX_set_options
 	// is a real function (a ctrl(OPTIONS) is a silent no-op on OpenSSL ≥ 1.1.0 — see tls.odin).
-	if SSL_CTX_ctrl(c, SSL_CTRL_SET_MIN_PROTO_VERSION, TLS1_2_VERSION, nil) != 1 {
+	if openssl.SSL_CTX_ctrl(c, openssl.SSL_CTRL_SET_MIN_PROTO_VERSION, openssl.TLS1_2_VERSION, nil) != 1 {
 		return
 	}
 
-	SSL_CTX_set_options(c, SSL_OP_NO_RENEGOTIATION | SSL_OP_NO_TICKET)
-	SSL_CTX_set_num_tickets(c, 0) // TLS 1.3 tickets (the SSL_OP_NO_TICKET above is TLS 1.2 only)
-	SSL_CTX_ctrl(c, SSL_CTRL_SET_SESS_CACHE_MODE, SSL_SESS_CACHE_OFF, nil)
-	SSL_CTX_ctrl(c, SSL_CTRL_MODE, SSL_MODE_RELEASE_BUFFERS, nil)
+	openssl.SSL_CTX_set_options(c, openssl.SSL_OP_NO_RENEGOTIATION | openssl.SSL_OP_NO_TICKET)
+	openssl.SSL_CTX_set_num_tickets(c, 0) // TLS 1.3 tickets (the SSL_OP_NO_TICKET above is TLS 1.2 only)
+	openssl.SSL_CTX_ctrl(c, openssl.SSL_CTRL_SET_SESS_CACHE_MODE, openssl.SSL_SESS_CACHE_OFF, nil)
+	openssl.SSL_CTX_ctrl(c, openssl.SSL_CTRL_MODE, openssl.SSL_MODE_RELEASE_BUFFERS, nil)
 
 	if !tls_server_load_cert_chain(c, cert) {
 		return
@@ -109,17 +110,17 @@ tls_server_ctx_new :: proc(key: []byte, cert: []byte) -> (ctx: SSL_CTX, ok: bool
 		return
 	}
 
-	if SSL_CTX_check_private_key(c) != 1 {return} 	// key must match the leaf cert
+	if openssl.SSL_CTX_check_private_key(c) != 1 {return} 	// key must match the leaf cert
 
-	ERR_clear_error()
+	openssl.ERR_clear_error()
 	ctx = c
 	ok = true
 	return
 }
 
-tls_server_ctx_free :: proc(ctx: SSL_CTX) {
+tls_server_ctx_free :: proc(ctx: openssl.SSL_CTX) {
 	if ctx != nil {
-		SSL_CTX_free(ctx)
+		openssl.SSL_CTX_free(ctx)
 	}
 }
 
@@ -127,35 +128,35 @@ tls_server_ctx_free :: proc(ctx: SSL_CTX) {
 // (SSL_CTX_use_certificate, which up-refs — so we drop our ref after), the rest are the chain
 // (SSL_CTX_add_extra_chain_cert, i.e. SSL_CTRL_EXTRA_CHAIN_CERT, which TAKES ownership — no free).
 @(private = "file")
-tls_server_load_cert_chain :: proc(ctx: SSL_CTX, cert: []byte) -> bool {
-	bio := BIO_new_mem_buf(raw_data(cert), c.int(len(cert)))
+tls_server_load_cert_chain :: proc(ctx: openssl.SSL_CTX, cert: []byte) -> bool {
+	bio := openssl.BIO_new_mem_buf(raw_data(cert), c.int(len(cert)))
 
 	if bio == nil {
 		return false
 	}
 
-	defer BIO_free(bio)
+	defer openssl.BIO_free(bio)
 
-	leaf := PEM_read_bio_X509(bio, nil, tls_no_password_cb, nil)
+	leaf := openssl.PEM_read_bio_X509(bio, nil, tls_no_password_cb, nil)
 
 	if leaf == nil {
 		return false
 	}
 
-	used := SSL_CTX_use_certificate(ctx, leaf) == 1
-	X509_free(leaf) // ctx holds its own ref now
+	used := openssl.SSL_CTX_use_certificate(ctx, leaf) == 1
+	openssl.X509_free(leaf) // ctx holds its own ref now
 
 	if !used {
 		return false
 	}
 
 	for {
-		x := PEM_read_bio_X509(bio, nil, tls_no_password_cb, nil)
+		x := openssl.PEM_read_bio_X509(bio, nil, tls_no_password_cb, nil)
 
 		if x == nil {break} 	// no more certs (end-of-stream leaves a benign error, cleared by the caller)
 
-		if SSL_CTX_ctrl(ctx, SSL_CTRL_EXTRA_CHAIN_CERT, 0, rawptr(x)) != 1 {
-			X509_free(x)
+		if openssl.SSL_CTX_ctrl(ctx, openssl.SSL_CTRL_EXTRA_CHAIN_CERT, 0, rawptr(x)) != 1 {
+			openssl.X509_free(x)
 			return false
 		}
 
@@ -165,19 +166,19 @@ tls_server_load_cert_chain :: proc(ctx: SSL_CTX, cert: []byte) -> bool {
 }
 
 @(private = "file")
-tls_server_load_key :: proc(ctx: SSL_CTX, key: []byte) -> bool {
-	bio := BIO_new_mem_buf(raw_data(key), c.int(len(key)))
+tls_server_load_key :: proc(ctx: openssl.SSL_CTX, key: []byte) -> bool {
+	bio := openssl.BIO_new_mem_buf(raw_data(key), c.int(len(key)))
 
 	if bio == nil {
 		return false
 	}
 
-	defer BIO_free(bio)
-	pkey := PEM_read_bio_PrivateKey(bio, nil, tls_no_password_cb, nil)
+	defer openssl.BIO_free(bio)
+	pkey := openssl.PEM_read_bio_PrivateKey(bio, nil, tls_no_password_cb, nil)
 
 	if pkey == nil {return false} 	// bad PEM, or encrypted (tls_no_password_cb fails it closed)
-	used := SSL_CTX_use_PrivateKey(ctx, pkey) == 1
-	EVP_PKEY_free(pkey) // ctx holds its own ref now
+	used := openssl.SSL_CTX_use_PrivateKey(ctx, pkey) == 1
+	openssl.EVP_PKEY_free(pkey) // ctx holds its own ref now
 	return used
 }
 
@@ -186,32 +187,32 @@ tls_server_load_key :: proc(ctx: SSL_CTX, key: []byte) -> bool {
 // tls_server_attach wires an accepted connection for TLS: a per-conn SSL on the shared listener
 // ctx, two memory BIOs (ownership transferred to the SSL via set0 — freed by SSL_free), and
 // accept state. Returns false if any allocation fails (the caller closes the conn).
-tls_server_attach :: proc(conn: ^Net_Connection, ctx: SSL_CTX) -> bool {
-	ssl := SSL_new(ctx)
+tls_server_attach :: proc(conn: ^Net_Connection, ctx: openssl.SSL_CTX) -> bool {
+	ssl := openssl.SSL_new(ctx)
 
 	if ssl == nil {
 		return false
 	}
 
-	rbio := BIO_new(BIO_s_mem())
-	wbio := BIO_new(BIO_s_mem())
+	rbio := openssl.BIO_new(openssl.BIO_s_mem())
+	wbio := openssl.BIO_new(openssl.BIO_s_mem())
 
 	if rbio == nil || wbio == nil {
 		if rbio != nil {
-			BIO_free(rbio)
+			openssl.BIO_free(rbio)
 		}
 
 		if wbio != nil {
-			BIO_free(wbio)
+			openssl.BIO_free(wbio)
 		}
 
-		SSL_free(ssl)
+		openssl.SSL_free(ssl)
 		return false
 	}
 
-	SSL_set0_rbio(ssl, rbio) // ownership → ssl
-	SSL_set0_wbio(ssl, wbio)
-	SSL_set_accept_state(ssl)
+	openssl.SSL_set0_rbio(ssl, rbio) // ownership → ssl
+	openssl.SSL_set0_wbio(ssl, wbio)
+	openssl.SSL_set_accept_state(ssl)
 	conn.ssl = rawptr(ssl)
 	conn.rbio = rawptr(rbio) // retained only for BIO_read/BIO_write; never BIO_free'd separately
 	conn.wbio = rawptr(wbio)
@@ -225,7 +226,7 @@ tls_server_attach :: proc(conn: ^Net_Connection, ctx: SSL_CTX) -> bool {
 // state exactly once regardless of backend. Idempotent.
 tls_server_free_conn :: proc(conn: ^Net_Connection) {
 	if conn.ssl != nil {
-		SSL_free(cast(SSL)conn.ssl) // frees rbio + wbio (set0 transferred ownership)
+		openssl.SSL_free(cast(openssl.SSL)conn.ssl) // frees rbio + wbio (set0 transferred ownership)
 		conn.ssl = nil
 		conn.rbio = nil
 		conn.wbio = nil
@@ -252,7 +253,7 @@ tls_server_cancel_handshake_timer :: proc(conn: ^Net_Connection) {
 // Backend-split: proactor queues into pending_writes + kick_send; readiness into write_queue +
 // net_flush. Called after EVERY SSL op — this is the C1 invariant.
 tls_pump_wbio :: proc(conn: ^Net_Connection) {
-	wbio := cast(BIO)conn.wbio
+	wbio := cast(openssl.BIO)conn.wbio
 
 	if wbio == nil {
 		return
@@ -264,7 +265,7 @@ tls_pump_wbio :: proc(conn: ^Net_Connection) {
 	wrote := false
 	chunk: [16384]byte
 	for {
-		n := BIO_read(wbio, raw_data(chunk[:]), c.int(len(chunk)))
+		n := openssl.BIO_read(wbio, raw_data(chunk[:]), c.int(len(chunk)))
 
 		if n <= 0 {
 			break
@@ -288,14 +289,14 @@ tls_pump_wbio :: proc(conn: ^Net_Connection) {
 // either advance the handshake or run the decrypt loop. Called from every recv-completion path
 // (proactor single-shot / ring / readiness) when conn.tls. The caller re-arms the recv after.
 tls_server_on_ciphertext :: proc(conn: ^Net_Connection, cipher: []byte) {
-	rbio := cast(BIO)conn.rbio
+	rbio := cast(openssl.BIO)conn.rbio
 
 	if rbio == nil {
 		return
 	}
 
 	if len(cipher) > 0 {
-		BIO_write(rbio, raw_data(cipher), c.int(len(cipher))) // copies into the mem BIO
+		openssl.BIO_write(rbio, raw_data(cipher), c.int(len(cipher))) // copies into the mem BIO
 	}
 
 	if conn.tls_handshaking {
@@ -315,9 +316,9 @@ tls_server_on_ciphertext :: proc(conn: ^Net_Connection, cipher: []byte) {
 // fully completed (so the caller continues into the read loop).
 @(private = "file")
 tls_server_do_handshake :: proc(conn: ^Net_Connection) -> (done: bool) {
-	ssl := cast(SSL)conn.ssl
-	ERR_clear_error() // clear cross-conn error-queue residue before classifying (see tls_server_read_loop)
-	ret := SSL_accept(ssl)
+	ssl := cast(openssl.SSL)conn.ssl
+	openssl.ERR_clear_error() // clear cross-conn error-queue residue before classifying (see tls_server_read_loop)
+	ret := openssl.SSL_accept(ssl)
 	step := tls_step(ssl, ret) // capture before any BIO op
 	tls_pump_wbio(conn) // send whatever handshake records SSL_accept produced
 
@@ -366,14 +367,14 @@ tls_server_pump_reads :: proc(conn: ^Net_Connection) {
 // undecrypted remainder resumes via tls_server_pump_reads on the next drain.
 @(private = "file")
 tls_server_read_loop :: proc(conn: ^Net_Connection) {
-	ssl := cast(SSL)conn.ssl
+	ssl := cast(openssl.SSL)conn.ssl
 	// The error queue is thread-local and shared by every conn on this loop: a prior conn's failed op
 	// could leave residue that flips this op's SSL_get_error (SYSCALL vs SSL) and misclassify a clean
 	// EOF as fatal. Clear before classifying. (A clean SSL_read never pushes, so once per loop is enough.)
-	ERR_clear_error()
+	openssl.ERR_clear_error()
 	buf: [16384]byte
 	for {
-		n := SSL_read(ssl, raw_data(buf[:]), c.int(len(buf)))
+		n := openssl.SSL_read(ssl, raw_data(buf[:]), c.int(len(buf)))
 
 		if n > 0 {
 			copy_buf := make([]byte, int(n), runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap
@@ -420,9 +421,9 @@ tls_server_write :: proc(conn: ^Net_Connection, plaintext: []byte) -> bool {
 		return !conn.closing
 	}
 
-	ssl := cast(SSL)conn.ssl
-	ERR_clear_error() // clear cross-conn error-queue residue before classifying (see tls_server_read_loop)
-	n := SSL_write(ssl, raw_data(plaintext), c.int(len(plaintext)))
+	ssl := cast(openssl.SSL)conn.ssl
+	openssl.ERR_clear_error() // clear cross-conn error-queue residue before classifying (see tls_server_read_loop)
+	n := openssl.SSL_write(ssl, raw_data(plaintext), c.int(len(plaintext)))
 	step := tls_step(ssl, n) // capture before the pump
 	tls_pump_wbio(conn)
 
@@ -455,7 +456,7 @@ tls_server_begin_close :: proc(conn: ^Net_Connection) {
 		return
 	}
 
-	SSL_shutdown(cast(SSL)conn.ssl)
+	openssl.SSL_shutdown(cast(openssl.SSL)conn.ssl)
 	tls_pump_wbio(conn)
 }
 
@@ -554,7 +555,7 @@ https_free_secure_context_cb :: proc "c" (
 	id := u64(jsc.JSValueToNumber(ctx, arguments[0], nil))
 
 	if ssl_ctx, ok := state.tls_server_ctxs[id]; ok {
-		tls_server_ctx_free(cast(SSL_CTX)ssl_ctx)
+		tls_server_ctx_free(cast(openssl.SSL_CTX)ssl_ctx)
 		delete_key(&state.tls_server_ctxs, id)
 	}
 

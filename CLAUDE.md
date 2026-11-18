@@ -13,6 +13,7 @@ Layering (never blur it):
 | Embedded spec surface    | `pkg/runtime/js/**.js`  | `Buffer`, `fetch`, streams, `URL`, `http`… |
 | Engine FFI / private ABI | `pkg/jsc`               | JSC C API, string/view/host ABI, probes    |
 | Event loop               | `pkg/runtime/eventloop` | phases, timers, io_uring/epoll, threadpool |
+| TLS (OpenSSL bindings)   | `pkg/tls`               | client/server SSL; no JS, no runtime       |
 
 ---
 
