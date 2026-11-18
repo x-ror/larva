@@ -1182,15 +1182,18 @@ install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef)
 	set_named(ctx, natives, "node/buffer", cast(jsc.JSValueRef)buffer_bindings)
 	set_named(ctx, natives, "internal/encoding", cast(jsc.JSValueRef)buffer_bindings)
 	set_named(ctx, natives, "internal/fetch", cast(jsc.JSValueRef)make_fetch_bindings(ctx))
-	set_named(ctx, natives, "node/sqlite", cast(jsc.JSValueRef)make_sqlite_bindings(ctx))
-	set_named(ctx, natives, "node/dns", cast(jsc.JSValueRef)make_dns_bindings(ctx))
-	set_named(ctx, natives, "node/net", cast(jsc.JSValueRef)make_net_bindings(ctx))
-	set_named(ctx, natives, "node/http", cast(jsc.JSValueRef)make_http_bindings(ctx))
-	set_named(ctx, natives, "node/https", cast(jsc.JSValueRef)make_https_bindings(ctx))
-	set_named(ctx, natives, "node/os", cast(jsc.JSValueRef)make_os_bindings(ctx))
-	set_named(ctx, natives, "node/tty", cast(jsc.JSValueRef)make_tty_bindings(ctx))
 	set_named(ctx, natives, "internal/stdio", cast(jsc.JSValueRef)make_stdio_bindings(ctx))
-	set_named(ctx, natives, "node/fs", cast(jsc.JSValueRef)make_fs_bindings(ctx))
+	// The Node-only subsystems: built in only with -define:LAVA_NODE_MODULES=true.
+	when LAVA_NODE_MODULES {
+		set_named(ctx, natives, "node/sqlite", cast(jsc.JSValueRef)make_sqlite_bindings(ctx))
+		set_named(ctx, natives, "node/dns", cast(jsc.JSValueRef)make_dns_bindings(ctx))
+		set_named(ctx, natives, "node/net", cast(jsc.JSValueRef)make_net_bindings(ctx))
+		set_named(ctx, natives, "node/http", cast(jsc.JSValueRef)make_http_bindings(ctx))
+		set_named(ctx, natives, "node/https", cast(jsc.JSValueRef)make_https_bindings(ctx))
+		set_named(ctx, natives, "node/os", cast(jsc.JSValueRef)make_os_bindings(ctx))
+		set_named(ctx, natives, "node/tty", cast(jsc.JSValueRef)make_tty_bindings(ctx))
+		set_named(ctx, natives, "node/fs", cast(jsc.JSValueRef)make_fs_bindings(ctx))
+	}
 	// Intrinsic process/console objects. Captured here (context init, before user
 	// code) and handed to the factories so require('node:process') /
 	// require('node:console') never re-read the globals — node returns the
@@ -1325,6 +1328,9 @@ builtin_compile_cb :: proc "c" (
 		}
 		id = string(narrow[:len(r.s16)])
 	}
+
+	// Excluded from this build (LAVA_NODE_MODULES=false): not a builtin.
+	if node_module_excluded(id) do return undefined
 
 	slash := strings.last_index_byte(id, '/')
 	if slash <= 0 do return undefined
@@ -1461,6 +1467,39 @@ make_native_function :: proc(
 // LAVA_JS_OVERRIDE=1 is in the environment, which the mutation runner sets for its
 // mutant builds.
 LAVA_JS_OVERRIDE :: #config(LAVA_JS_OVERRIDE, false)
+
+// LAVA_NODE_MODULES decides whether the Node-only subsystems are part of the build:
+// node:sqlite, node:fs, node:os, node:net, node:http, node:https, node:dns and
+// node:tty. Off by default while the engine core for Larva is being built — the
+// owner's call, 2026-11-18: these are excluded, not deleted, so Lava can still be
+// taken to full Node parity later. `-define:LAVA_NODE_MODULES=true` (`make build
+// NODE_MODULES=1`) brings them back unchanged.
+//
+// Off means: their bindings objects are never created (install_internal_modules),
+// and the loader's compile refuses their ids (builtin_compile_cb), so `require` of
+// one falls through to the filesystem like any unknown name. The sources stay
+// embedded and type-checked. What still stays in: the web surface (fetch, URL,
+// streams, encoding, timers), Buffer, events/stream/util/path/assert and the
+// CommonJS loader.
+//
+// Deviates: with it off this is not a Node-compatible runtime (§1), and the oracle
+// suites for these modules cannot pass. No test pins the off state yet — tests are
+// deliberately paused for this phase.
+LAVA_NODE_MODULES :: #config(LAVA_NODE_MODULES, false)
+
+// The module ids LAVA_NODE_MODULES=false takes out, by exact id or `dir/` prefix.
+@(private = "file")
+node_module_excluded :: proc(id: string) -> bool {
+	when LAVA_NODE_MODULES {
+		return false
+	} else {
+		switch id {
+		case "node/sqlite", "node/fs", "node/os", "node/net", "node/http", "node/https", "node/dns", "node/tty", "node/dns/promises":
+			return true
+		}
+		return strings.has_prefix(id, "internal/http/") || strings.has_prefix(id, "internal/os/")
+	}
+}
 
 RUNTIME_SOURCE_FILE :: #file
 
