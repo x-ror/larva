@@ -151,8 +151,7 @@ pump :: proc(p: ^Parser) -> (script: Node, status: Pump_Status) {
 			source_compact(&p.input)
 			return nil, .Need_Input
 		}
-		if lxb_html_document_parse_chunk(p.doc, raw_data(src.buf[src.off:]), c.size_t(n)) !=
-		   LXB_STATUS_OK {
+		if lxb_html_document_parse_chunk(p.doc, raw_data(src.buf[src.off:]), c.size_t(n)) != LXB_STATUS_OK {
 			return nil, fail(p, "pkg/html: lexbor failed to parse")
 		}
 		src.off += n
@@ -219,8 +218,7 @@ error_message :: proc(p: ^Parser) -> string {
 serialize :: proc(p: ^Parser, allocator := context.allocator) -> (markup: string, ok: bool) {
 	if p.doc == nil do return "", false
 	b := strings.builder_make(allocator)
-	if lxb_html_serialize_deep_cb(larva_html_document_node(p.doc), collect_markup, &b) !=
-	   LXB_STATUS_OK {
+	if lxb_html_serialize_deep_cb(larva_html_document_node(p.doc), collect_markup, &b) != LXB_STATUS_OK {
 		strings.builder_destroy(&b)
 		return "", false
 	}

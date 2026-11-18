@@ -1,15 +1,17 @@
-# C/C++ style for the code we own (pkg/html/shim): 2-space indent, attached braces,
-# 100 columns, `T *p`. Editors that format on save pick this up; `make fmt` applies it.
+# C/C++ style for the code we own (pkg/html/shim): tabs (width 4, as the Odin code),
+# attached braces, 120 columns, `T *p`. Editors that format on save pick this up; `make fmt` applies it.
 BasedOnStyle: LLVM
 Language: Cpp
 Standard: c++17
-IndentWidth: 2
-ColumnLimit: 100
+IndentWidth: 4
+UseTab: Always
+TabWidth: 4
+ColumnLimit: 120
 BreakBeforeBraces: Attach
 NamespaceIndentation: All
 PointerAlignment: Right
 ReferenceAlignment: Right
-AccessModifierOffset: -2
+AccessModifierOffset: -4
 AllowShortFunctionsOnASingleLine: Inline
 AllowShortLambdasOnASingleLine: All
 AllowShortIfStatementsOnASingleLine: Never

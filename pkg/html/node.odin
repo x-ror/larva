@@ -21,14 +21,7 @@ text :: proc(node: Node, allocator := context.allocator) -> string {
 //
 // Returns:
 //   ok false when the attribute is absent (an empty value is ok true).
-attr :: proc(
-	node: Node,
-	name: string,
-	allocator := context.allocator,
-) -> (
-	value: string,
-	ok: bool,
-) {
+attr :: proc(node: Node, name: string, allocator := context.allocator) -> (value: string, ok: bool) {
 	n: c.size_t
 	v := larva_html_attr(node, raw_data(name), c.size_t(len(name)), &n)
 	if v == nil do return "", false
