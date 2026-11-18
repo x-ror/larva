@@ -388,6 +388,9 @@ fmt:
 	# to strip-semicolon above, so a sync does not fight over whitespace.
 	@if command -v $(ODINFMT) >/dev/null 2>&1; then $(ODINFMT) -w pkg/html; \
 	else echo 'make fmt: odinfmt not found; set ODINFMT=/path/to/odinfmt to format pkg/html'; fi
+	# Multi-line blocks after if/else/for and blank lines around if: no formatter does
+	# either (scripts/fmt-if.mjs). Run after odinfmt, whose convert_do makes the braces.
+	node scripts/fmt-if.mjs pkg/html
 
 # `rm` isn't a Windows command and can't take the $(RUNSCRIPT) prefix (bash would treat
 # `rm` as a script), so invoke the shell explicitly: $(SHELL) is Git Bash on Windows and

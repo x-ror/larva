@@ -74,11 +74,15 @@ source_reset :: proc(s: ^Source) {
 // so the copy is amortized instead of paid on every piece of input.
 @(private)
 source_compact :: proc(s: ^Source) {
-	if s.off == 0 || s.off * 2 < len(s.buf) do return
+	if s.off == 0 || s.off * 2 < len(s.buf) {
+		return
+	}
+
 	n := s.off
 	remove_range(&s.buf, 0, n)
 	s.off = 0
 	s.scan = max(s.scan - n, 0)
+
 	if s.tag >= 0 {
 		s.tag -= n
 		s.tag_pos -= n
@@ -90,14 +94,17 @@ source_compact :: proc(s: ^Source) {
 @(private)
 next_cut :: proc(s: ^Source, eof: bool) -> int {
 	end := len(s.buf)
+
 	if s.tag < 0 {
 		s.scan = max(s.scan, s.off)
 		search: for s.scan < end {
 			k := bytes.index_byte(s.buf[s.scan:], '<')
+
 			if k < 0 {
 				s.scan = end
 				break
 			}
+
 			at := s.scan + k
 			switch match_script_end(s.buf[at:]) {
 			case .No:
@@ -108,6 +115,7 @@ next_cut :: proc(s: ^Source, eof: bool) -> int {
 					s.scan = end
 					return end - s.off
 				}
+
 				s.scan = at
 				return at - s.off
 			case .Yes:
@@ -117,17 +125,25 @@ next_cut :: proc(s: ^Source, eof: bool) -> int {
 				break search
 			}
 		}
-		if s.tag < 0 do return end - s.off
+
+		if s.tag < 0 {
+			return end - s.off
+		}
 	}
 
 	// Inside a candidate: find its `>`, skipping quoted attribute values, as the
 	// tokenizer does in the attribute states of an end tag.
 	for ; s.tag_pos < end; s.tag_pos += 1 {
 		b := s.buf[s.tag_pos]
+
 		if s.quote != 0 {
-			if b == s.quote do s.quote = 0
+			if b == s.quote {
+				s.quote = 0
+			}
+
 			continue
 		}
+
 		switch {
 		case b == '>':
 			cut := s.tag_pos + 1
@@ -145,11 +161,13 @@ next_cut :: proc(s: ^Source, eof: bool) -> int {
 			s.after_eq = false
 		}
 	}
+
 	if eof || s.tag_pos - s.tag > END_TAG_MAX {
 		s.tag = -1
 		s.scan = end
 		return end - s.off
 	}
+
 	return s.tag - s.off
 }
 
@@ -160,10 +178,19 @@ next_cut :: proc(s: ^Source, eof: bool) -> int {
 match_script_end :: proc(b: []byte) -> Match {
 	needle := SCRIPT_END_TAG
 	for i in 0 ..< len(needle) {
-		if i >= len(b) do return .Need_More
-		if ascii_lower(b[i]) != needle[i] do return .No
+		if i >= len(b) {
+			return .Need_More
+		}
+
+		if ascii_lower(b[i]) != needle[i] {
+			return .No
+		}
 	}
-	if len(b) == len(needle) do return .Need_More
+
+	if len(b) == len(needle) {
+		return .Need_More
+	}
+
 	next := b[len(needle)]
 	return .Yes if next == '/' || next == '>' || is_html_space(next) else .No
 }

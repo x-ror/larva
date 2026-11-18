@@ -1,0 +1,14 @@
+{
+  "configurations": [
+    {
+      "name": "Linux",
+      "includePath": ["${workspaceFolder}/.deps/lexbor/include", "${workspaceFolder}/pkg/runtime/picohttpparser"],
+      "defines": [],
+      "compilerPath": "/usr/bin/cc",
+      "cStandard": "c11",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "linux-gcc-x64"
+    }
+  ],
+  "version": 4
+}

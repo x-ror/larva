@@ -46,27 +46,38 @@ typedef struct {
 // end tag with that current node, so it is ignored.
 static lxb_html_token_t *larva_hook_cb(lxb_html_tokenizer_t *tkz, lxb_html_token_t *token, void *ctx) {
 	larva_html_hook *h = ctx;
+
 	if (token->tag_id == LXB_TAG_SCRIPT && (token->type & LXB_HTML_TOKEN_TYPE_CLOSE)) {
 		lxb_dom_node_t *cur = lxb_html_tree_current_node(h->tree);
+
 		if (cur != NULL && cur->local_name == LXB_TAG_SCRIPT) {
 			h->script = cur;
 			h->closed++;
 		}
 	}
+
 	return h->orig(tkz, token, h->orig_ctx);
 }
 
 // Starts chunked parsing of `doc` and installs the hook. NULL on failure; free with
 // larva_html_hook_free after the document's parse has ended.
 larva_html_hook *larva_html_begin(lxb_html_document_t *doc) {
-	if (lxb_html_document_parse_chunk_begin(doc) != LXB_STATUS_OK)
+	if (lxb_html_document_parse_chunk_begin(doc) != LXB_STATUS_OK) {
 		return NULL;
+	}
+
 	lxb_html_parser_t *parser = doc->dom_document.parser;
-	if (parser == NULL || parser->tkz == NULL || parser->tree == NULL)
+
+	if (parser == NULL || parser->tkz == NULL || parser->tree == NULL) {
 		return NULL;
+	}
+
 	larva_html_hook *h = calloc(1, sizeof(*h));
-	if (h == NULL)
+
+	if (h == NULL) {
 		return NULL;
+	}
+
 	h->orig = parser->tkz->callback_token_done;
 	h->orig_ctx = parser->tkz->callback_token_ctx;
 	h->tree = parser->tree;
@@ -100,8 +111,9 @@ lxb_char_t *larva_html_text(lxb_dom_node_t *node, size_t *len) {
 }
 
 void larva_html_text_free(lxb_dom_node_t *node, lxb_char_t *text) {
-	if (text != NULL)
+	if (text != NULL) {
 		lxb_dom_document_destroy_text(node->owner_document, text);
+	}
 }
 
 // The value of attribute `name` on element `node`, or NULL when absent. Owned by the
@@ -112,19 +124,28 @@ const lxb_char_t *larva_html_attr(lxb_dom_node_t *node, const lxb_char_t *name, 
 
 larva_css *larva_css_create(void) {
 	larva_css *e = calloc(1, sizeof(*e));
-	if (e == NULL)
+
+	if (e == NULL) {
 		return NULL;
+	}
+
 	e->parser = lxb_css_parser_create();
 	e->selectors = lxb_selectors_create();
+
 	if (e->parser == NULL || e->selectors == NULL || lxb_css_parser_init(e->parser, NULL) != LXB_STATUS_OK ||
 		lxb_selectors_init(e->selectors) != LXB_STATUS_OK) {
-		if (e->selectors != NULL)
+		if (e->selectors != NULL) {
 			lxb_selectors_destroy(e->selectors, true);
-		if (e->parser != NULL)
+		}
+
+		if (e->parser != NULL) {
 			lxb_css_parser_destroy(e->parser, true);
+		}
+
 		free(e);
 		return NULL;
 	}
+
 	// querySelectorAll reports a node once, however many selectors of a list
 	// (`a, a.x`) it matches; lexbor's default reports it once per selector.
 	lxb_selectors_opt_set(e->selectors, LXB_SELECTORS_OPT_MATCH_FIRST);
@@ -132,8 +153,10 @@ larva_css *larva_css_create(void) {
 }
 
 void larva_css_destroy(larva_css *e) {
-	if (e == NULL)
+	if (e == NULL) {
 		return;
+	}
+
 	lxb_selectors_destroy(e->selectors, true);
 	lxb_css_parser_destroy(e->parser, true);
 	free(e);
@@ -142,10 +165,12 @@ void larva_css_destroy(larva_css *e) {
 // NULL when `css` is not a valid selector list.
 lxb_css_selector_list_t *larva_css_compile(larva_css *e, const lxb_char_t *css, size_t len) {
 	lxb_css_selector_list_t *list = lxb_css_selectors_parse(e->parser, css, len);
+
 	if (e->parser->status != LXB_STATUS_OK) {
 		lxb_css_selector_list_destroy_memory(list);
 		return NULL;
 	}
+
 	return list;
 }
 
