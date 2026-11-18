@@ -14,6 +14,7 @@ typedef struct {
     void *orig_ctx;
     lxb_html_tree_t *tree;
     lxb_dom_node_t *script; // the <script> whose end tag was just tokenized, else NULL
+    size_t closed;          // script end tags seen since the last take; > 1 means one was lost
 } larva_html_hook;
 
 // Runs BEFORE the tree builder handles the token. For a script end tag in the text
@@ -29,6 +30,7 @@ larva_hook_cb(lxb_html_tokenizer_t *tkz, lxb_html_token_t *token, void *ctx)
         lxb_dom_node_t *cur = lxb_html_tree_current_node(h->tree);
         if (cur != NULL && cur->local_name == LXB_TAG_SCRIPT) {
             h->script = cur;
+            h->closed++;
         }
     }
     return h->orig(tkz, token, h->orig_ctx);
@@ -51,12 +53,16 @@ larva_html_begin(lxb_html_document_t *doc)
     return h;
 }
 
-// Returns the script element closed since the last call, and clears it.
+// Returns the script element closed since the last call, and clears it. *closed is
+// how many script end tags were seen in that time: the parser cuts its slices so that
+// it is never more than 1, and treats more as a failure rather than lose a script.
 lxb_dom_node_t *
-larva_html_take_script(larva_html_hook *h)
+larva_html_take_script(larva_html_hook *h, size_t *closed)
 {
     lxb_dom_node_t *s = h->script;
+    *closed = h->closed;
     h->script = NULL;
+    h->closed = 0;
     return s;
 }
 

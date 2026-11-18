@@ -329,6 +329,34 @@ swappable backend (OpenSSL, or a rejecting stub). DNS — `fetch`'s and `node:dn
 incremental `ReadableStream`s with backpressure. This is the second-strongest
 subsystem after the loop, and it validates the `post_async` design end to end.
 
+### 3.6 HTML parser (`pkg/html`)
+
+An incremental parser over [lexbor](https://github.com/lexbor/lexbor) (Apache-2.0,
+pinned commit, built from source into `.deps/` by `scripts/build-lexbor.sh`). lexbor
+stays behind the package: its bindings (`lexbor.odin`) are private, and callers see
+`Parser` and `Node` only (docs/LARVA.md, decision 4). Linux only for now; elsewhere
+`init` fails with a message (`lexbor_other.odin`).
+
+The contract a page loader builds on is the pause. `pump` parses until the next
+parser-blocking script and returns it with the tree holding exactly what precedes it,
+as a browser's parser would. lexbor has no pause and no `document.write`, and needs
+neither:
+
+- the caller holds the input, and `cut.odin` cuts it so that a slice never runs past a
+  `</script` end tag's `>` (quoted attribute values skipped, as the tokenizer does);
+- the C shim (`shim/larva_html.c`) wraps lexbor's token callback and records which
+  script element an end tag closed, so a `</script>` inside a comment or a JS string
+  does not pause. More than one script closing in a slice is a failure, never a
+  dropped script;
+- `write` puts `document.write` text at the insertion point, after earlier writes and
+  before the rest of the input; scripts in it pause in turn.
+
+The cut scan resumes where it stopped and the consumed input is compacted only once
+it is half the buffer, so feeding a page in many small reads stays linear. One
+unterminated `</script` holds back at most 4 KiB (`END_TAG_MAX`).
+
+`lava html [--scripts] [--chunk N] <file|->` drives it from the CLI.
+
 ---
 
 ## 4. Cross-cutting concerns

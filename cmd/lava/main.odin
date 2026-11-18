@@ -2,7 +2,7 @@ package main
 
 import "core:fmt"
 import "core:os"
-import "core:strings"
+import "core:strconv"
 import html "lava:pkg/html"
 import lava_runtime "lava:pkg/runtime"
 import eventloop "lava:pkg/runtime/eventloop"
@@ -42,7 +42,7 @@ print_help :: proc() {
 Usage:
   lava eval <source>    Evaluate JavaScript source
   lava run <file>       Run a JavaScript file
-  lava html [--scripts] <file|->
+  lava html [--scripts] [--chunk N] <file|->
                         Parse HTML and print the serialized document
   lava --version        Print version
   lava --help           Print help
@@ -122,22 +122,41 @@ print_result :: proc(result: lava_runtime.Result, user_data: rawptr) {
 	lava_runtime.process_write(os.stderr, result.message, "\n")
 }
 
-// html_command parses an HTML file (or stdin, `-`) with pkg/html and prints the
-// serialized document. The input is fed in 16 KiB pieces, as a network read would
-// deliver it, so the incremental path is the one exercised. Scripts are not run: with
-// --scripts each parser-blocking script is reported on stderr at the moment the
-// parser pauses for it, which is where a page loader would execute it.
+// html_command parses an HTML file (or stdin, `-`) and prints the serialized
+// document. No script runs: --scripts reports each parser-blocking script on stderr
+// at the moment the parser pauses for it, where a page loader would execute it.
+// --chunk N feeds the input N bytes at a time, as network reads would, to exercise
+// the incremental path; by default it is fed at once.
 html_command :: proc(args: []string) {
-	list_scripts := false
-	path := ""
-	for a in args {
-		if a == "--scripts" do list_scripts = true
-		else do path = a
-	}
-	if path == "" {
-		fmt.eprintln("usage: lava html [--scripts] <file|->")
+	usage :: proc() -> ! {
+		fmt.eprintln("usage: lava html [--scripts] [--chunk N] <file|->")
 		os.exit(2)
 	}
+	Html_Options :: struct {
+		list_scripts: bool,
+		scripts:      int,
+	}
+	opts: Html_Options
+	chunk := 0
+	path := ""
+	for i := 0; i < len(args); i += 1 {
+		switch a := args[i]; {
+		case a == "--scripts":
+			opts.list_scripts = true
+		case a == "--chunk":
+			i += 1
+			if i == len(args) do usage()
+			n, ok := strconv.parse_int(args[i])
+			if !ok || n <= 0 do usage()
+			chunk = n
+		case len(a) > 1 && a[0] == '-', path != "":
+			usage()
+		case:
+			path = a
+		}
+	}
+	if path == "" do usage()
+
 	data: []byte
 	err: os.Error
 	if path == "-" do data, err = os.read_entire_file_from_file(os.stdin, context.allocator)
@@ -146,50 +165,31 @@ html_command :: proc(args: []string) {
 		fmt.eprintfln("lava html: cannot read %s: %v", path, err)
 		os.exit(1)
 	}
-	defer delete(data)
 
-	p: html.Parser
-	defer html.destroy(&p)
-	if !html.init(&p) {
-		fmt.eprintln("lava html: lexbor could not create a document")
-		os.exit(1)
-	}
-	CHUNK :: 16 * 1024
-	off, scripts := 0, 0
-	loop: for {
-		script, st := html.pump(&p)
-		switch st {
-		case .Script:
-			scripts += 1
-			if list_scripts {
-				if src, ok := html.attr(script, "src"); ok {
-					fmt.eprintfln("[script %d] src=%s", scripts, src)
-				} else {
-					body := html.text(script)
-					fmt.eprintfln("[script %d] inline, %d bytes", scripts, len(body))
-					delete(body)
-				}
-			}
-		case .Need_Input:
-			if off >= len(data) {
-				html.finish(&p)
-				continue
-			}
-			end := min(off + CHUNK, len(data))
-			html.feed(&p, data[off:end])
-			off = end
-		case .Done:
-			break loop
-		case .Failed:
-			fmt.eprintln("lava html: lexbor reported a parse failure")
-			os.exit(1)
+	report :: proc(p: ^html.Parser, script: html.Node, user_data: rawptr) {
+		o := cast(^Html_Options)user_data
+		o.scripts += 1
+		if !o.list_scripts do return
+		// An SVG <script> names its file with href, an HTML one with src.
+		src, ok := html.attr(script, "src", context.temp_allocator)
+		if !ok do src, ok = html.attr(script, "href", context.temp_allocator)
+		if ok {
+			fmt.eprintfln("[script %d] src=%s", o.scripts, src)
+		} else {
+			fmt.eprintfln("[script %d] inline, %d bytes", o.scripts, len(html.text(script, context.temp_allocator)))
 		}
 	}
-	b := strings.builder_make()
-	defer strings.builder_destroy(&b)
-	if !html.serialize(&p, &b) {
-		fmt.eprintln("lava html: serialization failed")
+
+	p: html.Parser
+	ok := html.init(&p) && html.parse_all(&p, data, report, &opts, chunk)
+	markup: string
+	if ok do markup, ok = html.serialize(&p)
+	if !ok {
+		msg := html.error_message(&p)
+		fmt.eprintfln("lava html: %s", msg if msg != "" else "serialization failed")
+		html.destroy(&p)
 		os.exit(1)
 	}
-	fmt.println(strings.to_string(b))
+	fmt.println(markup)
+	html.destroy(&p)
 }

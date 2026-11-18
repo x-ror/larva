@@ -32,7 +32,7 @@ help:
 	@printf '%s\n' ''
 	@printf '%s\n' 'Build / run'
 	@printf '%s\n' '  make build              Build the lava CLI'
-	@printf '%s\n' '  make native-deps        Build vendored C deps (picohttpparser)'
+	@printf '%s\n' '  make native-deps        Build vendored C deps (picohttpparser, lexbor)'
 	@printf '%s\n' '  make bootstrap-windows-deps Fetch ignored Windows native deps into .deps/'
 	@printf '%s\n' '  make build-sqlite-windows Build build/sqlite3.lib via MSVC'
 	@printf '%s\n' '  make run FILE=app.js    Run a JavaScript file through lava'

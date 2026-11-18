@@ -4,224 +4,221 @@ import "base:runtime"
 import "core:c"
 import "core:strings"
 
-// Parser is an incremental HTML parser over lexbor that hands control back to the
-// caller at every parser-blocking script, the way a browser's parser does.
+// Parser is an incremental HTML parser that hands control back to the caller at every
+// parser-blocking script, the way a browser's parser does (#10).
 //
-// The caller owns the input and decides when parsing moves on. lexbor itself has no
-// pause and no document.write (its tree builder leaves both as TODO at `</script>`,
-// html/tree/insertion_mode/text.c), and needs neither: we feed it slices, and a slice
-// never runs past the end tag of a script. So when `pump` returns a script, the tree
-// holds exactly what precedes that script and nothing after it — what the script
-// would see in a browser. Text the script writes (`write`) goes in front of the rest
-// of the input, i.e. at the insertion point, and is parsed before it.
+// The caller owns the input and decides when parsing moves on. lexbor has no pause and
+// no document.write (its tree builder leaves both as TODO at `</script>`,
+// html/tree/insertion_mode/text.c) and needs neither: we feed it slices that never run
+// past a script's end tag (cut.odin). So when `pump` returns a script, the tree holds
+// exactly what precedes it — what the script would see in a browser. Text the script
+// writes (`write`) is parsed next, before the rest of the input.
 //
 //     p: Parser
-//     init(&p)
-//     feed(&p, chunk)                  // as bytes arrive; finish(&p) at the end
+//     init(&p) or_return
+//     defer destroy(&p)
+//     feed(&p, bytes)                    // as they arrive; finish(&p) after the last
 //     for {
-//         script, st := pump(&p)
-//         switch st {
+//         script, status := pump(&p)
+//         switch status {
 //         case .Script:     run it; write(&p, ...) for each document.write
-//         case .Need_Input: feed(&p, next chunk) or finish(&p)
-//         case .Done, .Failed: break
+//         case .Need_Input: feed(&p, ...) or finish(&p)
+//         case .Done:       // the document is complete
+//         case .Failed:     // error_message(&p) says why
 //         }
 //     }
-//     serialize(&p, ...)
-//     destroy(&p)
 //
-// Limits, known:
-//   - Input is taken as UTF-8. Charset sniffing (BOM, <meta charset>, Content-Type)
-//     is not done yet.
-//   - A slice is cut after the first `>` that follows a `</script` (any case). An end
-//     tag that carries a quoted `>` in an attribute (`</script x=">">`) is legal HTML
-//     and is cut too early; the script then closes inside the next, larger slice and
-//     the pause lands late. No real page is known to do this.
-//   - Script execution and document.write semantics beyond "insert at the insertion
-//     point" (script nesting level, document.open after load) are the caller's.
+// parse_all wraps that loop for input already in memory.
+//
+// Known limits:
+//   - Input is taken as UTF-8: no charset sniffing (BOM, <meta charset>, Content-Type).
+//   - Script nesting level and document.open (a write after the parse ended) are not
+//     modelled; write is refused once the document is done.
+//   - A `</script` split between written text and the input that follows it is not
+//     seen as one candidate.
+//
+// The fields are internal; use the procedures.
 Parser :: struct {
-	doc:       Document,
-	hook:      Hook,
-	input:     [dynamic]byte, // unparsed input, from `off`
-	off:       int,
-	eof:       bool,
-	ended:     bool,
-	failed:    bool,
-	allocator: runtime.Allocator,
+	doc:     lxb_document,
+	hook:    larva_hook,
+	input:   Source, // network bytes
+	written: Source, // document.write text, parsed before the rest of `input`
+	ins:     int, // where the next write goes in `written`
+	eof:     bool, // finish was called
+	ended:   bool, // lexbor has ended the document
+	err:     string, // why the parser failed; "" while it has not
 }
 
 Pump_Status :: enum {
-	Need_Input, // every byte fed so far is parsed; feed more or finish
+	Need_Input, // everything fed so far is parsed; feed more or finish
 	Script, // parsing stopped right after this script's end tag
 	Done, // finish was called and the document is complete
-	Failed, // lexbor reported an error; the tree is whatever was built
+	Failed, // see error_message; the tree is whatever was built
 }
 
-// init creates the document and starts chunked parsing. false when lexbor could not
-// allocate; the parser is then unusable and destroy is still safe.
+// init creates an empty document and starts parsing it.
+//
+// Returns:
+//   false when lexbor could not create the document, or off Linux, where no lexbor
+//   build exists yet (error_message says which). destroy is safe either way.
 init :: proc(p: ^Parser, allocator := context.allocator) -> bool {
 	p^ = {}
-	p.allocator = allocator
-	p.input = make([dynamic]byte, 0, 0, allocator)
+	source_init(&p.input, allocator)
+	source_init(&p.written, allocator)
+	when ODIN_OS != .Linux {
+		p.err = "pkg/html: no lexbor build for this target (Linux only)"
+		return false
+	}
 	p.doc = lxb_html_document_create()
-	if p.doc == nil do return false
+	if p.doc == nil {
+		p.err = "pkg/html: lexbor could not create a document"
+		return false
+	}
 	p.hook = larva_html_begin(p.doc)
 	if p.hook == nil {
-		p.failed = true
+		p.err = "pkg/html: lexbor could not start parsing"
 		return false
 	}
 	return true
 }
 
+// destroy frees the document and everything in it. Nodes from this parser are
+// dangling afterwards.
 destroy :: proc(p: ^Parser) {
+	// The document first: the hook is lexbor's tokenizer callback context until then.
 	if p.doc != nil do lxb_html_document_destroy(p.doc)
 	if p.hook != nil do larva_html_hook_free(p.hook)
-	delete(p.input)
+	delete(p.input.buf)
+	delete(p.written.buf)
 	p^ = {}
 }
 
-// feed appends network bytes. Nothing is parsed until pump.
+// feed appends network bytes. They are parsed by pump.
 feed :: proc(p: ^Parser, data: []byte) {
-	append(&p.input, ..data)
+	append(&p.input.buf, ..data)
 }
 
-// finish marks the end of the input; the next pump that runs out of input completes
-// the document.
+// finish marks the end of the input; the pump that runs out of input then ends the
+// document.
 finish :: proc(p: ^Parser) {
 	p.eof = true
 }
 
-// write inserts `text` at the insertion point — right after the script pump returned,
-// before the rest of the input — as document.write does. Meant to be called while
-// paused on a script; scripts it contains pause in turn.
-write :: proc(p: ^Parser, text: string) {
-	inject_at(&p.input, p.off, ..transmute([]byte)text)
+// write inserts `text` at the insertion point: right after the script pump last
+// returned, after any text earlier writes put there, before the rest of the input —
+// as document.write does. Scripts in `text` pause in turn.
+//
+// Returns:
+//   false, and nothing is inserted, once the document is done or the parser failed.
+write :: proc(p: ^Parser, text: string) -> bool {
+	if p.ended || p.err != "" do return false
+	inject_at(&p.written.buf, p.ins, ..transmute([]byte)text)
+	p.ins += len(text)
+	return true
 }
 
-// pump parses until the next parser-blocking script, the end of the available input,
-// or the end of the document.
+// pump parses until the next parser-blocking script, the end of what has been fed, or
+// the end of the document.
 pump :: proc(p: ^Parser) -> (script: Node, status: Pump_Status) {
-	if p.failed do return nil, .Failed
+	if p.err != "" do return nil, .Failed
+	if p.ended do return nil, .Done
 	for {
-		rest := p.input[p.off:]
-		if len(rest) == 0 {
-			if p.ended do return nil, .Done
-			if p.eof {
-				p.ended = true
-				if lxb_html_document_parse_chunk_end(p.doc) != LXB_STATUS_OK {
-					p.failed = true
-					return nil, .Failed
-				}
-				return nil, .Done
+		src, src_eof := &p.input, p.eof
+		if source_pending(&p.written) > 0 {
+			src, src_eof = &p.written, true
+		} else if len(p.written.buf) > 0 {
+			source_reset(&p.written)
+			p.ins = 0
+		}
+
+		if source_pending(src) == 0 {
+			if !p.eof {
+				source_compact(&p.input)
+				return nil, .Need_Input
 			}
-			compact(p)
-			return nil, .Need_Input
+			p.ended = true
+			if lxb_html_document_parse_chunk_end(p.doc) != LXB_STATUS_OK {
+				return nil, fail(p, "pkg/html: lexbor failed to end the document")
+			}
+			return nil, .Done
 		}
-		n := next_cut(rest, p.eof)
+
+		n := next_cut(src, src_eof)
 		if n == 0 {
-			compact(p)
+			source_compact(&p.input)
 			return nil, .Need_Input
 		}
-		if lxb_html_document_parse_chunk(p.doc, raw_data(rest), c.size_t(n)) != LXB_STATUS_OK {
-			p.failed = true
-			return nil, .Failed
+		if lxb_html_document_parse_chunk(p.doc, raw_data(src.buf[src.off:]), c.size_t(n)) != LXB_STATUS_OK {
+			return nil, fail(p, "pkg/html: lexbor failed to parse")
 		}
-		p.off += n
-		if s := larva_html_take_script(p.hook); s != nil do return s, .Script
+		src.off += n
+
+		closed: c.size_t
+		s := larva_html_take_script(p.hook, &closed)
+		if closed > 1 {
+			// A slice closed two scripts: the first was never handed out. cut.odin keeps
+			// this from happening; failing beats losing a script quietly.
+			return nil, fail(p, "pkg/html: two scripts closed in one slice")
+		}
+		if s != nil {
+			p.ins = p.written.off
+			return s, .Script
+		}
 	}
 }
 
-// document_node is the Document node, for serialization or a walk.
-document_node :: proc(p: ^Parser) -> Node {
-	return larva_html_document_node(p.doc)
+// Script_Proc runs at each parser-blocking script during parse_all. It may call write.
+Script_Proc :: #type proc(p: ^Parser, script: Node, user_data: rawptr)
+
+// parse_all parses `data` as the whole document, calling `on_script` at each pause.
+// `chunk` > 0 feeds the input that many bytes at a time, as network reads would; 0
+// feeds it at once.
+parse_all :: proc(p: ^Parser, data: []byte, on_script: Script_Proc = nil, user_data: rawptr = nil, chunk := 0) -> bool {
+	off := 0
+	for {
+		script, status := pump(p)
+		switch status {
+		case .Script:
+			if on_script != nil do on_script(p, script, user_data)
+		case .Need_Input:
+			if off == len(data) {
+				finish(p)
+				continue
+			}
+			end := len(data) if chunk <= 0 else min(off + chunk, len(data))
+			feed(p, data[off:end])
+			off = end
+		case .Done:
+			return true
+		case .Failed:
+			return false
+		}
+	}
 }
 
-// serialize appends the document's markup — the doctype, then the html element — to
-// `out`. Comparing it with Chrome's output is the oracle's job (#2); not done yet.
-serialize :: proc(p: ^Parser, out: ^strings.Builder) -> bool {
-	cb :: proc "c" (data: [^]u8, len: c.size_t, ctx: rawptr) -> lxb_status_t {
+// error_message says why the parser failed; "" when it has not.
+error_message :: proc(p: ^Parser) -> string {
+	return p.err
+}
+
+// serialize returns the document's markup — the doctype, then the html element.
+// Comparing it with Chrome's is the oracle's job (#2), not done yet.
+serialize :: proc(p: ^Parser, allocator := context.allocator) -> (markup: string, ok: bool) {
+	collect :: proc "c" (data: [^]u8, len: c.size_t, ctx: rawptr) -> lxb_status_t {
 		context = runtime.default_context()
-		b := cast(^strings.Builder)ctx
-		strings.write_bytes(b, data[:len])
+		strings.write_bytes(cast(^strings.Builder)ctx, data[:len])
 		return LXB_STATUS_OK
 	}
-	return lxb_html_serialize_deep_cb(document_node(p), cb, out) == LXB_STATUS_OK
-}
-
-// text returns `node`'s textContent, copied into `allocator`.
-text :: proc(node: Node, allocator := context.allocator) -> string {
-	n: c.size_t
-	t := larva_html_text(node, &n)
-	if t == nil do return ""
-	defer larva_html_text_free(node, t)
-	return strings.clone(string(t[:n]), allocator)
-}
-
-// attr returns attribute `name` of element `node`. The string points into the
-// document; copy it to keep it past the next change to that element.
-attr :: proc(node: Node, name: string) -> (value: string, ok: bool) {
-	n: c.size_t
-	v := larva_html_attr(node, raw_data(name), c.size_t(len(name)), &n)
-	if v == nil do return "", false
-	return string(v[:n]), true
-}
-
-@(private = "file")
-compact :: proc(p: ^Parser) {
-	if p.off == 0 do return
-	remove_range(&p.input, 0, p.off)
-	p.off = 0
-}
-
-@(private = "file")
-SCRIPT_END :: "</script"
-
-// next_cut picks how many bytes of `rest` to hand lexbor now: up to and including the
-// first `>` after a `</script`, so a script's end tag is always the last thing in its
-// slice. Whether it really closes a script is lexbor's call (the shim's hook); this
-// only places the cut. Without a candidate, everything goes except a tail that could
-// be the start of one split across network chunks. 0 means wait for more input.
-@(private = "file")
-next_cut :: proc(rest: []byte, eof: bool) -> int {
-	if i := index_ci(rest, SCRIPT_END); i >= 0 {
-		for j in i + len(SCRIPT_END) ..< len(rest) {
-			if rest[j] == '>' do return j + 1
-		}
-		return eof ? len(rest) : i
+	b := strings.builder_make(allocator)
+	if p.doc == nil || lxb_html_serialize_deep_cb(larva_html_document_node(p.doc), collect, &b) != LXB_STATUS_OK {
+		strings.builder_destroy(&b)
+		return "", false
 	}
-	if eof do return len(rest)
-	return len(rest) - partial_tail(rest)
+	return strings.to_string(b), true
 }
 
-// index_ci finds `needle` (lower-case ASCII) in `hay`, ASCII case-insensitively.
 @(private = "file")
-index_ci :: proc(hay: []byte, needle: string) -> int {
-	if len(hay) < len(needle) do return -1
-	outer: for i in 0 ..= len(hay) - len(needle) {
-		if hay[i] != '<' do continue
-		for k in 1 ..< len(needle) {
-			if hay[i + k] | 0x20 != needle[k] && hay[i + k] != needle[k] do continue outer
-		}
-		return i
-	}
-	return -1
-}
-
-// partial_tail is the length of the longest suffix of `b` that is a proper prefix of
-// SCRIPT_END, case-insensitively.
-@(private = "file")
-partial_tail :: proc(b: []byte) -> int {
-	needle := SCRIPT_END
-	for n := min(len(needle) - 1, len(b)); n > 0; n -= 1 {
-		tail := b[len(b) - n:]
-		if tail[0] != '<' do continue
-		match := true
-		for k in 1 ..< n {
-			if tail[k] | 0x20 != needle[k] && tail[k] != needle[k] {
-				match = false
-				break
-			}
-		}
-		if match do return n
-	}
-	return 0
+fail :: proc(p: ^Parser, why: string) -> Pump_Status {
+	p.err = why
+	return .Failed
 }
