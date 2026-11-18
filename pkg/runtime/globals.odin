@@ -903,7 +903,12 @@ process_memory_usage_cb :: proc "c" (
 // install_globals wires the Node-like global surface (console, process,
 // timers, queueMicrotask, globalThis) onto the context's global object.
 // Timer functions are no-ops when no event loop is bound.
-install_globals :: proc(ctx: jsc.JSContextRef, loop: ^eventloop.Loop) {
+//
+// `.Web` (Global_Surface, runtime.odin) changes two things here and nothing else:
+// install_stdio does not run, and install_microtasks defines no `__lava*` hook.
+// Everything else is installed as on `.Node` — the bootstrap needs `process` and the
+// rest — and setup_module_environment removes the Node names afterwards.
+install_globals :: proc(ctx: jsc.JSContextRef, loop: ^eventloop.Loop, surface: Global_Surface = .Node) {
 	global := jsc.JSContextGetGlobalObject(ctx)
 
 	set_named(ctx, global, "globalThis", cast(jsc.JSValueRef)global)
@@ -933,11 +938,15 @@ install_globals :: proc(ctx: jsc.JSContextRef, loop: ^eventloop.Loop) {
 
 	install_performance(ctx, global)
 	// process.nextTick + queueMicrotask are a JS shim (needs `process` to exist).
-	install_microtasks(ctx, global)
+	install_microtasks(ctx, global, surface)
 	// process.stdout / process.stderr LAST of the process bits: the loader hands out a
 	// closure rather than eager-requiring stdio, because stdio builds on `stream`, which
 	// needs both the `process` global and `process.nextTick` to already be there.
-	install_stdio(ctx, global)
+	// Not on `.Web`, where `process` is removed before user code: stdio would compile
+	// internal/stdio and the whole node-streams stack (node:stream, events,
+	// internal/streams/*) for an object nothing can reach. console does not need it —
+	// bootstrap/console.js writes through the native writers install_console hands it.
+	if surface == .Node do install_stdio(ctx, global)
 	install_rejection_tracker(ctx)
 }
 
@@ -990,7 +999,13 @@ performance_now_cb :: proc "c" (
 // (globalThis, process) so it can install process.nextTick and queueMicrotask
 // with Node-matching ordering. See js/bootstrap/microtasks.js for why these live
 // in JS on top of JSC's promise-job queue rather than the native event loop.
-install_microtasks :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef) {
+//
+// On `.Node` it also defines the two globals eval's top-level drain names (see
+// TOP_LEVEL_DRAIN, runtime.odin): `__lavaDrainNextTicks` and the `__lava_tl_drain`
+// binding the drain assigns to. They are defined HERE, not in microtasks.js, because
+// they are non-configurable — a `.Web` context could not delete them after the
+// fact — and `.Web` appends no drain, so it simply never gets them.
+install_microtasks :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef, surface: Global_Surface = .Node) {
 	process := get_named(ctx, global, "process")
 	if process == nil || !jsc.JSValueIsObject(ctx, process) do return
 
@@ -1042,6 +1057,22 @@ install_microtasks :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef) {
 	if drain != nil && jsc.JSValueIsObject(ctx, drain) {
 		jsc.JSValueProtect(ctx, drain)
 		state.next_tick_drain = drain
+	}
+
+	if surface == .Node && drain != nil && jsc.JSValueIsObject(ctx, drain) {
+		// The source-level hook for checkpoint 1 before JSEvaluateScript returns:
+		// non-writable, non-enumerable, non-configurable, as microtasks.js defined it.
+		drain_name := jsc.JSStringCreateWithUTF8CString("__lavaDrainNextTicks")
+		defer jsc.JSStringRelease(drain_name)
+		jsc.JSObjectSetProperty(ctx, global, drain_name, drain, {.ReadOnly, .DontEnum, .DontDelete}, nil)
+		// Pre-create the binding the drain's `var __lava_tl_drain = ...` assigns to, as
+		// a non-enumerable property. A VariableStatement (kept for its empty completion
+		// value) would otherwise create an ENUMERABLE non-configurable global;
+		// redeclaring an existing own property writes through without changing this
+		// descriptor, so the internal name stays out of `Object.keys(globalThis)`.
+		tl_name := jsc.JSStringCreateWithUTF8CString("__lava_tl_drain")
+		defer jsc.JSStringRelease(tl_name)
+		jsc.JSObjectSetProperty(ctx, global, tl_name, jsc.JSValueMakeUndefined(ctx), {.DontEnum, .DontDelete}, nil)
 	}
 }
 
