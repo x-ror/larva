@@ -27,3 +27,13 @@ attr :: proc(node: Node, name: string, allocator := context.allocator) -> (value
 	if v == nil do return "", false
 	return strings.clone(string(v[:n]), allocator), true
 }
+
+// outer_html returns `node`'s markup, the node itself included, as outerHTML does.
+outer_html :: proc(node: Node, allocator := context.allocator) -> (markup: string, ok: bool) {
+	b := strings.builder_make(allocator)
+	if larva_html_serialize_node(node, collect_markup, &b) != LXB_STATUS_OK {
+		strings.builder_destroy(&b)
+		return "", false
+	}
+	return strings.to_string(b), true
+}

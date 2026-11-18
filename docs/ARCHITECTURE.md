@@ -355,7 +355,13 @@ The cut scan resumes where it stopped and the consumed input is compacted only o
 it is half the buffer, so feeding a page in many small reads stays linear. One
 unterminated `</script` holds back at most 4 KiB (`END_TAG_MAX`).
 
-`lava html [--scripts] [--chunk N] <file|->` drives it from the CLI.
+CSS selectors (`select.odin`) use lexbor's selector engine with querySelectorAll
+semantics: descendants of the root only, tree order, each node once however many
+selectors of a list it matches. A compiled `Selector` owns its memory and belongs to
+no document, so one compile serves any number of pages; the `Selectors` engine keeps
+per-search state and is one per thread.
+
+`lava html [--scripts] [--chunk N] [--select CSS] <file|->` drives it from the CLI.
 
 ---
 

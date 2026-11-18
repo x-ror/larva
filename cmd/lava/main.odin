@@ -42,7 +42,7 @@ print_help :: proc() {
 Usage:
   lava eval <source>    Evaluate JavaScript source
   lava run <file>       Run a JavaScript file
-  lava html [--scripts] [--chunk N] <file|->
+  lava html [--scripts] [--chunk N] [--select CSS] <file|->
                         Parse HTML and print the serialized document
   lava --version        Print version
   lava --help           Print help
@@ -126,10 +126,11 @@ print_result :: proc(result: lava_runtime.Result, user_data: rawptr) {
 // document. No script runs: --scripts reports each parser-blocking script on stderr
 // at the moment the parser pauses for it, where a page loader would execute it.
 // --chunk N feeds the input N bytes at a time, as network reads would, to exercise
-// the incremental path; by default it is fed at once.
+// the incremental path; by default it is fed at once. --select CSS prints the
+// outerHTML of each match, one per line, instead of the whole document.
 html_command :: proc(args: []string) {
 	usage :: proc() -> ! {
-		fmt.eprintln("usage: lava html [--scripts] [--chunk N] <file|->")
+		fmt.eprintln("usage: lava html [--scripts] [--chunk N] [--select CSS] <file|->")
 		os.exit(2)
 	}
 	Html_Options :: struct {
@@ -138,7 +139,7 @@ html_command :: proc(args: []string) {
 	}
 	opts: Html_Options
 	chunk := 0
-	path := ""
+	path, css := "", ""
 	for i := 0; i < len(args); i += 1 {
 		switch a := args[i]; {
 		case a == "--scripts":
@@ -149,6 +150,10 @@ html_command :: proc(args: []string) {
 			n, ok := strconv.parse_int(args[i])
 			if !ok || n <= 0 do usage()
 			chunk = n
+		case a == "--select":
+			i += 1
+			if i == len(args) do usage()
+			css = args[i]
 		case len(a) > 1 && a[0] == '-', path != "":
 			usage()
 		case:
@@ -182,6 +187,11 @@ html_command :: proc(args: []string) {
 
 	p: html.Parser
 	ok := html.init(&p) && html.parse_all(&p, data, report, &opts, chunk)
+	if ok && css != "" {
+		select_and_print(&p, css)
+		html.destroy(&p)
+		return
+	}
 	markup: string
 	if ok do markup, ok = html.serialize(&p)
 	if !ok {
@@ -192,4 +202,31 @@ html_command :: proc(args: []string) {
 	}
 	fmt.println(markup)
 	html.destroy(&p)
+}
+
+// select_and_print prints the outerHTML of every match of `css` in the document, one
+// per line, in tree order. Exits 2 on an invalid selector, as a usage error.
+select_and_print :: proc(p: ^html.Parser, css: string) {
+	engine: html.Selectors
+	if !html.selectors_init(&engine) {
+		fmt.eprintln("lava html: lexbor could not create the selector engine")
+		os.exit(1)
+	}
+	defer html.selectors_destroy(&engine)
+	sel, ok := html.compile(&engine, css)
+	if !ok {
+		fmt.eprintfln("lava html: not a valid selector: %s", css)
+		os.exit(2)
+	}
+	defer html.selector_destroy(&sel)
+	matches: [dynamic]html.Node
+	defer delete(matches)
+	if !html.query_all(&engine, html.document(p), sel, &matches) {
+		fmt.eprintln("lava html: selector search failed")
+		os.exit(1)
+	}
+	for node in matches {
+		markup, _ := html.outer_html(node, context.temp_allocator)
+		fmt.println(markup)
+	}
 }
