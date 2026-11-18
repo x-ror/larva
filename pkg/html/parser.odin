@@ -196,6 +196,12 @@ parse_all :: proc(p: ^Parser, data: []byte, on_script: Script_Proc = nil, user_d
 	}
 }
 
+// document returns the Document node: the root for a walk or a selector search over
+// the whole page. nil when init failed.
+document :: proc(p: ^Parser) -> Node {
+	return larva_html_document_node(p.doc) if p.doc != nil else nil
+}
+
 // error_message says why the parser failed; "" when it has not.
 error_message :: proc(p: ^Parser) -> string {
 	return p.err
@@ -204,17 +210,21 @@ error_message :: proc(p: ^Parser) -> string {
 // serialize returns the document's markup — the doctype, then the html element.
 // Comparing it with Chrome's is the oracle's job (#2), not done yet.
 serialize :: proc(p: ^Parser, allocator := context.allocator) -> (markup: string, ok: bool) {
-	collect :: proc "c" (data: [^]u8, len: c.size_t, ctx: rawptr) -> lxb_status_t {
-		context = runtime.default_context()
-		strings.write_bytes(cast(^strings.Builder)ctx, data[:len])
-		return LXB_STATUS_OK
-	}
+	if p.doc == nil do return "", false
 	b := strings.builder_make(allocator)
-	if p.doc == nil || lxb_html_serialize_deep_cb(larva_html_document_node(p.doc), collect, &b) != LXB_STATUS_OK {
+	if lxb_html_serialize_deep_cb(larva_html_document_node(p.doc), collect_markup, &b) != LXB_STATUS_OK {
 		strings.builder_destroy(&b)
 		return "", false
 	}
 	return strings.to_string(b), true
+}
+
+// collect_markup appends what a lexbor serializer emits to the strings.Builder in ctx.
+@(private)
+collect_markup :: proc "c" (data: [^]u8, len: c.size_t, ctx: rawptr) -> lxb_status_t {
+	context = runtime.default_context()
+	strings.write_bytes(cast(^strings.Builder)ctx, data[:len])
+	return LXB_STATUS_OK
 }
 
 @(private = "file")
