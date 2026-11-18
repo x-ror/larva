@@ -29,22 +29,14 @@ fetch_connect_ip4 :: proc(req: ^Fetch_Request, ip4: net.IP4_Address, port: int) 
 	// EINTR: a signal interrupted connect() before it could report EINPROGRESS;
 	// the connection still proceeds asynchronously, so treat it like EINPROGRESS
 	// rather than a hard failure.
-	if conn_err := linux.connect(sock_fd, &addr);
-	   conn_err != .NONE && conn_err != .EINPROGRESS && conn_err != .EINTR {
+	if conn_err := linux.connect(sock_fd, &addr); conn_err != .NONE && conn_err != .EINPROGRESS && conn_err != .EINTR {
 		linux.close(sock_fd)
 		return false, "fetch: connect failed"
 	}
 	return fetch_register_socket(req, uintptr(sock_fd))
 }
 
-fetch_connect_ip6 :: proc(
-	req: ^Fetch_Request,
-	ip6: net.IP6_Address,
-	port: int,
-) -> (
-	ok: bool,
-	err: string,
-) {
+fetch_connect_ip6 :: proc(req: ^Fetch_Request, ip6: net.IP6_Address, port: int) -> (ok: bool, err: string) {
 	sock_fd, sock_err := linux.socket(.INET6, .STREAM, {.NONBLOCK}, .TCP)
 	if sock_err != .NONE do return false, "fetch: could not create socket"
 	// IP6_Address is [8]u16be, whose memory layout is already the 16 network-order
@@ -57,8 +49,7 @@ fetch_connect_ip6 :: proc(
 	// EINTR: a signal interrupted connect() before it could report EINPROGRESS;
 	// the connection still proceeds asynchronously, so treat it like EINPROGRESS
 	// rather than a hard failure.
-	if conn_err := linux.connect(sock_fd, &addr);
-	   conn_err != .NONE && conn_err != .EINPROGRESS && conn_err != .EINTR {
+	if conn_err := linux.connect(sock_fd, &addr); conn_err != .NONE && conn_err != .EINPROGRESS && conn_err != .EINTR {
 		linux.close(sock_fd)
 		return false, "fetch: connect failed"
 	}
@@ -124,11 +115,7 @@ fetch_raw_recv :: proc(req: ^Fetch_Request, buf: []byte) -> (n: int, res: Fetch_
 // The io_uring backend re-arms from watcher.mode after this callback returns, so
 // mutating the field is enough; epoll needs an explicit re-registration. A no-op
 // when the mode is unchanged.
-fetch_set_watch_mode :: proc(
-	loop: ^eventloop.Loop,
-	req: ^Fetch_Request,
-	mode: eventloop.Poll_Mode,
-) -> bool {
+fetch_set_watch_mode :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request, mode: eventloop.Poll_Mode) -> bool {
 	if req.watcher.mode == mode do return true
 	if loop.platform.use_uring {
 		req.watcher.mode = mode

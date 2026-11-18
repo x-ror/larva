@@ -41,7 +41,8 @@ fetch_new_socket :: proc(family: posix.AF) -> posix.FD {
 		   cast(posix.Sock_Option)SO_NOSIGPIPE,
 		   &one,
 		   posix.socklen_t(size_of(one)),
-	   ) != .OK {
+	   ) !=
+	   .OK {
 		posix.close(fd)
 		return -1
 	}
@@ -56,10 +57,10 @@ fetch_connect_ip4 :: proc(req: ^Fetch_Request, ip4: net.IP4_Address, port: int) 
 	fd := fetch_new_socket(.INET)
 	if fd < 0 do return false, "fetch: could not create socket"
 	addr := posix.sockaddr_in {
-		sin_len    = size_of(posix.sockaddr_in),
+		sin_len = size_of(posix.sockaddr_in),
 		sin_family = cast(posix.sa_family_t)posix.AF.INET,
-		sin_port   = u16be(port),
-		sin_addr   = {s_addr = transmute(posix.in_addr_t)ip4},
+		sin_port = u16be(port),
+		sin_addr = {s_addr = transmute(posix.in_addr_t)ip4},
 	}
 	if posix.connect(fd, cast(^posix.sockaddr)&addr, posix.socklen_t(size_of(addr))) != .OK {
 		// EINPROGRESS (and EINTR, a signal interrupting the call) both mean the
@@ -111,9 +112,11 @@ fetch_raw_send :: proc(req: ^Fetch_Request, chunk: []byte) -> (n: int, res: Fetc
 	sent := posix.send(posix.FD(req.fd), raw_data(chunk), len(chunk), {})
 	if sent >= 0 do return int(sent), .Ok
 	#partial switch posix.errno() {
-	case .EAGAIN: // == EWOULDBLOCK on Darwin
+	case .EAGAIN:
+		// == EWOULDBLOCK on Darwin
 		return 0, .Would_Block
-	case .EINTR: // interrupted before any byte was sent — re-poll and retry
+	case .EINTR:
+		// interrupted before any byte was sent — re-poll and retry
 		return 0, .Would_Block
 	case:
 		return 0, .Failed
@@ -127,9 +130,11 @@ fetch_raw_recv :: proc(req: ^Fetch_Request, buf: []byte) -> (n: int, res: Fetch_
 	if got > 0 do return int(got), .Ok
 	if got == 0 do return 0, .Closed
 	#partial switch posix.errno() {
-	case .EAGAIN: // == EWOULDBLOCK on Darwin
+	case .EAGAIN:
+		// == EWOULDBLOCK on Darwin
 		return 0, .Would_Block
-	case .EINTR: // interrupted before any byte arrived — re-poll and retry
+	case .EINTR:
+		// interrupted before any byte arrived — re-poll and retry
 		return 0, .Would_Block
 	case:
 		return 0, .Failed

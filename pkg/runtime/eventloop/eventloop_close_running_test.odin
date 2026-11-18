@@ -70,7 +70,13 @@ close_begin_never_disposes_a_job_its_worker_is_running :: proc(t: ^testing.T) {
 	disposed := sync.atomic_load(&job.dispose)
 	if disposed != 0 || !busy {
 		// Leave the worker blocked: see the file comment.
-		testing.expectf(t, false, "close_begin disposed a job its worker is still running (dispose %d, busy %v)", disposed, busy)
+		testing.expectf(
+			t,
+			false,
+			"close_begin disposed a job its worker is still running (dispose %d, busy %v)",
+			disposed,
+			busy,
+		)
 		return
 	}
 	testing.expect_value(t, sync.atomic_load(&job.cancel), 1)

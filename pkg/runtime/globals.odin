@@ -276,12 +276,7 @@ module_cache_get :: proc(state: ^Runtime_State, key: string) -> (jsc.JSValueRef,
 // allocation failed (base/runtime/dynamic_map_internal.odin). Same signal the
 // host-native registry uses.
 @(private = "file")
-module_cache_insert_new :: proc(
-	ctx: jsc.JSContextRef,
-	state: ^Runtime_State,
-	key: string,
-	value: jsc.JSValueRef,
-) {
+module_cache_insert_new :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State, key: string, value: jsc.JSValueRef) {
 	cloned, err := strings.clone(key, state.allocator)
 	if err != nil do return
 	jsc.JSValueProtect(ctx, value)
@@ -291,12 +286,7 @@ module_cache_insert_new :: proc(
 	}
 }
 
-module_cache_put :: proc(
-	ctx: jsc.JSContextRef,
-	state: ^Runtime_State,
-	key: string,
-	value: jsc.JSValueRef,
-) {
+module_cache_put :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State, key: string, value: jsc.JSValueRef) {
 	if state == nil do return
 	if _, ok := state.module_cache[key]; ok do return
 	module_cache_insert_new(ctx, state, key, value)
@@ -307,12 +297,7 @@ module_cache_put :: proc(
 // evaluating its body (so a re-entrant/circular require returns the partial
 // exports) and again afterwards to store the final exports (the body may have
 // reassigned module.exports). Replacing re-points GC protection to the new value.
-module_cache_set :: proc(
-	ctx: jsc.JSContextRef,
-	state: ^Runtime_State,
-	key: string,
-	value: jsc.JSValueRef,
-) {
+module_cache_set :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State, key: string, value: jsc.JSValueRef) {
 	if state == nil do return
 	if entry, ok := state.module_cache[key]; ok {
 		if entry.value == value do return
@@ -573,13 +558,7 @@ set_timeout_cb :: proc "c" (
 
 	// Trailing args (setTimeout(fn, delay, ...args)) are forwarded on fire.
 	cb := make_js_callback(ctx, fn, false, capture_timer_args(ctx, argument_count, arguments, 2, alloc), alloc)
-	id := eventloop.set_timeout(
-		loop,
-		js_callback_trampoline,
-		clamp_timer_delay(delay),
-		cb,
-		js_callback_dispose,
-	)
+	id := eventloop.set_timeout(loop, js_callback_trampoline, clamp_timer_delay(delay), cb, js_callback_dispose)
 	return jsc.JSValueMakeNumber(ctx, f64(id))
 }
 
@@ -606,13 +585,7 @@ set_interval_cb :: proc "c" (
 
 	// Trailing args (setInterval(fn, delay, ...args)) are forwarded on every fire.
 	cb := make_js_callback(ctx, fn, true, capture_timer_args(ctx, argument_count, arguments, 2, alloc), alloc)
-	id := eventloop.set_interval(
-		loop,
-		js_callback_trampoline,
-		clamp_timer_delay(interval),
-		cb,
-		js_callback_dispose,
-	)
+	id := eventloop.set_interval(loop, js_callback_trampoline, clamp_timer_delay(interval), cb, js_callback_dispose)
 	return jsc.JSValueMakeNumber(ctx, f64(id))
 }
 
@@ -1002,14 +975,7 @@ install_microtasks :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef, surfa
 
 	args := [3]jsc.JSValueRef{cast(jsc.JSValueRef)global, process, cast(jsc.JSValueRef)report}
 	exception: jsc.JSValueRef
-	exports := jsc.JSObjectCallAsFunction(
-		ctx,
-		cast(jsc.JSObjectRef)factory,
-		nil,
-		3,
-		raw_data(args[:]),
-		&exception,
-	)
+	exports := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)factory, nil, 3, raw_data(args[:]), &exception)
 	if exception != nil {
 		report_internal_exception(ctx, "lava:microtasks", exception)
 		return
@@ -1101,14 +1067,7 @@ drain_next_ticks_settled :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) {
 	if state == nil || state.next_tick_drain == nil do return
 	for {
 		exc: jsc.JSValueRef
-		result := jsc.JSObjectCallAsFunction(
-			ctx,
-			cast(jsc.JSObjectRef)state.next_tick_drain,
-			nil,
-			0,
-			nil,
-			&exc,
-		)
+		result := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)state.next_tick_drain, nil, 0, nil, &exc)
 		if exc != nil {
 			report_uncaught(ctx, exc)
 			mark_async_failed(ctx)
@@ -1208,14 +1167,7 @@ install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef)
 
 	args := [2]jsc.JSValueRef{cast(jsc.JSValueRef)compile, cast(jsc.JSValueRef)natives}
 	exception: jsc.JSValueRef
-	resolver := jsc.JSObjectCallAsFunction(
-		ctx,
-		cast(jsc.JSObjectRef)loader,
-		nil,
-		2,
-		raw_data(args[:]),
-		&exception,
-	)
+	resolver := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)loader, nil, 2, raw_data(args[:]), &exception)
 	if exception != nil {
 		report_internal_exception(ctx, "internal:loader", exception)
 		return
@@ -1406,14 +1358,7 @@ install_stdio :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef) {
 	if proc_obj == nil || !jsc.JSValueIsObject(ctx, proc_obj) do return
 	args := [1]jsc.JSValueRef{proc_obj}
 	exception: jsc.JSValueRef
-	jsc.JSObjectCallAsFunction(
-		ctx,
-		cast(jsc.JSObjectRef)installer,
-		nil,
-		1,
-		raw_data(args[:]),
-		&exception,
-	)
+	jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)installer, nil, 1, raw_data(args[:]), &exception)
 	if exception != nil do report_internal_exception(ctx, "internal:stdio", exception)
 }
 
@@ -1434,14 +1379,7 @@ install_console :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef) {
 
 	args := [2]jsc.JSValueRef{cast(jsc.JSValueRef)out_fn, cast(jsc.JSValueRef)err_fn}
 	exception: jsc.JSValueRef
-	jsc.JSObjectCallAsFunction(
-		ctx,
-		cast(jsc.JSObjectRef)factory,
-		nil,
-		2,
-		raw_data(args[:]),
-		&exception,
-	)
+	jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)factory, nil, 2, raw_data(args[:]), &exception)
 	if exception != nil do report_internal_exception(ctx, "lava:console", exception)
 }
 
@@ -1494,7 +1432,15 @@ node_module_excluded :: proc(id: string) -> bool {
 		return false
 	} else {
 		switch id {
-		case "node/sqlite", "node/fs", "node/os", "node/net", "node/http", "node/https", "node/dns", "node/tty", "node/dns/promises":
+		case "node/sqlite",
+		     "node/fs",
+		     "node/os",
+		     "node/net",
+		     "node/http",
+		     "node/https",
+		     "node/dns",
+		     "node/tty",
+		     "node/dns/promises":
 			return true
 		}
 		return strings.has_prefix(id, "internal/http/") || strings.has_prefix(id, "internal/os/")
@@ -1523,10 +1469,7 @@ js_override_dir :: proc() -> string {
 		}
 		if last_sep < 0 do return ""
 		runtime_dir := file[:last_sep]
-		marker, err := strings.concatenate(
-			{runtime_dir, "/../../bin/.lava.js-override"},
-			context.temp_allocator,
-		)
+		marker, err := strings.concatenate({runtime_dir, "/../../bin/.lava.js-override"}, context.temp_allocator)
 		if err != nil || !os.exists(marker) do return ""
 		return runtime_dir
 	}
@@ -1617,12 +1560,7 @@ process_version_string :: proc() -> string {
 
 // --- helpers ---
 
-set_named :: proc(
-	ctx: jsc.JSContextRef,
-	object: jsc.JSObjectRef,
-	name: string,
-	value: jsc.JSValueRef,
-) {
+set_named :: proc(ctx: jsc.JSContextRef, object: jsc.JSObjectRef, name: string, value: jsc.JSValueRef) {
 	c_name, err := strings.clone_to_cstring(name, context.temp_allocator)
 	if err != nil do return
 	js_name := jsc.JSStringCreateWithUTF8CString(c_name)

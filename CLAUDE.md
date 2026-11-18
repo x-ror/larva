@@ -149,7 +149,14 @@ appears in CI, read the code or shrink the CPU set; do not just re-run.
   wrappers exist only for **measured** hot natives; cold natives use the generic
   `host_native_create` path. The UTF-16→UTF-8 bridge belongs in `pkg/jsc`, not
   `environment.odin`.
-- `make fmt` (`odin strip-semicolon`) before committing Odin.
+- `make fmt` before committing: odinfmt (`odinfmt.json`: tabs, 120 columns, sorted
+  imports) and `odin strip-semicolon` for Odin, clang-format (`.clang-format`: tabs,
+  120 columns) for C/C++. odinfmt ships with the OLS extension; pass
+  `ODINFMT=/path/to/odinfmt` when it is not on PATH.
+- **Declaration order in a file**, Odin and C alike: imports/includes (sorted), then
+  constants, then types, then procedures — public ones first, private helpers last.
+  The formatters sort imports and includes; nothing reorders declarations, so this is
+  on the author. Do not retrofit existing files for it alone.
 
 ### Contract comments
 

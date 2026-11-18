@@ -38,9 +38,7 @@ capture_error_intrinsics :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) {
 	global := jsc.JSContextGetGlobalObject(ctx)
 	for name in ERROR_INTRINSIC_NAMES {
 		ctor := get_named(ctx, global, name)
-		if ctor != nil &&
-		   jsc.JSValueIsObject(ctx, ctor) &&
-		   jsc.JSObjectIsConstructor(ctx, cast(jsc.JSObjectRef)ctor) {
+		if ctor != nil && jsc.JSValueIsObject(ctx, ctor) && jsc.JSObjectIsConstructor(ctx, cast(jsc.JSObjectRef)ctor) {
 			jsc.JSValueProtect(ctx, ctor)
 			state.error_intrinsics[name] = ctor
 		}
@@ -123,12 +121,7 @@ make_js_named_error :: proc(ctx: jsc.JSContextRef, name, message: string) -> jsc
 // describes the expectation (e.g. "an integer", ">= 0 and <= 255"); `received`
 // is the offending value rendered for display (e.g. "NaN", "-1").
 err_out_of_range :: proc(ctx: jsc.JSContextRef, name, range, received: string) -> jsc.JSValueRef {
-	msg := fmt.tprintf(
-		"The value of \"%s\" is out of range. It must be %s. Received %s",
-		name,
-		range,
-		received,
-	)
+	msg := fmt.tprintf("The value of \"%s\" is out of range. It must be %s. Received %s", name, range, received)
 	return make_native_error(ctx, "RangeError", msg, "ERR_OUT_OF_RANGE")
 }
 

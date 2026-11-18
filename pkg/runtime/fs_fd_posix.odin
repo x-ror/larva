@@ -10,15 +10,7 @@ import "core:sys/posix"
 
 // fs_platform_open opens `path` with a Node flags string and create mode, returning the
 // fd on success or a Node error code (+ errno) on failure.
-fs_platform_open :: proc(
-	path: string,
-	flags_str: string,
-	mode: int,
-) -> (
-	fd: int,
-	err_code: string,
-	errno_val: int,
-) {
+fs_platform_open :: proc(path: string, flags_str: string, mode: int) -> (fd: int, err_code: string, errno_val: int) {
 	flags, ok := fs_open_flags(flags_str)
 	if !ok do return -1, "EINVAL", 22
 

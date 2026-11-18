@@ -277,12 +277,7 @@ net_listen_cb :: proc "c" (
 	// every socket sharing the port must set it, or the group is unsafe (a bind would collide). Surface
 	// the failure as a startup abort.
 	if g_multi_worker {
-		if so_err := linux.setsockopt(
-			sfd,
-			linux.SOL_SOCKET,
-			linux.Socket_Option.REUSEPORT,
-			&reuse,
-		); so_err != .NONE {
+		if so_err := linux.setsockopt(sfd, linux.SOL_SOCKET, linux.Socket_Option.REUSEPORT, &reuse); so_err != .NONE {
 			linux.close(sfd)
 			net_startup_failed()
 			if exception != nil do exception^ = make_js_error(ctx, "net.listen: SO_REUSEPORT failed")
@@ -467,12 +462,7 @@ net_connect_io_cb :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 	// getsockopt_base directly: the _sock overload's where-clause tests the
 	// POINTEE type (a core:sys/linux quirk in this Odin build), so ^i32 never
 	// matches it.
-	_, _ = linux.getsockopt_base(
-		linux.Fd(conn.fd),
-		cast(int)linux.SOL_SOCKET,
-		linux.Socket_Option.ERROR,
-		&soerr,
-	)
+	_, _ = linux.getsockopt_base(linux.Fd(conn.fd), cast(int)linux.SOL_SOCKET, linux.Socket_Option.ERROR, &soerr)
 	if soerr == 0 {
 		fn := conn.on_connect
 		conn.on_connect = nil
@@ -480,10 +470,7 @@ net_connect_io_cb :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 		net_unprotect(conn.ctx, fn)
 		return
 	}
-	net_emit_error(
-		conn,
-		fmt.tprintf("connect %s %s", net_connect_errno_name(soerr), conn.connect_label),
-	)
+	net_emit_error(conn, fmt.tprintf("connect %s %s", net_connect_errno_name(soerr), conn.connect_label))
 	net_close_conn(conn, true)
 }
 
@@ -632,13 +619,7 @@ net_start_cb :: proc "c" (
 	// readiness watcher. The mode is set ONLY on a successful submit (never count a failed one).
 	if !net_force_readiness() && eventloop.proactor_available(conn.loop) {
 		if eventloop.bufring_available(conn.loop) {
-			id := eventloop.submit_recv_ring(
-				conn.loop,
-				conn.fd,
-				net_recv_ring_complete,
-				on_op_dispose,
-				conn,
-			)
+			id := eventloop.submit_recv_ring(conn.loop, conn.fd, net_recv_ring_complete, on_op_dispose, conn)
 			if id != eventloop.OP_ID_INVALID {
 				conn.io_mode = .ProactorRing // no recv_buf — reads draw from the shared ring
 				conn.recv_op = id
@@ -647,14 +628,7 @@ net_start_cb :: proc "c" (
 			}
 		}
 		conn.recv_buf = make([]byte, NET_PROACTOR_RECV, context.allocator)
-		id := eventloop.submit_recv(
-			conn.loop,
-			conn.fd,
-			conn.recv_buf,
-			on_recv_complete,
-			on_op_dispose,
-			conn,
-		)
+		id := eventloop.submit_recv(conn.loop, conn.fd, conn.recv_buf, on_recv_complete, on_op_dispose, conn)
 		if id != eventloop.OP_ID_INVALID {
 			conn.io_mode = .Proactor
 			conn.recv_op = id
@@ -694,8 +668,7 @@ net_force_readiness_state: enum u8 {
 
 net_force_readiness :: proc() -> bool {
 	if net_force_readiness_state == .Unknown {
-		net_force_readiness_state =
-			os.get_env("LAVA_NET_FORCE_READINESS", context.temp_allocator) != "" ? .Yes : .No
+		net_force_readiness_state = os.get_env("LAVA_NET_FORCE_READINESS", context.temp_allocator) != "" ? .Yes : .No
 	}
 	return net_force_readiness_state == .Yes
 }
@@ -731,27 +704,14 @@ net_maybe_arm_recv :: proc(conn: ^Net_Connection) -> bool {
 	id: eventloop.Op_ID
 	if conn.io_mode == .ProactorRing {
 		// Shared ring: no per-conn buffer; the kernel picks one at completion (net_recv_ring_complete).
-		id = eventloop.submit_recv_ring(
-			conn.loop,
-			conn.fd,
-			net_recv_ring_complete,
-			on_op_dispose,
-			conn,
-		)
+		id = eventloop.submit_recv_ring(conn.loop, conn.fd, net_recv_ring_complete, on_op_dispose, conn)
 		// Record THIS op's submission mode so its completion can attribute a -EINVAL correctly: a
 		// multishot op's -EINVAL means "kernel lacks RECV_MULTISHOT" (fall back); a single-shot op's
 		// -EINVAL is a genuine error (close), never a capability signal to re-arm into a loop.
 		conn.recv_multishot = eventloop.recv_ring_multishot(conn.loop)
 		conn.recv_cancel_pending = false // a fresh op has no backpressure cancel outstanding
 	} else {
-		id = eventloop.submit_recv(
-			conn.loop,
-			conn.fd,
-			conn.recv_buf,
-			on_recv_complete,
-			on_op_dispose,
-			conn,
-		)
+		id = eventloop.submit_recv(conn.loop, conn.fd, conn.recv_buf, on_recv_complete, on_op_dispose, conn)
 	}
 	if id == eventloop.OP_ID_INVALID {
 		net_emit_error(conn, "read submit failed")
@@ -1027,10 +987,7 @@ net_zc_stats_note :: proc(loop: ^eventloop.Loop, use_zc: bool) {
 	if os.get_env("LAVA_ZC_STATS", context.temp_allocator) == "" do return
 	if !g_zc_ok_reported {
 		g_zc_ok_reported = true
-		os.write_string(
-			os.stderr,
-			eventloop.send_zc_ok(loop) ? "LAVA_ZC: zc_ok=1\n" : "LAVA_ZC: zc_ok=0\n",
-		)
+		os.write_string(os.stderr, eventloop.send_zc_ok(loop) ? "LAVA_ZC: zc_ok=1\n" : "LAVA_ZC: zc_ok=0\n")
 	}
 	if use_zc && !g_zc_engaged_reported {
 		g_zc_engaged_reported = true
@@ -1050,30 +1007,16 @@ net_zc_stats_note :: proc(loop: ^eventloop.Loop, use_zc: bool) {
 // saw_result/zc_err are reset per submission (one send op per conn, so this is the per-op reset).
 // PRECONDITION: send_op == INVALID (the caller cleared/gated).
 net_proactor_submit :: proc(conn: ^Net_Connection, force_plain := false) {
-	assert(
-		conn.send_op == eventloop.OP_ID_INVALID,
-		"net_proactor_submit: a send is already in flight",
-	)
+	assert(conn.send_op == eventloop.OP_ID_INVALID, "net_proactor_submit: a send is already in flight")
 	conn.saw_result = false
 	conn.zc_err = 0
 	buf := conn.active_send[conn.active_send_off:]
-	use_zc :=
-		!force_plain &&
-		!conn.zc_unsupported &&
-		eventloop.send_zc_ok(conn.loop) &&
-		len(buf) >= NET_ZC_THRESHOLD
+	use_zc := !force_plain && !conn.zc_unsupported && eventloop.send_zc_ok(conn.loop) && len(buf) >= NET_ZC_THRESHOLD
 	conn.send_was_zc = use_zc
 	net_zc_stats_note(conn.loop, use_zc) // M3: env-gated stderr evidence that the SEND_ZC path actually ran
 	id: eventloop.Op_ID
 	if use_zc {
-		id = eventloop.submit_send_zc(
-			conn.loop,
-			conn.fd,
-			buf,
-			net_send_zc_complete,
-			on_op_dispose,
-			conn,
-		)
+		id = eventloop.submit_send_zc(conn.loop, conn.fd, buf, net_send_zc_complete, on_op_dispose, conn)
 	} else {
 		id = eventloop.submit_send(conn.loop, conn.fd, buf, on_send_complete, on_op_dispose, conn)
 	}
@@ -1216,9 +1159,7 @@ net_proactor_on_drained :: proc(conn: ^Net_Connection) {
 		if conn.closing do return
 	}
 	net_maybe_arm_recv(conn) // recomputes read_paused from the (possibly new) buffered count
-	if conn.end_after_drain &&
-	   conn.send_op == eventloop.OP_ID_INVALID &&
-	   len(conn.pending_writes) == 0 {
+	if conn.end_after_drain && conn.send_op == eventloop.OP_ID_INVALID && len(conn.pending_writes) == 0 {
 		net_close_conn(conn, false)
 	}
 }
@@ -1545,9 +1486,7 @@ net_end_cb :: proc "c" (
 		if conn.tls do tls_server_begin_close(conn)
 		else do net_proactor_kick_send(conn)
 		// Nothing left to drain → close now; otherwise on_send_complete closes once drained.
-		if !conn.closing &&
-		   conn.send_op == eventloop.OP_ID_INVALID &&
-		   len(conn.pending_writes) == 0 {
+		if !conn.closing && conn.send_op == eventloop.OP_ID_INVALID && len(conn.pending_writes) == 0 {
 			net_close_conn(conn, false)
 		}
 		return jsc.JSValueMakeUndefined(ctx)
@@ -1765,8 +1704,7 @@ net_shutdown_active :: proc(state: ^Runtime_State) {
 			net_unprotect(conn.ctx, conn.on_close)
 			net_unprotect(conn.ctx, conn.on_error)
 			net_unprotect(conn.ctx, conn.on_drain)
-			conn.on_data, conn.on_end, conn.on_close, conn.on_error, conn.on_drain =
-				nil, nil, nil, nil, nil
+			conn.on_data, conn.on_end, conn.on_close, conn.on_error, conn.on_drain = nil, nil, nil, nil, nil
 			if conn.recv_starved {
 				conn.recv_starved = false // the whole starved list is cleared after this loop
 				eventloop.async_cancel(conn.loop) // balance the parked liveness ref
@@ -1865,12 +1803,7 @@ net_unprotect :: proc(ctx: jsc.JSContextRef, fn: jsc.JSObjectRef) {
 	if fn != nil do jsc.JSValueUnprotect(ctx, cast(jsc.JSValueRef)fn)
 }
 
-net_emit :: proc(
-	ctx: jsc.JSContextRef,
-	fn: jsc.JSObjectRef,
-	args: [^]jsc.JSValueRef,
-	argc: c.size_t,
-) {
+net_emit :: proc(ctx: jsc.JSContextRef, fn: jsc.JSObjectRef, args: [^]jsc.JSValueRef, argc: c.size_t) {
 	if fn == nil do return
 	exception: jsc.JSValueRef
 	invoke_user_callback(ctx, fn, args, argc, &exception)

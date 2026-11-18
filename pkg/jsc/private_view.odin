@@ -50,27 +50,39 @@ when ODIN_OS == .Linux {
 	// later be read, and the cell offsets — though a build-global fact — are
 	// re-derived once per worker thread to avoid a shared latch being seen
 	// half-published during concurrent worker startup.
-	@(private = "file", thread_local) g_view_checked: bool
-	@(private = "file", thread_local) g_view_ok: bool
-	@(private = "file", thread_local) g_view_type: u8
-	@(private = "file", thread_local) g_vec_off: uintptr
-	@(private = "file", thread_local) g_len_off: uintptr
-	@(private = "file", thread_local) g_len_u64: bool
+	@(private = "file", thread_local)
+	g_view_checked: bool
+	@(private = "file", thread_local)
+	g_view_ok: bool
+	@(private = "file", thread_local)
+	g_view_type: u8
+	@(private = "file", thread_local)
+	g_vec_off: uintptr
+	@(private = "file", thread_local)
+	g_len_off: uintptr
+	@(private = "file", thread_local)
+	g_len_u64: bool
 	// m_mode byte offset and the three values it takes on a fixed-length view
 	// over a non-resizable buffer (JSC: Fast, Oversize, Wasteful). Values are
 	// recorded from probe views rather than hardcoded, like the offsets above.
-	@(private = "file", thread_local) g_mode_off: uintptr
-	@(private = "file", thread_local) g_mode_fixed: [3]u8
+	@(private = "file", thread_local)
+	g_mode_off: uintptr
+	@(private = "file", thread_local)
+	g_mode_fixed: [3]u8
 
 	// Immortal backing stores for the probe views (nil deallocator): distinct
 	// addresses and lengths so field offsets are identified by value. The `_off`
 	// view (backed by g_probe_d, viewed at a non-zero byteOffset) disambiguates a
 	// genuine 64-bit length from a 32-bit length whose adjacent (zero) field the
 	// wide read would otherwise fold in — see ensure_view.
-	@(private = "file", thread_local) g_probe_a: [40]byte
-	@(private = "file", thread_local) g_probe_b: [24]byte
-	@(private = "file", thread_local) g_probe_c: [56]byte
-	@(private = "file", thread_local) g_probe_d: [64]byte
+	@(private = "file", thread_local)
+	g_probe_a: [40]byte
+	@(private = "file", thread_local)
+	g_probe_b: [24]byte
+	@(private = "file", thread_local)
+	g_probe_c: [56]byte
+	@(private = "file", thread_local)
+	g_probe_d: [64]byte
 
 	@(private = "file")
 	ensure_view :: proc(ctx: JSContextRef) {
@@ -169,11 +181,7 @@ when ODIN_OS == .Linux {
 				g_view_checked = true
 				return
 			}
-			args := [3]JSValueRef {
-				JSValueRef(ab),
-				JSValueMakeNumber(ctx, f64(OFF)),
-				JSValueMakeNumber(ctx, f64(LEN)),
-			}
+			args := [3]JSValueRef{JSValueRef(ab), JSValueMakeNumber(ctx, f64(OFF)), JSValueMakeNumber(ctx, f64(LEN))}
 			ov := JSObjectCallAsConstructor(ctx, JSObjectRef(u8_ctor), 3, &args[0], nil)
 			if ov == nil do return // soft
 			JSValueProtect(ctx, JSValueRef(ov))
@@ -223,7 +231,7 @@ when ODIN_OS == .Linux {
 	@(private = "file")
 	Mode_Probe :: enum u8 {
 		Found,
-		Soft,     // an allocation or constructor call failed; retry on a later call
+		Soft, // an allocation or constructor call failed; retry on a later call
 		Mismatch, // layout did not discriminate; latch the fast path closed
 	}
 

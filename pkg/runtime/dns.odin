@@ -53,13 +53,13 @@ Dns_Lookup_Request :: struct {
 	// worker's, the heap — so plain delete() frees it correctly.)
 	allocator: runtime.Allocator,
 	hostname:  string, // owned clone (the worker reads it off-loop)
-	family:   int, // 0 (any) | 4 | 6
-	order:    int, // ORDER_* (which family to prefer / how to concatenate)
-	all:      bool,
-	results:  [dynamic]Dns_Lookup_Result, // heap (default allocator); full address list
-	last_err: net.DNS_Error, // worst resolver error seen, to distinguish NXDOMAIN from transient
-	ok:       bool,
-	err_code: string, // static literal, e.g. "ENOTFOUND" / "EAI_AGAIN"
+	family:    int, // 0 (any) | 4 | 6
+	order:     int, // ORDER_* (which family to prefer / how to concatenate)
+	all:       bool,
+	results:   [dynamic]Dns_Lookup_Result, // heap (default allocator); full address list
+	last_err:  net.DNS_Error, // worst resolver error seen, to distinguish NXDOMAIN from transient
+	ok:        bool,
+	err_code:  string, // static literal, e.g. "ENOTFOUND" / "EAI_AGAIN"
 }
 
 // make_dns_bindings builds the `native` object handed to js/node/dns.js.
@@ -145,9 +145,21 @@ dns_query_family :: proc(req: ^Dns_Lookup_Request, type: net.DNS_Record_Type, fa
 	err: net.DNS_Error
 	is_mdns := ODIN_OS != .Windows && strings.has_suffix(req.hostname, ".local")
 	if is_mdns && type == .IP4 {
-		recs, err = net.get_dns_records_from_nameservers(req.hostname, .IP4, {net.IP4_mDNS_Broadcast}, nil, context.temp_allocator)
+		recs, err = net.get_dns_records_from_nameservers(
+			req.hostname,
+			.IP4,
+			{net.IP4_mDNS_Broadcast},
+			nil,
+			context.temp_allocator,
+		)
 	} else if is_mdns {
-		recs, err = net.get_dns_records_from_nameservers(req.hostname, .IP6, {net.IP6_mDNS_Broadcast}, nil, context.temp_allocator)
+		recs, err = net.get_dns_records_from_nameservers(
+			req.hostname,
+			.IP6,
+			{net.IP6_mDNS_Broadcast},
+			nil,
+			context.temp_allocator,
+		)
 	} else {
 		recs, err = net.get_dns_records_from_os(req.hostname, type, context.temp_allocator)
 	}
@@ -226,11 +238,7 @@ dns_work :: proc(user_data: rawptr) {
 // Node's EAI_AGAIN for that case needs a resolver that surfaces the timeout.
 dns_error_to_code :: proc(e: net.DNS_Error) -> string {
 	#partial switch e {
-	case .Connection_Error,
-	     .Server_Error,
-	     .System_Error,
-	     .Invalid_Resolv_Config_Error,
-	     .Invalid_Hosts_Config_Error:
+	case .Connection_Error, .Server_Error, .System_Error, .Invalid_Resolv_Config_Error, .Invalid_Hosts_Config_Error:
 		return "EAI_AGAIN"
 	}
 	return "ENOTFOUND"

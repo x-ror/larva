@@ -51,7 +51,7 @@ help:
 	@printf '%s\n' '  make check-primordials  Prototype-pollution ratchet (UPDATE=1 to lower; RAISE=--allow-raise)'
 	@printf '%s\n' '  make check-jsc          Locate JavaScriptCore dev files with install hints'
 	@printf '%s\n' '  make check-native       Verify native build dependencies via pkg-config'
-	@printf '%s\n' '  make fmt                Strip optional semicolons in Odin sources'
+	@printf '%s\n' '  make fmt                Format Odin (odinfmt, strip-semicolon) and C/C++ (clang-format)'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Test'
 	@printf '%s\n' '  make test               Odin unit tests + oracle suites (alias of test-all on Unix)'
@@ -360,9 +360,19 @@ test-lava-nohostfn: build
 # "lava:pkg/runtime", so without it strip-semicolon cannot parse the package and
 # the target exits non-zero. CI's "Format (Odin)" step runs this and requires a
 # clean diff afterwards.
+ODINFMT ?= odinfmt
+
+# Odin: odinfmt with odinfmt.json (tabs, 120 columns, sorted imports), then
+# strip-semicolon. odinfmt ships with the OLS editor extension and is not on PATH by
+# default; point ODINFMT at it. C/C++: clang-format with .clang-format; vendored
+# picohttpparser opts out (its own .clang-format).
 fmt:
+	@if command -v $(ODINFMT) >/dev/null 2>&1; then \
+		for d in cmd/lava pkg/jsc pkg/runtime pkg/std/sqlite; do $(ODINFMT) -w $$d >/dev/null; done; \
+	else echo 'make fmt: odinfmt not found; set ODINFMT=/path/to/odinfmt'; fi
 	$(ODIN) strip-semicolon cmd/lava -collection:lava=.
 	$(ODIN) strip-semicolon pkg/jsc -no-entry-point
+	clang-format -i pkg/jsc/*.cpp
 
 # `rm` isn't a Windows command and can't take the $(RUNSCRIPT) prefix (bash would treat
 # `rm` as a script), so invoke the shell explicitly: $(SHELL) is Git Bash on Windows and

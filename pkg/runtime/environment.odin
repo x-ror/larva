@@ -72,14 +72,7 @@ setup_module_environment :: proc(
 
 	child_len_name := jsc.JSStringCreateWithUTF8CString("length")
 	defer jsc.JSStringRelease(child_len_name)
-	jsc.JSObjectSetProperty(
-		ctx,
-		children_arr,
-		child_len_name,
-		jsc.JSValueMakeNumber(ctx, 1),
-		{},
-		nil,
-	)
+	jsc.JSObjectSetProperty(ctx, children_arr, child_len_name, jsc.JSValueMakeNumber(ctx, 1), {}, nil)
 
 	module_name := jsc.JSStringCreateWithUTF8CString("module")
 	children_name := jsc.JSStringCreateWithUTF8CString("children")
@@ -89,14 +82,7 @@ setup_module_environment :: proc(
 	defer jsc.JSStringRelease(exports_name)
 
 	// Виправлено: додано касти до JSValueRef для властивостей об'єкта
-	jsc.JSObjectSetProperty(
-		ctx,
-		module_obj,
-		children_name,
-		cast(jsc.JSValueRef)children_arr,
-		{},
-		nil,
-	)
+	jsc.JSObjectSetProperty(ctx, module_obj, children_name, cast(jsc.JSValueRef)children_arr, {}, nil)
 
 	// Initialize module.exports = {} (and the `exports` alias) so the entry can do
 	// `module.exports.foo = …` / `exports.foo = …` without first reassigning
@@ -105,24 +91,10 @@ setup_module_environment :: proc(
 	// the entry and the partial-exports cache (register_entry_module) has nothing
 	// to register.
 	exports_obj := jsc.JSObjectMake(ctx, nil, nil)
-	jsc.JSObjectSetProperty(
-		ctx,
-		module_obj,
-		exports_name,
-		cast(jsc.JSValueRef)exports_obj,
-		{},
-		nil,
-	)
+	jsc.JSObjectSetProperty(ctx, module_obj, exports_name, cast(jsc.JSValueRef)exports_obj, {}, nil)
 
 	jsc.JSObjectSetProperty(ctx, global_obj, module_name, cast(jsc.JSValueRef)module_obj, {}, nil)
-	jsc.JSObjectSetProperty(
-		ctx,
-		global_obj,
-		exports_name,
-		cast(jsc.JSValueRef)exports_obj,
-		{},
-		nil,
-	)
+	jsc.JSObjectSetProperty(ctx, global_obj, exports_name, cast(jsc.JSValueRef)exports_obj, {}, nil)
 }
 
 // WEB_REMOVED_GLOBALS are the Node globals install_globals puts on every context and
@@ -150,12 +122,7 @@ remove_node_globals :: proc(ctx: jsc.JSContextRef, global_obj: jsc.JSObjectRef) 
 	}
 }
 
-inject_global_string :: proc(
-	ctx: jsc.JSContextRef,
-	global_obj: jsc.JSObjectRef,
-	name: string,
-	value: string,
-) {
+inject_global_string :: proc(ctx: jsc.JSContextRef, global_obj: jsc.JSObjectRef, name: string, value: string) {
 	c_name, c_name_err := strings.clone_to_cstring(name, context.temp_allocator)
 	if c_name_err != nil do return
 	c_value, c_value_err := strings.clone_to_cstring(value, context.temp_allocator)
@@ -471,13 +438,7 @@ utf16_to_utf8_owned :: proc(chars: [^]jsc.JSChar, length: int) -> (string, bool)
 // jsc_value_to_string_or_default converts a JS value to an owned UTF-8 Odin string
 // (caller's allocator). Returns ("", false) for empty / non-convertible values —
 // callers treat false as "empty string, no free". Exact UTF-8 size (no 3n+1).
-jsc_value_to_string_or_default :: proc(
-	ctx: jsc.JSContextRef,
-	value: jsc.JSValueRef,
-) -> (
-	string,
-	bool,
-) {
+jsc_value_to_string_or_default :: proc(ctx: jsc.JSContextRef, value: jsc.JSValueRef) -> (string, bool) {
 	// Flat string values resolve with no C-API call; everything else (ropes,
 	// non-strings needing coercion) goes through JSValueToStringCopy.
 	if s8, ok := jsc.value_chars8(ctx, value); ok {

@@ -113,7 +113,10 @@ parse_response :: proc(
 		h := raw[i]
 		name := h.name != nil && h.name_len > 0 ? string(h.name[:h.name_len]) : ""
 		value := h.value != nil && h.value_len > 0 ? string(h.value[:h.value_len]) : ""
-		out[i] = Header{name = name, value = value}
+		out[i] = Header {
+			name  = name,
+			value = value,
+		}
 	}
 	if msg_ptr != nil && msg_len > 0 do msg = string(msg_ptr[:msg_len])
 	return int(ret), int(status_c), msg, num, .Complete
@@ -167,7 +170,10 @@ parse_request :: proc(
 		h := raw[i]
 		name := h.name != nil && h.name_len > 0 ? string(h.name[:h.name_len]) : ""
 		value := h.value != nil && h.value_len > 0 ? string(h.value[:h.value_len]) : ""
-		out[i] = Header{name = name, value = value}
+		out[i] = Header {
+			name  = name,
+			value = value,
+		}
 	}
 	if method_ptr != nil && method_len > 0 do method = string(method_ptr[:method_len])
 	if path_ptr != nil && path_len > 0 do path = string(path_ptr[:path_len])

@@ -66,11 +66,16 @@ when ODIN_OS == .Linux {
 	// re-derives the (build-global) symbol pointers and layout facts once per
 	// worker thread — cheap, and race-free when workers start concurrently,
 	// versus a shared latch that could be observed half-published.
-	@(private = "file", thread_local) g_checked: bool
-	@(private = "file", thread_local) g_ok: bool
-	@(private = "file", thread_local) g_create8: Create_Uninit8_Proc
-	@(private = "file", thread_local) g_create16: Create_Uninit16_Proc
-	@(private = "file", thread_local) g_try_create: Try_Create_Proc
+	@(private = "file", thread_local)
+	g_checked: bool
+	@(private = "file", thread_local)
+	g_ok: bool
+	@(private = "file", thread_local)
+	g_create8: Create_Uninit8_Proc
+	@(private = "file", thread_local)
+	g_create16: Create_Uninit16_Proc
+	@(private = "file", thread_local)
+	g_try_create: Try_Create_Proc
 
 	// Read-side layout facts, established by probe_read_layout. StringImplShape
 	// has been {u32 refCount; u32 length; T* data; atomic<u32> hashAndFlags} and
@@ -80,14 +85,21 @@ when ODIN_OS == .Linux {
 	// and widths are known exactly (we created them), plus positive/negative
 	// functional checks through the public C API. Any mismatch leaves the read
 	// path disabled while the write path keeps working.
-	@(private = "file", thread_local) g_read_ok: bool
-	@(private = "file", thread_local) g_flag_mask: u32
-	@(private = "file", thread_local) g_flag_val8: u32
+	@(private = "file", thread_local)
+	g_read_ok: bool
+	@(private = "file", thread_local)
+	g_flag_mask: u32
+	@(private = "file", thread_local)
+	g_flag_val8: u32
 
-	@(private = "file") IMPL_LENGTH_OFFSET :: 4
-	@(private = "file") IMPL_DATA_OFFSET :: 8
-	@(private = "file") IMPL_FLAGS_OFFSET :: 16
-	@(private = "file") OPAQUE_STRING_IMPL_OFFSET :: 8
+	@(private = "file")
+	IMPL_LENGTH_OFFSET :: 4
+	@(private = "file")
+	IMPL_DATA_OFFSET :: 8
+	@(private = "file")
+	IMPL_FLAGS_OFFSET :: 16
+	@(private = "file")
+	OPAQUE_STRING_IMPL_OFFSET :: 8
 
 	@(private = "file")
 	ensure_resolved :: proc() {
@@ -237,10 +249,14 @@ when ODIN_OS == .Linux {
 	// pointer inside cells built from strings we constructed, and verified on a
 	// second cell of the other storage width.
 
-	@(private = "file", thread_local) g_val_checked: bool
-	@(private = "file", thread_local) g_val_ok: bool
-	@(private = "file", thread_local) g_string_type: u8
-	@(private = "file", thread_local) g_fiber_off: uintptr
+	@(private = "file", thread_local)
+	g_val_checked: bool
+	@(private = "file", thread_local)
+	g_val_ok: bool
+	@(private = "file", thread_local)
+	g_string_type: u8
+	@(private = "file", thread_local)
+	g_fiber_off: uintptr
 
 	@(private = "file")
 	ensure_value_reads :: proc(ctx: JSContextRef) {

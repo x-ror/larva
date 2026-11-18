@@ -154,7 +154,14 @@ close_detach_leaves_the_loop_to_its_last_worker :: proc(t: ^testing.T) {
 	testing.expect(t, detached, "close_detach finished a loop whose worker is still blocked")
 	// The loop belongs to its workers now: nothing below reads it.
 	still := fd_link(int(pipe_fd))
-	testing.expectf(t, still == pipe_link, "wakeup pipe fd %d changed from %q to %q while its worker was blocked", pipe_fd, pipe_link, still)
+	testing.expectf(
+		t,
+		still == pipe_link,
+		"wakeup pipe fd %d changed from %q to %q while its worker was blocked",
+		pipe_fd,
+		pipe_link,
+		still,
+	)
 	delete(still)
 
 	sync.atomic_store(&rel.stop, true)

@@ -94,11 +94,7 @@ destroy_context :: proc(c: Context) {
 // regression test is the failure mode this whole area keeps hitting.
 host_path_active :: proc(t: ^testing.T, ctx: jsc.JSContextRef) -> bool {
 	if jsc.host_calls_active(ctx) do return true
-	testing.expect(
-		t,
-		false,
-		"private-ABI host-call path inactive — this test cannot observe what it pins",
-	)
+	testing.expect(t, false, "private-ABI host-call path inactive — this test cannot observe what it pins")
 	return false
 }
 
@@ -142,12 +138,7 @@ host_native_sweep_is_scoped_to_its_context :: proc(t: ^testing.T) {
 	lava.destroy_runtime_state(a.ctx, state_a)
 
 	after, ok_after := eval_text(b.ctx, "String(probe())")
-	testing.expectf(
-		t,
-		ok_after && after == "42",
-		"tearing down context A broke context B's registry: %q",
-		after,
-	)
+	testing.expectf(t, ok_after && after == "42", "tearing down context A broke context B's registry: %q", after)
 }
 
 // The cache exists so per-instance injections (the fs.Stats methods) reuse one
@@ -181,11 +172,7 @@ host_native_create_dedupes_per_callback_and_name :: proc(t: ^testing.T) {
 	testing.expect(t, renamed != nil && renamed != first, "a different name reused the same cell")
 
 	different := lava.host_native_create(c.ctx, "probe", other_cb)
-	testing.expect(
-		t,
-		different != nil && different != first,
-		"a different callback reused the same cell",
-	)
+	testing.expect(t, different != nil && different != first, "a different callback reused the same cell")
 }
 
 // Pins the host path's construct-result divergence require.odin documents:
@@ -209,10 +196,7 @@ host_native_construct_returns_call_result :: proc(t: ^testing.T) {
 	defer lava.destroy_runtime_state(c.ctx, state)
 
 	lava.inject_native_function(c.ctx, jsc.JSContextGetGlobalObject(c.ctx), "probe", answer_cb)
-	text, ok_eval := eval_text(
-		c.ctx,
-		"(function(){ var r = new probe(); return typeof r + ':' + String(r); })()",
-	)
+	text, ok_eval := eval_text(c.ctx, "(function(){ var r = new probe(); return typeof r + ':' + String(r); })()")
 	testing.expectf(t, ok_eval && text == "number:42", "host-path construct result changed: %q", text)
 }
 
@@ -317,12 +301,7 @@ host_native_create_survives_allocation_failure :: proc(t: ^testing.T) {
 	// The binding still has to work — an OOM in our cache is not an OOM in JSC.
 	lava.inject_native_function(c.ctx, jsc.JSContextGetGlobalObject(c.ctx), "probe", answer_cb)
 	text, ok_eval := eval_text(c.ctx, "String(probe())")
-	testing.expectf(
-		t,
-		ok_eval && text == "42",
-		"binding broke when the registry could not cache it: %q",
-		text,
-	)
+	testing.expectf(t, ok_eval && text == "42", "binding broke when the registry could not cache it: %q", text)
 }
 
 // host_throw's contract is that its RETURN says whether the exception was really

@@ -55,11 +55,7 @@ Fetch_TLS_Outcome :: enum {
 // close_notify; SSL_ERROR_SYSCALL with ret == 0 is an EOF without one (common
 // for HTTP/1.1 Connection: close), while ret < 0 is a genuine syscall failure
 // and stays Fatal so truncation is not silently treated as completion.
-fetch_tls_classify :: proc(
-	loop: ^eventloop.Loop,
-	req: ^Fetch_Request,
-	ret: c.int,
-) -> Fetch_TLS_Outcome {
+fetch_tls_classify :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request, ret: c.int) -> Fetch_TLS_Outcome {
 	switch SSL_get_error(cast(SSL)req.tls, ret) {
 	case SSL_ERROR_WANT_READ:
 		// A failed re-arm becomes Fatal so the caller settles instead of stalling.
@@ -120,14 +116,7 @@ fetch_tls_write :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 // armed for readability, a WANT_WRITE for writability — collapsing both to "write"
 // would spin on writable events, or deadlock when the send buffer is full and the
 // peer's renegotiation bytes can only be read.
-fetch_tls_send_chunk :: proc(
-	req: ^Fetch_Request,
-	chunk: []byte,
-) -> (
-	n: int,
-	res: Fetch_IO_Result,
-	want_read: bool,
-) {
+fetch_tls_send_chunk :: proc(req: ^Fetch_Request, chunk: []byte) -> (n: int, res: Fetch_IO_Result, want_read: bool) {
 	ret := SSL_write(cast(SSL)req.tls, raw_data(chunk), c.int(len(chunk)))
 	if ret > 0 do return int(ret), .Ok, false
 	switch SSL_get_error(cast(SSL)req.tls, ret) {

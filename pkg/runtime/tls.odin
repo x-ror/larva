@@ -240,8 +240,7 @@ tls_new_client :: proc(fd: uintptr, host: string) -> SSL {
 		}
 	} else {
 		// SSL_ctrl returns 1 on a successful SET_TLSEXT_HOSTNAME.
-		if SSL_ctrl(ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME, TLSEXT_NAMETYPE_host_name, rawptr(chost)) !=
-		   1 {
+		if SSL_ctrl(ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME, TLSEXT_NAMETYPE_host_name, rawptr(chost)) != 1 {
 			SSL_free(ssl)
 			return nil
 		}

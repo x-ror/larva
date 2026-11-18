@@ -19,9 +19,7 @@ SUPERVISOR_TICK_MS :: 200
 shutdown_sigset :: proc() -> linux.Sig_Set {
 	set: linux.Sig_Set
 	// Sig_Set is a bitmask; signal n is bit (n-1). SIGINT(2) and SIGTERM(15) both fall in word 0.
-	set[0] =
-		(uint(1) << (uint(linux.Signal.SIGINT) - 1)) |
-		(uint(1) << (uint(linux.Signal.SIGTERM) - 1))
+	set[0] = (uint(1) << (uint(linux.Signal.SIGINT) - 1)) | (uint(1) << (uint(linux.Signal.SIGTERM) - 1))
 	return set
 }
 

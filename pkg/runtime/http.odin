@@ -30,7 +30,13 @@ make_http_bindings :: proc(ctx: jsc.JSContextRef) -> jsc.JSObjectRef {
 	inject_native_function(ctx, bindings, "parseRequest", http_parse_request_cb, http_parse_request_host)
 	// Response-head serialization: same latin1WriteInto as node:buffer (package-local
 	// callback). Avoids a Buffer require + intermediate array on every writeHead/end.
-	inject_native_function(ctx, bindings, "latin1WriteInto", buffer_latin1_write_into_cb, buffer_latin1_write_into_host)
+	inject_native_function(
+		ctx,
+		bindings,
+		"latin1WriteInto",
+		buffer_latin1_write_into_cb,
+		buffer_latin1_write_into_host,
+	)
 	return bindings
 }
 

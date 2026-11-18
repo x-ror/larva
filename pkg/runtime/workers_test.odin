@@ -14,7 +14,17 @@ import eventloop "lava:pkg/runtime/eventloop"
 worker_count_parsing :: proc(t: ^testing.T) {
 	expect_ok :: proc(t: ^testing.T, raw: string, has: bool, cpu: int, want: int) {
 		n, ok, _ := lava_parse_worker_count(raw, has, cpu)
-		testing.expectf(t, ok && n == want, "parse(%q,%v,cpu=%d): got (n=%d ok=%v), want n=%d ok", raw, has, cpu, n, ok, want)
+		testing.expectf(
+			t,
+			ok && n == want,
+			"parse(%q,%v,cpu=%d): got (n=%d ok=%v), want n=%d ok",
+			raw,
+			has,
+			cpu,
+			n,
+			ok,
+			want,
+		)
 	}
 	expect_fail :: proc(t: ^testing.T, raw: string, has: bool, cpu: int) {
 		_, ok, msg := lava_parse_worker_count(raw, has, cpu)
@@ -177,5 +187,11 @@ workers_give_back_their_host_tables :: proc(t: ^testing.T) {
 		testing.expectf(t, workers[i].result.exit_code == 0, "worker %d exit code %d", i, workers[i].result.exit_code)
 		result_destroy(&workers[i].result)
 	}
-	testing.expectf(t, host_native_tables_live() == baseline, "host-native tables live after workers exited: %d, want baseline %d", host_native_tables_live(), baseline)
+	testing.expectf(
+		t,
+		host_native_tables_live() == baseline,
+		"host-native tables live after workers exited: %d, want baseline %d",
+		host_native_tables_live(),
+		baseline,
+	)
 }

@@ -75,11 +75,7 @@ JSClassDefinition :: struct {
 	static_functions:    ^JSStaticFunction,
 	initialize:          proc "c" (ctx: JSContextRef, object: JSObjectRef),
 	finalize:            proc "c" (object: JSObjectRef),
-	has_property:        proc "c" (
-		ctx: JSContextRef,
-		object: JSObjectRef,
-		property_name: JSStringRef,
-	) -> b32,
+	has_property:        proc "c" (ctx: JSContextRef, object: JSObjectRef, property_name: JSStringRef) -> b32,
 	get_property:        proc "c" (
 		ctx: JSContextRef,
 		object: JSObjectRef,

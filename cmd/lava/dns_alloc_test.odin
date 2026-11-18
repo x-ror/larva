@@ -5,8 +5,8 @@ import "base:runtime"
 import "core:mem"
 import "core:sync"
 import "core:testing"
-import eventloop "lava:pkg/runtime/eventloop"
 import lava "lava:pkg/runtime"
+import eventloop "lava:pkg/runtime/eventloop"
 
 // Guards the localized dns/fetch allocator fix (Dns_Lookup_Request.allocator). The
 // hostname is cloned inside the native dns lookup callback (a `proc "c"` where context

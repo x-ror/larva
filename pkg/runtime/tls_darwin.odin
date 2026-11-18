@@ -201,7 +201,8 @@ darwin_ssl_read_cb :: proc "c" (connection: SSLConnectionRef, data: rawptr, data
 		#partial switch posix.get_errno() {
 		case .EINTR:
 			continue // interrupted before any byte arrived — retry
-		case .EAGAIN: // == EWOULDBLOCK on Darwin
+		case .EAGAIN:
+			// == EWOULDBLOCK on Darwin
 			sess.want = .Read
 			status = errSSLWouldBlock
 		case:
@@ -234,7 +235,8 @@ darwin_ssl_write_cb :: proc "c" (connection: SSLConnectionRef, data: rawptr, dat
 		#partial switch posix.get_errno() {
 		case .EINTR:
 			continue // interrupted before any byte was sent — retry
-		case .EAGAIN: // == EWOULDBLOCK on Darwin
+		case .EAGAIN:
+			// == EWOULDBLOCK on Darwin
 			sess.want = .Write
 			status = errSSLWouldBlock
 		case:

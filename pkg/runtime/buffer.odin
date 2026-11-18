@@ -801,10 +801,22 @@ make_buffer_bindings :: proc(ctx: jsc.JSContextRef) -> jsc.JSObjectRef {
 	inject_native_function(ctx, bindings, "latin1Encode", buffer_latin1_encode_cb, buffer_latin1_encode_host)
 	inject_native_function(ctx, bindings, "latin1Decode", buffer_latin1_decode_cb, buffer_latin1_decode_host)
 	inject_native_function(ctx, bindings, "asciiDecode", buffer_ascii_decode_cb, buffer_ascii_decode_host)
-	inject_native_function(ctx, bindings, "latin1WriteInto", buffer_latin1_write_into_cb, buffer_latin1_write_into_host)
+	inject_native_function(
+		ctx,
+		bindings,
+		"latin1WriteInto",
+		buffer_latin1_write_into_cb,
+		buffer_latin1_write_into_host,
+	)
 	inject_native_function(ctx, bindings, "utf16leEncode", buffer_utf16le_encode_cb, buffer_utf16le_encode_host)
 	inject_native_function(ctx, bindings, "utf16leDecode", buffer_utf16le_decode_cb, buffer_utf16le_decode_host)
-	inject_native_function(ctx, bindings, "utf16leWriteInto", buffer_utf16le_write_into_cb, buffer_utf16le_write_into_host)
+	inject_native_function(
+		ctx,
+		bindings,
+		"utf16leWriteInto",
+		buffer_utf16le_write_into_cb,
+		buffer_utf16le_write_into_host,
+	)
 	inject_native_function(ctx, bindings, "utf8WriteInto", buffer_utf8_write_into_cb, buffer_utf8_write_into_host)
 	// Cold natives: generic host trampoline (no dedicated *_host wrapper).
 	inject_native_function(ctx, bindings, "utf8ByteLength", buffer_utf8_byte_length_cb)

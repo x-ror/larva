@@ -1,10 +1,10 @@
 package lava_runtime
 
 import "base:runtime"
-import "core:crypto"
-import "core:io"
 import "core:c"
+import "core:crypto"
 import "core:fmt"
+import "core:io"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
@@ -272,7 +272,11 @@ fs_make_error :: proc(ctx: jsc.JSContextRef, code, syscall, path: string, errno_
 // fs_make_rename_error builds Node's rename error, which differs from the generic
 // fs error in two ways: the message names both paths ("rename 'old' -> 'new'")
 // and the error carries a `dest` property in addition to `path`.
-fs_make_rename_error :: proc(ctx: jsc.JSContextRef, code, old_path, new_path: string, errno_val := 0) -> jsc.JSValueRef {
+fs_make_rename_error :: proc(
+	ctx: jsc.JSContextRef,
+	code, old_path, new_path: string,
+	errno_val := 0,
+) -> jsc.JSValueRef {
 	msg := fmt.tprintf("%s: %s, rename '%s' -> '%s'", code, fs_errno_text(code), old_path, new_path)
 	err := make_js_error(ctx, msg)
 	if jsc.JSValueIsObject(ctx, err) {
@@ -290,23 +294,40 @@ fs_make_rename_error :: proc(ctx: jsc.JSContextRef, code, old_path, new_path: st
 
 fs_errno_text :: proc(code: string) -> string {
 	switch code {
-	case "ENOENT":        return "no such file or directory"
-	case "EEXIST":        return "file already exists"
-	case "ENOTDIR":       return "not a directory"
-	case "EISDIR":        return "illegal operation on a directory"
-	case "EACCES":        return "permission denied"
-	case "EPERM":         return "operation not permitted"
-	case "ENOTEMPTY":     return "directory not empty"
-	case "EIO":           return "i/o error"
-	case "EROFS":         return "read-only file system"
-	case "ENOSPC":        return "no space left on device"
-	case "EBADF":         return "bad file descriptor"
-	case "EMFILE":        return "too many open files"
-	case "ENFILE":        return "file table overflow"
-	case "ELOOP":         return "too many symbolic links encountered"
-	case "EINVAL":        return "invalid argument"
-	case "ENOSYS":        return "function not implemented"
-	case "ERR_FS_EISDIR": return "Path is a directory"
+	case "ENOENT":
+		return "no such file or directory"
+	case "EEXIST":
+		return "file already exists"
+	case "ENOTDIR":
+		return "not a directory"
+	case "EISDIR":
+		return "illegal operation on a directory"
+	case "EACCES":
+		return "permission denied"
+	case "EPERM":
+		return "operation not permitted"
+	case "ENOTEMPTY":
+		return "directory not empty"
+	case "EIO":
+		return "i/o error"
+	case "EROFS":
+		return "read-only file system"
+	case "ENOSPC":
+		return "no space left on device"
+	case "EBADF":
+		return "bad file descriptor"
+	case "EMFILE":
+		return "too many open files"
+	case "ENFILE":
+		return "file table overflow"
+	case "ELOOP":
+		return "too many symbolic links encountered"
+	case "EINVAL":
+		return "invalid argument"
+	case "ENOSYS":
+		return "function not implemented"
+	case "ERR_FS_EISDIR":
+		return "Path is a directory"
 	}
 	return "i/o error"
 }
@@ -356,15 +377,21 @@ fs_os_error_to_code :: proc(err: os.Error) -> (code: string, errno_val: int) {
 	#partial switch e in err {
 	case os.General_Error:
 		#partial switch e {
-		case .Not_Exist:   return "ENOENT", 2
-		case .Exist:       return "EEXIST", 17
-		case .Invalid_Dir: return "EISDIR", 21
-		case:              return "EIO", 5
+		case .Not_Exist:
+			return "ENOENT", 2
+		case .Exist:
+			return "EEXIST", 17
+		case .Invalid_Dir:
+			return "EISDIR", 21
+		case:
+			return "EIO", 5
 		}
 	case io.Error:
 		#partial switch e {
-		case .Permission_Denied: return "EACCES", 13
-		case:                    return "EIO", 5
+		case .Permission_Denied:
+			return "EACCES", 13
+		case:
+			return "EIO", 5
 		}
 	case os.Platform_Error:
 		when ODIN_OS == .Windows {
@@ -372,11 +399,16 @@ fs_os_error_to_code :: proc(err: os.Error) -> (code: string, errno_val: int) {
 			// POSIX errno, so map the codes the fs paths actually produce. (Best
 			// effort: the node-compat fs suite does not yet run on Windows CI.)
 			switch i32(e) {
-			case 2, 3, 267: return "ENOENT", 2  // FILE_NOT_FOUND / PATH_NOT_FOUND / DIRECTORY (libuv maps ERROR_DIRECTORY -> ENOENT)
-			case 5:         return "EACCES", 13 // ACCESS_DENIED
-			case 80, 183:   return "EEXIST", 17 // FILE_EXISTS / ALREADY_EXISTS
-			case 145:       return "ENOTEMPTY", 41 // DIR_NOT_EMPTY (CRT errno 41 on Win32)
-			case:           return "EIO", 5
+			case 2, 3, 267:
+				return "ENOENT", 2 // FILE_NOT_FOUND / PATH_NOT_FOUND / DIRECTORY (libuv maps ERROR_DIRECTORY -> ENOENT)
+			case 5:
+				return "EACCES", 13 // ACCESS_DENIED
+			case 80, 183:
+				return "EEXIST", 17 // FILE_EXISTS / ALREADY_EXISTS
+			case 145:
+				return "ENOTEMPTY", 41 // DIR_NOT_EMPTY (CRT errno 41 on Win32)
+			case:
+				return "EIO", 5
 			}
 		} else {
 			// Linux + Darwin/BSD: i32(e) is the platform errno, so it is the
@@ -384,16 +416,26 @@ fs_os_error_to_code :: proc(err: os.Error) -> (code: string, errno_val: int) {
 			// these platforms need both arms — notably ENOTEMPTY (Linux 39, BSD 66).
 			errno := int(i32(e))
 			switch errno {
-			case 1:      return "EPERM", errno
-			case 2:      return "ENOENT", errno
-			case 13:     return "EACCES", errno
-			case 17:     return "EEXIST", errno
-			case 20:     return "ENOTDIR", errno
-			case 21:     return "EISDIR", errno
-			case 28:     return "ENOSPC", errno
-			case 30:     return "EROFS", errno
-			case 39, 66: return "ENOTEMPTY", errno
-			case:        return "EIO", 5
+			case 1:
+				return "EPERM", errno
+			case 2:
+				return "ENOENT", errno
+			case 13:
+				return "EACCES", errno
+			case 17:
+				return "EEXIST", errno
+			case 20:
+				return "ENOTDIR", errno
+			case 21:
+				return "EISDIR", errno
+			case 28:
+				return "ENOSPC", errno
+			case 30:
+				return "EROFS", errno
+			case 39, 66:
+				return "ENOTEMPTY", errno
+			case:
+				return "EIO", 5
 			}
 		}
 	case:
@@ -435,7 +477,11 @@ is_data_view :: proc(ctx: jsc.JSContextRef, obj: jsc.JSObjectRef) -> bool {
 fs_resolve_write_payload :: proc(
 	ctx: jsc.JSContextRef,
 	value: jsc.JSValueRef,
-) -> (bytes: []byte, owned: bool, ok: bool) {
+) -> (
+	bytes: []byte,
+	owned: bool,
+	ok: bool,
+) {
 	t := jsc.JSValueGetTypedArrayType(ctx, value, nil)
 	// A bare ArrayBuffer is not a valid fs write payload (Node: ERR_INVALID_ARG_TYPE).
 	if t == .ArrayBuffer do return nil, false, false
@@ -1195,14 +1241,7 @@ fs_build_stats :: proc(ctx: jsc.JSContextRef, info: os.File_Info) -> jsc.JSValue
 	// surface in Object.keys / JSON.stringify of the Stats object.
 	ftype_name := jsc.JSStringCreateWithUTF8CString("__lava_ftype")
 	defer jsc.JSStringRelease(ftype_name)
-	jsc.JSObjectSetProperty(
-		ctx,
-		obj,
-		ftype_name,
-		jsc.JSValueMakeNumber(ctx, f64(ftype)),
-		{.DontEnum},
-		nil,
-	)
+	jsc.JSObjectSetProperty(ctx, obj, ftype_name, jsc.JSValueMakeNumber(ctx, f64(ftype)), {.DontEnum}, nil)
 
 	inject_native_function(ctx, obj, "isFile", stats_is_file_cb)
 	inject_native_function(ctx, obj, "isDirectory", stats_is_directory_cb)

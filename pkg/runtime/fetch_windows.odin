@@ -28,8 +28,7 @@ fetch_new_socket :: proc(family: windows.c_int) -> windows.SOCKET {
 	nonblock: windows.c_ulong = 1
 	// FIONBIO has its high bit set, so a checked cast to signed c_long overflows;
 	// reinterpret the bits instead (same as the event loop's wakeup socket).
-	if windows.ioctlsocket(sock, transmute(windows.c_long)windows.FIONBIO, &nonblock) ==
-	   windows.SOCKET_ERROR {
+	if windows.ioctlsocket(sock, transmute(windows.c_long)windows.FIONBIO, &nonblock) == windows.SOCKET_ERROR {
 		windows.closesocket(sock)
 		return windows.INVALID_SOCKET
 	}
@@ -66,20 +65,13 @@ fetch_connect_ip4 :: proc(req: ^Fetch_Request, ip4: net.IP4_Address, port: int) 
 	if sock == windows.INVALID_SOCKET do return false, "fetch: could not create socket"
 	addr := windows.sockaddr_in {
 		sin_family = windows.ADDRESS_FAMILY(windows.AF_INET),
-		sin_port   = u16be(port),
-		sin_addr   = {s_addr = transmute(u32)ip4},
+		sin_port = u16be(port),
+		sin_addr = {s_addr = transmute(u32)ip4},
 	}
 	return fetch_start_connect(req, sock, cast(^windows.SOCKADDR_STORAGE_LH)&addr, size_of(addr))
 }
 
-fetch_connect_ip6 :: proc(
-	req: ^Fetch_Request,
-	ip6: net.IP6_Address,
-	port: int,
-) -> (
-	ok: bool,
-	err: string,
-) {
+fetch_connect_ip6 :: proc(req: ^Fetch_Request, ip6: net.IP6_Address, port: int) -> (ok: bool, err: string) {
 	sock := fetch_new_socket(windows.AF_INET6)
 	if sock == windows.INVALID_SOCKET do return false, "fetch: could not create socket"
 	// net.IP6_Address is [8]u16be, whose memory layout is already the 16
@@ -130,11 +122,7 @@ fetch_raw_recv :: proc(req: ^Fetch_Request, buf: []byte) -> (n: int, res: Fetch_
 // instead of stalling forever). The select backend reads watcher.mode when it
 // builds each fd_set, but re-registering explicitly (like epoll/kqueue) keeps this
 // correct regardless of how the backend tracks interest. A no-op when unchanged.
-fetch_set_watch_mode :: proc(
-	loop: ^eventloop.Loop,
-	req: ^Fetch_Request,
-	mode: eventloop.Poll_Mode,
-) -> bool {
+fetch_set_watch_mode :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request, mode: eventloop.Poll_Mode) -> bool {
 	if req.watcher.mode == mode do return true
 	eventloop.unwatch_fd(loop, &req.watcher)
 	req.watcher.mode = mode

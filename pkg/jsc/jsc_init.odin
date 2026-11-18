@@ -26,13 +26,23 @@ when ODIN_OS == .Windows {
 		lava_make_uint8_nocopy :: proc(ctx: JSContextRef, bytes: rawptr, length: c.size_t, dealloc: proc "c" (bytes: rawptr, deallocator_context: rawptr)) -> JSObjectRef ---
 	}
 
-	make_uint8_nocopy_locked :: proc(ctx: JSContextRef, bytes: rawptr, length: c.size_t, dealloc: proc "c" (bytes: rawptr, deallocator_context: rawptr)) -> JSObjectRef {
+	make_uint8_nocopy_locked :: proc(
+		ctx: JSContextRef,
+		bytes: rawptr,
+		length: c.size_t,
+		dealloc: proc "c" (bytes: rawptr, deallocator_context: rawptr),
+	) -> JSObjectRef {
 		return lava_make_uint8_nocopy(ctx, bytes, length, dealloc)
 	}
 } else {
 	lava_jsc_init :: proc() {}
 
-	make_uint8_nocopy_locked :: proc(ctx: JSContextRef, bytes: rawptr, length: c.size_t, dealloc: proc "c" (bytes: rawptr, deallocator_context: rawptr)) -> JSObjectRef {
+	make_uint8_nocopy_locked :: proc(
+		ctx: JSContextRef,
+		bytes: rawptr,
+		length: c.size_t,
+		dealloc: proc "c" (bytes: rawptr, deallocator_context: rawptr),
+	) -> JSObjectRef {
 		return JSObjectMakeTypedArrayWithBytesNoCopy(ctx, .Uint8Array, bytes, length, dealloc, nil, nil)
 	}
 }

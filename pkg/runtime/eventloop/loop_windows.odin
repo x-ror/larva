@@ -68,8 +68,7 @@ make_wakeup_pair :: proc(loop: ^Loop) -> bool {
 		sin_port = 0, // ask the kernel for an ephemeral port
 		sin_addr = {s_addr = transmute(u32)[4]u8{127, 0, 0, 1}},
 	}
-	if windows.bind(listener, cast(^windows.SOCKADDR_STORAGE_LH)&addr, size_of(addr)) ==
-	   windows.SOCKET_ERROR {
+	if windows.bind(listener, cast(^windows.SOCKADDR_STORAGE_LH)&addr, size_of(addr)) == windows.SOCKET_ERROR {
 		return false
 	}
 	if windows.listen(listener, 1) == windows.SOCKET_ERROR do return false
@@ -77,8 +76,7 @@ make_wakeup_pair :: proc(loop: ^Loop) -> bool {
 	// Recover the bound ephemeral port to connect back to.
 	bound: windows.sockaddr_in
 	bound_len := i32(size_of(bound))
-	if windows.getsockname(listener, cast(^windows.SOCKADDR_STORAGE_LH)&bound, &bound_len) ==
-	   windows.SOCKET_ERROR {
+	if windows.getsockname(listener, cast(^windows.SOCKADDR_STORAGE_LH)&bound, &bound_len) == windows.SOCKET_ERROR {
 		return false
 	}
 
@@ -89,11 +87,7 @@ make_wakeup_pair :: proc(loop: ^Loop) -> bool {
 		sin_port = bound.sin_port,
 		sin_addr = {s_addr = transmute(u32)[4]u8{127, 0, 0, 1}},
 	}
-	if windows.connect(
-		   send_sock,
-		   cast(^windows.SOCKADDR_STORAGE_LH)&connect_addr,
-		   size_of(connect_addr),
-	   ) ==
+	if windows.connect(send_sock, cast(^windows.SOCKADDR_STORAGE_LH)&connect_addr, size_of(connect_addr)) ==
 	   windows.SOCKET_ERROR {
 		windows.closesocket(send_sock)
 		return false
@@ -127,10 +121,7 @@ set_nonblocking :: proc(sock: windows.SOCKET) -> bool {
 	nonblock: windows.c_ulong = 1
 	// FIONBIO has its high bit set (0x8004667e), so a checked cast to signed c_long
 	// overflows; reinterpret the bits instead.
-	return(
-		windows.ioctlsocket(sock, transmute(windows.c_long)windows.FIONBIO, &nonblock) !=
-		windows.SOCKET_ERROR \
-	)
+	return windows.ioctlsocket(sock, transmute(windows.c_long)windows.FIONBIO, &nonblock) != windows.SOCKET_ERROR
 }
 
 // platform_close_backend / platform_close_wakeup: the two halves of the teardown,
@@ -266,9 +257,7 @@ platform_poll :: proc(loop: ^Loop, timeout_ms: int) {
 	count := 0
 	for w in loop.platform.watchers {
 		sock := windows.SOCKET(w.fd)
-		if fd_set_has(&readfds, sock) ||
-		   fd_set_has(&writefds, sock) ||
-		   fd_set_has(&exceptfds, sock) {
+		if fd_set_has(&readfds, sock) || fd_set_has(&writefds, sock) || fd_set_has(&exceptfds, sock) {
 			if count < len(ready) {
 				ready[count] = w
 				count += 1

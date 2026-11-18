@@ -395,11 +395,7 @@ sqlite_error :: proc(ctx: jsc.JSContextRef, message: string) -> jsc.JSValueRef {
 // out-of-range index — how node:sqlite reports too many positional params) as a
 // JS Error carrying SQLite's text and the ERR_SQLITE_ERROR code, instead of
 // letting the statement execute with the slot silently unbound.
-sqlite_throw_bind_error :: proc(
-	ctx: jsc.JSContextRef,
-	res: sqlite.Result,
-	exception: ^jsc.JSValueRef,
-) {
+sqlite_throw_bind_error :: proc(ctx: jsc.JSContextRef, res: sqlite.Result, exception: ^jsc.JSValueRef) {
 	if res.status == .Ok do return
 	if exception == nil do return
 	// Don't clobber a more specific exception already set by the caller.
@@ -560,10 +556,7 @@ sqlite_int_value :: proc(
 	if read_big_ints do return sqlite_make_bigint(ctx, v)
 	if (v > SQLITE_MAX_SAFE_INTEGER || v < -SQLITE_MAX_SAFE_INTEGER) {
 		if exception != nil {
-			msg := fmt.tprintf(
-				"Value is too large to be represented as a JavaScript number: %d",
-				v,
-			)
+			msg := fmt.tprintf("Value is too large to be represented as a JavaScript number: %d", v)
 			exception^ = make_native_error(ctx, "RangeError", msg, "ERR_OUT_OF_RANGE")
 		}
 		return jsc.JSValueMakeUndefined(ctx)
@@ -581,14 +574,7 @@ sqlite_make_bigint :: proc(ctx: jsc.JSContextRef, v: i64) -> jsc.JSValueRef {
 	fn := jsc.JSObjectGetProperty(ctx, global, name, nil)
 	if !jsc.JSValueIsObject(ctx, fn) do return jsc.JSValueMakeNumber(ctx, f64(v))
 	args := [1]jsc.JSValueRef{js_string_value(ctx, s)}
-	result := jsc.JSObjectCallAsFunction(
-		ctx,
-		cast(jsc.JSObjectRef)fn,
-		nil,
-		1,
-		raw_data(args[:]),
-		nil,
-	)
+	result := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)fn, nil, 1, raw_data(args[:]), nil)
 	if result == nil do return jsc.JSValueMakeNumber(ctx, f64(v))
 	return result
 }

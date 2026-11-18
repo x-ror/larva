@@ -172,10 +172,7 @@ is_absolute_path :: proc(path: string) -> bool {
 		// Leading separator, including UNC paths (\\server\share) and '//'.
 		if path[0] == '/' || path[0] == '\\' do return true
 		// Drive-letter absolute path: 'C:\' or 'C:/'.
-		if len(path) >= 3 &&
-		   is_ascii_letter(path[0]) &&
-		   path[1] == ':' &&
-		   (path[2] == '/' || path[2] == '\\') {
+		if len(path) >= 3 && is_ascii_letter(path[0]) && path[1] == ':' && (path[2] == '/' || path[2] == '\\') {
 			return true
 		}
 		return false

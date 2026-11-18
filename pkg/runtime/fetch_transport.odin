@@ -29,14 +29,7 @@ Fetch_IO_Result :: enum {
 // deferred to dns_resolve_done (run back on the loop thread via
 // post_async). Returns ok=false with a message only for an immediate failure; the
 // async path returns ok=true and settles later.
-fetch_transport_start :: proc(
-	req: ^Fetch_Request,
-	host: string,
-	port: int,
-) -> (
-	ok: bool,
-	err: string,
-) {
+fetch_transport_start :: proc(req: ^Fetch_Request, host: string, port: int) -> (ok: bool, err: string) {
 	// Reject https:// up front on backends without TLS (fetch_tls_supported ==
 	// false), before any DNS lookup or outbound connect — so an unsupported
 	// request fails instantly and locally instead of after network work.

@@ -295,7 +295,8 @@ os_network_interfaces :: proc() -> []Os_Net_Iface {
 // current process: GetCurrentProcess returns a pseudo-handle needing no close.
 os_get_priority :: proc(pid: int) -> (value: int, err: int) {
 	current := pid == 0
-	handle := current ? windows.GetCurrentProcess() : windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, windows.FALSE, windows.DWORD(pid))
+	handle :=
+		current ? windows.GetCurrentProcess() : windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, windows.FALSE, windows.DWORD(pid))
 	if handle == nil {
 		return 0, win_errno(windows.GetLastError())
 	}
@@ -389,16 +390,7 @@ reg_get_string :: proc(subkey, value: string) -> string {
 	wsub := windows.utf8_to_wstring(subkey, context.temp_allocator)
 	wval := windows.utf8_to_wstring(value, context.temp_allocator)
 	size: windows.DWORD
-	if windows.RegGetValueW(
-		   windows.HKEY_LOCAL_MACHINE,
-		   wsub,
-		   wval,
-		   windows.RRF_RT_REG_SZ,
-		   nil,
-		   nil,
-		   &size,
-	   ) !=
-		   0 ||
+	if windows.RegGetValueW(windows.HKEY_LOCAL_MACHINE, wsub, wval, windows.RRF_RT_REG_SZ, nil, nil, &size) != 0 ||
 	   size < 2 {
 		return ""
 	}
@@ -459,7 +451,8 @@ win_errno :: proc(gle: windows.DWORD) -> int {
 	EACCES :: 13
 	EINVAL :: 22
 	switch gle {
-	case windows.ERROR_INVALID_PARAMETER: // OpenProcess on a non-existent pid
+	case windows.ERROR_INVALID_PARAMETER:
+		// OpenProcess on a non-existent pid
 		return ESRCH
 	case windows.ERROR_ACCESS_DENIED:
 		return EACCES

@@ -11,11 +11,16 @@ import "core:simd"
 
 // Codec lookup tables. Encoders index the alphabet strings directly; the decode
 // tables map a byte to its value, 0xFF = not in the alphabet.
-@(private) HEX_DIGITS := "0123456789abcdef"
-@(private) B64_ALPHABET := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-@(private) B64URL_ALPHABET := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-@(private) g_hex_val: [256]u8
-@(private) g_b64_val: [256]u8
+@(private)
+HEX_DIGITS := "0123456789abcdef"
+@(private)
+B64_ALPHABET := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+@(private)
+B64URL_ALPHABET := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+@(private)
+g_hex_val: [256]u8
+@(private)
+g_b64_val: [256]u8
 
 @(init, private)
 buffer_codec_tables_init :: proc "contextless" () {
@@ -195,8 +200,12 @@ base64_parse :: proc(out: []byte, chars: []$T) -> (n: int, ok: bool) {
 		pad3 := s[3] == '='
 		d2 := pad2 ? 0 : g_b64_val[s[2]]
 		d3 := pad3 ? 0 : g_b64_val[s[3]]
-		if d0 == 0xFF || d1 == 0xFF || d2 == 0xFF || d3 == 0xFF ||
-		   (pad2 && !pad3) || ((pad2 || pad3) && g != groups - 1) {
+		if d0 == 0xFF ||
+		   d1 == 0xFF ||
+		   d2 == 0xFF ||
+		   d3 == 0xFF ||
+		   (pad2 && !pad3) ||
+		   ((pad2 || pad3) && g != groups - 1) {
 			return 0, false
 		}
 		v := u32(d0) << 18 | u32(d1) << 12 | u32(d2) << 6 | u32(d3)

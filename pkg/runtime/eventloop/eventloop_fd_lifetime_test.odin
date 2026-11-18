@@ -63,11 +63,7 @@ failed_platform_init_does_not_double_close :: proc(t: ^testing.T) {
 	// Restore before anything else — the runner itself needs descriptors.
 	linux.setrlimit(.NOFILE, &saved)
 
-	testing.expect(
-		t,
-		loop.backend == .Unavailable,
-		"platform_init was supposed to fail under the tightened limit",
-	)
+	testing.expect(t, loop.backend == .Unavailable, "platform_init was supposed to fail under the tightened limit")
 
 	// Takes the number pipe2 just released. If platform_init left that number in
 	// wakeup_pipe, destroy is about to close THIS descriptor.
@@ -89,11 +85,6 @@ failed_platform_init_does_not_double_close :: proc(t: ^testing.T) {
 
 	st: linux.Stat
 	fstat_err := linux.fstat(canary, &st)
-	testing.expectf(
-		t,
-		fstat_err == nil,
-		"destroy closed an unrelated descriptor: fstat(canary) -> %v",
-		fstat_err,
-	)
+	testing.expectf(t, fstat_err == nil, "destroy closed an unrelated descriptor: fstat(canary) -> %v", fstat_err)
 	if fstat_err == nil do linux.close(canary)
 }

@@ -329,13 +329,7 @@ interval_cleared_from_own_callback_disposes_binding :: proc(t: ^testing.T) {
 
 	// Fires twice, then clears itself: it fired (so it was not freed on fire,
 	// unlike a one-shot) and is not re-armed, so it is disposed exactly once.
-	rec.interval_id = set_interval(
-		&loop,
-		record_interval_and_clear_after_two_ticks,
-		5,
-		&rec,
-		count_dispose,
-	)
+	rec.interval_id = set_interval(&loop, record_interval_and_clear_after_two_ticks, 5, &rec, count_dispose)
 	testing.expect(t, run_until_idle(&loop))
 	expect_events(t, rec.events[:], []int{1, 1})
 	testing.expect_value(t, rec.dispose_count, 1)
@@ -645,7 +639,9 @@ threadpool_runs_work_offloop_and_completes_on_loop :: proc(t: ^testing.T) {
 
 	jobs: [3]Pool_Test_Job
 	for i in 0 ..< len(jobs) {
-		jobs[i] = Pool_Test_Job{rec = &rec}
+		jobs[i] = Pool_Test_Job {
+			rec = &rec,
+		}
 		testing.expect(t, pool_submit(&loop, pool_test_work, pool_test_done, &jobs[i]))
 	}
 	// Each submit pins the loop alive (active_async) until its completion posts.
@@ -692,7 +688,9 @@ threadpool_shutdown_disposes_undelivered_jobs :: proc(t: ^testing.T) {
 	N :: 16
 	jobs: [N]Pool_Dispose_Job
 	for i in 0 ..< N {
-		jobs[i] = Pool_Dispose_Job{disposed = &disposed}
+		jobs[i] = Pool_Dispose_Job {
+			disposed = &disposed,
+		}
 		testing.expect(t, pool_submit(&loop, pool_test_noop_work, nil, &jobs[i], pool_test_dispose))
 	}
 	destroy(&loop) // no loop run → no completion delivered → all N jobs disposed
@@ -915,9 +913,7 @@ watch_fd_fires_on_readable_socket :: proc(t: ^testing.T) {
 	bound, berr := net.bound_endpoint(listener)
 	if !testing.expect_value(t, berr, nil) do return
 
-	client, cerr := net.dial_tcp_from_endpoint(
-		net.Endpoint{address = net.IP4_Loopback, port = bound.port},
-	)
+	client, cerr := net.dial_tcp_from_endpoint(net.Endpoint{address = net.IP4_Loopback, port = bound.port})
 	if !testing.expect_value(t, cerr, nil) do return
 	defer net.close(client)
 
@@ -967,9 +963,7 @@ connect_loopback_pair :: proc(t: ^testing.T) -> (client, server: net.TCP_Socket,
 	bound, berr := net.bound_endpoint(listener)
 	if !testing.expect_value(t, berr, nil) do return
 
-	dialed, cerr := net.dial_tcp_from_endpoint(
-		net.Endpoint{address = net.IP4_Loopback, port = bound.port},
-	)
+	dialed, cerr := net.dial_tcp_from_endpoint(net.Endpoint{address = net.IP4_Loopback, port = bound.port})
 	if !testing.expect_value(t, cerr, nil) do return
 
 	accepted, _, aerr := net.accept_tcp(listener)

@@ -6,8 +6,8 @@ package main
 import "core:log"
 import "core:os"
 import "core:testing"
-import eventloop "lava:pkg/runtime/eventloop"
 import lava "lava:pkg/runtime"
+import eventloop "lava:pkg/runtime/eventloop"
 
 // The same define core:testing's runner reads for its thread count
 // (runner.odin:34). Re-declared here because `testing.TEST_THREADS` is not
@@ -80,9 +80,7 @@ eval_fd_delta :: proc(src: string) -> (delta: int, ok: bool) {
 @(test)
 eval_teardown_with_live_net_connections :: proc(t: ^testing.T) {
 	when RUNNER_THREADS != 1 {
-		log.info(
-			"skipped: the /proc/self/fd census needs -define:ODIN_TEST_THREADS=1 (make test-odin-serial)",
-		)
+		log.info("skipped: the /proc/self/fd census needs -define:ODIN_TEST_THREADS=1 (make test-odin-serial)")
 		return
 	}
 

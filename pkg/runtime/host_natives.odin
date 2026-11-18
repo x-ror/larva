@@ -22,11 +22,7 @@ import jsc "lava:pkg/jsc"
 // pass as the function/thisObject parameters (nil when `this` is not a cell —
 // the callbacks that read it only ever receive objects), and a callback-set
 // exception becomes a real VM throw, matching JSCallbackFunction.
-host_dispatch :: proc "c" (
-	global: rawptr,
-	cf: [^]u64,
-	cb: jsc.JSObjectCallAsFunctionCallback,
-) -> i64 {
+host_dispatch :: proc "c" (global: rawptr, cf: [^]u64, cb: jsc.JSObjectCallAsFunctionCallback) -> i64 {
 	context = runtime.default_context() // valid allocator for the overflow slice below
 	ctx := jsc.JSContextRef(global)
 	argc := int(u32(cf[jsc.CALL_FRAME_ARGC_SLOT] & 0xFFFFFFFF)) - 1 // minus `this`
@@ -119,9 +115,12 @@ Host_Native_Key :: struct {
 // free_all'd between tests) or an embedder's per-eval arena, every later insert
 // writes through a reclaimed backing and corrupts whatever now occupies it.
 // Same rule Runtime_State.module_cache already follows (globals.odin).
-@(private = "file", thread_local) g_host_native_fns: map[Host_Native_Key]jsc.JSObjectRef
-@(private = "file", thread_local) g_host_native_cbs: map[rawptr]jsc.JSObjectCallAsFunctionCallback
-@(private = "file", thread_local) g_host_tables_bound: bool
+@(private = "file", thread_local)
+g_host_native_fns: map[Host_Native_Key]jsc.JSObjectRef
+@(private = "file", thread_local)
+g_host_native_cbs: map[rawptr]jsc.JSObjectCallAsFunctionCallback
+@(private = "file", thread_local)
+g_host_tables_bound: bool
 
 // bind_host_tables gives both tables a backing allocator that outlives them,
 // before anything can insert. runtime.default_allocator() is the only lifetime
@@ -145,16 +144,8 @@ bind_host_tables :: proc() {
 	if g_host_tables_bound do return
 	g_host_tables_bound = true
 	sync.atomic_add(&g_host_tables_live, 1)
-	g_host_native_fns, _ = make(
-		map[Host_Native_Key]jsc.JSObjectRef,
-		64,
-		runtime.default_allocator(),
-	)
-	g_host_native_cbs, _ = make(
-		map[rawptr]jsc.JSObjectCallAsFunctionCallback,
-		64,
-		runtime.default_allocator(),
-	)
+	g_host_native_fns, _ = make(map[Host_Native_Key]jsc.JSObjectRef, 64, runtime.default_allocator())
+	g_host_native_cbs, _ = make(map[rawptr]jsc.JSObjectCallAsFunctionCallback, 64, runtime.default_allocator())
 }
 
 // g_host_tables_live counts the threads whose host-native tables are bound and not
@@ -201,10 +192,7 @@ generic_native_host_cb :: proc "c" (global: rawptr, cf: [^]u64) -> i64 {
 	// #force_no_inline proc restores the previous codegen instruction-for-instruction.
 	cb, found := g_host_native_cbs[rawptr(uintptr(cf[jsc.CALL_FRAME_CALLEE_SLOT]))]
 	if !found {
-		return host_dispatch_fail(
-			jsc.JSContextRef(global),
-			"lava: host native dispatch failed (unregistered callee)",
-		)
+		return host_dispatch_fail(jsc.JSContextRef(global), "lava: host native dispatch failed (unregistered callee)")
 	}
 	return host_dispatch(global, cf, cb)
 }

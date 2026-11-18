@@ -14,9 +14,12 @@ when ODIN_OS == .Linux {
 	// (thread-confined) context exactly once. The NaN-box tag is a
 	// build-global fact, but re-deriving it per thread is cheap and avoids any
 	// cross-thread read of a half-published latch when workers start together.
-	@(private = "file", thread_local) g_i32_checked: bool
-	@(private = "file", thread_local) g_i32_ok: bool
-	@(private = "file", thread_local) g_i32_tag: u64
+	@(private = "file", thread_local)
+	g_i32_checked: bool
+	@(private = "file", thread_local)
+	g_i32_ok: bool
+	@(private = "file", thread_local)
+	g_i32_tag: u64
 
 	@(private = "file")
 	ensure_int32 :: proc(ctx: JSContextRef) {

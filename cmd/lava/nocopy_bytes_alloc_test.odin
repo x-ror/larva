@@ -5,8 +5,8 @@ package main
 import "core:mem"
 import "core:strings"
 import "core:testing"
-import eventloop "lava:pkg/runtime/eventloop"
 import lava "lava:pkg/runtime"
+import eventloop "lava:pkg/runtime/eventloop"
 
 // A loopback round trip: the server echoes what the client writes, so both ends
 // receive bytes through net's read path, each chunk copied into a NoCopy

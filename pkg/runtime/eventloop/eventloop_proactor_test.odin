@@ -70,8 +70,16 @@ proactor_recv_send_roundtrip :: proc(t: ^testing.T) {
 
 	rec := Proactor_Rec{}
 	msg := [5]u8{'h', 'e', 'l', 'l', 'o'}
-	testing.expect(t, submit_recv(&loop, uintptr(sv[0]), rec.recv_buf[:], proactor_on_recv, nil, &rec) != OP_ID_INVALID, "recv submit")
-	testing.expect(t, submit_send(&loop, uintptr(sv[1]), msg[:], proactor_on_send, nil, &rec) != OP_ID_INVALID, "send submit")
+	testing.expect(
+		t,
+		submit_recv(&loop, uintptr(sv[0]), rec.recv_buf[:], proactor_on_recv, nil, &rec) != OP_ID_INVALID,
+		"recv submit",
+	)
+	testing.expect(
+		t,
+		submit_send(&loop, uintptr(sv[1]), msg[:], proactor_on_send, nil, &rec) != OP_ID_INVALID,
+		"send submit",
+	)
 
 	arm_watchdog(&loop)
 	for i in 0 ..< 5 {
@@ -100,7 +108,10 @@ proactor_recv_short_read :: proc(t: ^testing.T) {
 
 	rec := Proactor_Rec{}
 	three := [3]u8{'a', 'b', 'c'}
-	testing.expect(t, submit_recv(&loop, uintptr(sv[0]), rec.recv_buf[:], proactor_on_recv, nil, &rec) != OP_ID_INVALID)
+	testing.expect(
+		t,
+		submit_recv(&loop, uintptr(sv[0]), rec.recv_buf[:], proactor_on_recv, nil, &rec) != OP_ID_INVALID,
+	)
 	testing.expect(t, submit_send(&loop, uintptr(sv[1]), three[:], proactor_on_send, nil, &rec) != OP_ID_INVALID)
 	arm_watchdog(&loop)
 	for i in 0 ..< 5 {
@@ -219,7 +230,11 @@ proactor_token_encoding :: proc(t: ^testing.T) {
 		testing.expect(t, tok & URING_OP_DOMAIN != 0, "op token must carry the domain bit")
 		testing.expect_value(t, uring_op_token_index(tok), c[0])
 		testing.expect_value(t, uring_op_token_generation(tok), c[1])
-		testing.expect(t, tok != URING_WAKEUP_USER_DATA && tok != URING_CANCEL_USER_DATA, "op token collides with a sentinel")
+		testing.expect(
+			t,
+			tok != URING_WAKEUP_USER_DATA && tok != URING_CANCEL_USER_DATA,
+			"op token collides with a sentinel",
+		)
 	}
 	// A poll-watcher token (no domain bit) is distinguishable from an op token.
 	watcher_tok := uring_encode_token(3, 9)

@@ -409,9 +409,7 @@ bind_text :: proc(stmt: ^Statement, index: int, value: string) -> Result {
 		// Explicit length (not strlen): an embedded NUL is a legal byte in SQLite
 		// TEXT, so the whole slice is bound, not just up to the first NUL.
 		cval := strings.clone_to_cstring(value, context.temp_allocator)
-		return bind_result(
-			sqlite3_bind_text(stmt.handle, c.int(index), cval, c.int(len(value)), sqlite_transient()),
-		)
+		return bind_result(sqlite3_bind_text(stmt.handle, c.int(index), cval, c.int(len(value)), sqlite_transient()))
 	}
 }
 
@@ -437,9 +435,7 @@ bind_blob :: proc(stmt: ^Statement, index: int, value: []byte) -> Result {
 		}
 		empty: byte
 		ptr := len(value) > 0 ? rawptr(raw_data(value)) : rawptr(&empty)
-		return bind_result(
-			sqlite3_bind_blob(stmt.handle, c.int(index), ptr, c.int(len(value)), sqlite_transient()),
-		)
+		return bind_result(sqlite3_bind_blob(stmt.handle, c.int(index), ptr, c.int(len(value)), sqlite_transient()))
 	}
 }
 

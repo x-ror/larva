@@ -78,15 +78,15 @@ Chunk_State :: enum {
 // settle_tick). Stale io_uring poll completions can no longer reference it:
 // unwatch_fd truly cancels the poll and invalidates its generation token (#183).
 Fetch_Request :: struct {
-	ctx:           jsc.JSContextRef,
-	loop:          ^eventloop.Loop,
-	on_response:   jsc.JSObjectRef, // GC-protected JS callback(headersObject) — fires when headers arrive
-	on_error:      jsc.JSObjectRef, // GC-protected JS callback(messageString) — pre-headers failure
-	on_chunk:      jsc.JSObjectRef, // GC-protected JS callback(Uint8Array) -> bool wantMore (body chunk)
-	on_end:        jsc.JSObjectRef, // GC-protected JS callback(errorOrNull) — body complete/errored
-	cancel_fn:     jsc.JSObjectRef, // GC-protected cancel handle (private data == this req)
-	resume_fn:     jsc.JSObjectRef, // GC-protected resume handle (private data == this req)
-	settled:       bool,
+	ctx:               jsc.JSContextRef,
+	loop:              ^eventloop.Loop,
+	on_response:       jsc.JSObjectRef, // GC-protected JS callback(headersObject) — fires when headers arrive
+	on_error:          jsc.JSObjectRef, // GC-protected JS callback(messageString) — pre-headers failure
+	on_chunk:          jsc.JSObjectRef, // GC-protected JS callback(Uint8Array) -> bool wantMore (body chunk)
+	on_end:            jsc.JSObjectRef, // GC-protected JS callback(errorOrNull) — body complete/errored
+	cancel_fn:         jsc.JSObjectRef, // GC-protected cancel handle (private data == this req)
+	resume_fn:         jsc.JSObjectRef, // GC-protected resume handle (private data == this req)
+	settled:           bool,
 
 	// Streaming request-body (true chunked upload) state. When body_streaming,
 	// request_bytes holds ONLY the head (Transfer-Encoding: chunked, no
@@ -114,14 +114,14 @@ Fetch_Request :: struct {
 	// this stored allocator keeps the pair matched regardless of the active context.
 	// (The dynamic-array fields response/carry/body_out carry their own bound
 	// allocator, so delete() frees them correctly without help here.)
-	allocator:     runtime.Allocator,
-	url:           string,
-	host:          string,
-	path:          string,
-	method:        string,
-	port:          int,
-	request_bytes: []byte,
-	write_offset:  int,
+	allocator:         runtime.Allocator,
+	url:               string,
+	host:              string,
+	path:              string,
+	method:            string,
+	port:              int,
+	request_bytes:     []byte,
+	write_offset:      int,
 
 	// DNS for a hostname runs on the loop's generic worker pool (#77, fetch_dns.odin):
 	// the lookup result lives on a DNS_Job, not on the request, and the connect is
@@ -133,47 +133,47 @@ Fetch_Request :: struct {
 	// and one IPv6 address (ordered A then AAAA); fetch_advance_connect tries them in
 	// turn, advancing on a connect failure and settling an error only when the list
 	// is exhausted. A literal host bypasses this (addr_count stays 0, single connect).
-	addrs:         [2]Fetch_Addr,
-	addr_count:    int,
-	addr_index:    int,
+	addrs:             [2]Fetch_Addr,
+	addr_count:        int,
+	addr_index:        int,
 	// Back-pointer to this request's outstanding DNS job (nil unless a pool lookup
 	// is in flight), so an abort can cancel a still-queued lookup. Set by
 	// fetch_dns_submit, cleared by its completion; loop-thread-only.
-	dns_job:       ^DNS_Job,
-	response:      [dynamic]byte, // accumulates bytes until the header terminator is found
+	dns_job:           ^DNS_Job,
+	response:          [dynamic]byte, // accumulates bytes until the header terminator is found
 	// Length of `response` passed to picohttpparser on the previous (incomplete) head
 	// parse — the `last_len` resume hint, so each read re-scans only new bytes for the
 	// CRLFCRLF terminator rather than the whole accumulated head. 0 until the first read.
-	head_last_len: int,
-	watcher:       eventloop.IO_Watcher,
-	fd:            uintptr,
-	has_fd:        bool,
-	phase:         Fetch_Phase,
+	head_last_len:     int,
+	watcher:           eventloop.IO_Watcher,
+	fd:                uintptr,
+	has_fd:            bool,
+	phase:             Fetch_Phase,
 
 	// Streaming response-body state. The transport delivers status + headers as
 	// soon as they are parsed (on_response), then pushes decoded body bytes
 	// incrementally (on_chunk) until the framing completes (on_end). No full-body
 	// buffer is kept; only a small carry holds undecoded chunked framing bytes.
-	headers_done:  bool,
-	no_body:       bool, // HEAD / 204 / 304 / … — settle with a null body, no read
-	body_is_chunked: bool,
-	body_len:      int, // declared Content-Length; -1 == read until EOF
-	body_seen:     int, // body bytes delivered so far (Content-Length accounting)
-	body_done:     bool, // framing reached its end (final chunk / Content-Length met)
-	chunk_state:   Chunk_State,
-	chunk_remaining: int, // data bytes left in the current chunk (Chunk_State.Data)
-	carry:         [dynamic]byte, // undecoded chunked framing bytes spanning reads
-	read_paused:   bool, // socket reads suspended for backpressure (consumer saturated)
-	want_pause:    bool, // a delivered chunk reported the consumer is full this turn
-	drive_pending: int, // queued drive completions (read resume / body drain) referencing this req
-	settle_tick:   u64, // loop iteration at settle; reclaim holds the req two ticks past it
+	headers_done:      bool,
+	no_body:           bool, // HEAD / 204 / 304 / … — settle with a null body, no read
+	body_is_chunked:   bool,
+	body_len:          int, // declared Content-Length; -1 == read until EOF
+	body_seen:         int, // body bytes delivered so far (Content-Length accounting)
+	body_done:         bool, // framing reached its end (final chunk / Content-Length met)
+	chunk_state:       Chunk_State,
+	chunk_remaining:   int, // data bytes left in the current chunk (Chunk_State.Data)
+	carry:             [dynamic]byte, // undecoded chunked framing bytes spanning reads
+	read_paused:       bool, // socket reads suspended for backpressure (consumer saturated)
+	want_pause:        bool, // a delivered chunk reported the consumer is full this turn
+	drive_pending:     int, // queued drive completions (read resume / body drain) referencing this req
+	settle_tick:       u64, // loop iteration at settle; reclaim holds the req two ticks past it
 
 	// TLS state for https:// requests. is_https gates the TLS path in the
 	// transport; tls is an opaque per-backend session handle kept as rawptr so this
 	// cross-platform struct stays free of any TLS binding, set at handshake start and
 	// released by fetch_tls_cleanup in fetch_request_finish.
-	is_https:      bool,
-	tls:           rawptr,
+	is_https:          bool,
+	tls:               rawptr,
 }
 
 // fetch_cancel_class is a JSClass whose instances carry a ^Fetch_Request as
@@ -325,9 +325,7 @@ fetch_end_fn_cb :: proc "c" (
 	req := cast(^Fetch_Request)jsc.JSObjectGetPrivate(function)
 	if req != nil && !req.settled {
 		is_error :=
-			argument_count >= 1 &&
-			!jsc.JSValueIsNull(ctx, arguments[0]) &&
-			!jsc.JSValueIsUndefined(ctx, arguments[0])
+			argument_count >= 1 && !jsc.JSValueIsNull(ctx, arguments[0]) && !jsc.JSValueIsUndefined(ctx, arguments[0])
 		if is_error {
 			msg, alloc := jsc_value_to_string_or_default(ctx, arguments[0])
 			defer if alloc do delete(msg, context.allocator)
@@ -536,15 +534,7 @@ fetch_request_cb :: proc "c" (
 // An IPv6 literal host ([::1]) is returned bracket-stripped (host == "::1");
 // build_http_request re-brackets it for the Host header and the Linux transport
 // connects over AF_INET6.
-parse_http_url :: proc(
-	url: string,
-) -> (
-	host: string,
-	port: int,
-	path: string,
-	scheme: string,
-	ok: bool,
-) {
+parse_http_url :: proc(url: string) -> (host: string, port: int, path: string, scheme: string, ok: bool) {
 	rest := url
 	switch {
 	case strings.has_prefix(rest, "http://"):

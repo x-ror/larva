@@ -63,7 +63,12 @@ close_ready_is_announced_on_the_wakeup_pipe :: proc(t: ^testing.T) {
 	// The last worker writes the pipe just after its count moves; allow it a second.
 	fds := [1]linux.Poll_Fd{{fd = pipe_fd, events = {.IN}}}
 	n, _ := linux.poll(fds[:], 1000)
-	testing.expectf(t, n == 1 && .IN in fds[0].revents, "the wakeup pipe was not written as the workers exited (poll %d)", n)
+	testing.expectf(
+		t,
+		n == 1 && .IN in fds[0].revents,
+		"the wakeup pipe was not written as the workers exited (poll %d)",
+		n,
+	)
 
 	close_finish(&loop)
 }

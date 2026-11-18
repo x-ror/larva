@@ -85,9 +85,7 @@ fs_write_payload_rejects_a_window_resized_by_its_own_getter :: proc(t: ^testing.
 
 	// The buffer is 8 bytes live by the time the pointer is taken. Anything longer is
 	// memory past the allocation — which is what shipped, at 4096.
-	live := int(
-		jsc.JSValueToNumber(ctx, payload_eval(ctx, "globalThis.__ab.byteLength"), nil),
-	)
+	live := int(jsc.JSValueToNumber(ctx, payload_eval(ctx, "globalThis.__ab.byteLength"), nil))
 	testing.expectf(t, live == 8, "the getter should have resized the backing to 8, got %d", live)
 	testing.expectf(
 		t,

@@ -148,17 +148,17 @@ Poll_Mode :: enum {
 
 // fd is platform-agnostic here; cast to the right type in platform code
 IO_Watcher :: struct {
-	fd:        uintptr,
-	mode:      Poll_Mode,
-	callback:  Callback,
-	user_data: rawptr,
+	fd:           uintptr,
+	mode:         Poll_Mode,
+	callback:     Callback,
+	user_data:    rawptr,
 	// watched tracks whether this watcher is currently in the loop's registered set.
 	// It is the single source of truth for active_io_count accounting: the watch/
 	// unwatch wrappers count off this flag, not the platform syscall result, so no
 	// backend can desync the count (io_uring's logical-only unwatch, an EPOLL_CTL_DEL
 	// that fails because the fd is already closed, a duplicate watch). Owned by the
 	// wrappers; callers must zero-initialize the watcher (a fresh IO_Watcher literal).
-	watched:   bool,
+	watched:      bool,
 	// backend_slot is io_uring-only scratch: the index of this watcher's entry in
 	// Platform_Loop.watch_slots while watched, so unwatch_fd reaches its slot in O(1)
 	// instead of scanning the table. Set by platform_watch_fd, read by
@@ -536,20 +536,14 @@ queue_next_tick :: proc(loop: ^Loop, callback: Callback, user_data: rawptr = nil
 	if callback == nil {
 		return
 	}
-	append(
-		&loop.next_ticks,
-		Task{callback = callback, user_data = user_data, seq = next_sequence(loop)},
-	)
+	append(&loop.next_ticks, Task{callback = callback, user_data = user_data, seq = next_sequence(loop)})
 }
 
 queue_microtask :: proc(loop: ^Loop, callback: Callback, user_data: rawptr = nil) {
 	if callback == nil {
 		return
 	}
-	append(
-		&loop.microtasks,
-		Task{callback = callback, user_data = user_data, seq = next_sequence(loop)},
-	)
+	append(&loop.microtasks, Task{callback = callback, user_data = user_data, seq = next_sequence(loop)})
 }
 
 set_timeout :: proc(
@@ -572,25 +566,14 @@ set_interval :: proc(
 	return set_timer(loop, callback, interval_ms, interval_ms, true, user_data, dispose)
 }
 
-set_immediate :: proc(
-	loop: ^Loop,
-	callback: Callback,
-	user_data: rawptr = nil,
-	dispose: Dispose = nil,
-) -> Timer_ID {
+set_immediate :: proc(loop: ^Loop, callback: Callback, user_data: rawptr = nil, dispose: Dispose = nil) -> Timer_ID {
 	if callback == nil {
 		return 0
 	}
 	id := next_handle_id(loop)
 	append(
 		&loop.immediates,
-		Task {
-			id = id,
-			callback = callback,
-			user_data = user_data,
-			dispose = dispose,
-			seq = next_sequence(loop),
-		},
+		Task{id = id, callback = callback, user_data = user_data, dispose = dispose, seq = next_sequence(loop)},
 	)
 	return id
 }
@@ -610,13 +593,7 @@ queue_io_callback :: proc(
 	id := next_handle_id(loop)
 	append(
 		&loop.io_callbacks,
-		Task {
-			id = id,
-			callback = callback,
-			user_data = user_data,
-			dispose = dispose,
-			seq = next_sequence(loop),
-		},
+		Task{id = id, callback = callback, user_data = user_data, dispose = dispose, seq = next_sequence(loop)},
 	)
 	return id
 }
@@ -628,10 +605,7 @@ queue_close_callback :: proc(loop: ^Loop, callback: Callback, user_data: rawptr 
 		return
 	}
 	id := next_handle_id(loop)
-	append(
-		&loop.close_callbacks,
-		Task{id = id, callback = callback, user_data = user_data, seq = next_sequence(loop)},
-	)
+	append(&loop.close_callbacks, Task{id = id, callback = callback, user_data = user_data, seq = next_sequence(loop)})
 }
 
 // timer_ref marks a timer as ref'd (default). Ref'd timers keep the loop alive. O(1) via
@@ -1277,8 +1251,7 @@ timer_heap_sift_down :: proc(loop: ^Loop, start: int) {
 // timer. Cancelled timers were already disposed and uncounted at cancel time, so
 // no further bookkeeping is needed here.
 timer_heap_clean_root :: proc(loop: ^Loop) {
-	for len(loop.timers) > 0 &&
-	    (loop.timers[0].cancelled || is_cancel_requested(loop, loop.timers[0].id)) {
+	for len(loop.timers) > 0 && (loop.timers[0].cancelled || is_cancel_requested(loop, loop.timers[0].id)) {
 		timer_heap_pop_min(loop)
 	}
 }

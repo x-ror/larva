@@ -63,13 +63,13 @@ g_multi_worker: bool
 //   - g_worker_crashed: a worker's loop died abnormally (backend_failed); the supervisor stops the rest.
 //   - g_worker_exits: incremented by each worker as it exits, so the supervisor knows when all are done
 //     (non-server scripts) without treating a clean finish as a crash.
-g_shutdown:        bool
-g_worker_crashed:  bool
-g_worker_exits:    int
+g_shutdown: bool
+g_worker_crashed: bool
+g_worker_exits: int
 // Set by net_startup_failed when a listener fails to bind / set SO_REUSEPORT during startup, or
 // listen(0) is rejected under multi-worker. A worker checks it in its pre-run hook and aborts startup
 // (M7: all listeners bind or the whole startup aborts — no running with partial/partitioned capacity).
-g_listen_failed:   bool
+g_listen_failed: bool
 
 // net_startup_failed records a fatal startup listener failure (called from net.odin, Linux). Aborting
 // is process-wide: every worker runs the same script, so a bind failure on one means the deployment

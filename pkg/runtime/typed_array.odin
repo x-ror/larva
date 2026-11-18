@@ -23,7 +23,7 @@ import jsc "lava:pkg/jsc"
 BytesPtr_Mode :: enum u8 {
 	Unknown,
 	Base_Plus_Offset, // BytesPtr == ArrayBuffer base (gtk today)
-	View_Start,       // BytesPtr == base + offset (fixed JSC)
+	View_Start, // BytesPtr == base + offset (fixed JSC)
 }
 
 // Thread-local: the gtk-bug mode is a build-global fact, but each worker's JSC
@@ -144,12 +144,7 @@ make_uint8_array_uninit :: proc(ctx: jsc.JSContextRef, size: int) -> (jsc.JSValu
 	heap := runtime.heap_allocator()
 	data, err := mem.alloc_bytes_non_zeroed(size, mem.DEFAULT_ALIGNMENT, heap)
 	if err != nil || len(data) != size do return nil, false
-	array := jsc.make_uint8_nocopy_locked(
-		ctx,
-		raw_data(data),
-		c.size_t(size),
-		jsc_buffer_deallocator,
-	)
+	array := jsc.make_uint8_nocopy_locked(ctx, raw_data(data), c.size_t(size), jsc_buffer_deallocator)
 	if array == nil do return nil, false
 	return cast(jsc.JSValueRef)array, true
 }

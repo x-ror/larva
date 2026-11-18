@@ -12,8 +12,8 @@ import "core:sys/posix"
 import "core:testing"
 import "core:thread"
 import "core:time"
-import eventloop "lava:pkg/runtime/eventloop"
 import lava "lava:pkg/runtime"
+import eventloop "lava:pkg/runtime/eventloop"
 
 // Pins the Pool_Cancel hooks fs.readFile, fs.writeFile and dns.lookup register with the
 // loop's pool (#34, ported from larva#49). eventloop.close_begin must release the JS

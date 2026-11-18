@@ -269,14 +269,7 @@ if (present.length !== 0) throw new Error('web surface still has: ' + present.jo
 @(test)
 global_surface_alternates_on_one_thread :: proc(t: ^testing.T) {
 	expect_ok :: proc(t: ^testing.T, what: string, result: lava.Result) {
-		testing.expectf(
-			t,
-			result.status == .Ok,
-			"%s: status=%v message=%q",
-			what,
-			result.status,
-			result.message,
-		)
+		testing.expectf(t, result.status == .Ok, "%s: status=%v message=%q", what, result.status, result.message)
 	}
 
 	first := lava.eval(NODE_NAMES_PRESENT, "<surface-node-1>", nil)
@@ -306,7 +299,12 @@ global_surface_web_skips_stdio :: proc(t: ^testing.T) {
 	node_init, node_events := surface_events_compiles(t, .Node)
 	web_init, web_events := surface_events_compiles(t, .Web)
 
-	testing.expectf(t, node_events == 0, "node: resolving events compiled %d factories (want 0: stdio loaded it)", node_events)
+	testing.expectf(
+		t,
+		node_events == 0,
+		"node: resolving events compiled %d factories (want 0: stdio loaded it)",
+		node_events,
+	)
 	testing.expectf(t, web_events > 0, "web: resolving events compiled nothing — stdio was instantiated at init")
 	testing.expectf(
 		t,

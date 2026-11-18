@@ -68,7 +68,7 @@ URING_OP_DOMAIN :: u64(1) << 63
 force_readiness_backend: bool
 
 Platform_Loop :: struct {
-	use_uring:    bool,
+	use_uring:     bool,
 	// Whether the proactor (RECV/SEND completion ops) is usable on this kernel. io_uring_setup
 	// can succeed on kernels predating the single-shot RECV/SEND opcodes (added in 5.6), where
 	// submitting one yields a -EINVAL CQE rather than a synchronous failure. We probe for opcode
@@ -76,26 +76,26 @@ Platform_Loop :: struct {
 	// callers fall back to watch_fd instead of mistaking a healthy socket for a failed one (#286).
 	// Implies use_uring (we only probe when the ring initialized); the readiness/poll path on the
 	// same ring stays available on older kernels regardless.
-	proactor_ok:  bool,
-	ring:         uring.Ring,
-	cqes:         [32]linux.IO_Uring_CQE,
-	epoll_fd:     linux.Fd,
+	proactor_ok:   bool,
+	ring:          uring.Ring,
+	cqes:          [32]linux.IO_Uring_CQE,
+	epoll_fd:      linux.Fd,
 	// Self-pipe used by wakeup() to kick the loop out of poll from another thread.
 	// A pipe (not an eventfd): io_uring POLL_ADD reliably completes on a pipe fd
 	// but not on an eventfd in our kernels (#74). [0] = read end, [1] = write end.
-	wakeup_pipe:  [2]linux.Fd,
+	wakeup_pipe:   [2]linux.Fd,
 	// Watcher table backing the generation-token scheme (io_uring only). Slots are
 	// reused across watchers; the array only grows to the high-water mark of
 	// concurrently watched fds, so retention stays bounded to the in-flight set.
-	watch_slots:  [dynamic]Uring_Watch_Slot,
+	watch_slots:   [dynamic]Uring_Watch_Slot,
 	// Free-list of released watch_slots indices, so alloc/release are O(1) (no scan
 	// for a vacant slot). Holds exactly the indices whose slot is currently !in_use.
-	free_slots:   [dynamic]u32,
+	free_slots:    [dynamic]u32,
 	// Completion-op slot table + free-list (proactor RECV/SEND), same generation-token
 	// scheme as watch_slots but in the op token domain. Sized to the high-water mark of
 	// concurrently in-flight ops.
-	op_slots:     [dynamic]Uring_Op_Slot,
-	op_free:      [dynamic]u32,
+	op_slots:      [dynamic]Uring_Op_Slot,
+	op_free:       [dynamic]u32,
 	// Provided-buffer ring (Slice 2a; the memory moat). A shared pool of N×M buffers the kernel
 	// picks from for BUFFER_SELECT RECVs, so an idle connection holds no per-conn read buffer.
 	// bufring_ok gates the ring-recv path (else callers use the 1b per-conn buffer). `bufring` is a
@@ -124,8 +124,7 @@ platform_init :: proc(loop: ^Loop) -> bool {
 	loop.platform.epoll_fd = -1
 	loop.platform.wakeup_pipe = {-1, -1}
 
-	if pipe_err := linux.pipe2(&loop.platform.wakeup_pipe, {.CLOEXEC, .NONBLOCK});
-	   pipe_err != nil {
+	if pipe_err := linux.pipe2(&loop.platform.wakeup_pipe, {.CLOEXEC, .NONBLOCK}); pipe_err != nil {
 		return false
 	}
 
@@ -362,25 +361,14 @@ platform_poll :: proc(loop: ^Loop, timeout_ms: int) {
 		res: i32
 		errno: linux.Errno
 		if timeout_ms < 0 {
-			res, errno = linux.epoll_wait(
-				loop.platform.epoll_fd,
-				raw_data(events[:]),
-				i32(len(events)),
-				-1,
-			)
+			res, errno = linux.epoll_wait(loop.platform.epoll_fd, raw_data(events[:]), i32(len(events)), -1)
 		} else {
 			remaining := poll_remaining_ms(poll_start, timeout_ms)
 			ts := linux.Time_Spec {
 				time_sec  = uint(remaining / 1000),
 				time_nsec = uint((remaining % 1000) * 1_000_000),
 			}
-			res, errno = linux.epoll_pwait2(
-				loop.platform.epoll_fd,
-				raw_data(events[:]),
-				i32(len(events)),
-				&ts,
-				nil,
-			)
+			res, errno = linux.epoll_pwait2(loop.platform.epoll_fd, raw_data(events[:]), i32(len(events)), &ts, nil)
 		}
 
 		if errno == .EINTR {
@@ -481,12 +469,7 @@ drain_uring_completions :: proc(loop: ^Loop) {
 				// arm_uring_poll retries once if the SQ ring is momentarily full rather
 				// than silently dropping the re-arm — otherwise this loop could never be
 				// woken across threads again (post_async could not break a parked poll).
-				arm_uring_poll(
-					loop,
-					u64(loop.platform.wakeup_pipe[0]),
-					URING_WAKEUP_USER_DATA,
-					{.IN},
-				)
+				arm_uring_poll(loop, u64(loop.platform.wakeup_pipe[0]), URING_WAKEUP_USER_DATA, {.IN})
 				continue
 			}
 
@@ -571,12 +554,7 @@ drain_uring_completions :: proc(loop: ^Loop) {
 	}
 }
 
-arm_uring_poll :: proc(
-	loop: ^Loop,
-	fd: u64,
-	user_data: u64,
-	events: linux.Fd_Poll_Events,
-) -> bool {
+arm_uring_poll :: proc(loop: ^Loop, fd: u64, user_data: u64, events: linux.Fd_Poll_Events) -> bool {
 	sqe, ok := uring.get_sqe(&loop.platform.ring)
 	if !ok {
 		// SQ ring momentarily full: submit to flush staged entries to the kernel
@@ -645,10 +623,7 @@ uring_alloc_slot :: proc(loop: ^Loop, watcher: ^IO_Watcher) -> u64 {
 		slot.in_use = true
 		return uring_encode_token(index, slot.generation)
 	}
-	append(
-		&loop.platform.watch_slots,
-		Uring_Watch_Slot{watcher = watcher, generation = 1, in_use = true},
-	)
+	append(&loop.platform.watch_slots, Uring_Watch_Slot{watcher = watcher, generation = 1, in_use = true})
 	return uring_encode_token(u32(len(loop.platform.watch_slots) - 1), 1)
 }
 
@@ -744,8 +719,7 @@ uring_probe_proactor :: proc(ring_fd: linux.Fd) -> (proactor: bool, zc: bool) {
 	// nr_args is the number of ops[] slots offered; the kernel caps its fill to the opcodes it
 	// knows. REGISTER_PROBE itself postdates RECV/SEND, so an error here means an old kernel
 	// without the proactor opcodes — report unsupported and let callers use the readiness path.
-	if errno := linux.io_uring_register(ring_fd, .REGISTER_PROBE, &probe, u32(len(probe.ops)));
-	   errno != nil {
+	if errno := linux.io_uring_register(ring_fd, .REGISTER_PROBE, &probe, u32(len(probe.ops))); errno != nil {
 		return false, false
 	}
 	proactor = uring_probe_supports(&probe, .RECV) && uring_probe_supports(&probe, .SEND)
@@ -859,12 +833,7 @@ uring_op_slot_live :: proc(loop: ^Loop, index: u32, generation: u32) -> bool {
 	return slot.in_use && slot.generation == generation
 }
 
-uring_op_alloc_slot :: proc(
-	loop: ^Loop,
-	cb: Op_Completion,
-	dispose: Op_Dispose,
-	user_data: rawptr,
-) -> u64 {
+uring_op_alloc_slot :: proc(loop: ^Loop, cb: Op_Completion, dispose: Op_Dispose, user_data: rawptr) -> u64 {
 	if len(loop.platform.op_free) > 0 {
 		index := pop(&loop.platform.op_free)
 		slot := &loop.platform.op_slots[index]
@@ -876,13 +845,7 @@ uring_op_alloc_slot :: proc(
 	}
 	append(
 		&loop.platform.op_slots,
-		Uring_Op_Slot {
-			callback = cb,
-			dispose = dispose,
-			user_data = user_data,
-			generation = 1,
-			in_use = true,
-		},
+		Uring_Op_Slot{callback = cb, dispose = dispose, user_data = user_data, generation = 1, in_use = true},
 	)
 	return uring_op_encode_token(u32(len(loop.platform.op_slots) - 1), 1)
 }
@@ -1045,13 +1008,7 @@ buf_ring_init :: proc(loop: ^Loop) -> bool {
 	loop.platform.bufring_tail = 0
 	for bid in 0 ..< u32(URING_BUFRING_ENTRIES) {
 		off := int(bid) * URING_BUFRING_BUFSIZE
-		buf_ring_add(
-			loop,
-			bid,
-			u64(uintptr(raw_data(pool[off:]))),
-			URING_BUFRING_BUFSIZE,
-			u16(bid),
-		)
+		buf_ring_add(loop, bid, u64(uintptr(raw_data(pool[off:]))), URING_BUFRING_BUFSIZE, u16(bid))
 	}
 	loop.platform.bufring_tail = u16(URING_BUFRING_ENTRIES)
 	buf_ring_publish_tail(loop)
@@ -1060,8 +1017,7 @@ buf_ring_init :: proc(loop: ^Loop) -> bool {
 		ring_entries = u32(URING_BUFRING_ENTRIES),
 		bgid         = URING_BUFRING_BGID,
 	}
-	if errno := linux.io_uring_register(loop.platform.ring.fd, .REGISTER_PBUF_RING, &reg, 1);
-	   errno != .NONE {
+	if errno := linux.io_uring_register(loop.platform.ring.fd, .REGISTER_PBUF_RING, &reg, 1); errno != .NONE {
 		linux.munmap(ring_ptr, ring_size)
 		delete(pool, loop.allocator)
 		loop.platform.bufring = nil
@@ -1140,7 +1096,12 @@ Op_Send_Completion :: proc(loop: ^Loop, user_data: rawptr, res: i32, more: bool)
 
 // uring_op_alloc_slot_send allocates an op slot carrying ONLY send_cb (callback/recv_cb stay nil), so
 // the drain dispatches a SEND_ZC CQE to send_cb. Mirrors uring_op_alloc_slot_recv.
-uring_op_alloc_slot_send :: proc(loop: ^Loop, send_cb: Op_Send_Completion, dispose: Op_Dispose, user_data: rawptr) -> u64 {
+uring_op_alloc_slot_send :: proc(
+	loop: ^Loop,
+	send_cb: Op_Send_Completion,
+	dispose: Op_Dispose,
+	user_data: rawptr,
+) -> u64 {
 	token := uring_op_alloc_slot(loop, nil, dispose, user_data)
 	loop.platform.op_slots[uring_op_token_index(token)].send_cb = send_cb
 	return token
@@ -1151,7 +1112,14 @@ uring_op_alloc_slot_send :: proc(loop: ^Loop, send_cb: Op_Send_Completion, dispo
 // uring_arm_rw (which zeroes the SQE — clearing ioprio/addr2 — sets opcode/addr/len/msg_flags, retries
 // once on a full SQ, caps len at URING_MAX_RW, and stages for the batched flush), so the only ZC-specific
 // bit is the .SEND_ZC opcode. NOSIGNAL like plain SEND. LOOP-THREAD ONLY.
-submit_send_zc :: proc(loop: ^Loop, fd: uintptr, buf: []byte, cb: Op_Send_Completion, dispose: Op_Dispose, user_data: rawptr) -> Op_ID {
+submit_send_zc :: proc(
+	loop: ^Loop,
+	fd: uintptr,
+	buf: []byte,
+	cb: Op_Send_Completion,
+	dispose: Op_Dispose,
+	user_data: rawptr,
+) -> Op_ID {
 	if cb == nil || !loop.platform.proactor_ok do return OP_ID_INVALID
 	token := uring_op_alloc_slot_send(loop, cb, dispose, user_data)
 	if !uring_arm_rw(loop, .SEND_ZC, fd, buf, token, {.NOSIGNAL}) {
