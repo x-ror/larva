@@ -24,10 +24,15 @@ bytes_all_ascii :: proc(data: []byte) -> bool {
 	i := 0
 	for ; i + 8 <= len(data); i += 8 {
 		chunk := intrinsics.unaligned_load((^u64)(raw_data(data[i:])))
-		if chunk & 0x8080808080808080 != 0 do return false
+
+		if chunk & 0x8080808080808080 != 0 {
+			return false
+		}
 	}
 	for ; i < len(data); i += 1 {
-		if data[i] >= 0x80 do return false
+		if data[i] >= 0x80 {
+			return false
+		}
 	}
 	return true
 }
@@ -40,10 +45,15 @@ bytes_all_ascii_no_nul :: proc(data: []byte) -> bool {
 	for ; i + 8 <= len(data); i += 8 {
 		chunk := intrinsics.unaligned_load((^u64)(raw_data(data[i:])))
 		has_nul := (chunk - 0x0101010101010101) & ~chunk & 0x8080808080808080
-		if chunk & 0x8080808080808080 != 0 || has_nul != 0 do return false
+
+		if chunk & 0x8080808080808080 != 0 || has_nul != 0 {
+			return false
+		}
 	}
 	for ; i < len(data); i += 1 {
-		if data[i] >= 0x80 || data[i] == 0 do return false
+		if data[i] >= 0x80 || data[i] == 0 {
+			return false
+		}
 	}
 	return true
 }
@@ -60,6 +70,7 @@ ascii_string_value :: proc(ctx: jsc.JSContextRef, buf: []byte) -> jsc.JSValueRef
 		defer jsc.JSStringRelease(str)
 		return jsc.JSValueMakeString(ctx, str)
 	}
+
 	js_str := jsc.JSStringCreateWithUTF8CString(cstring(raw_data(buf)))
 	defer jsc.JSStringRelease(js_str)
 	return jsc.JSValueMakeString(ctx, js_str)
@@ -84,13 +95,19 @@ read_string_arg :: proc(ctx: jsc.JSContextRef, v: jsc.JSValueRef) -> (r: String_
 		r.ok = true
 		return
 	}
+
 	if s16, ok := jsc.value_chars16(ctx, v); ok {
 		r.s16 = s16
 		r.ok = true
 		return
 	}
+
 	str := jsc.JSValueToStringCopy(ctx, v, nil)
-	if str == nil do return
+
+	if str == nil {
+		return
+	}
+
 	if s8, ok := jsc.string_chars8(str); ok {
 		r.s8 = s8
 		r.is8 = true
@@ -98,12 +115,15 @@ read_string_arg :: proc(ctx: jsc.JSContextRef, v: jsc.JSValueRef) -> (r: String_
 		r.ok = true
 		return
 	}
+
 	length := int(jsc.JSStringGetLength(str))
 	chars := jsc.JSStringGetCharactersPtr(str)
+
 	if chars == nil {
 		jsc.JSStringRelease(str)
 		return
 	}
+
 	r.s16 = chars[:length]
 	r.str = str
 	r.ok = true
@@ -111,7 +131,10 @@ read_string_arg :: proc(ctx: jsc.JSContextRef, v: jsc.JSValueRef) -> (r: String_
 }
 
 string_read_len :: proc(r: String_Read) -> int {
-	if r.is8 do return len(r.s8)
+	if r.is8 {
+		return len(r.s8)
+	}
+
 	return len(r.s16)
 }
 
@@ -127,17 +150,25 @@ buffer_hex_encode_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 1 do return js_string_value(ctx, "")
+
+	if argument_count < 1 {
+		return js_string_value(ctx, "")
+	}
 
 	data, ok := typed_array_view(ctx, arguments[0])
-	if !ok || len(data) == 0 do return js_string_value(ctx, "")
+
+	if !ok || len(data) == 0 {
+		return js_string_value(ctx, "")
+	}
 
 	n := len(data) * 2
+
 	if str, dst, ok8 := jsc.string_alloc8(n); ok8 {
 		hex_write(dst, data)
 		defer jsc.JSStringRelease(str)
 		return jsc.JSValueMakeString(ctx, str)
 	}
+
 	out := make([]byte, n + 1, context.temp_allocator)
 	hex_write(out[:n], data)
 	out[n] = 0
@@ -146,13 +177,18 @@ buffer_hex_encode_cb :: proc "c" (
 
 @(private = "file")
 hex_decode_from :: proc(ctx: jsc.JSContextRef, chars: []$T) -> jsc.JSValueRef {
-	if len(chars) < 2 do return make_uint8_array(ctx, nil)
+	if len(chars) < 2 {
+		return make_uint8_array(ctx, nil)
+	}
+
 	out := make([]byte, len(chars) / 2, context.allocator)
 	n := hex_parse_into(out, chars)
+
 	if n == 0 {
 		delete(out, context.allocator)
 		return make_uint8_array(ctx, nil)
 	}
+
 	return make_uint8_array(ctx, out[:n])
 }
 
@@ -165,12 +201,25 @@ buffer_hex_decode_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 1 do return make_uint8_array(ctx, nil)
+
+	if argument_count < 1 {
+		return make_uint8_array(ctx, nil)
+	}
 
 	r := read_string_arg(ctx, arguments[0])
-	if !r.ok do return make_uint8_array(ctx, nil)
-	defer if r.str != nil do jsc.JSStringRelease(r.str)
-	if r.is8 do return hex_decode_from(ctx, r.s8)
+
+	if !r.ok {
+		return make_uint8_array(ctx, nil)
+	}
+
+	defer if r.str != nil {
+		jsc.JSStringRelease(r.str)
+	}
+
+	if r.is8 {
+		return hex_decode_from(ctx, r.s8)
+	}
+
 	return hex_decode_from(ctx, r.s16)
 }
 
@@ -186,17 +235,25 @@ buffer_base64_encode_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 1 do return js_string_value(ctx, "")
+
+	if argument_count < 1 {
+		return js_string_value(ctx, "")
+	}
 
 	data, ok := typed_array_view(ctx, arguments[0])
-	if !ok || len(data) == 0 do return js_string_value(ctx, "")
+
+	if !ok || len(data) == 0 {
+		return js_string_value(ctx, "")
+	}
 
 	n := (len(data) + 2) / 3 * 4
+
 	if str, dst, ok8 := jsc.string_alloc8(n); ok8 {
 		base64_write(dst, data)
 		defer jsc.JSStringRelease(str)
 		return jsc.JSValueMakeString(ctx, str)
 	}
+
 	out := make([]byte, n + 1, context.temp_allocator)
 	base64_write(out[:n], data)
 	out[n] = 0
@@ -216,26 +273,45 @@ buffer_base64_decode_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 1 do return make_uint8_array(ctx, nil)
+
+	if argument_count < 1 {
+		return make_uint8_array(ctx, nil)
+	}
 
 	// Same in-place read as hexDecode: base64 input is ASCII by contract.
 	r := read_string_arg(ctx, arguments[0])
-	if !r.ok do return make_uint8_array(ctx, nil)
-	defer if r.str != nil do jsc.JSStringRelease(r.str)
-	if r.is8 do return base64_decode_from(ctx, r.s8)
+
+	if !r.ok {
+		return make_uint8_array(ctx, nil)
+	}
+
+	defer if r.str != nil {
+		jsc.JSStringRelease(r.str)
+	}
+
+	if r.is8 {
+		return base64_decode_from(ctx, r.s8)
+	}
+
 	return base64_decode_from(ctx, r.s16)
 }
 
 @(private = "file")
 base64_decode_from :: proc(ctx: jsc.JSContextRef, chars: []$T) -> jsc.JSValueRef {
 	length := len(chars)
-	if length == 0 || length % 4 != 0 do return make_uint8_array(ctx, nil)
+
+	if length == 0 || length % 4 != 0 {
+		return make_uint8_array(ctx, nil)
+	}
+
 	out := make([]byte, length / 4 * 3, context.allocator)
 	n, okp := base64_parse(out, chars)
+
 	if !okp {
 		delete(out, context.allocator)
 		return make_uint8_array(ctx, nil)
 	}
+
 	return make_uint8_array(ctx, out[:n])
 }
 
@@ -252,11 +328,18 @@ buffer_alloc_uninit_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 1 do return jsc.JSValueMakeNull(ctx)
+
+	if argument_count < 1 {
+		return jsc.JSValueMakeNull(ctx)
+	}
 
 	n := js_int_arg(ctx, arguments[0])
 	array, ok := make_uint8_array_uninit(ctx, n)
-	if !ok do return jsc.JSValueMakeNull(ctx)
+
+	if !ok {
+		return jsc.JSValueMakeNull(ctx)
+	}
+
 	return array
 }
 
@@ -283,17 +366,27 @@ when size_of(uintptr) >= 8 {
 // silently capping every allocation to zero.
 max_buffer_alloc_bytes :: proc() -> f64 {
 	environ, err := os.environ(context.temp_allocator)
+
 	if err == os.ERROR_NONE {
 		for entry in environ {
 			idx := strings.index_byte(entry, '=')
-			if idx <= 0 do continue
-			if entry[:idx] != "LAVA_MAX_BUFFER_BYTES" do continue
+
+			if idx <= 0 {
+				continue
+			}
+
+			if entry[:idx] != "LAVA_MAX_BUFFER_BYTES" {
+				continue
+			}
+
 			if n, ok := strconv.parse_f64(entry[idx + 1:]); ok && n > 0 {
 				return n
 			}
+
 			break
 		}
 	}
+
 	return DEFAULT_MAX_BUFFER_BYTES
 }
 
@@ -312,17 +405,37 @@ buffer_compare_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 2 do return js_int_value(ctx, 0)
+
+	if argument_count < 2 {
+		return js_int_value(ctx, 0)
+	}
+
 	a, aok := typed_array_view(ctx, arguments[0])
 	b, bok := typed_array_view(ctx, arguments[1])
-	if !aok || !bok do return js_int_value(ctx, 0)
+
+	if !aok || !bok {
+		return js_int_value(ctx, 0)
+	}
+
 	n := min(len(a), len(b))
 	for i in 0 ..< n {
-		if a[i] < b[i] do return js_int_value(ctx, -1)
-		if a[i] > b[i] do return js_int_value(ctx, 1)
+		if a[i] < b[i] {
+			return js_int_value(ctx, -1)
+		}
+
+		if a[i] > b[i] {
+			return js_int_value(ctx, 1)
+		}
 	}
-	if len(a) < len(b) do return js_int_value(ctx, -1)
-	if len(a) > len(b) do return js_int_value(ctx, 1)
+
+	if len(a) < len(b) {
+		return js_int_value(ctx, -1)
+	}
+
+	if len(a) > len(b) {
+		return js_int_value(ctx, 1)
+	}
+
 	return js_int_value(ctx, 0)
 }
 
@@ -341,31 +454,62 @@ buffer_index_of_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 4 do return js_int_value(ctx, -1)
+
+	if argument_count < 4 {
+		return js_int_value(ctx, -1)
+	}
+
 	// js_int_arg can run JS (valueOf) — read it before borrowing the views; see
 	// the note in buffer_utf16le_write_into_cb.
 	start := js_int_arg(ctx, arguments[2])
 	forward := jsc.JSValueToBoolean(ctx, arguments[3])
 	hay, hok := typed_array_view(ctx, arguments[0])
 	needle, nok := typed_array_view(ctx, arguments[1])
-	if !hok || !nok do return js_int_value(ctx, -1)
+
+	if !hok || !nok {
+		return js_int_value(ctx, -1)
+	}
+
 	nlen := len(needle)
 	hlen := len(hay)
-	if nlen == 0 || nlen > hlen do return js_int_value(ctx, -1)
+
+	if nlen == 0 || nlen > hlen {
+		return js_int_value(ctx, -1)
+	}
+
 	if forward {
 		s := start
-		if s < 0 do s = 0
-		if s > hlen do return js_int_value(ctx, -1)
+
+		if s < 0 {
+			s = 0
+		}
+
+		if s > hlen {
+			return js_int_value(ctx, -1)
+		}
+
 		idx := bytes.index(hay[s:], needle)
-		if idx < 0 do return js_int_value(ctx, -1)
+
+		if idx < 0 {
+			return js_int_value(ctx, -1)
+		}
+
 		return js_int_value(ctx, s + idx)
 	}
+
 	// Backward: search the window [0, start+nlen) so the last match within it
 	// starts at the largest k <= start. bytes.last_index returns an absolute index
 	// (the window begins at 0) or -1.
 	end := start + nlen
-	if end > hlen do end = hlen
-	if end < nlen do return js_int_value(ctx, -1)
+
+	if end > hlen {
+		end = hlen
+	}
+
+	if end < nlen {
+		return js_int_value(ctx, -1)
+	}
+
 	return js_int_value(ctx, bytes.last_index(hay[:end], needle))
 }
 
@@ -380,25 +524,42 @@ buffer_latin1_encode_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 1 do return make_uint8_array(ctx, nil)
+
+	if argument_count < 1 {
+		return make_uint8_array(ctx, nil)
+	}
 
 	r := read_string_arg(ctx, arguments[0])
-	if !r.ok do return make_uint8_array(ctx, nil)
-	defer if r.str != nil do jsc.JSStringRelease(r.str)
+
+	if !r.ok {
+		return make_uint8_array(ctx, nil)
+	}
+
+	defer if r.str != nil {
+		jsc.JSStringRelease(r.str)
+	}
+
 	// 8-bit storage IS the latin1 byte sequence — one copy, no widen; 16-bit
 	// units are masked to their low byte.
 	if r.is8 {
-		if len(r.s8) == 0 do return make_uint8_array(ctx, nil)
+		if len(r.s8) == 0 {
+			return make_uint8_array(ctx, nil)
+		}
+
 		out := make([]byte, len(r.s8), context.allocator)
 		copy(out, r.s8)
 		return make_uint8_array(ctx, out)
 	}
+
 	return latin1_bytes_from_units(ctx, r.s16)
 }
 
 @(private = "file")
 latin1_bytes_from_units :: proc(ctx: jsc.JSContextRef, chars: []jsc.JSChar) -> jsc.JSValueRef {
-	if len(chars) == 0 do return make_uint8_array(ctx, nil)
+	if len(chars) == 0 {
+		return make_uint8_array(ctx, nil)
+	}
+
 	out := make([]byte, len(chars), context.allocator)
 	for u, i in chars {
 		out[i] = byte(u & 0xFF)
@@ -414,20 +575,27 @@ latin1_bytes_from_units :: proc(ctx: jsc.JSContextRef, chars: []jsc.JSChar) -> j
 // anything else goes through CreateWithCharacters so bytes are preserved.
 // Shared with the node:http request parser (header name/value/method/url).
 latin1_string_from_bytes :: proc(ctx: jsc.JSContextRef, data: []byte) -> jsc.JSValueRef {
-	if len(data) == 0 do return js_string_value(ctx, "")
+	if len(data) == 0 {
+		return js_string_value(ctx, "")
+	}
+
 	if str, dst, ok := jsc.string_alloc8(len(data)); ok {
 		copy(dst, data)
 		defer jsc.JSStringRelease(str)
 		return jsc.JSValueMakeString(ctx, str)
 	}
+
 	if bytes_all_ascii_no_nul(data) {
 		tmp := make([]byte, len(data) + 1, context.temp_allocator)
 		copy(tmp, data)
 		tmp[len(data)] = 0
 		return ascii_string_value(ctx, tmp)
 	}
+
 	units := make([]jsc.JSChar, len(data), context.temp_allocator)
-	for i in 0 ..< len(data) do units[i] = jsc.JSChar(data[i])
+	for i in 0 ..< len(data) {
+		units[i] = jsc.JSChar(data[i])
+	}
 	js_str := jsc.JSStringCreateWithCharacters(raw_data(units), c.size_t(len(data)))
 	defer jsc.JSStringRelease(js_str)
 	return jsc.JSValueMakeString(ctx, js_str)
@@ -443,10 +611,17 @@ buffer_latin1_decode_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 1 do return js_string_value(ctx, "")
+
+	if argument_count < 1 {
+		return js_string_value(ctx, "")
+	}
 
 	data, ok := typed_array_view(ctx, arguments[0])
-	if !ok || len(data) == 0 do return js_string_value(ctx, "")
+
+	if !ok || len(data) == 0 {
+		return js_string_value(ctx, "")
+	}
+
 	return latin1_string_from_bytes(ctx, data)
 }
 
@@ -462,10 +637,16 @@ buffer_ascii_decode_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 1 do return js_string_value(ctx, "")
+
+	if argument_count < 1 {
+		return js_string_value(ctx, "")
+	}
 
 	data, ok := typed_array_view(ctx, arguments[0])
-	if !ok || len(data) == 0 do return js_string_value(ctx, "")
+
+	if !ok || len(data) == 0 {
+		return js_string_value(ctx, "")
+	}
 
 	// Mask in a temp only when a high bit is present; otherwise latin1 path is
 	// identical and avoids an extra pass + allocation.
@@ -476,10 +657,15 @@ buffer_ascii_decode_cb :: proc "c" (
 			break
 		}
 	}
-	if !needs_mask do return latin1_string_from_bytes(ctx, data)
+
+	if !needs_mask {
+		return latin1_string_from_bytes(ctx, data)
+	}
 
 	masked := make([]byte, len(data), context.temp_allocator)
-	for b, i in data do masked[i] = b & 0x7F
+	for b, i in data {
+		masked[i] = b & 0x7F
+	}
 	return latin1_string_from_bytes(ctx, masked)
 }
 
@@ -494,14 +680,27 @@ buffer_utf16le_encode_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 1 do return make_uint8_array(ctx, nil)
+
+	if argument_count < 1 {
+		return make_uint8_array(ctx, nil)
+	}
 
 	r := read_string_arg(ctx, arguments[0])
-	if !r.ok do return make_uint8_array(ctx, nil)
-	defer if r.str != nil do jsc.JSStringRelease(r.str)
+
+	if !r.ok {
+		return make_uint8_array(ctx, nil)
+	}
+
+	defer if r.str != nil {
+		jsc.JSStringRelease(r.str)
+	}
+
 	if r.is8 {
 		// 8-bit storage: each unit is a byte, high byte always 0 — no widen pass.
-		if len(r.s8) == 0 do return make_uint8_array(ctx, nil)
+		if len(r.s8) == 0 {
+			return make_uint8_array(ctx, nil)
+		}
+
 		out := make([]byte, len(r.s8) * 2, context.allocator)
 		for b, i in r.s8 {
 			out[i * 2] = b
@@ -509,12 +708,16 @@ buffer_utf16le_encode_cb :: proc "c" (
 		}
 		return make_uint8_array(ctx, out)
 	}
+
 	return utf16le_bytes_from_units(ctx, r.s16)
 }
 
 @(private = "file")
 utf16le_bytes_from_units :: proc(ctx: jsc.JSContextRef, chars: []jsc.JSChar) -> jsc.JSValueRef {
-	if len(chars) == 0 do return make_uint8_array(ctx, nil)
+	if len(chars) == 0 {
+		return make_uint8_array(ctx, nil)
+	}
+
 	out := make([]byte, len(chars) * 2, context.allocator)
 	when ODIN_ENDIAN == .Little {
 		mem.copy(raw_data(out), raw_data(chars), len(out))
@@ -539,17 +742,25 @@ buffer_utf16le_decode_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 1 do return js_string_value(ctx, "")
+
+	if argument_count < 1 {
+		return js_string_value(ctx, "")
+	}
 
 	data, ok := typed_array_view(ctx, arguments[0])
-	if !ok || len(data) < 2 do return js_string_value(ctx, "")
+
+	if !ok || len(data) < 2 {
+		return js_string_value(ctx, "")
+	}
 
 	n := len(data) / 2
+
 	if str, dst, ok16 := jsc.string_alloc16(n); ok16 {
 		utf16le_units_write(dst, data)
 		defer jsc.JSStringRelease(str)
 		return jsc.JSValueMakeString(ctx, str)
 	}
+
 	units := make([]jsc.JSChar, n, context.temp_allocator)
 	utf16le_units_write(units, data)
 	js_str := jsc.JSStringCreateWithCharacters(raw_data(units), c.size_t(n))
@@ -583,7 +794,11 @@ buffer_utf16le_write_into_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 4 do return jsc.JSValueMakeNumber(ctx, 0)
+
+	if argument_count < 4 {
+		return jsc.JSValueMakeNumber(ctx, 0)
+	}
+
 	// Argument-read order is load-bearing: read_string_arg / js_int_arg can run
 	// arbitrary JS (toString/valueOf on a non-primitive), which may detach or
 	// resize the target's ArrayBuffer. The borrowed target view must therefore be
@@ -591,27 +806,58 @@ buffer_utf16le_write_into_cb :: proc "c" (
 	// borrows are immune: string storage is immutable and pinned by the retained
 	// ref / the live argument.)
 	src := read_string_arg(ctx, arguments[1])
-	if !src.ok do return js_int_value(ctx, 0)
-	defer if src.str != nil do jsc.JSStringRelease(src.str)
+
+	if !src.ok {
+		return js_int_value(ctx, 0)
+	}
+
+	defer if src.str != nil {
+		jsc.JSStringRelease(src.str)
+	}
 	slen := string_read_len(src)
-	if slen == 0 do return js_int_value(ctx, 0)
+
+	if slen == 0 {
+		return js_int_value(ctx, 0)
+	}
 
 	offset := js_int_arg(ctx, arguments[2])
 	max := js_int_arg(ctx, arguments[3])
 
 	target, tok := typed_array_view(ctx, arguments[0])
-	if !tok do return jsc.JSValueMakeNumber(ctx, 0)
-	if offset < 0 do offset = 0
-	if offset > len(target) do offset = len(target)
+
+	if !tok {
+		return jsc.JSValueMakeNumber(ctx, 0)
+	}
+
+	if offset < 0 {
+		offset = 0
+	}
+
+	if offset > len(target) {
+		offset = len(target)
+	}
+
 	avail := len(target) - offset
-	if max > avail do max = avail
+
+	if max > avail {
+		max = avail
+	}
+
 	// Even byte count only — half a code unit is never written.
 	max = max - (max % 2)
-	if max <= 0 do return js_int_value(ctx, 0)
+
+	if max <= 0 {
+		return js_int_value(ctx, 0)
+	}
 
 	n_units := max / 2
-	if n_units > slen do n_units = slen
+
+	if n_units > slen {
+		n_units = slen
+	}
+
 	dst := target[offset:]
+
 	if src.is8 {
 		for i in 0 ..< n_units {
 			dst[i * 2] = src.s8[i]
@@ -628,6 +874,7 @@ buffer_utf16le_write_into_cb :: proc "c" (
 			}
 		}
 	}
+
 	return js_int_value(ctx, n_units * 2)
 }
 
@@ -645,29 +892,62 @@ buffer_latin1_write_into_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 4 do return jsc.JSValueMakeNumber(ctx, 0)
+
+	if argument_count < 4 {
+		return jsc.JSValueMakeNumber(ctx, 0)
+	}
+
 	// Re-entrancy hazard: the target view must be acquired after every argument
 	// coercion — see the note in buffer_utf16le_write_into_cb.
 	src := read_string_arg(ctx, arguments[1])
-	if !src.ok do return js_int_value(ctx, 0)
-	defer if src.str != nil do jsc.JSStringRelease(src.str)
+
+	if !src.ok {
+		return js_int_value(ctx, 0)
+	}
+
+	defer if src.str != nil {
+		jsc.JSStringRelease(src.str)
+	}
 	slen := string_read_len(src)
-	if slen == 0 do return js_int_value(ctx, 0)
+
+	if slen == 0 {
+		return js_int_value(ctx, 0)
+	}
 
 	offset := js_int_arg(ctx, arguments[2])
 	max := js_int_arg(ctx, arguments[3])
 
 	target, tok := typed_array_view(ctx, arguments[0])
-	if !tok do return jsc.JSValueMakeNumber(ctx, 0)
-	if offset < 0 do offset = 0
-	if offset > len(target) do offset = len(target)
+
+	if !tok {
+		return jsc.JSValueMakeNumber(ctx, 0)
+	}
+
+	if offset < 0 {
+		offset = 0
+	}
+
+	if offset > len(target) {
+		offset = len(target)
+	}
+
 	avail := len(target) - offset
 	n := slen
-	if n > max do n = max
-	if n > avail do n = avail
-	if n <= 0 do return js_int_value(ctx, 0)
+
+	if n > max {
+		n = max
+	}
+
+	if n > avail {
+		n = avail
+	}
+
+	if n <= 0 {
+		return js_int_value(ctx, 0)
+	}
 
 	dst := target[offset:][:n]
+
 	// 8-bit storage IS the latin1 byte sequence — straight copy.
 	if src.is8 {
 		copy(dst, src.s8)
@@ -676,6 +956,7 @@ buffer_latin1_write_into_cb :: proc "c" (
 			dst[i] = byte(src.s16[i] & 0xFF)
 		}
 	}
+
 	return js_int_value(ctx, n)
 }
 
@@ -693,10 +974,16 @@ buffer_base64url_encode_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 1 do return js_string_value(ctx, "")
+
+	if argument_count < 1 {
+		return js_string_value(ctx, "")
+	}
 
 	data, ok := typed_array_view(ctx, arguments[0])
-	if !ok || len(data) == 0 do return js_string_value(ctx, "")
+
+	if !ok || len(data) == 0 {
+		return js_string_value(ctx, "")
+	}
 
 	// Unpadded: exact output length is known up front.
 	n := len(data)
@@ -708,11 +995,13 @@ buffer_base64url_encode_cb :: proc "c" (
 	case 2:
 		out_len += 3
 	}
+
 	if str, dst, ok8 := jsc.string_alloc8(out_len); ok8 {
 		base64url_write(dst, data)
 		defer jsc.JSStringRelease(str)
 		return jsc.JSValueMakeString(ctx, str)
 	}
+
 	out := make([]byte, out_len + 1, context.temp_allocator)
 	base64url_write(out[:out_len], data)
 	out[out_len] = 0
@@ -728,25 +1017,45 @@ buffer_base64_byte_length_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 1 do return jsc.JSValueMakeNumber(ctx, 0)
+
+	if argument_count < 1 {
+		return jsc.JSValueMakeNumber(ctx, 0)
+	}
 
 	src := read_string_arg(ctx, arguments[0])
-	if !src.ok do return js_int_value(ctx, 0)
-	defer if src.str != nil do jsc.JSStringRelease(src.str)
+
+	if !src.ok {
+		return js_int_value(ctx, 0)
+	}
+
+	defer if src.str != nil {
+		jsc.JSStringRelease(src.str)
+	}
 	len := string_read_len(src)
-	if len == 0 do return js_int_value(ctx, 0)
+
+	if len == 0 {
+		return js_int_value(ctx, 0)
+	}
+
 	// Only the final two characters matter.
 	if src.is8 {
 		if src.s8[len - 1] == '=' {
 			len -= 1
-			if len > 0 && src.s8[len - 1] == '=' do len -= 1
+
+			if len > 0 && src.s8[len - 1] == '=' {
+				len -= 1
+			}
 		}
 	} else {
 		if src.s16[len - 1] == '=' {
 			len -= 1
-			if len > 0 && src.s16[len - 1] == '=' do len -= 1
+
+			if len > 0 && src.s16[len - 1] == '=' {
+				len -= 1
+			}
 		}
 	}
+
 	return js_int_value(ctx, (len * 3) >> 2)
 }
 
@@ -759,15 +1068,30 @@ buffer_swap_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 2 do return jsc.JSValueMakeUndefined(ctx)
+
+	if argument_count < 2 {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
+
 	// js_int_arg can run JS (valueOf) — read it before borrowing the view; see
 	// the note in buffer_utf16le_write_into_cb.
 	width := js_int_arg(ctx, arguments[1])
-	if width != 2 && width != 4 && width != 8 do return jsc.JSValueMakeUndefined(ctx)
+
+	if width != 2 && width != 4 && width != 8 {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
+
 	data, ok := typed_array_view(ctx, arguments[0])
-	if !ok do return jsc.JSValueMakeUndefined(ctx)
+
+	if !ok {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
+
 	n := len(data)
-	if n % width != 0 do return jsc.JSValueMakeUndefined(ctx)
+
+	if n % width != 0 {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
 
 	switch width {
 	case 2:
@@ -801,10 +1125,22 @@ make_buffer_bindings :: proc(ctx: jsc.JSContextRef) -> jsc.JSObjectRef {
 	inject_native_function(ctx, bindings, "latin1Encode", buffer_latin1_encode_cb, buffer_latin1_encode_host)
 	inject_native_function(ctx, bindings, "latin1Decode", buffer_latin1_decode_cb, buffer_latin1_decode_host)
 	inject_native_function(ctx, bindings, "asciiDecode", buffer_ascii_decode_cb, buffer_ascii_decode_host)
-	inject_native_function(ctx, bindings, "latin1WriteInto", buffer_latin1_write_into_cb, buffer_latin1_write_into_host)
+	inject_native_function(
+		ctx,
+		bindings,
+		"latin1WriteInto",
+		buffer_latin1_write_into_cb,
+		buffer_latin1_write_into_host,
+	)
 	inject_native_function(ctx, bindings, "utf16leEncode", buffer_utf16le_encode_cb, buffer_utf16le_encode_host)
 	inject_native_function(ctx, bindings, "utf16leDecode", buffer_utf16le_decode_cb, buffer_utf16le_decode_host)
-	inject_native_function(ctx, bindings, "utf16leWriteInto", buffer_utf16le_write_into_cb, buffer_utf16le_write_into_host)
+	inject_native_function(
+		ctx,
+		bindings,
+		"utf16leWriteInto",
+		buffer_utf16le_write_into_cb,
+		buffer_utf16le_write_into_host,
+	)
 	inject_native_function(ctx, bindings, "utf8WriteInto", buffer_utf8_write_into_cb, buffer_utf8_write_into_host)
 	// Cold natives: generic host trampoline (no dedicated *_host wrapper).
 	inject_native_function(ctx, bindings, "utf8ByteLength", buffer_utf8_byte_length_cb)

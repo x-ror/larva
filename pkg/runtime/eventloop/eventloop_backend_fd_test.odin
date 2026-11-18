@@ -15,10 +15,17 @@ backend_fd_wakes_an_outer_epoll_on_watched_io :: proc(t: ^testing.T) {
 	defer destroy(&loop)
 	loop.never_block = true
 	fd, ok := backend_fd(&loop)
-	if !ok do testing.fail_now(t, "no backend fd")
+
+	if !ok {
+		testing.fail_now(t, "no backend fd")
+	}
 
 	outer, oerr := linux.epoll_create1({.FDCLOEXEC})
-	if oerr != .NONE do testing.fail_now(t, "epoll_create1 failed")
+
+	if oerr != .NONE {
+		testing.fail_now(t, "epoll_create1 failed")
+	}
+
 	defer linux.close(outer)
 	ev := linux.EPoll_Event {
 		events = {.IN, .ET},
@@ -26,7 +33,11 @@ backend_fd_wakes_an_outer_epoll_on_watched_io :: proc(t: ^testing.T) {
 	testing.expect_value(t, linux.epoll_ctl(outer, .ADD, linux.Fd(fd), &ev), linux.Errno.NONE)
 
 	pipe: [2]linux.Fd
-	if linux.pipe2(&pipe, {.CLOEXEC, .NONBLOCK}) != .NONE do testing.fail_now(t, "pipe2 failed")
+
+	if linux.pipe2(&pipe, {.CLOEXEC, .NONBLOCK}) != .NONE {
+		testing.fail_now(t, "pipe2 failed")
+	}
+
 	defer linux.close(pipe[0])
 	defer linux.close(pipe[1])
 	fired := false
@@ -50,7 +61,10 @@ backend_fd_wakes_an_outer_epoll_on_watched_io :: proc(t: ^testing.T) {
 	// Retry across EINTR; anything else that returns 0 within 1 s is the miss.
 	for _ in 0 ..< 10 {
 		n, _ = linux.epoll_wait(outer, raw_data(events[:]), 4, 100)
-		if n > 0 do break
+
+		if n > 0 {
+			break
+		}
 	}
 	testing.expect(t, n > 0, "backend_fd did not wake the outer epoll for watched I/O")
 	run_once(&loop)

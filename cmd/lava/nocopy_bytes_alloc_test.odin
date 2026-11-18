@@ -5,8 +5,8 @@ package main
 import "core:mem"
 import "core:strings"
 import "core:testing"
-import eventloop "lava:pkg/runtime/eventloop"
 import lava "lava:pkg/runtime"
+import eventloop "lava:pkg/runtime/eventloop"
 
 // A loopback round trip: the server echoes what the client writes, so both ends
 // receive bytes through net's read path, each chunk copied into a NoCopy
@@ -32,7 +32,9 @@ srv.listen(0, '127.0.0.1', () => {
 live_net_allocations :: proc(track: ^mem.Tracking_Allocator) -> int {
 	n := 0
 	for _, entry in track.allocation_map {
-		if strings.has_suffix(entry.location.file_path, "net.odin") do n += 1
+		if strings.has_suffix(entry.location.file_path, "net.odin") {
+			n += 1
+		}
 	}
 	return n
 }

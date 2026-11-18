@@ -38,15 +38,21 @@ failed_platform_init_does_not_double_close :: proc(t: ^testing.T) {
 	// after it, and the canary later reclaims it.
 	probe, probe_err := linux.epoll_create1({.FDCLOEXEC})
 	testing.expectf(t, probe_err == nil, "could not open a probe descriptor: %v", probe_err)
-	if probe_err != nil do return
+
+	if probe_err != nil {
+		return
+	}
+
 	lowest := probe
 	linux.close(probe)
 
 	saved: linux.RLimit
+
 	if get_err := linux.getrlimit(.NOFILE, &saved); get_err != nil {
 		testing.expectf(t, false, "getrlimit failed: %v", get_err)
 		return
 	}
+
 	// Room for exactly the two pipe ends: no descriptor may have a number >= cur,
 	// so io_uring_setup and epoll_create1 both fail with EMFILE and platform_init
 	// takes the path under test.
@@ -54,6 +60,7 @@ failed_platform_init_does_not_double_close :: proc(t: ^testing.T) {
 		cur = uint(lowest) + 2,
 		max = saved.max,
 	}
+
 	if set_err := linux.setrlimit(.NOFILE, &tight); set_err != nil {
 		testing.expectf(t, false, "setrlimit failed: %v", set_err)
 		return
@@ -63,20 +70,18 @@ failed_platform_init_does_not_double_close :: proc(t: ^testing.T) {
 	// Restore before anything else — the runner itself needs descriptors.
 	linux.setrlimit(.NOFILE, &saved)
 
-	testing.expect(
-		t,
-		loop.backend == .Unavailable,
-		"platform_init was supposed to fail under the tightened limit",
-	)
+	testing.expect(t, loop.backend == .Unavailable, "platform_init was supposed to fail under the tightened limit")
 
 	// Takes the number pipe2 just released. If platform_init left that number in
 	// wakeup_pipe, destroy is about to close THIS descriptor.
 	canary, canary_err := linux.epoll_create1({.FDCLOEXEC})
 	testing.expectf(t, canary_err == nil, "could not open the canary: %v", canary_err)
+
 	if canary_err != nil {
 		destroy(&loop)
 		return
 	}
+
 	testing.expectf(
 		t,
 		canary == lowest,
@@ -89,11 +94,9 @@ failed_platform_init_does_not_double_close :: proc(t: ^testing.T) {
 
 	st: linux.Stat
 	fstat_err := linux.fstat(canary, &st)
-	testing.expectf(
-		t,
-		fstat_err == nil,
-		"destroy closed an unrelated descriptor: fstat(canary) -> %v",
-		fstat_err,
-	)
-	if fstat_err == nil do linux.close(canary)
+	testing.expectf(t, fstat_err == nil, "destroy closed an unrelated descriptor: fstat(canary) -> %v", fstat_err)
+
+	if fstat_err == nil {
+		linux.close(canary)
+	}
 }

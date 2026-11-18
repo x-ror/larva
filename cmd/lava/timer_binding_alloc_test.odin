@@ -40,9 +40,11 @@ binding_counter_proc :: proc(
 	mem.Allocator_Error,
 ) {
 	c := cast(^Binding_Counter)data
+
 	if (mode == .Alloc || mode == .Alloc_Non_Zeroed) && size == size_of(lava.JS_Callback) {
 		c.hits += 1
 	}
+
 	return c.backing.procedure(c.backing.data, mode, size, alignment, old_memory, old_size, loc)
 }
 
@@ -90,7 +92,12 @@ timer_binding_frees_through_its_own_allocator :: proc(t: ^testing.T) {
 	bindings := counter.hits - before - baseline
 	run(t, TIMER_PENDING_SRC, .Execution_Error)
 
-	testing.expectf(t, len(track.bad_free_array) == 0, "%d timer binding(s) freed into the wrong allocator", len(track.bad_free_array))
+	testing.expectf(
+		t,
+		len(track.bad_free_array) == 0,
+		"%d timer binding(s) freed into the wrong allocator",
+		len(track.bad_free_array),
+	)
 	testing.expectf(
 		t,
 		bindings == TIMER_BINDINGS,

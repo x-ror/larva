@@ -11,7 +11,11 @@ import win "core:sys/windows"
 // silently never advances.
 thread_cpu_ns :: proc() -> i64 {
 	creation, exit, kernel, user: win.FILETIME
-	if !GetThreadTimes(win.GetCurrentThread(), &creation, &exit, &kernel, &user) do return 0
+
+	if !GetThreadTimes(win.GetCurrentThread(), &creation, &exit, &kernel, &user) {
+		return 0
+	}
+
 	ft :: proc(f: win.FILETIME) -> i64 {
 		return i64(u64(f.dwHighDateTime) << 32 | u64(f.dwLowDateTime))
 	}

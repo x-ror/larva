@@ -78,15 +78,15 @@ Chunk_State :: enum {
 // settle_tick). Stale io_uring poll completions can no longer reference it:
 // unwatch_fd truly cancels the poll and invalidates its generation token (#183).
 Fetch_Request :: struct {
-	ctx:           jsc.JSContextRef,
-	loop:          ^eventloop.Loop,
-	on_response:   jsc.JSObjectRef, // GC-protected JS callback(headersObject) — fires when headers arrive
-	on_error:      jsc.JSObjectRef, // GC-protected JS callback(messageString) — pre-headers failure
-	on_chunk:      jsc.JSObjectRef, // GC-protected JS callback(Uint8Array) -> bool wantMore (body chunk)
-	on_end:        jsc.JSObjectRef, // GC-protected JS callback(errorOrNull) — body complete/errored
-	cancel_fn:     jsc.JSObjectRef, // GC-protected cancel handle (private data == this req)
-	resume_fn:     jsc.JSObjectRef, // GC-protected resume handle (private data == this req)
-	settled:       bool,
+	ctx:               jsc.JSContextRef,
+	loop:              ^eventloop.Loop,
+	on_response:       jsc.JSObjectRef, // GC-protected JS callback(headersObject) — fires when headers arrive
+	on_error:          jsc.JSObjectRef, // GC-protected JS callback(messageString) — pre-headers failure
+	on_chunk:          jsc.JSObjectRef, // GC-protected JS callback(Uint8Array) -> bool wantMore (body chunk)
+	on_end:            jsc.JSObjectRef, // GC-protected JS callback(errorOrNull) — body complete/errored
+	cancel_fn:         jsc.JSObjectRef, // GC-protected cancel handle (private data == this req)
+	resume_fn:         jsc.JSObjectRef, // GC-protected resume handle (private data == this req)
+	settled:           bool,
 
 	// Streaming request-body (true chunked upload) state. When body_streaming,
 	// request_bytes holds ONLY the head (Transfer-Encoding: chunked, no
@@ -114,14 +114,14 @@ Fetch_Request :: struct {
 	// this stored allocator keeps the pair matched regardless of the active context.
 	// (The dynamic-array fields response/carry/body_out carry their own bound
 	// allocator, so delete() frees them correctly without help here.)
-	allocator:     runtime.Allocator,
-	url:           string,
-	host:          string,
-	path:          string,
-	method:        string,
-	port:          int,
-	request_bytes: []byte,
-	write_offset:  int,
+	allocator:         runtime.Allocator,
+	url:               string,
+	host:              string,
+	path:              string,
+	method:            string,
+	port:              int,
+	request_bytes:     []byte,
+	write_offset:      int,
 
 	// DNS for a hostname runs on the loop's generic worker pool (#77, fetch_dns.odin):
 	// the lookup result lives on a DNS_Job, not on the request, and the connect is
@@ -133,47 +133,47 @@ Fetch_Request :: struct {
 	// and one IPv6 address (ordered A then AAAA); fetch_advance_connect tries them in
 	// turn, advancing on a connect failure and settling an error only when the list
 	// is exhausted. A literal host bypasses this (addr_count stays 0, single connect).
-	addrs:         [2]Fetch_Addr,
-	addr_count:    int,
-	addr_index:    int,
+	addrs:             [2]Fetch_Addr,
+	addr_count:        int,
+	addr_index:        int,
 	// Back-pointer to this request's outstanding DNS job (nil unless a pool lookup
 	// is in flight), so an abort can cancel a still-queued lookup. Set by
 	// fetch_dns_submit, cleared by its completion; loop-thread-only.
-	dns_job:       ^DNS_Job,
-	response:      [dynamic]byte, // accumulates bytes until the header terminator is found
+	dns_job:           ^DNS_Job,
+	response:          [dynamic]byte, // accumulates bytes until the header terminator is found
 	// Length of `response` passed to picohttpparser on the previous (incomplete) head
 	// parse — the `last_len` resume hint, so each read re-scans only new bytes for the
 	// CRLFCRLF terminator rather than the whole accumulated head. 0 until the first read.
-	head_last_len: int,
-	watcher:       eventloop.IO_Watcher,
-	fd:            uintptr,
-	has_fd:        bool,
-	phase:         Fetch_Phase,
+	head_last_len:     int,
+	watcher:           eventloop.IO_Watcher,
+	fd:                uintptr,
+	has_fd:            bool,
+	phase:             Fetch_Phase,
 
 	// Streaming response-body state. The transport delivers status + headers as
 	// soon as they are parsed (on_response), then pushes decoded body bytes
 	// incrementally (on_chunk) until the framing completes (on_end). No full-body
 	// buffer is kept; only a small carry holds undecoded chunked framing bytes.
-	headers_done:  bool,
-	no_body:       bool, // HEAD / 204 / 304 / … — settle with a null body, no read
-	body_is_chunked: bool,
-	body_len:      int, // declared Content-Length; -1 == read until EOF
-	body_seen:     int, // body bytes delivered so far (Content-Length accounting)
-	body_done:     bool, // framing reached its end (final chunk / Content-Length met)
-	chunk_state:   Chunk_State,
-	chunk_remaining: int, // data bytes left in the current chunk (Chunk_State.Data)
-	carry:         [dynamic]byte, // undecoded chunked framing bytes spanning reads
-	read_paused:   bool, // socket reads suspended for backpressure (consumer saturated)
-	want_pause:    bool, // a delivered chunk reported the consumer is full this turn
-	drive_pending: int, // queued drive completions (read resume / body drain) referencing this req
-	settle_tick:   u64, // loop iteration at settle; reclaim holds the req two ticks past it
+	headers_done:      bool,
+	no_body:           bool, // HEAD / 204 / 304 / … — settle with a null body, no read
+	body_is_chunked:   bool,
+	body_len:          int, // declared Content-Length; -1 == read until EOF
+	body_seen:         int, // body bytes delivered so far (Content-Length accounting)
+	body_done:         bool, // framing reached its end (final chunk / Content-Length met)
+	chunk_state:       Chunk_State,
+	chunk_remaining:   int, // data bytes left in the current chunk (Chunk_State.Data)
+	carry:             [dynamic]byte, // undecoded chunked framing bytes spanning reads
+	read_paused:       bool, // socket reads suspended for backpressure (consumer saturated)
+	want_pause:        bool, // a delivered chunk reported the consumer is full this turn
+	drive_pending:     int, // queued drive completions (read resume / body drain) referencing this req
+	settle_tick:       u64, // loop iteration at settle; reclaim holds the req two ticks past it
 
 	// TLS state for https:// requests. is_https gates the TLS path in the
 	// transport; tls is an opaque per-backend session handle kept as rawptr so this
 	// cross-platform struct stays free of any TLS binding, set at handshake start and
 	// released by fetch_tls_cleanup in fetch_request_finish.
-	is_https:      bool,
-	tls:           rawptr,
+	is_https:          bool,
+	tls:               rawptr,
 }
 
 // fetch_cancel_class is a JSClass whose instances carry a ^Fetch_Request as
@@ -232,9 +232,11 @@ fetch_cancel_fn_cb :: proc "c" (
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
 	req := cast(^Fetch_Request)jsc.JSObjectGetPrivate(function)
+
 	if req != nil && !req.settled {
 		fetch_request_finish(req)
 	}
+
 	return jsc.JSValueMakeUndefined(ctx)
 }
 
@@ -262,9 +264,11 @@ fetch_resume_fn_cb :: proc "c" (
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
 	req := cast(^Fetch_Request)jsc.JSObjectGetPrivate(function)
+
 	if req != nil {
 		fetch_resume_read(req)
 	}
+
 	return jsc.JSValueMakeUndefined(ctx)
 }
 
@@ -302,11 +306,13 @@ fetch_push_fn_cb :: proc "c" (
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
 	req := cast(^Fetch_Request)jsc.JSObjectGetPrivate(function)
+
 	if req != nil && !req.settled && argument_count >= 1 {
 		if view, ok := typed_array_view(ctx, arguments[0]); ok {
 			fetch_push_body(req, view)
 		}
 	}
+
 	return jsc.JSValueMakeUndefined(ctx)
 }
 
@@ -323,19 +329,22 @@ fetch_end_fn_cb :: proc "c" (
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
 	req := cast(^Fetch_Request)jsc.JSObjectGetPrivate(function)
+
 	if req != nil && !req.settled {
 		is_error :=
-			argument_count >= 1 &&
-			!jsc.JSValueIsNull(ctx, arguments[0]) &&
-			!jsc.JSValueIsUndefined(ctx, arguments[0])
+			argument_count >= 1 && !jsc.JSValueIsNull(ctx, arguments[0]) && !jsc.JSValueIsUndefined(ctx, arguments[0])
+
 		if is_error {
 			msg, alloc := jsc_value_to_string_or_default(ctx, arguments[0])
-			defer if alloc do delete(msg, context.allocator)
+			defer if alloc {
+				delete(msg, context.allocator)
+			}
 			fetch_settle_error(req, msg)
 		} else {
 			fetch_end_body(req)
 		}
 	}
+
 	return jsc.JSValueMakeUndefined(ctx)
 }
 
@@ -348,13 +357,19 @@ fetch_end_fn_cb :: proc "c" (
 // Unlike the per-pull async_begin in fetch_body_go_idle, this hold has no matching
 // post_async, so it is released directly with async_cancel.
 fetch_body_hold_loop :: proc(req: ^Fetch_Request) {
-	if req.body_loop_held do return
+	if req.body_loop_held {
+		return
+	}
+
 	req.body_loop_held = true
 	eventloop.async_begin(req.loop)
 }
 
 fetch_body_release_loop :: proc(req: ^Fetch_Request) {
-	if !req.body_loop_held do return
+	if !req.body_loop_held {
+		return
+	}
+
 	req.body_loop_held = false
 	eventloop.async_cancel(req.loop)
 }
@@ -398,12 +413,16 @@ fetch_request_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 8 do return jsc.JSValueMakeUndefined(ctx)
+
+	if argument_count < 8 {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
 
 	on_response := callback_arg(ctx, arguments[4])
 	on_error := callback_arg(ctx, arguments[5])
 	on_chunk := callback_arg(ctx, arguments[6])
 	on_end := callback_arg(ctx, arguments[7])
+
 	if on_response == nil || on_error == nil || on_chunk == nil || on_end == nil {
 		return jsc.JSValueMakeUndefined(ctx)
 	}
@@ -412,30 +431,43 @@ fetch_request_cb :: proc "c" (
 	// arguments[3] carries no bytes — chunks arrive later via push_body_fn.
 	stream_body := argument_count >= 9 && jsc.JSValueToBoolean(ctx, arguments[8])
 	on_body_drain: jsc.JSObjectRef = nil
-	if argument_count >= 10 do on_body_drain = callback_arg(ctx, arguments[9])
+
+	if argument_count >= 10 {
+		on_body_drain = callback_arg(ctx, arguments[9])
+	}
+
 	if stream_body && on_body_drain == nil {
 		fetch_reject_now(ctx, on_error, "fetch: streaming body requires a drain callback")
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
 	method, method_alloc := jsc_value_to_string_or_default(ctx, arguments[0])
-	defer if method_alloc do delete(method, context.allocator)
+	defer if method_alloc {
+		delete(method, context.allocator)
+	}
 	url, url_alloc := jsc_value_to_string_or_default(ctx, arguments[1])
-	defer if url_alloc do delete(url, context.allocator)
+	defer if url_alloc {
+		delete(url, context.allocator)
+	}
 	header_lines, header_alloc := jsc_value_to_string_or_default(ctx, arguments[2])
-	defer if header_alloc do delete(header_lines, context.allocator)
+	defer if header_alloc {
+		delete(header_lines, context.allocator)
+	}
 
 	host, port, path, scheme, ok := parse_http_url(url)
+
 	if !ok {
 		fetch_reject_now(ctx, on_error, "fetch: invalid URL")
 		return jsc.JSValueMakeUndefined(ctx)
 	}
+
 	if scheme != "http" && scheme != "https" {
 		fetch_reject_now(ctx, on_error, "fetch: unsupported URL scheme")
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
 	loop := get_loop_from_ctx(ctx)
+
 	if loop == nil {
 		fetch_reject_now(ctx, on_error, "fetch: no event loop is bound to this context")
 		return jsc.JSValueMakeUndefined(ctx)
@@ -447,15 +479,23 @@ fetch_request_cb :: proc "c" (
 	// preserves the historical default-heap behavior.
 	state := get_state_from_ctx(ctx)
 	alloc := context.allocator
-	if state != nil do alloc = state.allocator
+
+	if state != nil {
+		alloc = state.allocator
+	}
 
 	// Reclaim any prior settled requests now that we are safely past the loop
 	// iterations that settled them.
-	if state != nil do fetch_reclaim_pending(state)
+	if state != nil {
+		fetch_reclaim_pending(state)
+	}
 
 	body: []byte
+
 	if !stream_body {
-		if view, has_body := typed_array_view(ctx, arguments[3]); has_body do body = view
+		if view, has_body := typed_array_view(ctx, arguments[3]); has_body {
+			body = view
+		}
 	}
 
 	req := new(Fetch_Request, alloc)
@@ -505,15 +545,20 @@ fetch_request_cb :: proc "c" (
 	// no-ops once their private back-pointer is nulled), so the controls object can
 	// still expose them.
 	push_fn, end_fn: jsc.JSObjectRef
+
 	if stream_body {
 		push_fn = jsc.JSObjectMake(ctx, fetch_get_push_class(), req)
 		js_root_set(ctx, &req.push_body_fn, push_fn)
 		end_fn = jsc.JSObjectMake(ctx, fetch_get_end_class(), req)
 		js_root_set(ctx, &req.end_body_fn, end_fn)
 	}
-	if state != nil do fetch_track_active(state, req)
+
+	if state != nil {
+		fetch_track_active(state, req)
+	}
 
 	started, err := fetch_transport_start(req, host, port)
+
 	if !started {
 		fetch_settle_error(req, err)
 	}
@@ -525,10 +570,12 @@ fetch_request_cb :: proc "c" (
 	controls := jsc.JSObjectMake(ctx, nil, nil)
 	set_named(ctx, controls, "cancel", cast(jsc.JSValueRef)cancel_fn)
 	set_named(ctx, controls, "resume", cast(jsc.JSValueRef)resume_fn)
+
 	if stream_body {
 		set_named(ctx, controls, "pushBody", cast(jsc.JSValueRef)push_fn)
 		set_named(ctx, controls, "endBody", cast(jsc.JSValueRef)end_fn)
 	}
+
 	return cast(jsc.JSValueRef)controls
 }
 
@@ -536,15 +583,7 @@ fetch_request_cb :: proc "c" (
 // An IPv6 literal host ([::1]) is returned bracket-stripped (host == "::1");
 // build_http_request re-brackets it for the Host header and the Linux transport
 // connects over AF_INET6.
-parse_http_url :: proc(
-	url: string,
-) -> (
-	host: string,
-	port: int,
-	path: string,
-	scheme: string,
-	ok: bool,
-) {
+parse_http_url :: proc(url: string) -> (host: string, port: int, path: string, scheme: string, ok: bool) {
 	rest := url
 	switch {
 	case strings.has_prefix(rest, "http://"):
@@ -567,17 +606,24 @@ parse_http_url :: proc(
 	auth_end := len(rest)
 	for i in 0 ..< len(rest) {
 		c := rest[i]
+
 		if c == '/' || c == '?' || c == '#' {
 			auth_end = i
 			break
 		}
 	}
+
 	if auth_end < len(rest) {
 		authority = rest[:auth_end]
 		target := rest[auth_end:]
-		if hash := strings.index_byte(target, '#'); hash >= 0 do target = target[:hash]
+
+		if hash := strings.index_byte(target, '#'); hash >= 0 {
+			target = target[:hash]
+		}
+
 		path = target if len(target) > 0 else "/"
 	}
+
 	// Drop any userinfo (user:pass@host).
 	if at := strings.last_index_byte(authority, '@'); at >= 0 {
 		authority = authority[at + 1:]
@@ -585,32 +631,56 @@ parse_http_url :: proc(
 
 	host = authority
 	port = 443 if scheme == "https" else 80
+
 	if len(authority) > 0 && authority[0] == '[' {
 		// IPv6 literal (RFC 3986 §3.2.2): the address itself contains colons, so
 		// the host is the bytes inside the brackets and a ":port" suffix can only
 		// follow the closing ']'. Strip the brackets here — the connect path wants
 		// the bare address; build_http_request re-wraps it for the Host header.
 		rb := strings.index_byte(authority, ']')
-		if rb < 0 do return "", 0, "", "", false
+
+		if rb < 0 {
+			return "", 0, "", "", false
+		}
+
 		host = authority[1:rb]
 		rest_after := authority[rb + 1:]
+
 		if len(rest_after) > 0 {
 			// Only a ":port" may follow the IPv6 literal's closing ']' (RFC 3986
 			// §3.2.2); any other trailing bytes ("[::1]foo") are malformed. new URL()
 			// rejects these, so this parser must too — defense in depth for callers
 			// that reach it directly.
-			if rest_after[0] != ':' do return "", 0, "", "", false
+			if rest_after[0] != ':' {
+				return "", 0, "", "", false
+			}
+
 			p, p_ok := parse_authority_port(rest_after[1:])
-			if !p_ok do return "", 0, "", "", false
-			if p >= 0 do port = p
+
+			if !p_ok {
+				return "", 0, "", "", false
+			}
+
+			if p >= 0 {
+				port = p
+			}
 		}
 	} else if colon := strings.last_index_byte(authority, ':'); colon >= 0 {
 		host = authority[:colon]
 		p, p_ok := parse_authority_port(authority[colon + 1:])
-		if !p_ok do return "", 0, "", "", false
-		if p >= 0 do port = p
+
+		if !p_ok {
+			return "", 0, "", "", false
+		}
+
+		if p >= 0 {
+			port = p
+		}
 	}
-	if len(host) == 0 do return "", 0, "", "", false
+
+	if len(host) == 0 {
+		return "", 0, "", "", false
+	}
 
 	ok = true
 	return
@@ -624,12 +694,21 @@ parse_http_url :: proc(
 // falling back to port 80/443. The JS layer already validates through `new URL`,
 // so this is defense in depth for any caller that reaches the native parser.
 parse_authority_port :: proc(s: string) -> (port: int, ok: bool) {
-	if len(s) == 0 do return -1, true
+	if len(s) == 0 {
+		return -1, true
+	}
+
 	for c in transmute([]byte)s {
-		if c < '0' || c > '9' do return -1, false
+		if c < '0' || c > '9' {
+			return -1, false
+		}
 	}
 	p, p_ok := strconv.parse_int(s)
-	if !p_ok || p < 0 || p > 65535 do return -1, false
+
+	if !p_ok || p < 0 || p > 65535 {
+		return -1, false
+	}
+
 	return p, true
 }
 
@@ -640,7 +719,10 @@ parse_authority_port :: proc(s: string) -> (port: int, ok: bool) {
 // non-hex byte (so a sign or stray space fails), and a value that would overflow a
 // positive int. Returns (size, true) only for a well-formed non-negative size.
 fetch_parse_chunk_size :: proc(s: string) -> (size: int, ok: bool) {
-	if len(s) == 0 do return 0, false
+	if len(s) == 0 {
+		return 0, false
+	}
+
 	v: u64
 	limit := u64(max(int))
 	for c in transmute([]byte)s {
@@ -655,9 +737,13 @@ fetch_parse_chunk_size :: proc(s: string) -> (size: int, ok: bool) {
 		case:
 			return 0, false // non-hex byte (sign, space, etc.)
 		}
+
 		// Reject a size past the positive int range; such a chunk never legitimately
 		// occurs and would otherwise wrap to a negative chunk_remaining.
-		if v > (limit - d) / 16 do return 0, false
+		if v > (limit - d) / 16 {
+			return 0, false
+		}
+
 		v = v * 16 + d
 	}
 	return int(v), true
@@ -684,9 +770,13 @@ build_http_request :: proc(
 	b := strings.builder_make(alloc)
 	strings.write_string(&b, method)
 	strings.write_byte(&b, ' ')
+
 	// Origin-form request target always begins with '/': a query-only path
 	// ("?x=1", from http://host?x=1) gets the slash prepended here.
-	if len(path) == 0 || path[0] != '/' do strings.write_byte(&b, '/')
+	if len(path) == 0 || path[0] != '/' {
+		strings.write_byte(&b, '/')
+	}
+
 	strings.write_string(&b, path)
 	strings.write_string(&b, " HTTP/1.1\r\n")
 
@@ -694,16 +784,26 @@ build_http_request :: proc(
 	// An IPv6 literal host arrives bracket-stripped (it is the only host that can
 	// contain a colon); RFC 7230 §5.4 requires the Host header to re-wrap it in [].
 	host_is_ip6 := strings.index_byte(host, ':') >= 0
-	if host_is_ip6 do strings.write_byte(&b, '[')
+
+	if host_is_ip6 {
+		strings.write_byte(&b, '[')
+	}
+
 	strings.write_string(&b, host)
-	if host_is_ip6 do strings.write_byte(&b, ']')
+
+	if host_is_ip6 {
+		strings.write_byte(&b, ']')
+	}
+
 	// Omit the port when it is the scheme's default (Node sends `Host: host`, not
 	// `host:80` / `host:443`, when the default port was implicit in the URL).
 	default_port := is_https ? 443 : 80
+
 	if port != default_port {
 		strings.write_byte(&b, ':')
 		strings.write_int(&b, port)
 	}
+
 	strings.write_string(&b, "\r\n")
 
 	strings.write_string(&b, header_lines) // each line already ends with \r\n
@@ -722,8 +822,12 @@ build_http_request :: proc(
 		strings.write_int(&b, len(body))
 		strings.write_string(&b, "\r\n")
 	}
+
 	strings.write_string(&b, "\r\n")
-	if len(body) > 0 do strings.write_bytes(&b, body)
+
+	if len(body) > 0 {
+		strings.write_bytes(&b, body)
+	}
 
 	return b.buf[:]
 }
@@ -747,6 +851,7 @@ fetch_on_recv :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request, data: []byte) 
 			req.head_last_len,
 		)
 		req.head_last_len = len(req.response)
+
 		if res == .Partial {
 			// A server that never terminates the head must not grow req.response
 			// without bound — reject once it crosses the cap.
@@ -754,23 +859,30 @@ fetch_on_recv :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request, data: []byte) 
 				fetch_settle_error(req, "fetch: response head too large")
 				return false
 			}
+
 			return true // head still incomplete — read more
 		}
+
 		if res == .Error {
 			fetch_settle_error(req, "fetch: malformed HTTP response")
 			return false
 		}
+
 		if !fetch_deliver_headers(req, status, status_text, headers, is_chunked, content_length) {
 			return false // settled with an error
 		}
-		if req.settled do return false // a consumer cancelled inside on_response
+
+		if req.settled {return false} 	// a consumer cancelled inside on_response
+
 		if req.no_body {
 			fetch_finish_body(req, "") // HEAD / 204 / 304 — settle with a null body
 			return false
 		}
+
 		// Body bytes that arrived in the same read as the head.
 		return fetch_feed_body(loop, req, req.response[consumed:])
 	}
+
 	return fetch_feed_body(loop, req, data)
 }
 
@@ -779,16 +891,22 @@ fetch_on_recv :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request, data: []byte) 
 // Content-Length met) and on backpressure (the consumer signalled it is full).
 fetch_feed_body :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request, data: []byte) -> (keep: bool) {
 	fetch_stream_feed(req, data)
-	if req.settled do return false
+
+	if req.settled {
+		return false
+	}
+
 	if req.body_done {
 		fetch_finish_body(req, "") // clean end of body
 		return false
 	}
+
 	if req.want_pause {
 		req.want_pause = false
 		fetch_pause_read(loop, req)
 		return false
 	}
+
 	return true
 }
 
@@ -820,10 +938,12 @@ fetch_deliver_headers :: proc(
 	arg := cast(jsc.JSValueRef)result
 	exception: jsc.JSValueRef
 	invoke_user_callback(req.ctx, req.on_response, &arg, 1, &exception)
+
 	if exception != nil {
 		report_uncaught(req.ctx, exception)
 		mark_async_failed(req.ctx)
 	}
+
 	return true
 }
 
@@ -831,7 +951,10 @@ fetch_deliver_headers :: proc(
 // and any response to HEAD carry no message body. Used to deliver a null
 // response.body and settle without waiting for body bytes (Node parity).
 fetch_status_has_no_body :: proc(method: string, status: int) -> bool {
-	if method == "HEAD" do return true
+	if method == "HEAD" {
+		return true
+	}
+
 	switch status {
 	case 101, 103, 204, 205, 304:
 		return true
@@ -844,17 +967,22 @@ fetch_status_has_no_body :: proc(method: string, status: int) -> bool {
 // the read loop can suspend when the consumer is saturated. The copy is required
 // because `bytes` aliases the transient socket / carry buffer.
 fetch_deliver_chunk :: proc(req: ^Fetch_Request, bytes: []byte) {
-	if len(bytes) == 0 do return
+	if len(bytes) == 0 {
+		return
+	}
+
 	copy_buf := make([]byte, len(bytes), runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap
 	copy(copy_buf, bytes)
 	arg := make_uint8_array(req.ctx, copy_buf)
 	exception: jsc.JSValueRef
 	result := invoke_user_callback(req.ctx, req.on_chunk, &arg, 1, &exception)
+
 	if exception != nil {
 		report_uncaught(req.ctx, exception)
 		mark_async_failed(req.ctx)
 		return
 	}
+
 	// A falsey return (desiredSize <= 0) asks the transport to apply backpressure.
 	if result != nil && !bool(jsc.JSValueToBoolean(req.ctx, result)) {
 		req.want_pause = true
@@ -865,17 +993,22 @@ fetch_deliver_chunk :: proc(req: ^Fetch_Request, bytes: []byte) {
 // a clean completion, the message string on a failure (which errors the JS body
 // stream) — then tears the request down. message == "" is the clean case.
 fetch_finish_body :: proc(req: ^Fetch_Request, message: string) {
-	if req.settled do return
+	if req.settled {
+		return
+	}
+
 	arg: jsc.JSValueRef = len(message) == 0 ? jsc.JSValueMakeNull(req.ctx) : js_string_value(req.ctx, message)
 	exception: jsc.JSValueRef
 	// Callback BEFORE finish, preserving the async-count invariant: the socket is
 	// still watched here, so a chained fetch() inside the body's consumer keeps the
 	// loop's in-flight count ≥ 1 across the teardown.
 	invoke_user_callback(req.ctx, req.on_end, &arg, 1, &exception)
+
 	if exception != nil {
 		report_uncaught(req.ctx, exception)
 		mark_async_failed(req.ctx)
 	}
+
 	fetch_request_finish(req)
 }
 
@@ -884,11 +1017,15 @@ fetch_finish_body :: proc(req: ^Fetch_Request, message: string) {
 // clean end; a close mid-body under a declared length or chunked framing is a
 // truncation that Node surfaces as "terminated".
 fetch_eof :: proc(req: ^Fetch_Request) {
-	if req.settled do return
+	if req.settled {
+		return
+	}
+
 	if !req.headers_done {
 		fetch_settle_error(req, "fetch: connection closed before headers")
 		return
 	}
+
 	switch {
 	case req.body_is_chunked:
 		fetch_finish_body(req, req.body_done ? "" : "fetch: terminated")
@@ -908,17 +1045,21 @@ fetch_settle_error :: proc(req: ^Fetch_Request, message: string) {
 		fetch_request_finish(req)
 		return
 	}
+
 	if req.headers_done {
 		fetch_finish_body(req, message)
 		return
 	}
+
 	arg := js_string_value(req.ctx, message)
 	exception: jsc.JSValueRef
 	invoke_user_callback(req.ctx, req.on_error, &arg, 1, &exception)
+
 	if exception != nil {
 		report_uncaught(req.ctx, exception)
 		mark_async_failed(req.ctx)
 	}
+
 	fetch_request_finish(req)
 }
 
@@ -928,7 +1069,10 @@ fetch_settle_error :: proc(req: ^Fetch_Request, message: string) {
 // stops keeping the loop alive — matching Node, where an abandoned response body
 // does not pin the process. fetch_resume_read re-arms when the consumer drains.
 fetch_pause_read :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
-	if req.read_paused || !req.has_fd do return
+	if req.read_paused || !req.has_fd {
+		return
+	}
+
 	req.read_paused = true
 	req.watcher.callback = nil
 	eventloop.unwatch_fd(loop, &req.watcher)
@@ -940,7 +1084,10 @@ fetch_pause_read :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
 // buffered in the TLS layer — which raise no fresh socket-readable event — are
 // flushed. A no-op unless actually paused, so the stream may call it on every read.
 fetch_resume_read :: proc(req: ^Fetch_Request) {
-	if req.settled || !req.read_paused || !req.has_fd do return
+	if req.settled || !req.read_paused || !req.has_fd {
+		return
+	}
+
 	req.read_paused = false
 	req.watcher.callback = fetch_watcher_cb
 	req.watcher.mode = .Read
@@ -960,10 +1107,21 @@ fetch_resume_read :: proc(req: ^Fetch_Request) {
 // only touches the socket when the request is still actively reading.
 fetch_drive_read_cb :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 	req := cast(^Fetch_Request)user_data
-	if req == nil do return
+
+	if req == nil {
+		return
+	}
+
 	req.drive_pending -= 1
-	if req.settled || req.read_paused do return
-	if !req.has_fd || req.phase != .Reading do return
+
+	if req.settled || req.read_paused {
+		return
+	}
+
+	if !req.has_fd || req.phase != .Reading {
+		return
+	}
+
 	fetch_watcher_cb(loop, req)
 }
 
@@ -985,19 +1143,26 @@ fetch_reject_now :: proc(ctx: jsc.JSContextRef, on_error: jsc.JSObjectRef, messa
 // fetch_reclaim_pending). Clearing req.watcher.callback below makes the request
 // inert immediately; unwatch_fd then truly cancels the io_uring poll (#183).
 fetch_request_finish :: proc(req: ^Fetch_Request) {
-	if req.settled do return
+	if req.settled {
+		return
+	}
+
 	// A DNS lookup may still be outstanding on the pool. We do NOT block to join it
 	// (the pool owns the worker lifetime); the request stays pinned via drive_pending
 	// — bumped at submit — so the pending completion finds live memory, sees
 	// req.settled, and reclaims it. See fetch_dns.odin. If the lookup is still
 	// queued, cancel it so the worker skips the blocking resolve rather than doing
 	// network work for an aborted fetch (and holding the loop alive until it returns).
-	if req.dns_job != nil do fetch_dns_cancel_job(req.dns_job)
+	if req.dns_job != nil {
+		fetch_dns_cancel_job(req.dns_job)
+	}
+
 	req.settled = true
 	// Stamp the settle iteration so fetch_reclaim_pending holds this request a couple
 	// of loop ticks — past the in-flight platform_poll batch that may still carry a
 	// readiness event for it on the pointer-based backends.
 	req.settle_tick = eventloop.iteration_count(req.loop)
+
 	if state := get_state_from_ctx(req.ctx); state != nil {
 		fetch_untrack_active(state, req)
 	}
@@ -1007,6 +1172,7 @@ fetch_request_finish :: proc(req: ^Fetch_Request) {
 	req.watcher.callback = nil
 	// Free the TLS session (if any) before closing the fd it was bound to.
 	fetch_tls_cleanup(req)
+
 	if req.has_fd {
 		eventloop.unwatch_fd(req.loop, &req.watcher)
 		fetch_close_fd(req.fd)
@@ -1040,12 +1206,18 @@ fetch_request_finish :: proc(req: ^Fetch_Request) {
 }
 
 fetch_track_active :: proc(state: ^Runtime_State, req: ^Fetch_Request) {
-	if state == nil || req == nil do return
+	if state == nil || req == nil {
+		return
+	}
+
 	append(&state.active_fetches, req)
 }
 
 fetch_untrack_active :: proc(state: ^Runtime_State, req: ^Fetch_Request) {
-	if state == nil || req == nil do return
+	if state == nil || req == nil {
+		return
+	}
+
 	for i in 0 ..< len(state.active_fetches) {
 		if state.active_fetches[i] == req {
 			// active_fetches is an unordered bag (membership only — used for teardown),
@@ -1068,7 +1240,10 @@ fetch_untrack_active :: proc(state: ^Runtime_State, req: ^Fetch_Request) {
 // deferred teardown, destroy_runtime_state, and fetch_destroy_pending): each
 // fetch_request_finish untracks its request, so a second pass sees an empty set.
 fetch_shutdown_active :: proc(state: ^Runtime_State) {
-	if state == nil do return
+	if state == nil {
+		return
+	}
+
 	for len(state.active_fetches) > 0 {
 		req := state.active_fetches[0]
 		fetch_request_finish(req)
@@ -1087,7 +1262,11 @@ fetch_free_request :: proc(req: ^Fetch_Request) {
 	delete(req.url, req.allocator)
 	delete(req.host, req.allocator)
 	delete(req.path, req.allocator)
-	if req.request_bytes != nil do delete(req.request_bytes, req.allocator)
+
+	if req.request_bytes != nil {
+		delete(req.request_bytes, req.allocator)
+	}
+
 	delete(req.response)
 	delete(req.carry)
 	delete(req.body_out)
@@ -1117,11 +1296,13 @@ fetch_reclaim_pending :: proc(state: ^Runtime_State) {
 	kept := 0
 	for req in state.pending_free {
 		within_stale_window := eventloop.iteration_count(req.loop) - req.settle_tick < 2
+
 		if req.drive_pending > 0 || within_stale_window {
 			state.pending_free[kept] = req
 			kept += 1
 			continue
 		}
+
 		fetch_free_request(req)
 	}
 	resize(&state.pending_free, kept)
@@ -1165,7 +1346,10 @@ parse_http_head :: proc(
 	raw: [pico.MAX_HEADERS]pico.Header
 	n_consumed, code, msg, n, res := pico.parse_response(buf, last_len, raw[:])
 	result = res
-	if res != .Complete do return
+
+	if res != .Complete {
+		return
+	}
 
 	consumed = n_consumed
 	status = code
@@ -1178,6 +1362,7 @@ parse_http_head :: proc(
 	last_val_idx := -1
 	for i in 0 ..< n {
 		h := raw[i]
+
 		if h.name == "" {
 			// RFC 7230 obs-fold continuation: append (single space) to the previous
 			// value rather than drop it. Deprecated, but unfolding avoids silent
@@ -1189,8 +1374,10 @@ parse_http_head :: proc(
 					context.temp_allocator,
 				)
 			}
+
 			continue
 		}
+
 		value := strings.trim_space(h.value)
 		append(&hdr_list, h.name)
 		append(&hdr_list, value)
@@ -1200,9 +1387,14 @@ parse_http_head :: proc(
 		// allocates nothing); only the rare Transfer-Encoding value is lowercased.
 		if strings.equal_fold(h.name, "transfer-encoding") {
 			lvalue := strings.to_lower(value, context.temp_allocator)
-			if strings.contains(lvalue, "chunked") do is_chunked = true
+
+			if strings.contains(lvalue, "chunked") {
+				is_chunked = true
+			}
 		} else if strings.equal_fold(h.name, "content-length") {
-			if cl, cl_ok := strconv.parse_int(value); cl_ok do content_length = cl
+			if cl, cl_ok := strconv.parse_int(value); cl_ok {
+				content_length = cl
+			}
 		}
 	}
 	headers = hdr_list[:]
@@ -1219,20 +1411,30 @@ fetch_stream_feed :: proc(req: ^Fetch_Request, data: []byte) {
 		fetch_feed_chunked(req, data)
 		return
 	}
+
 	remaining := data
+
 	if req.body_len >= 0 {
 		want := req.body_len - req.body_seen
+
 		if want <= 0 {
 			req.body_done = true
 			return
 		}
-		if len(remaining) > want do remaining = remaining[:want]
+
+		if len(remaining) > want {
+			remaining = remaining[:want]
+		}
 	}
+
 	if len(remaining) > 0 {
 		fetch_deliver_chunk(req, remaining)
 		req.body_seen += len(remaining)
 	}
-	if req.body_len >= 0 && req.body_seen >= req.body_len do req.body_done = true
+
+	if req.body_len >= 0 && req.body_seen >= req.body_len {
+		req.body_done = true
+	}
 }
 
 // fetch_feed_chunked is the incremental Transfer-Encoding: chunked decoder. It
@@ -1256,6 +1458,7 @@ fetch_feed_chunked :: proc(req: ^Fetch_Request, data: []byte) {
 					break
 				}
 			}
+
 			if line_end < 0 {
 				// A chunk-size line that never terminates must not grow carry
 				// without bound — fail the body as a framing violation.
@@ -1263,46 +1466,64 @@ fetch_feed_chunked :: proc(req: ^Fetch_Request, data: []byte) {
 					fetch_finish_body(req, "fetch: terminated")
 					return
 				}
+
 				break loop // size line not complete yet
 			}
+
 			size_str := string(buf[pos:line_end])
-			if semi := strings.index_byte(size_str, ';'); semi >= 0 do size_str = size_str[:semi]
+
+			if semi := strings.index_byte(size_str, ';'); semi >= 0 {
+				size_str = size_str[:semi]
+			}
+
 			size, size_ok := fetch_parse_chunk_size(strings.trim_space(size_str))
+
 			if !size_ok {
 				// Malformed chunk size (non-hex, signed, empty, or overflowing) —
 				// fail the body stream as a truncation.
 				fetch_finish_body(req, "fetch: terminated")
 				return
 			}
+
 			pos = line_end + 2
+
 			if size == 0 {
 				req.body_done = true
 				req.chunk_state = .Done
 				break loop
 			}
+
 			req.chunk_remaining = size
 			req.chunk_state = .Data
 
 		case .Data:
 			avail := len(buf) - pos
 			take := min(avail, req.chunk_remaining)
+
 			if take > 0 {
 				fetch_deliver_chunk(req, buf[pos:pos + take])
-				if req.settled do return
+
+				if req.settled {
+					return
+				}
+
 				pos += take
 				req.chunk_remaining -= take
 			}
-			if req.chunk_remaining > 0 do break loop // need more data
+
+			if req.chunk_remaining > 0 {break loop} 	// need more data
 			req.chunk_state = .Data_CRLF
 
 		case .Data_CRLF:
-			if len(buf) - pos < 2 do break loop // CRLF not fully arrived
+			if len(buf) - pos < 2 {break loop} 	// CRLF not fully arrived
+
 			// RFC 7230: chunk data is always followed by CRLF. A different byte pair
 			// means the framing is corrupt — fail rather than resync on garbage.
 			if buf[pos] != '\r' || buf[pos + 1] != '\n' {
 				fetch_finish_body(req, "fetch: terminated")
 				return
 			}
+
 			pos += 2 // skip the chunk-terminating CRLF
 			req.chunk_state = .Size
 

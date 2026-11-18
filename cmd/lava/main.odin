@@ -80,10 +80,12 @@ run_command :: proc(args: []string) {
 	// LAVA_WORKERS>1 runs the file on N shared-nothing worker loops (Slice 3a). Resolved fail-fast:
 	// an invalid value or an unsupported platform exits non-zero rather than silently degrading.
 	worker_count, count_ok, count_msg := lava_runtime.lava_resolve_worker_count()
+
 	if !count_ok {
 		fmt.eprintfln("lava: %s", count_msg)
 		os.exit(2)
 	}
+
 	if worker_count > 1 {
 		// args is [scriptPath, ...userArgs]; the supervisor reads the file once and runs N workers.
 		os.exit(lava_runtime.lava_run_workers(args[0], worker_count, args[1:]))
@@ -116,6 +118,7 @@ print_result :: proc(result: lava_runtime.Result, user_data: rawptr) {
 		if len(result.message) > 0 {
 			lava_runtime.process_write(os.stdout, result.message, "\n")
 		}
+
 		return
 	}
 
@@ -146,13 +149,25 @@ html_command :: proc(args: []string) {
 			opts.list_scripts = true
 		case a == "--chunk":
 			i += 1
-			if i == len(args) do usage()
+
+			if i == len(args) {
+				usage()
+			}
+
 			n, ok := strconv.parse_int(args[i])
-			if !ok || n <= 0 do usage()
+
+			if !ok || n <= 0 {
+				usage()
+			}
+
 			chunk = n
 		case a == "--select":
 			i += 1
-			if i == len(args) do usage()
+
+			if i == len(args) {
+				usage()
+			}
+
 			css = args[i]
 		case len(a) > 1 && a[0] == '-', path != "":
 			usage()
@@ -160,12 +175,17 @@ html_command :: proc(args: []string) {
 			path = a
 		}
 	}
-	if path == "" do usage()
+
+	if path == "" {
+		usage()
+	}
 
 	data: []byte
 	err: os.Error
-	if path == "-" do data, err = os.read_entire_file_from_file(os.stdin, context.allocator)
-	else do data, err = os.read_entire_file(path, context.allocator)
+
+	if path ==
+	   "-" {data, err = os.read_entire_file_from_file(os.stdin, context.allocator)} else {data, err = os.read_entire_file(path, context.allocator)}
+
 	if err != nil {
 		fmt.eprintfln("lava html: cannot read %s: %v", path, err)
 		os.exit(1)
@@ -174,10 +194,18 @@ html_command :: proc(args: []string) {
 	report :: proc(p: ^html.Parser, script: html.Node, user_data: rawptr) {
 		o := cast(^Html_Options)user_data
 		o.scripts += 1
-		if !o.list_scripts do return
+
+		if !o.list_scripts {
+			return
+		}
+
 		// An SVG <script> names its file with href, an HTML one with src.
 		src, ok := html.attr(script, "src", context.temp_allocator)
-		if !ok do src, ok = html.attr(script, "href", context.temp_allocator)
+
+		if !ok {
+			src, ok = html.attr(script, "href", context.temp_allocator)
+		}
+
 		if ok {
 			fmt.eprintfln("[script %d] src=%s", o.scripts, src)
 		} else {
@@ -187,19 +215,26 @@ html_command :: proc(args: []string) {
 
 	p: html.Parser
 	ok := html.init(&p) && html.parse_all(&p, data, report, &opts, chunk)
+
 	if ok && css != "" {
 		select_and_print(&p, css)
 		html.destroy(&p)
 		return
 	}
+
 	markup: string
-	if ok do markup, ok = html.serialize(&p)
+
+	if ok {
+		markup, ok = html.serialize(&p)
+	}
+
 	if !ok {
 		msg := html.error_message(&p)
 		fmt.eprintfln("lava html: %s", msg if msg != "" else "serialization failed")
 		html.destroy(&p)
 		os.exit(1)
 	}
+
 	fmt.println(markup)
 	html.destroy(&p)
 }
@@ -208,23 +243,29 @@ html_command :: proc(args: []string) {
 // per line, in tree order. Exits 2 on an invalid selector, as a usage error.
 select_and_print :: proc(p: ^html.Parser, css: string) {
 	engine: html.Selectors
+
 	if !html.selectors_init(&engine) {
 		fmt.eprintln("lava html: lexbor could not create the selector engine")
 		os.exit(1)
 	}
+
 	defer html.selectors_destroy(&engine)
 	sel, ok := html.compile(&engine, css)
+
 	if !ok {
 		fmt.eprintfln("lava html: not a valid selector: %s", css)
 		os.exit(2)
 	}
+
 	defer html.selector_destroy(&sel)
 	matches: [dynamic]html.Node
 	defer delete(matches)
+
 	if !html.query_all(&engine, html.document(p), sel, &matches) {
 		fmt.eprintln("lava html: selector search failed")
 		os.exit(1)
 	}
+
 	for node in matches {
 		markup, _ := html.outer_html(node, context.temp_allocator)
 		fmt.println(markup)

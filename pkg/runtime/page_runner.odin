@@ -81,27 +81,27 @@ Reaping_Loop :: struct {
 }
 
 Page_Runner :: struct {
-	pages:      [dynamic]^Runner_Page,
+	pages:             [dynamic]^Runner_Page,
 	// Closed pages' loops still waiting on a worker, reaped by the runner as their
 	// workers exit (runner_reap). Backed by the runner allocator, bound at init.
-	reaping:    [dynamic]Reaping_Loop,
+	reaping:           [dynamic]Reaping_Loop,
 	// The bound on `reaping`; RUNNER_REAP_LIMIT unless the embedder lowers it after
 	// page_runner_init.
-	reap_limit: int,
+	reap_limit:        int,
 	// The runner's own VMs, so the number of live VMs — and of timerfds, kept for the
 	// life of the runner's thread — is bounded by the runner's capacity, not by how
 	// many pages it ever ran.
-	pool:       VM_Pool,
-	epfd:       linux.Fd,
-	allocator:  runtime.Allocator,
-	on_done:    Page_Done_Proc,
+	pool:              VM_Pool,
+	epfd:              linux.Fd,
+	allocator:         runtime.Allocator,
+	on_done:           Page_Done_Proc,
 	// Pages that finished without being ticked (at open, or cancelled), waiting for
 	// their on_done call.
-	done:       [dynamic]Done_Page,
-	closing:    bool,
+	done:              [dynamic]Done_Page,
+	closing:           bool,
 	// Descriptors an embedder added to the runner's epoll set (page_runner_watch_fd),
 	// so page_runner_step can block on them while no page is live.
-	watched:    int,
+	watched:           int,
 	// Sample every Nth page's JS heap per VM into Result.heap_bytes; 0 (the default)
 	// samples nothing. Set by the embedder after page_runner_init, like reap_limit.
 	// Sampled pages pay the heap walk outside their CPU budget (page_close says why).
@@ -132,10 +132,12 @@ page_runner_init :: proc(
 	runner.reap_limit = RUNNER_REAP_LIMIT
 	vm_pool_init(&runner.pool, capacity, allocator)
 	epfd, err := linux.epoll_create1({.FDCLOEXEC})
+
 	if err != .NONE {
 		page_runner_destroy(runner)
 		return false
 	}
+
 	runner.epfd = epfd
 	return true
 }
@@ -161,14 +163,23 @@ page_runner_destroy :: proc(runner: ^Page_Runner) {
 	}
 	runner_reap(runner)
 	for e in runner.reaping {
-		if e.fd >= 0 do linux.epoll_ctl(runner.epfd, .DEL, e.fd, nil)
-		if !eventloop.close_detach(e.loop) do free(e.loop, runtime.heap_allocator())
+		if e.fd >= 0 {
+			linux.epoll_ctl(runner.epfd, .DEL, e.fd, nil)
+		}
+
+		if !eventloop.close_detach(e.loop) {
+			free(e.loop, runtime.heap_allocator())
+		}
 	}
 	delete(runner.reaping)
 	delete(runner.pages)
 	delete(runner.done)
 	vm_pool_destroy(&runner.pool)
-	if runner.epfd > 0 do linux.close(runner.epfd)
+
+	if runner.epfd > 0 {
+		linux.close(runner.epfd)
+	}
+
 	runner^ = {}
 }
 
@@ -209,20 +220,34 @@ page_runner_open :: proc(
 ) {
 	context.allocator = runner.allocator
 	defer free_all(context.temp_allocator)
+
 	if runner.closing {
 		append(&runner.done, Done_Page{user_data, page_killed_result(.Cancelled)})
 		return
 	}
+
 	// `!(x > 0)`, not `x <= 0`: NaN compares false both ways.
 	if !(limits.cpu_budget > 0) {
-		append(&runner.done, Done_Page{user_data, Result{status = .Invalid_Input, exit_code = 2, message = "page runner: a page needs a CPU budget (Page_Limits.cpu_budget > 0)"}})
+		append(
+			&runner.done,
+			Done_Page {
+				user_data,
+				Result {
+					status = .Invalid_Input,
+					exit_code = 2,
+					message = "page runner: a page needs a CPU budget (Page_Limits.cpu_budget > 0)",
+				},
+			},
+		)
 		return
 	}
+
 	// Reap first, so the bound counts only loops whose workers are still busy.
 	if runner_reap(runner) >= runner.reap_limit {
 		append(&runner.done, Done_Page{user_data, page_killed_result(.Reaping_Full)})
 		return
 	}
+
 	rp := new(Runner_Page, runner.allocator)
 	rp.user_data = user_data
 	rp.fd = -1
@@ -232,10 +257,22 @@ page_runner_open :: proc(
 	append(&runner.pages, rp)
 	index := len(runner.pages) - 1
 
-	if !page_open(&rp.page, source, source_name, rp.loop, false, nil, limits, &runner.pool, runner_page = true, surface = surface) {
+	if !page_open(
+		&rp.page,
+		source,
+		source_name,
+		rp.loop,
+		false,
+		nil,
+		limits,
+		&runner.pool,
+		runner_page = true,
+		surface = surface,
+	) {
 		runner_finish(runner, index, deliver = false)
 		return
 	}
+
 	// Edge-triggered: a CQE or watched fd the page's own tick is not going to reap
 	// (an I/O-free page waiting on a timer, say) must not keep the runner's wait
 	// returning at once; a new arrival still wakes it.
@@ -243,8 +280,12 @@ page_runner_open :: proc(
 		ev := linux.EPoll_Event {
 			events = {.IN, .ET},
 		}
-		if linux.epoll_ctl(runner.epfd, .ADD, linux.Fd(fd), &ev) == .NONE do rp.fd = linux.Fd(fd)
+
+		if linux.epoll_ctl(runner.epfd, .ADD, linux.Fd(fd), &ev) == .NONE {
+			rp.fd = linux.Fd(fd)
+		}
 	}
+
 	// A loop the runner cannot wait on is still ticked every round; it only loses the
 	// ability to wake a blocked runner, so runner_wait never blocks while one is live.
 }
@@ -279,7 +320,11 @@ page_runner_watch_fd :: proc(runner: ^Page_Runner, fd: i32) -> bool {
 	ev := linux.EPoll_Event {
 		events = {.IN},
 	}
-	if linux.epoll_ctl(runner.epfd, .ADD, linux.Fd(fd), &ev) != .NONE do return false
+
+	if linux.epoll_ctl(runner.epfd, .ADD, linux.Fd(fd), &ev) != .NONE {
+		return false
+	}
+
 	runner.watched += 1
 	return true
 }
@@ -324,21 +369,31 @@ runner_round :: proc(runner: ^Page_Runner, idle_wait: bool) -> bool {
 	i := 0
 	for i < len(runner.pages) {
 		alive, did_work := page_tick(&runner.pages[i].page)
+
 		if !alive {
 			// Swap-removes index i, so the page moved into it is ticked next.
 			runner_finish(runner, i)
 			progressed = true
 			continue
 		}
-		if did_work do progressed = true
+
+		if did_work {
+			progressed = true
+		}
+
 		i += 1
 	}
-	if progressed do return true
+
+	if progressed {
+		return true
+	}
+
 	// Results delivered above are not progress: a run whose only page failed at open
 	// reaches here with nothing live, which is exactly where it must not wait.
 	if len(runner.pages) > 0 || (idle_wait && (runner.watched > 0 || len(runner.reaping) > 0)) {
 		runner_wait(runner)
 	}
+
 	return false
 }
 
@@ -349,16 +404,27 @@ runner_round :: proc(runner: ^Page_Runner, idle_wait: bool) -> bool {
 runner_wait :: proc(runner: ^Page_Runner) {
 	timeout := -1
 	for e in runner.reaping {
-		if e.fd < 0 do timeout = 1
+		if e.fd < 0 {
+			timeout = 1
+		}
 	}
 	for rp in runner.pages {
 		// A page the runner cannot wait on is polled every millisecond instead: not
 		// slept through, and not spun on either, since every spin tick would be charged
 		// to some page's CPU budget.
-		if rp.fd < 0 && (timeout < 0 || timeout > 1) do timeout = 1
+		if rp.fd < 0 && (timeout < 0 || timeout > 1) {
+			timeout = 1
+		}
+
 		hint := eventloop.wait_hint_ms(rp.loop)
-		if hint == 0 do return
-		if hint > 0 && (timeout < 0 || hint < timeout) do timeout = hint
+
+		if hint == 0 {
+			return
+		}
+
+		if hint > 0 && (timeout < 0 || hint < timeout) {
+			timeout = hint
+		}
 	}
 	events: [16]linux.EPoll_Event
 	// EINTR or a spurious wake only costs one more round.
@@ -374,19 +440,27 @@ runner_wait :: proc(runner: ^Page_Runner) {
 runner_finish :: proc(runner: ^Page_Runner, index: int, deliver := true) {
 	rp := runner.pages[index]
 	unordered_remove(&runner.pages, index)
-	if rp.fd >= 0 do linux.epoll_ctl(runner.epfd, .DEL, rp.fd, nil)
+
+	if rp.fd >= 0 {
+		linux.epoll_ctl(runner.epfd, .DEL, rp.fd, nil)
+	}
+
 	result, busy_loop := page_close(&rp.page, runner.heap_sample_every)
+
 	if busy_loop != nil {
 		runner_reap_add(runner, busy_loop)
 	} else {
 		free(rp.loop, runtime.heap_allocator())
 	}
+
 	user_data := rp.user_data
 	free(rp, runner.allocator)
+
 	if !deliver {
 		append(&runner.done, Done_Page{user_data, result})
 		return
 	}
+
 	runner_deliver(runner, user_data, result)
 }
 
@@ -401,12 +475,17 @@ runner_reap_add :: proc(runner: ^Page_Runner, loop: ^eventloop.Loop) {
 		loop = loop,
 		fd   = -1,
 	}
+
 	if fd, ok := eventloop.wakeup_fd(loop); ok {
 		ev := linux.EPoll_Event {
 			events = {.IN, .ET},
 		}
-		if linux.epoll_ctl(runner.epfd, .ADD, fd, &ev) == .NONE do e.fd = fd
+
+		if linux.epoll_ctl(runner.epfd, .ADD, fd, &ev) == .NONE {
+			e.fd = fd
+		}
 	}
+
 	append(&runner.reaping, e)
 }
 
@@ -419,12 +498,20 @@ runner_reap :: proc(runner: ^Page_Runner) -> int {
 	i := 0
 	for i < len(runner.reaping) {
 		e := runner.reaping[i]
-		if e.fd >= 0 do eventloop.drain_wakeup(e.loop)
+
+		if e.fd >= 0 {
+			eventloop.drain_wakeup(e.loop)
+		}
+
 		if !eventloop.close_ready(e.loop) {
 			i += 1
 			continue
 		}
-		if e.fd >= 0 do linux.epoll_ctl(runner.epfd, .DEL, e.fd, nil)
+
+		if e.fd >= 0 {
+			linux.epoll_ctl(runner.epfd, .DEL, e.fd, nil)
+		}
+
 		eventloop.close_finish(e.loop)
 		free(e.loop, runtime.heap_allocator())
 		unordered_remove(&runner.reaping, i)
@@ -445,6 +532,7 @@ runner_report_done :: proc(runner: ^Page_Runner) {
 @(private = "file")
 runner_deliver :: proc(runner: ^Page_Runner, user_data: rawptr, result: Result) {
 	result := result
+
 	if runner.on_done != nil {
 		runner.on_done(runner, user_data, result)
 	} else {

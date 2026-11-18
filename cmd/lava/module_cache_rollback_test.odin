@@ -35,7 +35,11 @@ import lava "lava:pkg/runtime"
 module_cache_insert_rolls_back_on_grow_failure :: proc(t: ^testing.T) {
 	c, ok := make_context()
 	testing.expect(t, ok, "could not create a JSC global context")
-	if !ok do return
+
+	if !ok {
+		return
+	}
+
 	defer destroy_context(c)
 
 	track: mem.Tracking_Allocator

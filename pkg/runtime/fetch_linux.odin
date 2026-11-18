@@ -19,34 +19,36 @@ fetch_close_fd :: proc(fd: uintptr) {
 // == connect completion). Both run on the loop thread.
 fetch_connect_ip4 :: proc(req: ^Fetch_Request, ip4: net.IP4_Address, port: int) -> (ok: bool, err: string) {
 	sock_fd, sock_err := linux.socket(.INET, .STREAM, {.NONBLOCK}, .TCP)
-	if sock_err != .NONE do return false, "fetch: could not create socket"
+
+	if sock_err != .NONE {
+		return false, "fetch: could not create socket"
+	}
+
 	// net.IP4_Address is [4]u8 in network order — exactly the bytes sin_addr wants.
 	addr := linux.Sock_Addr_In {
 		sin_family = .INET,
 		sin_port   = u16be(port),
 		sin_addr   = transmute([4]u8)ip4,
 	}
+
 	// EINTR: a signal interrupted connect() before it could report EINPROGRESS;
 	// the connection still proceeds asynchronously, so treat it like EINPROGRESS
 	// rather than a hard failure.
-	if conn_err := linux.connect(sock_fd, &addr);
-	   conn_err != .NONE && conn_err != .EINPROGRESS && conn_err != .EINTR {
+	if conn_err := linux.connect(sock_fd, &addr); conn_err != .NONE && conn_err != .EINPROGRESS && conn_err != .EINTR {
 		linux.close(sock_fd)
 		return false, "fetch: connect failed"
 	}
+
 	return fetch_register_socket(req, uintptr(sock_fd))
 }
 
-fetch_connect_ip6 :: proc(
-	req: ^Fetch_Request,
-	ip6: net.IP6_Address,
-	port: int,
-) -> (
-	ok: bool,
-	err: string,
-) {
+fetch_connect_ip6 :: proc(req: ^Fetch_Request, ip6: net.IP6_Address, port: int) -> (ok: bool, err: string) {
 	sock_fd, sock_err := linux.socket(.INET6, .STREAM, {.NONBLOCK}, .TCP)
-	if sock_err != .NONE do return false, "fetch: could not create socket"
+
+	if sock_err != .NONE {
+		return false, "fetch: could not create socket"
+	}
+
 	// IP6_Address is [8]u16be, whose memory layout is already the 16 network-order
 	// bytes sin6_addr expects.
 	addr := linux.Sock_Addr_In6 {
@@ -54,14 +56,15 @@ fetch_connect_ip6 :: proc(
 		sin6_port   = u16be(port),
 		sin6_addr   = transmute([16]u8)ip6,
 	}
+
 	// EINTR: a signal interrupted connect() before it could report EINPROGRESS;
 	// the connection still proceeds asynchronously, so treat it like EINPROGRESS
 	// rather than a hard failure.
-	if conn_err := linux.connect(sock_fd, &addr);
-	   conn_err != .NONE && conn_err != .EINPROGRESS && conn_err != .EINTR {
+	if conn_err := linux.connect(sock_fd, &addr); conn_err != .NONE && conn_err != .EINPROGRESS && conn_err != .EINTR {
 		linux.close(sock_fd)
 		return false, "fetch: connect failed"
 	}
+
 	return fetch_register_socket(req, uintptr(sock_fd))
 }
 
@@ -124,16 +127,16 @@ fetch_raw_recv :: proc(req: ^Fetch_Request, buf: []byte) -> (n: int, res: Fetch_
 // The io_uring backend re-arms from watcher.mode after this callback returns, so
 // mutating the field is enough; epoll needs an explicit re-registration. A no-op
 // when the mode is unchanged.
-fetch_set_watch_mode :: proc(
-	loop: ^eventloop.Loop,
-	req: ^Fetch_Request,
-	mode: eventloop.Poll_Mode,
-) -> bool {
-	if req.watcher.mode == mode do return true
+fetch_set_watch_mode :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request, mode: eventloop.Poll_Mode) -> bool {
+	if req.watcher.mode == mode {
+		return true
+	}
+
 	if loop.platform.use_uring {
 		req.watcher.mode = mode
 		return true
 	}
+
 	eventloop.unwatch_fd(loop, &req.watcher)
 	req.watcher.mode = mode
 	return eventloop.watch_fd(loop, &req.watcher)

@@ -11,6 +11,10 @@ import "core:sys/posix"
 // That is why vm_cpu_enter reads it only when a budget is set.
 thread_cpu_ns :: proc() -> i64 {
 	ts: posix.timespec
-	if posix.clock_gettime(.THREAD_CPUTIME_ID, &ts) != .OK do return 0
+
+	if posix.clock_gettime(.THREAD_CPUTIME_ID, &ts) != .OK {
+		return 0
+	}
+
 	return i64(ts.tv_sec) * 1_000_000_000 + i64(ts.tv_nsec)
 }

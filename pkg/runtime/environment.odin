@@ -72,14 +72,7 @@ setup_module_environment :: proc(
 
 	child_len_name := jsc.JSStringCreateWithUTF8CString("length")
 	defer jsc.JSStringRelease(child_len_name)
-	jsc.JSObjectSetProperty(
-		ctx,
-		children_arr,
-		child_len_name,
-		jsc.JSValueMakeNumber(ctx, 1),
-		{},
-		nil,
-	)
+	jsc.JSObjectSetProperty(ctx, children_arr, child_len_name, jsc.JSValueMakeNumber(ctx, 1), {}, nil)
 
 	module_name := jsc.JSStringCreateWithUTF8CString("module")
 	children_name := jsc.JSStringCreateWithUTF8CString("children")
@@ -89,14 +82,7 @@ setup_module_environment :: proc(
 	defer jsc.JSStringRelease(exports_name)
 
 	// Виправлено: додано касти до JSValueRef для властивостей об'єкта
-	jsc.JSObjectSetProperty(
-		ctx,
-		module_obj,
-		children_name,
-		cast(jsc.JSValueRef)children_arr,
-		{},
-		nil,
-	)
+	jsc.JSObjectSetProperty(ctx, module_obj, children_name, cast(jsc.JSValueRef)children_arr, {}, nil)
 
 	// Initialize module.exports = {} (and the `exports` alias) so the entry can do
 	// `module.exports.foo = …` / `exports.foo = …` without first reassigning
@@ -105,24 +91,10 @@ setup_module_environment :: proc(
 	// the entry and the partial-exports cache (register_entry_module) has nothing
 	// to register.
 	exports_obj := jsc.JSObjectMake(ctx, nil, nil)
-	jsc.JSObjectSetProperty(
-		ctx,
-		module_obj,
-		exports_name,
-		cast(jsc.JSValueRef)exports_obj,
-		{},
-		nil,
-	)
+	jsc.JSObjectSetProperty(ctx, module_obj, exports_name, cast(jsc.JSValueRef)exports_obj, {}, nil)
 
 	jsc.JSObjectSetProperty(ctx, global_obj, module_name, cast(jsc.JSValueRef)module_obj, {}, nil)
-	jsc.JSObjectSetProperty(
-		ctx,
-		global_obj,
-		exports_name,
-		cast(jsc.JSValueRef)exports_obj,
-		{},
-		nil,
-	)
+	jsc.JSObjectSetProperty(ctx, global_obj, exports_name, cast(jsc.JSValueRef)exports_obj, {}, nil)
 }
 
 // WEB_REMOVED_GLOBALS are the Node globals install_globals puts on every context and
@@ -150,16 +122,18 @@ remove_node_globals :: proc(ctx: jsc.JSContextRef, global_obj: jsc.JSObjectRef) 
 	}
 }
 
-inject_global_string :: proc(
-	ctx: jsc.JSContextRef,
-	global_obj: jsc.JSObjectRef,
-	name: string,
-	value: string,
-) {
+inject_global_string :: proc(ctx: jsc.JSContextRef, global_obj: jsc.JSObjectRef, name: string, value: string) {
 	c_name, c_name_err := strings.clone_to_cstring(name, context.temp_allocator)
-	if c_name_err != nil do return
+
+	if c_name_err != nil {
+		return
+	}
+
 	c_value, c_value_err := strings.clone_to_cstring(value, context.temp_allocator)
-	if c_value_err != nil do return
+
+	if c_value_err != nil {
+		return
+	}
 
 	js_name := jsc.JSStringCreateWithUTF8CString(c_name)
 	js_val_str := jsc.JSStringCreateWithUTF8CString(c_value)
@@ -183,18 +157,29 @@ eval_source_value :: proc(
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	script := js_string_from_string(source)
-	if script == nil do return jsc.JSValueMakeUndefined(ctx)
+
+	if script == nil {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
+
 	defer jsc.JSStringRelease(script)
 
 	source_url := js_string_from_string(source_name)
-	defer if source_url != nil do jsc.JSStringRelease(source_url)
+	defer if source_url != nil {
+		jsc.JSStringRelease(source_url)
+	}
 
 	child_exception: jsc.JSValueRef
 	value := jsc.JSEvaluateScript(ctx, script, nil, source_url, 1, &child_exception)
+
 	if child_exception != nil && exception != nil {
 		exception^ = child_exception
 	}
-	if value == nil do return jsc.JSValueMakeUndefined(ctx)
+
+	if value == nil {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
+
 	return value
 }
 
@@ -211,18 +196,22 @@ esm_wrap_source :: proc(
 	bool,
 ) {
 	state := get_state_from_ctx(ctx)
+
 	if state == nil || state.esm_transform == nil {
 		if exception != nil {
 			exception^ = make_js_error(ctx, "ESM transform unavailable")
 		}
+
 		return "", false
 	}
 
 	abs_path, abs_err := filepath.abs(filename, context.temp_allocator)
+
 	if abs_err != os.ERROR_NONE {
 		// Fall back to the path as given when abs resolution fails.
 		abs_path = filename
 	}
+
 	dir := filepath.dir(abs_path)
 	url := esm_file_url(abs_path)
 
@@ -241,18 +230,25 @@ esm_wrap_source :: proc(
 		raw_data(args[:]),
 		&call_exception,
 	)
+
 	if call_exception != nil {
-		if exception != nil do exception^ = call_exception
+		if exception != nil {
+			exception^ = call_exception
+		}
+
 		return "", false
 	}
 
 	wrapped, allocated := jsc_value_to_string_or_default(ctx, result)
+
 	if !allocated {
 		if exception != nil {
 			exception^ = make_js_error(ctx, "ESM transform produced no output")
 		}
+
 		return "", false
 	}
+
 	return wrapped, true
 }
 
@@ -262,12 +258,20 @@ esm_file_url :: proc(abs_path: string) -> string {
 		slashed, _ := strings.replace_all(abs_path, "\\", "/", context.temp_allocator)
 		parts := [?]string{"file:///", slashed}
 		result, err := strings.concatenate(parts[:], context.temp_allocator)
-		if err != nil do return abs_path
+
+		if err != nil {
+			return abs_path
+		}
+
 		return result
 	} else {
 		parts := [?]string{"file://", abs_path}
 		result, err := strings.concatenate(parts[:], context.temp_allocator)
-		if err != nil do return abs_path
+
+		if err != nil {
+			return abs_path
+		}
+
 		return result
 	}
 }
@@ -327,20 +331,32 @@ js_quote :: proc(value: string) -> string {
 // sees the partial exports, like Node) and again after (the body may reassign
 // module.exports).
 register_entry_module :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State, source_name: string) {
-	if state == nil do return
+	if state == nil {
+		return
+	}
+
 	abs_path, abs_err := filepath.abs(source_name, context.temp_allocator)
-	if abs_err != os.ERROR_NONE || len(abs_path) == 0 do return
+
+	if abs_err != os.ERROR_NONE || len(abs_path) == 0 {
+		return
+	}
 
 	global_obj := jsc.JSContextGetGlobalObject(ctx)
 	mod_name := jsc.JSStringCreateWithUTF8CString("module")
 	defer jsc.JSStringRelease(mod_name)
 	mod_val := jsc.JSObjectGetProperty(ctx, global_obj, mod_name, nil)
-	if !jsc.JSValueIsObject(ctx, mod_val) do return
+
+	if !jsc.JSValueIsObject(ctx, mod_val) {
+		return
+	}
 
 	exp_name := jsc.JSStringCreateWithUTF8CString("exports")
 	defer jsc.JSStringRelease(exp_name)
 	exports := jsc.JSObjectGetProperty(ctx, cast(jsc.JSObjectRef)mod_val, exp_name, nil)
-	if exports == nil do return
+
+	if exports == nil {
+		return
+	}
 
 	module_cache_set(ctx, state, abs_path, exports)
 }
@@ -359,7 +375,10 @@ js_string_value :: proc(ctx: jsc.JSContextRef, value: string) -> jsc.JSValueRef 
 	}
 
 	c_value, err := strings.clone_to_cstring(value, context.temp_allocator)
-	if err != nil do return jsc.JSValueMakeUndefined(ctx)
+
+	if err != nil {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
 
 	js_str := jsc.JSStringCreateWithUTF8CString(c_value)
 	defer jsc.JSStringRelease(js_str)
@@ -373,7 +392,10 @@ js_string_value :: proc(ctx: jsc.JSContextRef, value: string) -> jsc.JSValueRef 
 // at the first 0x00), this preserves the full content — needed for SQLite TEXT,
 // where a NUL is a legal byte.
 js_string_from_bytes :: proc(ctx: jsc.JSContextRef, value: string) -> jsc.JSValueRef {
-	if len(value) == 0 do return js_string_value(ctx, "")
+	if len(value) == 0 {
+		return js_string_value(ctx, "")
+	}
+
 	// ASCII (NULs included — this builder's contract preserves them) copies
 	// straight into 8-bit string storage.
 	if bytes_all_ascii(transmute([]byte)value) {
@@ -383,6 +405,7 @@ js_string_from_bytes :: proc(ctx: jsc.JSContextRef, value: string) -> jsc.JSValu
 			return jsc.JSValueMakeString(ctx, str)
 		}
 	}
+
 	runes := utf8.string_to_runes(value, context.temp_allocator)
 	// Each rune is at most two UTF-16 code units (a surrogate pair).
 	units := make([]u16, len(runes) * 2, context.temp_allocator)
@@ -396,9 +419,15 @@ js_string_from_bytes :: proc(ctx: jsc.JSContextRef, value: string) -> jsc.JSValu
 // Pure codecs live in pkg/jsc/string_utf8.odin; these wrappers allocate.
 
 js_string_ref_to_utf8_owned :: proc(js_string: jsc.JSStringRef) -> (string, bool) {
-	if js_string == nil do return "", false
+	if js_string == nil {
+		return "", false
+	}
+
 	length := int(jsc.JSStringGetLength(js_string))
-	if length == 0 do return "", false
+
+	if length == 0 {
+		return "", false
+	}
 
 	// 8-bit storage read directly (GetCharactersPtr would widen the whole string
 	// to UTF-16 first).
@@ -407,7 +436,11 @@ js_string_ref_to_utf8_owned :: proc(js_string: jsc.JSStringRef) -> (string, bool
 	}
 
 	chars := jsc.JSStringGetCharactersPtr(js_string)
-	if chars == nil do return "", false
+
+	if chars == nil {
+		return "", false
+	}
+
 	return utf16_to_utf8_owned(chars, length)
 }
 
@@ -420,9 +453,12 @@ latin1_to_utf8_owned :: proc(s8: []byte) -> (string, bool) {
 		copy(buffer, s8)
 		return string(buffer), true
 	}
+
 	n := len(s8)
 	for b in s8 {
-		if b >= 0x80 do n += 1
+		if b >= 0x80 {
+			n += 1
+		}
 	}
 	buffer := make([]byte, n, context.allocator)
 	o := 0
@@ -449,48 +485,62 @@ utf16_to_utf8_owned :: proc(chars: [^]jsc.JSChar, length: int) -> (string, bool)
 			break
 		}
 	}
+
 	if ascii {
 		buffer := make([]byte, length, context.allocator)
-		for i in 0 ..< length do buffer[i] = byte(chars[i])
+		for i in 0 ..< length {
+			buffer[i] = byte(chars[i])
+		}
 		return string(buffer), true
 	}
 
 	n := jsc.utf16_js_utf8_byte_len(chars, length)
-	if n <= 0 do return "", false
+
+	if n <= 0 {
+		return "", false
+	}
+
 	buffer := make([]byte, n, context.allocator)
 	// Exact-size buffer: the capped writer never truncates here (need always
 	// fits), so it yields the same bytes as an uncapped encode.
 	written := jsc.utf16_js_to_utf8_capped(chars, length, buffer)
+
 	if written != n {
 		delete(buffer, context.allocator)
 		return "", false
 	}
+
 	return string(buffer), true
 }
 
 // jsc_value_to_string_or_default converts a JS value to an owned UTF-8 Odin string
 // (caller's allocator). Returns ("", false) for empty / non-convertible values —
 // callers treat false as "empty string, no free". Exact UTF-8 size (no 3n+1).
-jsc_value_to_string_or_default :: proc(
-	ctx: jsc.JSContextRef,
-	value: jsc.JSValueRef,
-) -> (
-	string,
-	bool,
-) {
+jsc_value_to_string_or_default :: proc(ctx: jsc.JSContextRef, value: jsc.JSValueRef) -> (string, bool) {
 	// Flat string values resolve with no C-API call; everything else (ropes,
 	// non-strings needing coercion) goes through JSValueToStringCopy.
 	if s8, ok := jsc.value_chars8(ctx, value); ok {
-		if len(s8) == 0 do return "", false
+		if len(s8) == 0 {
+			return "", false
+		}
+
 		return latin1_to_utf8_owned(s8)
 	}
+
 	if s16, ok := jsc.value_chars16(ctx, value); ok {
-		if len(s16) == 0 do return "", false
+		if len(s16) == 0 {
+			return "", false
+		}
+
 		return utf16_to_utf8_owned(raw_data(s16), len(s16))
 	}
 
 	js_string := jsc.JSValueToStringCopy(ctx, value, nil)
-	if js_string == nil do return "", false
+
+	if js_string == nil {
+		return "", false
+	}
+
 	defer jsc.JSStringRelease(js_string)
 	return js_string_ref_to_utf8_owned(js_string)
 }

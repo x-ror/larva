@@ -22,15 +22,29 @@ RUNNER_THREADS :: #config(ODIN_TEST_THREADS, 0)
 // skipped — when RUNNER_THREADS != 1.
 fd_census :: proc(timerfds_only := false) -> int {
 	handle, err := os.open("/proc/self/fd")
-	if err != nil do return -1
+
+	if err != nil {
+		return -1
+	}
+
 	defer os.close(handle)
 	infos, read_err := os.read_directory(handle, -1, context.temp_allocator)
-	if read_err != nil do return -1
-	if !timerfds_only do return len(infos)
+
+	if read_err != nil {
+		return -1
+	}
+
+	if !timerfds_only {
+		return len(infos)
+	}
+
 	n := 0
 	for fi in infos {
 		target, lerr := os.read_link(fi.fullpath, context.temp_allocator)
-		if lerr == nil && strings.contains(target, "timerfd") do n += 1
+
+		if lerr == nil && strings.contains(target, "timerfd") {
+			n += 1
+		}
 	}
 	return n
 }

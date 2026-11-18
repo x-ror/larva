@@ -79,13 +79,23 @@ record :: proc(d: ^lava.Page_Dispatcher, user_data: rawptr, result: lava.Result)
 	rec.heap = result.heap_bytes
 	tally := rec.tally
 	sync.lock(&tally.mutex)
-	if tid == tally.submitter do tally.on_submitter += 1
+
+	if tid == tally.submitter {
+		tally.on_submitter += 1
+	}
+
 	seen := false
-	for i in 0 ..< tally.n_threads do if tally.threads[i] == tid do seen = true
+	for i in 0 ..< tally.n_threads {
+		if tally.threads[i] == tid {
+			seen = true
+		}
+	}
+
 	if !seen && tally.n_threads < len(tally.threads) {
 		tally.threads[tally.n_threads] = tid
 		tally.n_threads += 1
 	}
+
 	sync.unlock(&tally.mutex)
 	// Inside on_done context.allocator is the dispatcher's, which owns the message.
 	lava.result_destroy(&result)
@@ -99,7 +109,10 @@ record :: proc(d: ^lava.Page_Dispatcher, user_data: rawptr, result: lava.Result)
 wait_done :: proc(tally: ^Tally, want: int, seconds: f64) -> bool {
 	deadline := time.tick_now()
 	for sync.atomic_load(&tally.done) < want {
-		if time.duration_seconds(time.tick_since(deadline)) > seconds do return false
+		if time.duration_seconds(time.tick_since(deadline)) > seconds {
+			return false
+		}
+
 		time.sleep(2 * time.Millisecond)
 	}
 	return true
@@ -123,7 +136,13 @@ dispatcher_spreads_pages_over_workers :: proc(t: ^testing.T) {
 	recs: [16]Rec
 	for &r in recs {
 		r.tally = &tally
-		ok := lava.page_dispatcher_submit(&d, "const s = Date.now(); while (Date.now() - s < 100) {} process.exitCode = 7;", "<busy>", LIMITS, &r)
+		ok := lava.page_dispatcher_submit(
+			&d,
+			"const s = Date.now(); while (Date.now() - s < 100) {} process.exitCode = 7;",
+			"<busy>",
+			LIMITS,
+			&r,
+		)
 		testing.expect(t, ok, "submit refused on an open dispatcher")
 	}
 	testing.expect(t, wait_done(&tally, len(recs), 30), "pages never finished")
@@ -146,7 +165,9 @@ dispatcher_picks_the_least_loaded_worker :: proc(t: ^testing.T) {
 	d: lava.Page_Dispatcher
 	init_or_fail(t, &d, 3, 4)
 	recs: [5]Rec
-	for &r in recs do r.tally = &tally
+	for &r in recs {
+		r.tally = &tally
+	}
 	LONG :: "setTimeout(() => { process.exitCode = 7; }, 5000);"
 	SHORT :: "setTimeout(() => { process.exitCode = 7; }, 20);"
 	lava.page_dispatcher_submit(&d, LONG, "<long>", LIMITS, &recs[0])
@@ -157,14 +178,24 @@ dispatcher_picks_the_least_loaded_worker :: proc(t: ^testing.T) {
 	testing.expect_value(t, lava.page_dispatcher_load(&d, load[:]), 3)
 	pinned := -1
 	for l, i in load {
-		if l == 1 do pinned = i
+		if l == 1 {
+			pinned = i
+		}
 	}
 	testing.expectf(t, pinned >= 0 && load[0] + load[1] + load[2] == 1, "loads with one long page running: %v", load)
 	lava.page_dispatcher_submit(&d, LONG, "<long>", LIMITS, &recs[3])
 	lava.page_dispatcher_submit(&d, LONG, "<long>", LIMITS, &recs[4])
 	lava.page_dispatcher_load(&d, load[:])
 	for l, i in load {
-		testing.expectf(t, l == 1, "worker %d has %d pages after two submits beside one pinned worker (pinned: %d): got no pages / doubled up %v", i, l, pinned, load)
+		testing.expectf(
+			t,
+			l == 1,
+			"worker %d has %d pages after two submits beside one pinned worker (pinned: %d): got no pages / doubled up %v",
+			i,
+			l,
+			pinned,
+			load,
+		)
 	}
 	lava.page_dispatcher_shutdown(&d, cancel = true)
 	testing.expect_value(t, sync.atomic_load(&tally.done), 5)
@@ -182,7 +213,13 @@ dispatcher_busy_page_does_not_hold_other_workers :: proc(t: ^testing.T) {
 	spinner := Rec {
 		tally = &tally,
 	}
-	lava.page_dispatcher_submit(&d, "const s = Date.now(); while (Date.now() - s < 2000) {} process.exitCode = 7;", "<spinner>", LIMITS, &spinner)
+	lava.page_dispatcher_submit(
+		&d,
+		"const s = Date.now(); while (Date.now() - s < 2000) {} process.exitCode = 7;",
+		"<spinner>",
+		LIMITS,
+		&spinner,
+	)
 	short: [5]Rec
 	start := time.tick_now()
 	for &r, i in short {
@@ -192,7 +229,13 @@ dispatcher_busy_page_does_not_hold_other_workers :: proc(t: ^testing.T) {
 	}
 	elapsed := time.duration_seconds(time.tick_since(start))
 	spinner_done := sync.atomic_load(&spinner.reports)
-	testing.expectf(t, spinner_done == 0 && elapsed < 1.8, "short pages took %.2fs; spinner reported: %d", elapsed, spinner_done)
+	testing.expectf(
+		t,
+		spinner_done == 0 && elapsed < 1.8,
+		"short pages took %.2fs; spinner reported: %d",
+		elapsed,
+		spinner_done,
+	)
 	lava.page_dispatcher_shutdown(&d)
 	testing.expectf(t, spinner.reports == 1 && spinner.status == .Ok && spinner.exit == 7, "spinner: %v", spinner)
 	for r, i in short {
@@ -237,9 +280,20 @@ dispatcher_runaway_page_is_killed_alone :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, wait_done(&tally, 7, 60), "pages never finished")
 	lava.page_dispatcher_shutdown(&d)
-	testing.expectf(t, bad.status == .Execution_Error && bad.kill == .Cpu_Budget, "runaway not killed by its budget: %v", bad)
+	testing.expectf(
+		t,
+		bad.status == .Execution_Error && bad.kill == .Cpu_Budget,
+		"runaway not killed by its budget: %v",
+		bad,
+	)
 	for r, i in good {
-		testing.expectf(t, r.reports == 1 && r.status == .Ok && r.exit == 7, "page %d did not finish beside the runaway: %v", i, r)
+		testing.expectf(
+			t,
+			r.reports == 1 && r.status == .Ok && r.exit == 7,
+			"page %d did not finish beside the runaway: %v",
+			i,
+			r,
+		)
 	}
 }
 
@@ -278,22 +332,49 @@ dispatcher_pages_are_isolated_across_workers_and_reused_vms :: proc(t: ^testing.
 	setter := Rec {
 		tally = &tally,
 	}
-	lava.page_dispatcher_submit(&d, "globalThis.leak = 1; Array.prototype.leaked = 1; setTimeout(() => { process.exitCode = 7; }, 5);", "<setter>", LIMITS, &setter)
+	lava.page_dispatcher_submit(
+		&d,
+		"globalThis.leak = 1; Array.prototype.leaked = 1; setTimeout(() => { process.exitCode = 7; }, 5);",
+		"<setter>",
+		LIMITS,
+		&setter,
+	)
 	testing.expect(t, wait_done(&tally, 1, 10), "setter never finished")
 	checkers: [8]Rec
 	for &r in checkers {
 		r.tally = &tally
-		lava.page_dispatcher_submit(&d, "process.exitCode = (typeof leak === 'undefined' && [].leaked === undefined) ? 7 : 9;", "<checker>", LIMITS, &r)
+		lava.page_dispatcher_submit(
+			&d,
+			"process.exitCode = (typeof leak === 'undefined' && [].leaked === undefined) ? 7 : 9;",
+			"<checker>",
+			LIMITS,
+			&r,
+		)
 	}
 	testing.expect(t, wait_done(&tally, 1 + len(checkers), 30), "checkers never finished")
 	lava.page_dispatcher_shutdown(&d)
 	testing.expectf(t, setter.status == .Ok && setter.exit == 7, "setter: %v", setter)
 	on_setter_vm := 0
 	for r, i in checkers {
-		testing.expectf(t, r.reports == 1 && r.status == .Ok && r.exit == 7, "checker %d saw another page's global (exit 9) or failed: %v", i, r)
-		if r.thread == setter.thread do on_setter_vm += 1
+		testing.expectf(
+			t,
+			r.reports == 1 && r.status == .Ok && r.exit == 7,
+			"checker %d saw another page's global (exit 9) or failed: %v",
+			i,
+			r,
+		)
+
+		if r.thread == setter.thread {
+			on_setter_vm += 1
+		}
 	}
-	testing.expectf(t, on_setter_vm > 0 && on_setter_vm < len(checkers), "%d of %d checkers ran on the setter's worker: not both cases covered", on_setter_vm, len(checkers))
+	testing.expectf(
+		t,
+		on_setter_vm > 0 && on_setter_vm < len(checkers),
+		"%d of %d checkers ran on the setter's worker: not both cases covered",
+		on_setter_vm,
+		len(checkers),
+	)
 	testing.expect_value(t, tally.on_submitter, 0)
 }
 
@@ -312,7 +393,14 @@ dispatcher_drain_shutdown_reports_every_page_once :: proc(t: ^testing.T) {
 	}
 	lava.page_dispatcher_shutdown(&d)
 	for r, i in recs {
-		testing.expectf(t, r.reports == 1 && r.status == .Ok && r.exit == 7, "page %d not drained (reported %d times): %v", i, r.reports, r)
+		testing.expectf(
+			t,
+			r.reports == 1 && r.status == .Ok && r.exit == 7,
+			"page %d not drained (reported %d times): %v",
+			i,
+			r.reports,
+			r,
+		)
 	}
 }
 
@@ -328,14 +416,26 @@ dispatcher_cancel_shutdown_cancels_running_and_queued :: proc(t: ^testing.T) {
 	recs: [5]Rec
 	for &r in recs {
 		r.tally = &tally
-		lava.page_dispatcher_submit(&d, "const i = setInterval(() => {}, 5); setTimeout(() => { clearInterval(i); process.exitCode = 7; }, 4000);", "<interval>", LIMITS, &r)
+		lava.page_dispatcher_submit(
+			&d,
+			"const i = setInterval(() => {}, 5); setTimeout(() => { clearInterval(i); process.exitCode = 7; }, 4000);",
+			"<interval>",
+			LIMITS,
+			&r,
+		)
 	}
 	time.sleep(200 * time.Millisecond)
 	start := time.tick_now()
 	lava.page_dispatcher_shutdown(&d, cancel = true)
 	elapsed := time.duration_seconds(time.tick_since(start))
 	for r, i in recs {
-		testing.expectf(t, r.reports == 1 && r.status == .Execution_Error && r.kill == .Cancelled, "page %d not cancelled: %v", i, r)
+		testing.expectf(
+			t,
+			r.reports == 1 && r.status == .Execution_Error && r.kill == .Cancelled,
+			"page %d not cancelled: %v",
+			i,
+			r,
+		)
 	}
 	testing.expectf(t, elapsed < 2, "cancelling shutdown took %.2fs", elapsed)
 }
@@ -350,6 +450,7 @@ chain :: proc(d: ^lava.Page_Dispatcher, user_data: rawptr, result: lava.Result) 
 	result := result
 	tally := cast(^Tally)user_data
 	lava.result_destroy(&result)
+
 	if sync.atomic_sub(&tally.chain_left, 1) > 0 {
 		if lava.page_dispatcher_submit(d, CHAIN_PAGE, "<follow-up>", LIMITS, tally) {
 			sync.atomic_add(&tally.accepted, 1)
@@ -357,6 +458,7 @@ chain :: proc(d: ^lava.Page_Dispatcher, user_data: rawptr, result: lava.Result) 
 			sync.atomic_add(&tally.refused, 1)
 		}
 	}
+
 	sync.atomic_add(&tally.done, 1)
 }
 
@@ -371,17 +473,34 @@ dispatcher_refuses_follow_ups_once_shutdown_begins :: proc(t: ^testing.T) {
 	tally_init(&tally)
 	tally.chain_left = 400
 	d: lava.Page_Dispatcher
-	if !lava.page_dispatcher_init(&d, 3, 2, chain) do testing.fail_now(t, "page_dispatcher_init failed")
+
+	if !lava.page_dispatcher_init(&d, 3, 2, chain) {
+		testing.fail_now(t, "page_dispatcher_init failed")
+	}
+
 	INITIAL :: 12
-	for _ in 0 ..< INITIAL do lava.page_dispatcher_submit(&d, CHAIN_PAGE, "<chain>", LIMITS, &tally)
+	for _ in 0 ..< INITIAL {
+		lava.page_dispatcher_submit(&d, CHAIN_PAGE, "<chain>", LIMITS, &tally)
+	}
 	time.sleep(150 * time.Millisecond)
 	lava.page_dispatcher_shutdown(&d)
 	done := sync.atomic_load(&tally.done)
 	accepted := sync.atomic_load(&tally.accepted)
 	refused := sync.atomic_load(&tally.refused)
-	testing.expectf(t, done == INITIAL + accepted, "done %d != %d initial + %d accepted follow-ups", done, INITIAL, accepted)
+	testing.expectf(
+		t,
+		done == INITIAL + accepted,
+		"done %d != %d initial + %d accepted follow-ups",
+		done,
+		INITIAL,
+		accepted,
+	)
 	testing.expectf(t, refused > 0, "no follow-up was refused during shutdown (accepted %d)", accepted)
-	testing.expectf(t, sync.atomic_load(&tally.chain_left) > 0, "the chain ran out before shutdown: the test did not exercise refusal")
+	testing.expectf(
+		t,
+		sync.atomic_load(&tally.chain_left) > 0,
+		"the chain ran out before shutdown: the test did not exercise refusal",
+	)
 }
 
 @(private = "file")
@@ -400,13 +519,21 @@ dispatcher_refuses_after_shutdown :: proc(t: ^testing.T) {
 	r0 := Rec {
 		tally = &tally,
 	}
-	testing.expect(t, !lava.page_dispatcher_submit(&zero, "1", "<zero>", LIMITS, &r0), "a never-initialised dispatcher accepted a page")
+	testing.expect(
+		t,
+		!lava.page_dispatcher_submit(&zero, "1", "<zero>", LIMITS, &r0),
+		"a never-initialised dispatcher accepted a page",
+	)
 	lava.page_dispatcher_shutdown(&zero)
 
 	d: lava.Page_Dispatcher
 	init_or_fail(t, &d, 2, 1)
 	lava.page_dispatcher_shutdown(&d)
-	testing.expect(t, !lava.page_dispatcher_submit(&d, "1", "<late>", LIMITS, &r0), "submit after shutdown was accepted")
+	testing.expect(
+		t,
+		!lava.page_dispatcher_submit(&d, "1", "<late>", LIMITS, &r0),
+		"submit after shutdown was accepted",
+	)
 	lava.page_dispatcher_shutdown(&d)
 	load: [2]int
 	testing.expect_value(t, lava.page_dispatcher_load(&d, load[:]), 0)
@@ -419,10 +546,18 @@ dispatcher_refuses_after_shutdown :: proc(t: ^testing.T) {
 		lava.page_dispatcher_submit(&d2, "setTimeout(() => { process.exitCode = 7; }, 30);", "<racing>", LIMITS, &r)
 	}
 	others: [3]^thread.Thread
-	for &o in others do o = thread.create_and_start_with_poly_data(&d2, shutdown_proc)
+	for &o in others {
+		o = thread.create_and_start_with_poly_data(&d2, shutdown_proc)
+	}
 	lava.page_dispatcher_shutdown(&d2)
-	for o in others do thread.destroy(o)
-	testing.expect(t, !lava.page_dispatcher_submit(&d2, "1", "<late>", LIMITS, &r0), "submit after concurrent shutdowns was accepted")
+	for o in others {
+		thread.destroy(o)
+	}
+	testing.expect(
+		t,
+		!lava.page_dispatcher_submit(&d2, "1", "<late>", LIMITS, &r0),
+		"submit after concurrent shutdowns was accepted",
+	)
 	testing.expect_value(t, sync.atomic_load(&r0.reports), 0)
 	for r, i in recs {
 		testing.expectf(t, r.reports == 1 && r.status == .Ok && r.exit == 7, "page %d: %v", i, r)
@@ -451,20 +586,30 @@ dispatcher_allocations_pair_through_its_allocator :: proc(t: ^testing.T) {
 		for &r, i in recs {
 			r.tally = &tally
 			src := "setTimeout(() => { process.exitCode = 7; }, 10);"
-			if i % 3 == 1 do src = "throw new Error('boom ' + 'x'.repeat(64));"
-			if i % 3 == 2 do src = "setInterval(() => {}, 5);"
+
+			if i % 3 == 1 {src = "throw new Error('boom ' + 'x'.repeat(64));"}
+
+			if i % 3 == 2 {src = "setInterval(() => {}, 5);"}
+
 			lava.page_dispatcher_submit(&d, src, "<alloc>", LIMITS, &r)
 		}
 		time.sleep(100 * time.Millisecond)
 		lava.page_dispatcher_shutdown(&d, cancel = true)
-		for r, i in recs do testing.expectf(t, r.reports == 1, "round %d page %d reported %d times", round, i, r.reports)
+		for r, i in recs {
+			testing.expectf(t, r.reports == 1, "round %d page %d reported %d times", round, i, r.reports)
+		}
 	}
 	sync.lock(&track.mutex)
 	outstanding := len(track.allocation_map)
 	bad := len(track.bad_free_array)
 	sync.unlock(&track.mutex)
 	testing.expectf(t, outstanding == 0, "dispatcher leaked %d allocations on its allocator", outstanding)
-	testing.expectf(t, bad == 0, "dispatcher made %d bad free(s) on its allocator: something it owns was freed elsewhere", bad)
+	testing.expectf(
+		t,
+		bad == 0,
+		"dispatcher made %d bad free(s) on its allocator: something it owns was freed elsewhere",
+		bad,
+	)
 }
 
 // The dispatcher's own descriptors — a wake pipe and an epoll set per worker — and
@@ -498,7 +643,9 @@ dispatcher_closes_its_descriptors :: proc(t: ^testing.T) {
 		testing.expect(t, wait_done(&tally, len(recs), 30), "pages never finished")
 		timers_live = fd_census(timerfds_only = true) - timers_before
 		lava.page_dispatcher_shutdown(&d)
-		for r, i in recs do testing.expectf(t, r.reports == 1 && r.status == .Ok, "round %d page %d: %v", round, i, r)
+		for r, i in recs {
+			testing.expectf(t, r.reports == 1 && r.status == .Ok, "round %d page %d: %v", round, i, r)
+		}
 	}
 	after := fd_census()
 	timers := fd_census(timerfds_only = true) - timers_before
@@ -531,7 +678,13 @@ dispatcher_workers_give_back_their_host_tables :: proc(t: ^testing.T) {
 	during := lava.host_native_tables_live()
 	lava.page_dispatcher_shutdown(&d)
 	after := lava.host_native_tables_live()
-	testing.expectf(t, during > before, "pages bound no host tables (%d -> %d): the test proves nothing", before, during)
+	testing.expectf(
+		t,
+		during > before,
+		"pages bound no host tables (%d -> %d): the test proves nothing",
+		before,
+		during,
+	)
 	testing.expectf(t, after == before, "worker threads left %d host-native table set(s) behind", after - before)
 }
 
@@ -545,7 +698,11 @@ dispatcher_init_refuses_bad_arguments :: proc(t: ^testing.T) {
 	alloc := mem.tracking_allocator(&track)
 	d: lava.Page_Dispatcher
 	testing.expect(t, !lava.page_dispatcher_init(&d, 0, 1, record, allocator = alloc), "init accepted 0 threads")
-	testing.expect(t, !lava.page_dispatcher_init(&d, 1, 0, record, allocator = alloc), "init accepted 0 pages per thread")
+	testing.expect(
+		t,
+		!lava.page_dispatcher_init(&d, 1, 0, record, allocator = alloc),
+		"init accepted 0 pages per thread",
+	)
 	testing.expect(t, !lava.page_dispatcher_init(&d, 1, 1, nil, allocator = alloc), "init accepted a nil on_done")
 	testing.expect(t, !lava.page_dispatcher_submit(&d, "1", "<x>", LIMITS), "a refused dispatcher accepted a page")
 	lava.page_dispatcher_shutdown(&d)
@@ -568,25 +725,45 @@ dispatcher_init_failure_leaves_nothing_behind :: proc(t: ^testing.T) {
 	alloc := mem.tracking_allocator(&track)
 
 	probe, probe_err := linux.epoll_create1({.FDCLOEXEC})
-	if probe_err != nil do testing.fail_now(t, "could not open a probe descriptor")
+
+	if probe_err != nil {
+		testing.fail_now(t, "could not open a probe descriptor")
+	}
+
 	linux.close(probe)
 	before := fd_census()
 	saved: linux.RLimit
-	if linux.getrlimit(.NOFILE, &saved) != nil do testing.fail_now(t, "getrlimit failed")
+
+	if linux.getrlimit(.NOFILE, &saved) != nil {
+		testing.fail_now(t, "getrlimit failed")
+	}
+
 	// Room for a handful of descriptors above the lowest free number (3 per worker),
 	// far short of the 64 workers asked for, whatever holes lie below.
 	tight := linux.RLimit {
 		cur = uint(probe) + 8,
 		max = saved.max,
 	}
-	if linux.setrlimit(.NOFILE, &tight) != nil do testing.fail_now(t, "setrlimit failed")
+
+	if linux.setrlimit(.NOFILE, &tight) != nil {
+		testing.fail_now(t, "setrlimit failed")
+	}
+
 	d: lava.Page_Dispatcher
 	ok := lava.page_dispatcher_init(&d, 64, 1, record, allocator = alloc)
 	linux.setrlimit(.NOFILE, &saved)
 	testing.expect(t, !ok, "init succeeded with descriptors for only a few workers")
-	if ok do lava.page_dispatcher_shutdown(&d)
+
+	if ok {
+		lava.page_dispatcher_shutdown(&d)
+	}
+
 	testing.expect(t, !lava.page_dispatcher_submit(&d, "1", "<x>", LIMITS), "a failed dispatcher accepted a page")
-	testing.expect(t, track.total_allocation_count > 0, "init failed before it allocated anything: the cleanup path did not run")
+	testing.expect(
+		t,
+		track.total_allocation_count > 0,
+		"init failed before it allocated anything: the cleanup path did not run",
+	)
 	sync.lock(&track.mutex)
 	outstanding := len(track.allocation_map)
 	sync.unlock(&track.mutex)
@@ -602,9 +779,11 @@ dispatcher_forwards_heap_sampling :: proc(t: ^testing.T) {
 		tally: Tally
 		tally_init(&tally)
 		d: lava.Page_Dispatcher
+
 		if !lava.page_dispatcher_init(&d, 2, 2, record, heap_sample_every = every) {
 			testing.fail_now(t, "page_dispatcher_init failed")
 		}
+
 		recs: [6]Rec
 		for &r in recs {
 			r.tally = &tally
@@ -613,8 +792,15 @@ dispatcher_forwards_heap_sampling :: proc(t: ^testing.T) {
 		lava.page_dispatcher_shutdown(&d)
 		for r, i in recs {
 			testing.expectf(t, r.reports == 1 && r.status == .Ok, "every=%d page %d: %v", every, i, r)
+
 			if every == 1 {
-				testing.expectf(t, r.heap > 0, "sampling every page, page %d was not sampled: heap_bytes %d", i, r.heap)
+				testing.expectf(
+					t,
+					r.heap > 0,
+					"sampling every page, page %d was not sampled: heap_bytes %d",
+					i,
+					r.heap,
+				)
 			} else {
 				testing.expectf(t, r.heap == 0, "sampling off, page %d was sampled: heap_bytes %d", i, r.heap)
 			}
@@ -638,14 +824,18 @@ dispatcher_wakes_an_idle_worker_again :: proc(t: ^testing.T) {
 	for &r, i in recs {
 		r.tally = &tally
 		lava.page_dispatcher_submit(&d, "process.exitCode = 7;", "<idle>", LIMITS, &r)
+
 		if !wait_done(&tally, i + 1, 5) {
 			testing.expectf(t, false, "worker never woke for page %d after going idle", i)
 			break
 		}
+
 		time.sleep(100 * time.Millisecond)
 	}
 	lava.page_dispatcher_shutdown(&d)
-	for r, i in recs do testing.expectf(t, r.reports == 1 && r.status == .Ok && r.exit == 7, "page %d: %v", i, r)
+	for r, i in recs {
+		testing.expectf(t, r.reports == 1 && r.status == .Ok && r.exit == 7, "page %d: %v", i, r)
+	}
 }
 
 // thread_cpu_ticks reads utime + stime of one thread of this process, in clock ticks
@@ -654,17 +844,33 @@ dispatcher_wakes_an_idle_worker_again :: proc(t: ^testing.T) {
 thread_cpu_ticks :: proc(tid: int) -> int {
 	path := fmt.tprintf("/proc/self/task/%d/stat", tid)
 	data, err := os.read_entire_file(path, context.temp_allocator)
-	if err != nil do return -1
+
+	if err != nil {
+		return -1
+	}
+
 	text := string(data)
 	// The command name (field 2) may hold spaces; fields are counted after its ')'.
 	close_paren := strings.last_index_byte(text, ')')
-	if close_paren < 0 do return -1
+
+	if close_paren < 0 {
+		return -1
+	}
+
 	fields := strings.fields(text[close_paren + 1:], context.temp_allocator)
+
 	// fields[0] is field 3 (state), so utime (14) and stime (15) are [11] and [12].
-	if len(fields) < 13 do return -1
+	if len(fields) < 13 {
+		return -1
+	}
+
 	utime, ok1 := strconv.parse_int(fields[11])
 	stime, ok2 := strconv.parse_int(fields[12])
-	if !ok1 || !ok2 do return -1
+
+	if !ok1 || !ok2 {
+		return -1
+	}
+
 	return utime + stime
 }
 
@@ -695,6 +901,12 @@ dispatcher_idle_workers_sleep :: proc(t: ^testing.T) {
 	lava.page_dispatcher_shutdown(&d)
 	for i in 0 ..< 2 {
 		testing.expectf(t, before[i] >= 0 && after[i] >= 0, "could not read worker %d's CPU clock", i)
-		testing.expectf(t, after[i] - before[i] <= 3, "idle worker %d burned %d ticks of CPU in 400 ms: it spins instead of sleeping", i, after[i] - before[i])
+		testing.expectf(
+			t,
+			after[i] - before[i] <= 3,
+			"idle worker %d burned %d ticks of CPU in 400 ms: it spins instead of sleeping",
+			i,
+			after[i] - before[i],
+		)
 	}
 }

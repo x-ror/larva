@@ -22,10 +22,12 @@ builtin_factories_compile_on_first_require :: proc(t: ^testing.T) {
 	gclass := lava.make_global_class()
 	gctx := jsc.JSGlobalContextCreate(gclass)
 	testing.expect(t, gctx != nil, "could not create a JSC global context")
+
 	if gctx == nil {
 		jsc.JSClassRelease(gclass)
 		return
 	}
+
 	defer jsc.JSClassRelease(gclass)
 	defer jsc.JSGlobalContextRelease(gctx)
 	ctx := cast(jsc.JSContextRef)gctx
@@ -41,7 +43,9 @@ builtin_factories_compile_on_first_require :: proc(t: ^testing.T) {
 	embedded := 0
 	for dir in lava.EMBEDDED_JS_DIRS {
 		for file in dir.files {
-			if strings.has_suffix(file.name, ".js") do embedded += 1
+			if strings.has_suffix(file.name, ".js") {
+				embedded += 1
+			}
 		}
 	}
 
@@ -91,7 +95,10 @@ builtin_factories_compile_on_first_require :: proc(t: ^testing.T) {
 	// ponytail: count-based for internal/ ids; record compiled ids on Runtime_State if
 	// that coincidence ever matters. check-js-graph.test.mjs keeps this list current.
 	for id in STATIC_EAGER {
-		if !strings.has_prefix(id, "node/") do continue
+		if !strings.has_prefix(id, "node/") {
+			continue
+		}
+
 		before := state.builtin_compiles
 		src, _ := strings.concatenate({"require('node:", id[len("node/"):], "') != null"}, context.temp_allocator)
 		testing.expectf(t, run_bool(ctx, src), "%s did not load", id)
@@ -104,7 +111,54 @@ builtin_factories_compile_on_first_require :: proc(t: ^testing.T) {
 // The static eager set, sorted. Must equal eagerModules() — asserted by
 // scripts/check-js-graph.test.mjs, which parses this literal.
 @(private = "file")
-STATIC_EAGER :: [?]string{"internal/abort", "internal/blob", "internal/buffer", "internal/crypto/hash", "internal/crypto/hkdf", "internal/crypto/pbkdf2", "internal/crypto/random", "internal/crypto/scrypt", "internal/crypto/util", "internal/encoding", "internal/errors", "internal/fetch", "internal/fetch/body", "internal/fetch/headers", "internal/fetch/request", "internal/fetch/response", "internal/file", "internal/idna", "internal/primordials", "internal/punycode", "internal/stdio", "internal/streams/add-abort-signal", "internal/streams/destroy", "internal/streams/duplex", "internal/streams/end-of-stream", "internal/streams/legacy", "internal/streams/passthrough", "internal/streams/pipeline", "internal/streams/readable", "internal/streams/transform", "internal/streams/utils", "internal/streams/writable", "internal/structured_clone", "internal/url", "internal/webstreams/queuingstrategies", "internal/webstreams/readablestream", "internal/webstreams/transformstream", "internal/webstreams/util", "internal/webstreams/writablestream", "node/buffer", "node/crypto", "node/events", "node/stream", "node/stream/web", "node/string_decoder", "node/url"}
+STATIC_EAGER :: [?]string {
+	"internal/abort",
+	"internal/blob",
+	"internal/buffer",
+	"internal/crypto/hash",
+	"internal/crypto/hkdf",
+	"internal/crypto/pbkdf2",
+	"internal/crypto/random",
+	"internal/crypto/scrypt",
+	"internal/crypto/util",
+	"internal/encoding",
+	"internal/errors",
+	"internal/fetch",
+	"internal/fetch/body",
+	"internal/fetch/headers",
+	"internal/fetch/request",
+	"internal/fetch/response",
+	"internal/file",
+	"internal/idna",
+	"internal/primordials",
+	"internal/punycode",
+	"internal/stdio",
+	"internal/streams/add-abort-signal",
+	"internal/streams/destroy",
+	"internal/streams/duplex",
+	"internal/streams/end-of-stream",
+	"internal/streams/legacy",
+	"internal/streams/passthrough",
+	"internal/streams/pipeline",
+	"internal/streams/readable",
+	"internal/streams/transform",
+	"internal/streams/utils",
+	"internal/streams/writable",
+	"internal/structured_clone",
+	"internal/url",
+	"internal/webstreams/queuingstrategies",
+	"internal/webstreams/readablestream",
+	"internal/webstreams/transformstream",
+	"internal/webstreams/util",
+	"internal/webstreams/writablestream",
+	"node/buffer",
+	"node/crypto",
+	"node/events",
+	"node/stream",
+	"node/stream/web",
+	"node/string_decoder",
+	"node/url",
+}
 
 @(private = "file")
 run_bool :: proc(ctx: jsc.JSContextRef, src: string) -> bool {
@@ -113,6 +167,10 @@ run_bool :: proc(ctx: jsc.JSContextRef, src: string) -> bool {
 	defer jsc.JSStringRelease(script)
 	exception: jsc.JSValueRef
 	value := jsc.JSEvaluateScript(ctx, script, nil, nil, 1, &exception)
-	if exception != nil do return false
+
+	if exception != nil {
+		return false
+	}
+
 	return jsc.JSValueToBoolean(ctx, value)
 }

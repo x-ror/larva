@@ -27,7 +27,11 @@ jsc_value_predicates :: proc(t: ^testing.T) {
 	jsc.lava_jsc_init()
 	gctx := jsc.JSGlobalContextCreate(nil)
 	testing.expect(t, gctx != nil, "could not create a JSC global context")
-	if gctx == nil do return
+
+	if gctx == nil {
+		return
+	}
+
 	defer jsc.JSGlobalContextRelease(gctx)
 
 	ctx := cast(jsc.JSContextRef)gctx
@@ -126,11 +130,13 @@ predicate_probe_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	probe_called = true
+
 	if argument_count >= 4 {
 		probe_false_is_false = jsc.JSValueToBoolean(ctx, arguments[0]) == false
 		probe_undef_is_undefined = jsc.JSValueIsUndefined(ctx, arguments[1])
 		probe_obj_is_object = jsc.JSValueIsObject(ctx, arguments[2])
 		probe_num_not_object = !jsc.JSValueIsObject(ctx, arguments[3])
 	}
+
 	return jsc.JSValueMakeUndefined(ctx)
 }

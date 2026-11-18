@@ -28,15 +28,15 @@ import jsc "lava:pkg/jsc"
 // or its VMs' heaps outlive it — Odin has no thread-exit hook to do it for us.
 
 VM :: struct {
-	group:       jsc.JSContextGroupRef,
+	group:           jsc.JSContextGroupRef,
 	// Owning pool; vm_release reorders it.
-	pool:        ^VM_Pool,
-	in_use:      bool,
+	pool:            ^VM_Pool,
+	in_use:          bool,
 	// Set by the watchdog callback when it terminates a script on this VM; cleared on
 	// vm_acquire. Lets a caller tell a watchdog kill from an ordinary exception.
-	limit_hit:   bool,
+	limit_hit:       bool,
 	// Seconds per VM entry; 0 = no limit. Kept so vm_release can clear it.
-	entry_limit: f64,
+	entry_limit:     f64,
 	// Cumulative CPU budget (vm_set_cpu_budget). The watchdog above only sees one
 	// entry at a time, so a page burning CPU in thousands of short callbacks never
 	// trips it; this sums the thread's CPU time across every entry instead. All of it
@@ -136,6 +136,7 @@ thread_vm_pool :: proc() -> ^VM_Pool {
 		vm_pool_init(&g_thread_pool, DEFAULT_VM_POOL_CAPACITY, runtime.default_allocator())
 		g_thread_pool_ready = true
 	}
+
 	return &g_thread_pool
 }
 
@@ -144,7 +145,10 @@ thread_vm_pool :: proc() -> ^VM_Pool {
 // thread itself ends). For a thread that is about to end; a later thread_vm_pool on the same thread starts a
 // fresh pool. Every VM must be idle.
 thread_vm_pool_destroy :: proc() {
-	if !g_thread_pool_ready do return
+	if !g_thread_pool_ready {
+		return
+	}
+
 	vm_pool_destroy(&g_thread_pool)
 	g_thread_pool_ready = false
 }
@@ -166,7 +170,11 @@ vm_pool_init :: proc(pool: ^VM_Pool, capacity: int, allocator: runtime.Allocator
 vm_pool_destroy :: proc(pool: ^VM_Pool) {
 	for vm in pool.vms {
 		assert(!vm.in_use, "vm_pool_destroy: VM still in use")
-		if vm.armed_limit > 0 do jsc.JSContextGroupClearExecutionTimeLimit(vm.group)
+
+		if vm.armed_limit > 0 {
+			jsc.JSContextGroupClearExecutionTimeLimit(vm.group)
+		}
+
 		jsc.JSContextGroupRelease(vm.group)
 		free(vm, pool.allocator)
 	}
@@ -180,6 +188,7 @@ vm_pool_destroy :: proc(pool: ^VM_Pool) {
 vm_acquire :: proc(pool: ^VM_Pool) -> (^VM, VM_Pool_Error) {
 	for i := len(pool.vms) - 1; i >= 0; i -= 1 {
 		vm := pool.vms[i]
+
 		if !vm.in_use {
 			vm.in_use = true
 			vm.limit_hit = false
@@ -189,16 +198,25 @@ vm_acquire :: proc(pool: ^VM_Pool) -> (^VM, VM_Pool_Error) {
 			return vm, .None
 		}
 	}
-	if len(pool.vms) >= pool.capacity do return nil, .Exhausted
+
+	if len(pool.vms) >= pool.capacity {
+		return nil, .Exhausted
+	}
 
 	jsc.lava_jsc_init()
 	group := jsc.JSContextGroupCreate()
-	if group == nil do return nil, .Create_Failed
+
+	if group == nil {
+		return nil, .Create_Failed
+	}
+
 	vm, alloc_err := new(VM, pool.allocator)
+
 	if alloc_err != nil {
 		jsc.JSContextGroupRelease(group)
 		return nil, .Create_Failed
 	}
+
 	vm^ = VM {
 		group        = group,
 		pool         = pool,
@@ -215,8 +233,14 @@ vm_acquire :: proc(pool: ^VM_Pool) -> (^VM, VM_Pool_Error) {
 // vm_release returns a VM to its pool. The caller must have released every context it
 // created in this VM. Any execution limit set while it was held is cleared.
 vm_release :: proc(vm: ^VM) {
-	if vm == nil do return
-	if vm.armed_limit > 0 do jsc.JSContextGroupClearExecutionTimeLimit(vm.group)
+	if vm == nil {
+		return
+	}
+
+	if vm.armed_limit > 0 {
+		jsc.JSContextGroupClearExecutionTimeLimit(vm.group)
+	}
+
 	vm.entry_limit = 0
 	vm.armed_limit = 0
 	vm.armed_by_budget = false
@@ -263,9 +287,16 @@ vm_set_cpu_budget :: proc(vm: ^VM, seconds: f64) {
 // vm_cpu_exit. Without a budget it costs nothing but a branch: the clock is read
 // only when there is something to charge it to.
 vm_cpu_enter :: proc(vm: ^VM) {
-	if vm == nil || vm.cpu_budget_ns == 0 do return
+	if vm == nil || vm.cpu_budget_ns == 0 {
+		return
+	}
+
 	vm.cpu_depth += 1
-	if vm.cpu_depth > 1 do return
+
+	if vm.cpu_depth > 1 {
+		return
+	}
+
 	vm.cpu_mark_ns = thread_cpu_ns()
 	vm_arm_watchdog(vm)
 }
@@ -273,12 +304,19 @@ vm_cpu_enter :: proc(vm: ^VM) {
 // vm_cpu_exit charges the time since the matching vm_cpu_enter to the VM and marks
 // the holder over budget once it is spent. vm_kill_reason reports the outcome.
 vm_cpu_exit :: proc(vm: ^VM) {
-	if vm == nil || vm.cpu_budget_ns == 0 || vm.cpu_depth == 0 do return
+	if vm == nil || vm.cpu_budget_ns == 0 || vm.cpu_depth == 0 {
+		return
+	}
+
 	vm.cpu_depth -= 1
+
 	if vm.cpu_depth == 0 {
 		vm.cpu_used_ns += max(thread_cpu_ns() - vm.cpu_mark_ns, 0)
 	}
-	if vm.cpu_used_ns >= vm.cpu_budget_ns do vm.budget_hit = true
+
+	if vm.cpu_used_ns >= vm.cpu_budget_ns {
+		vm.budget_hit = true
+	}
 }
 
 // vm_cpu_checkpoint charges the time since the last mark without ending the stretch,
@@ -287,20 +325,36 @@ vm_cpu_exit :: proc(vm: ^VM) {
 // any number of due timers or drain passes, each a fresh JSC entry with a fresh
 // watchdog window, so a per-tick check alone lets one tick run far past the budget.
 vm_cpu_checkpoint :: proc(vm: ^VM) {
-	if vm == nil || vm.cpu_budget_ns == 0 || vm.cpu_depth == 0 do return
+	if vm == nil || vm.cpu_budget_ns == 0 || vm.cpu_depth == 0 {
+		return
+	}
+
 	now := thread_cpu_ns()
 	vm.cpu_used_ns += max(now - vm.cpu_mark_ns, 0)
 	vm.cpu_mark_ns = now
-	if vm.cpu_used_ns >= vm.cpu_budget_ns do vm.budget_hit = true
+
+	if vm.cpu_used_ns >= vm.cpu_budget_ns {
+		vm.budget_hit = true
+	}
+
 	vm_arm_watchdog(vm)
 }
 
 // vm_kill_reason reports which limit, if any, has ended the VM's current holder. The
 // budget wins a tie: it is the limit that cannot be reset by the next entry.
 vm_kill_reason :: proc(vm: ^VM) -> Kill_Reason {
-	if vm == nil do return .None
-	if vm.budget_hit do return .Cpu_Budget
-	if vm.limit_hit do return .Entry_Limit
+	if vm == nil {
+		return .None
+	}
+
+	if vm.budget_hit {
+		return .Cpu_Budget
+	}
+
+	if vm.limit_hit {
+		return .Entry_Limit
+	}
+
 	return .None
 }
 
@@ -311,34 +365,47 @@ vm_kill_reason :: proc(vm: ^VM) -> Kill_Reason {
 @(private = "file")
 vm_arm_watchdog :: proc(vm: ^VM) {
 	// A requested stop keeps its token limit until release.
-	if vm.stop_requested do return
+	if vm.stop_requested {
+		return
+	}
+
 	want := vm.entry_limit
 	by_budget := false
+
 	if vm.cpu_budget_ns > 0 {
 		left := f64(max(vm.cpu_budget_ns - vm.cpu_used_ns, 0)) / 1e9
 		// JSC treats a non-positive limit as "no limit"; a spent budget still has to
 		// stop the next entry at once.
 		left = max(left, 0.001)
+
 		if want <= 0 || left < want {
 			want = left
 			by_budget = true
 		}
 	}
+
 	if want <= 0 {
-		if vm.armed_limit > 0 do jsc.JSContextGroupClearExecutionTimeLimit(vm.group)
+		if vm.armed_limit > 0 {
+			jsc.JSContextGroupClearExecutionTimeLimit(vm.group)
+		}
+
 		vm.armed_limit = 0
 		vm.armed_by_budget = false
 		return
 	}
+
 	// Re-arm when the clamp tightens by more than a tenth of the armed value (or the
 	// reason changes, or it loosens — which within one holder only vm_set_* does). The
 	// armed value then shrinks geometrically, so a budget B re-arms at most about
 	// log(B / 1 ms) / log(1/0.9) times over a page's life — ~98 for B = 30 s — instead
 	// of once per tick, and an entry can overrun the budget left by at most that tenth.
-	if vm.armed_limit > 0 && by_budget == vm.armed_by_budget && want <= vm.armed_limit &&
+	if vm.armed_limit > 0 &&
+	   by_budget == vm.armed_by_budget &&
+	   want <= vm.armed_limit &&
 	   vm.armed_limit - want < max(0.001, vm.armed_limit * 0.1) {
 		return
 	}
+
 	vm.armed_limit = want
 	vm.armed_by_budget = by_budget
 	jsc.JSContextGroupSetExecutionTimeLimit(vm.group, want, vm_watchdog_terminate, vm)
@@ -347,15 +414,23 @@ vm_arm_watchdog :: proc(vm: ^VM) {
 @(private = "file")
 vm_watchdog_terminate :: proc "c" (ctx: jsc.JSContextRef, user_data: rawptr) -> bool {
 	vm := cast(^VM)user_data
+
 	// JSC invokes this on the thread running the script (at a VM trap), so a plain
 	// store is visible to the caller once the evaluation returns.
-	if vm == nil do return true
-	if vm.stop_requested do return true
+	if vm == nil {
+		return true
+	}
+
+	if vm.stop_requested {
+		return true
+	}
+
 	if vm.armed_by_budget {
 		vm.budget_hit = true
 	} else {
 		vm.limit_hit = true
 	}
+
 	// Latch the kill. JSC still drains the promise jobs queued before the cut as this
 	// entry returns, and each of them would run under the limit armed for the entry it
 	// just cut: a page killed at its budget B ran ~2B (measured on JSC 2.52 with a
@@ -371,7 +446,10 @@ vm_watchdog_terminate :: proc "c" (ctx: jsc.JSContextRef, user_data: rawptr) -> 
 // ended, so whatever JS it still reaches is cut at once. vm_release clears it.
 @(private = "file")
 vm_arm_kill_floor :: proc(vm: ^VM) {
-	if vm.armed_limit == KILL_FLOOR do return
+	if vm.armed_limit == KILL_FLOOR {
+		return
+	}
+
 	vm.armed_limit = KILL_FLOOR
 	jsc.JSContextGroupSetExecutionTimeLimit(vm.group, KILL_FLOOR, vm_watchdog_terminate, vm)
 }
@@ -401,7 +479,10 @@ KILL_FLOOR :: 0.001
 //   until the token limit's trap: bounded, not prevented. Pinned by
 //   cmd/lava/page_runner_test.odin, runner_process_exit_bounds_promise_jobs_queued_before_it.
 vm_request_stop :: proc(vm: ^VM) {
-	if vm == nil do return
+	if vm == nil {
+		return
+	}
+
 	vm.stop_requested = true
 	// The smallest limit that still arms: JSC treats 0 as "no limit".
 	STOP_LIMIT :: 0.0001
@@ -412,7 +493,10 @@ vm_request_stop :: proc(vm: ^VM) {
 
 // vm_pool_stats reports how many VMs are busy and how many the pool has ever created.
 vm_pool_stats :: proc(pool: ^VM_Pool) -> (busy, created: int) {
-	for vm in pool.vms do if vm.in_use do busy += 1
+	for vm in pool.vms {
+		if vm.in_use {
+			busy += 1
+		}
+	}
 	return busy, pool.created
 }
-

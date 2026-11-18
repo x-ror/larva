@@ -57,15 +57,25 @@ setTimeout(step, 0);
 `
 
 @(private = "file")
-run_with_one_bad_page :: proc(t: ^testing.T, bad_source: string, bad_limits: lava.Page_Limits, want_kill: lava.Kill_Reason) {
+run_with_one_bad_page :: proc(
+	t: ^testing.T,
+	bad_source: string,
+	bad_limits: lava.Page_Limits,
+	want_kill: lava.Kill_Reason,
+) {
 	runner: lava.Page_Runner
+
 	if !lava.page_runner_init(&runner, 4, record_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
+
 	defer lava.page_runner_destroy(&runner)
 
 	outcomes: [4]Outcome
-	good := lava.Page_Limits{entry_limit = 1, cpu_budget = 5}
+	good := lava.Page_Limits {
+		entry_limit = 1,
+		cpu_budget  = 5,
+	}
 	lava.page_runner_open(&runner, STEADY_PAGE, "<good-0>", good, &outcomes[0])
 	lava.page_runner_open(&runner, bad_source, "<bad>", bad_limits, &outcomes[1])
 	lava.page_runner_open(&runner, STEADY_PAGE, "<good-1>", good, &outcomes[2])
@@ -78,7 +88,13 @@ run_with_one_bad_page :: proc(t: ^testing.T, bad_source: string, bad_limits: lav
 	testing.expect_value(t, outcomes[1].kill, want_kill)
 	for i in ([]int{0, 2, 3}) {
 		testing.expectf(t, outcomes[i].done, "page %d never reported", i)
-		testing.expectf(t, outcomes[i].status == .Ok && outcomes[i].exit == 7, "page %d did not finish beside the killed page: %v", i, outcomes[i])
+		testing.expectf(
+			t,
+			outcomes[i].status == .Ok && outcomes[i].exit == 7,
+			"page %d did not finish beside the killed page: %v",
+			i,
+			outcomes[i],
+		)
 	}
 }
 
@@ -86,7 +102,12 @@ run_with_one_bad_page :: proc(t: ^testing.T, bad_source: string, bad_limits: lav
 // pages on the thread finish. The runaway starts after the others are mid-flight.
 @(test)
 runner_entry_limit_kills_only_the_runaway_page :: proc(t: ^testing.T) {
-	run_with_one_bad_page(t, "setTimeout(() => { while (true) {} }, 20);", {entry_limit = 0.1, cpu_budget = 30}, .Entry_Limit)
+	run_with_one_bad_page(
+		t,
+		"setTimeout(() => { while (true) {} }, 20);",
+		{entry_limit = 0.1, cpu_budget = 30},
+		.Entry_Limit,
+	)
 }
 
 // Acceptance (#4): a page spinning thousands of short timers is killed by the
@@ -110,14 +131,22 @@ runner_cpu_budget_kills_only_the_spinner :: proc(t: ^testing.T) {
 @(test)
 runner_pages_wait_concurrently :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
+
 	if !lava.page_runner_init(&runner, 10, record_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
+
 	defer lava.page_runner_destroy(&runner)
 	outcomes: [10]Outcome
 	start := time.tick_now()
 	for i in 0 ..< 10 {
-		lava.page_runner_open(&runner, "setTimeout(() => { process.exitCode = 3; }, 600);", "<sleeper>", LIMITS, &outcomes[i])
+		lava.page_runner_open(
+			&runner,
+			"setTimeout(() => { process.exitCode = 3; }, 600);",
+			"<sleeper>",
+			LIMITS,
+			&outcomes[i],
+		)
 	}
 	cpu_before := thread_cpu_seconds()
 	lava.page_runner_run(&runner)
@@ -135,9 +164,11 @@ runner_pages_wait_concurrently :: proc(t: ^testing.T) {
 @(test)
 runner_reports_a_page_it_cannot_start :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
+
 	if !lava.page_runner_init(&runner, 1, record_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
+
 	defer lava.page_runner_destroy(&runner)
 	a, b: Outcome
 	lava.page_runner_open(&runner, "setTimeout(() => {}, 50);", "<a>", LIMITS, &a)
@@ -168,19 +199,38 @@ churn_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Re
 	result := result
 	c := cast(^Churn)user_data
 	c.finished += 1
-	if result.status != .Ok do c.failed += 1
+
+	if result.status != .Ok {
+		c.failed += 1
+	}
+
 	if result.exit_code == 4 {
 		c.fifo_pages += 1
-		if !release_within(c.fifo, time.Second) do c.fifo_stuck += 1
+
+		if !release_within(c.fifo, time.Second) {
+			c.fifo_stuck += 1
+		}
 	}
+
 	lava.result_destroy(&result)
-	if c.finished == 100 do c.fds_after_warmup = fd_census()
+
+	if c.finished == 100 {
+		c.fds_after_warmup = fd_census()
+	}
+
 	if c.opened < c.total {
 		c.opened += 1
+
 		if c.opened % c.fifo_every == c.fifo_every / 2 {
 			lava.page_runner_open(runner, c.fifo_src, "<churn-fifo>", LIMITS, c)
 		} else {
-			lava.page_runner_open(runner, "let x = 0; setTimeout(() => { x++; }, 0); Promise.resolve().then(() => x++);", "<churn>", LIMITS, c)
+			lava.page_runner_open(
+				runner,
+				"let x = 0; setTimeout(() => { x++; }, 0); Promise.resolve().then(() => x++);",
+				"<churn>",
+				LIMITS,
+				c,
+			)
 		}
 	}
 }
@@ -197,9 +247,11 @@ churn_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Re
 @(test)
 runner_fd_count_stays_flat_over_10k_pages :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
+
 	if !lava.page_runner_init(&runner, 8, churn_done, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
+
 	defer lava.page_runner_destroy(&runner)
 	c := Churn {
 		total = RUNNER_THREADS == 1 ? 10_000 : 300,
@@ -223,8 +275,21 @@ runner_fd_count_stays_flat_over_10k_pages :: proc(t: ^testing.T) {
 		fds_end := fd_census()
 		// fd_census reports -1 when it cannot open /proc/self/fd — at EMFILE, the very
 		// state a leak drives the process into — and -1 <= anything.
-		testing.expectf(t, c.fds_after_warmup >= 0 && fds_end >= 0, "fd census failed (warm-up %d, end %d): descriptors exhausted?", c.fds_after_warmup, fds_end)
-		testing.expectf(t, fds_end <= c.fds_after_warmup, "fd count grew from %d to %d over %d pages", c.fds_after_warmup, fds_end, c.total)
+		testing.expectf(
+			t,
+			c.fds_after_warmup >= 0 && fds_end >= 0,
+			"fd census failed (warm-up %d, end %d): descriptors exhausted?",
+			c.fds_after_warmup,
+			fds_end,
+		)
+		testing.expectf(
+			t,
+			fds_end <= c.fds_after_warmup,
+			"fd count grew from %d to %d over %d pages",
+			c.fds_after_warmup,
+			fds_end,
+			c.total,
+		)
 	} else {
 		log.info("fd census skipped: needs -define:ODIN_TEST_THREADS=1 (make test-odin-serial)")
 	}
@@ -266,9 +331,11 @@ record_time :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.R
 @(test)
 runner_busy_page_is_not_held_up_by_a_waiting_sibling :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
+
 	if !lava.page_runner_init(&runner, 2, record_time, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
+
 	defer lava.page_runner_destroy(&runner)
 	waiting := Timed {
 		start = time.tick_now(),
@@ -276,8 +343,20 @@ runner_busy_page_is_not_held_up_by_a_waiting_sibling :: proc(t: ^testing.T) {
 	busy := Timed {
 		start = time.tick_now(),
 	}
-	lava.page_runner_open(&runner, "let k = 0; const i = setInterval(() => { if (++k == 20) clearInterval(i); }, 50);", "<waiting>", LIMITS, &waiting)
-	lava.page_runner_open(&runner, "let n = 0; (function f() { if (++n < 100) setTimeout(f, 1); })();", "<busy>", LIMITS, &busy)
+	lava.page_runner_open(
+		&runner,
+		"let k = 0; const i = setInterval(() => { if (++k == 20) clearInterval(i); }, 50);",
+		"<waiting>",
+		LIMITS,
+		&waiting,
+	)
+	lava.page_runner_open(
+		&runner,
+		"let n = 0; (function f() { if (++n < 100) setTimeout(f, 1); })();",
+		"<busy>",
+		LIMITS,
+		&busy,
+	)
 	lava.page_runner_run(&runner)
 	testing.expect_value(t, busy.status, lava.Status.Ok)
 	testing.expect_value(t, waiting.status, lava.Status.Ok)
@@ -293,6 +372,7 @@ Reuse :: struct {
 @(private = "file")
 reuse_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Result) {
 	r := cast(^Reuse)user_data
+
 	if !r.opened_second {
 		record_outcome(runner, &r.first, result)
 		r.opened_second = true
@@ -300,6 +380,7 @@ reuse_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Re
 		lava.page_runner_open(
 			runner,
 			`const clean = typeof leak === 'undefined' && typeof leakRan === 'undefined';
+
 			globalThis.n2 = 0; const t0 = Date.now(); setTimeout(() => { process.exitCode = (clean && typeof leakRan === 'undefined') ? 11 : 12; }, 30);`,
 			"<second>",
 			LIMITS,
@@ -317,9 +398,11 @@ reuse_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Re
 @(test)
 runner_second_page_in_a_reused_vm_sees_nothing_of_a_killed_first :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
+
 	if !lava.page_runner_init(&runner, 1, reuse_done, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
+
 	defer lava.page_runner_destroy(&runner)
 	r: Reuse
 	lava.page_runner_open(
@@ -333,7 +416,12 @@ runner_second_page_in_a_reused_vm_sees_nothing_of_a_killed_first :: proc(t: ^tes
 	)
 	lava.page_runner_run(&runner)
 	testing.expect_value(t, r.first.kill, lava.Kill_Reason.Entry_Limit)
-	testing.expectf(t, r.second.done && r.second.status == .Ok && r.second.exit == 11, "second page saw the first: %v", r.second)
+	testing.expectf(
+		t,
+		r.second.done && r.second.status == .Ok && r.second.exit == 11,
+		"second page saw the first: %v",
+		r.second,
+	)
 	_, created := lava.vm_pool_stats(&runner.pool)
 	testing.expect_value(t, created, 1)
 }
@@ -362,19 +450,27 @@ runner_wakes_on_io_without_timers_on_the_readiness_backend :: proc(t: ^testing.T
 @(private = "file")
 run_io_wake :: proc(t: ^testing.T, readiness: bool) {
 	runner: lava.Page_Runner
+
 	if !lava.page_runner_init(&runner, 2, record_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
+
 	defer lava.page_runner_destroy(&runner)
 	port := 20000 + int(time.tick_now()._nsec % 20000)
 	// Heap, not tprintf: the server page's require() resets the temp arena.
-	server := fmt.aprintf(`const srv = require('net').createServer((c) => {{ c.end('hi'); srv.close(); process.exitCode = 5; }});
-	srv.listen(%d, '127.0.0.1');`, port)
-	client := fmt.aprintf(`setTimeout(() => {{
+	server := fmt.aprintf(
+		`const srv = require('net').createServer((c) => {{ c.end('hi'); srv.close(); process.exitCode = 5; }});
+	srv.listen(%d, '127.0.0.1');`,
+		port,
+	)
+	client := fmt.aprintf(
+		`setTimeout(() => {{
 		const s = require('net').connect(%d, '127.0.0.1');
 		s.on('data', (d) => {{ process.exitCode = String(d) === 'hi' ? 5 : 6; }});
 		s.on('error', () => {{ process.exitCode = 8; }});
-	}}, 100);`, port)
+	}}, 100);`,
+		port,
+	)
 	defer delete(server)
 	defer delete(client)
 	so, co: Outcome
@@ -384,7 +480,12 @@ run_io_wake :: proc(t: ^testing.T, readiness: bool) {
 	// Deterministic half: both page loops sit in the runner's epoll set. (A missing
 	// registration can still pass the timing half: JSC's signal thread interrupts
 	// epoll_wait often enough to stand in for the wake.)
-	testing.expectf(t, epoll_watch_count(runner.epfd) == 2, "page loops not in the runner's epoll set (%d of 2)", epoll_watch_count(runner.epfd))
+	testing.expectf(
+		t,
+		epoll_watch_count(runner.epfd) == 2,
+		"page loops not in the runner's epoll set (%d of 2)",
+		epoll_watch_count(runner.epfd),
+	)
 	want_kind := readiness ? "anon_inode:[eventpoll]" : "anon_inode:[io_uring]"
 	for kind in epoll_watched_kinds(runner.epfd) {
 		testing.expectf(t, kind == want_kind, "page loop backend is %q, want %q", kind, want_kind)
@@ -406,18 +507,37 @@ runner_process_exit_ends_only_its_page :: proc(t: ^testing.T) {
 @(private = "file")
 run_with_one_bad_page_exit :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
+
 	if !lava.page_runner_init(&runner, 3, record_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
+
 	defer lava.page_runner_destroy(&runner)
 	outcomes: [3]Outcome
 	lava.page_runner_open(&runner, STEADY_PAGE, "<good-0>", LIMITS, &outcomes[0])
-	lava.page_runner_open(&runner, "setTimeout(() => { process.exit(9); while (true) {} }, 20);", "<exit>", LIMITS, &outcomes[1])
+	lava.page_runner_open(
+		&runner,
+		"setTimeout(() => { process.exit(9); while (true) {} }, 20);",
+		"<exit>",
+		LIMITS,
+		&outcomes[1],
+	)
 	lava.page_runner_open(&runner, STEADY_PAGE, "<good-1>", LIMITS, &outcomes[2])
 	lava.page_runner_run(&runner)
-	testing.expectf(t, outcomes[1].done && outcomes[1].status == .Ok && outcomes[1].exit == 9 && outcomes[1].kill == .None, "exiting page: %v", outcomes[1])
+	testing.expectf(
+		t,
+		outcomes[1].done && outcomes[1].status == .Ok && outcomes[1].exit == 9 && outcomes[1].kill == .None,
+		"exiting page: %v",
+		outcomes[1],
+	)
 	for i in ([]int{0, 2}) {
-		testing.expectf(t, outcomes[i].done && outcomes[i].status == .Ok && outcomes[i].exit == 7, "page %d did not finish beside the exiting page: %v", i, outcomes[i])
+		testing.expectf(
+			t,
+			outcomes[i].done && outcomes[i].status == .Ok && outcomes[i].exit == 7,
+			"page %d did not finish beside the exiting page: %v",
+			i,
+			outcomes[i],
+		)
 	}
 }
 
@@ -426,9 +546,11 @@ run_with_one_bad_page_exit :: proc(t: ^testing.T) {
 @(test)
 runner_destroy_reports_live_pages_cancelled :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
+
 	if !lava.page_runner_init(&runner, 2, record_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
+
 	o: Outcome
 	lava.page_runner_open(&runner, "process.exitCode = 4; setTimeout(() => {}, 10000);", "<long>", LIMITS, &o)
 	lava.page_runner_destroy(&runner)
@@ -442,13 +564,25 @@ runner_destroy_reports_live_pages_cancelled :: proc(t: ^testing.T) {
 @(private = "file")
 epoll_watched_kinds :: proc(epfd: linux.Fd) -> []string {
 	data, err := os.read_entire_file(fmt.tprintf("/proc/self/fdinfo/%d", int(epfd)), context.temp_allocator)
-	if err != nil do return nil
+
+	if err != nil {
+		return nil
+	}
+
 	kinds := make([dynamic]string, context.temp_allocator)
 	for line in strings.split_lines(string(data), context.temp_allocator) {
 		rest := strings.trim_space(line)
-		if !strings.has_prefix(rest, "tfd:") do continue
+
+		if !strings.has_prefix(rest, "tfd:") {
+			continue
+		}
+
 		fields := strings.fields(strings.trim_space(rest[4:]), context.temp_allocator)
-		if len(fields) == 0 do continue
+
+		if len(fields) == 0 {
+			continue
+		}
+
 		target, lerr := os.read_link(fmt.tprintf("/proc/self/fd/%s", fields[0]), context.temp_allocator)
 		append(&kinds, lerr == nil ? target : "?")
 	}
@@ -460,7 +594,11 @@ epoll_watched_kinds :: proc(epfd: linux.Fd) -> []string {
 @(private = "file")
 epoll_watch_count :: proc(epfd: linux.Fd) -> int {
 	data, err := os.read_entire_file(fmt.tprintf("/proc/self/fdinfo/%d", int(epfd)), context.temp_allocator)
-	if err != nil do return -1
+
+	if err != nil {
+		return -1
+	}
+
 	return strings.count(string(data), "tfd:")
 }
 
@@ -474,16 +612,24 @@ epoll_watch_count :: proc(epfd: linux.Fd) -> int {
 @(test)
 runner_refuses_a_page_without_a_cpu_budget :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
+
 	if !lava.page_runner_init(&runner, 4, record_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
+
 	defer lava.page_runner_destroy(&runner)
 	nan := 0.0
 	nan = nan / nan
 	bad := [4]lava.Page_Limits{{}, {cpu_budget = -1}, {cpu_budget = nan}, {entry_limit = 0.1}}
 	outcomes: [4]Outcome
 	for limits, i in bad {
-		lava.page_runner_open(&runner, "process.exitCode = 3; setTimeout(() => {}, 1);", "<unbudgeted>", limits, &outcomes[i])
+		lava.page_runner_open(
+			&runner,
+			"process.exitCode = 3; setTimeout(() => {}, 1);",
+			"<unbudgeted>",
+			limits,
+			&outcomes[i],
+		)
 		testing.expectf(t, !outcomes[i].done, "limits %v: refusal reported from inside page_runner_open", limits)
 	}
 	testing.expect_value(t, lava.page_runner_live(&runner), 0)
@@ -513,9 +659,11 @@ exit_marker :: proc(name: string) -> string {
 @(test)
 runner_process_exit_runs_no_code_after_it :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
+
 	if !lava.page_runner_init(&runner, 3, record_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
+
 	defer lava.page_runner_destroy(&runner)
 	paths := [3]string{exit_marker("top"), exit_marker("timer"), exit_marker("job")}
 	defer for p in paths {
@@ -524,13 +672,27 @@ runner_process_exit_runs_no_code_after_it :: proc(t: ^testing.T) {
 	}
 	// Heap, not tprintf: a page's require() resets the temp arena.
 	sources := [3]string {
-		fmt.aprintf(`const fs = require('fs'); try {{ process.exit(3); fs.writeFileSync(%q, 'next'); }} finally {{ fs.writeFileSync(%q, 'finally'); }}`, paths[0], paths[0]),
-		fmt.aprintf(`const fs = require('fs'); setTimeout(() => {{ try {{ process.exit(4); fs.writeFileSync(%q, 'next'); }} catch (e) {{ fs.writeFileSync(%q, 'catch'); }} }}, 5);`, paths[1], paths[1]),
-		fmt.aprintf(`const fs = require('fs'); Promise.resolve().then(() => {{ try {{ process.exit(5); }} catch (e) {{ fs.writeFileSync(%q, 'catch'); }} finally {{ fs.writeFileSync(%q, 'finally'); }} }});`, paths[2], paths[2]),
+		fmt.aprintf(
+			`const fs = require('fs'); try {{ process.exit(3); fs.writeFileSync(%q, 'next'); }} finally {{ fs.writeFileSync(%q, 'finally'); }}`,
+			paths[0],
+			paths[0],
+		),
+		fmt.aprintf(
+			`const fs = require('fs'); setTimeout(() => {{ try {{ process.exit(4); fs.writeFileSync(%q, 'next'); }} catch (e) {{ fs.writeFileSync(%q, 'catch'); }} }}, 5);`,
+			paths[1],
+			paths[1],
+		),
+		fmt.aprintf(
+			`const fs = require('fs'); Promise.resolve().then(() => {{ try {{ process.exit(5); }} catch (e) {{ fs.writeFileSync(%q, 'catch'); }} finally {{ fs.writeFileSync(%q, 'finally'); }} }});`,
+			paths[2],
+			paths[2],
+		),
 	}
-	defer for s in sources do delete(s)
+	defer for s in sources {delete(s)}
 	outcomes: [3]Outcome
-	for src, i in sources do lava.page_runner_open(&runner, src, "<exit>", LIMITS, &outcomes[i])
+	for src, i in sources {
+		lava.page_runner_open(&runner, src, "<exit>", LIMITS, &outcomes[i])
+	}
 	lava.page_runner_run(&runner)
 	for o, i in outcomes {
 		testing.expectf(t, o.done && o.status == .Ok && o.kill == .None && o.exit == 3 + i, "page %d: %v", i, o)
@@ -548,13 +710,21 @@ runner_process_exit_runs_no_code_after_it :: proc(t: ^testing.T) {
 @(test)
 runner_process_exit_bounds_promise_jobs_queued_before_it :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
+
 	if !lava.page_runner_init(&runner, 1, record_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
+
 	defer lava.page_runner_destroy(&runner)
 	o: Outcome
 	start := time.tick_now()
-	lava.page_runner_open(&runner, "Promise.resolve().then(() => { while (true) {} }); process.exit(4);", "<exit-drain>", {cpu_budget = 5}, &o)
+	lava.page_runner_open(
+		&runner,
+		"Promise.resolve().then(() => { while (true) {} }); process.exit(4);",
+		"<exit-drain>",
+		{cpu_budget = 5},
+		&o,
+	)
 	lava.page_runner_run(&runner)
 	elapsed := time.duration_seconds(time.tick_since(start))
 	testing.expectf(t, o.done && o.status == .Ok && o.kill == .None && o.exit == 4, "page: %v", o)
@@ -564,12 +734,20 @@ runner_process_exit_bounds_promise_jobs_queued_before_it :: proc(t: ^testing.T) 
 @(private = "file")
 reuse_after_exit_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Result) {
 	r := cast(^Reuse)user_data
+
 	if !r.opened_second {
 		record_outcome(runner, &r.first, result)
 		r.opened_second = true
-		lava.page_runner_open(runner, "globalThis.n = 0; Promise.resolve().then(() => { n++; }); setTimeout(() => { process.exitCode = n === 1 ? 11 : 12; }, 5);", "<second>", LIMITS, r)
+		lava.page_runner_open(
+			runner,
+			"globalThis.n = 0; Promise.resolve().then(() => { n++; }); setTimeout(() => { process.exitCode = n === 1 ? 11 : 12; }, 5);",
+			"<second>",
+			LIMITS,
+			r,
+		)
 		return
 	}
+
 	record_outcome(runner, &r.second, result)
 }
 
@@ -581,12 +759,20 @@ reuse_after_exit_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, resu
 @(test)
 runner_vm_reused_after_process_exit_runs_the_next_page :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
+
 	if !lava.page_runner_init(&runner, 1, reuse_after_exit_done, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
+
 	defer lava.page_runner_destroy(&runner)
 	r: Reuse
-	lava.page_runner_open(&runner, "setInterval(() => {}, 1); Promise.resolve().then(() => process.exit(2));", "<first>", LIMITS, &r)
+	lava.page_runner_open(
+		&runner,
+		"setInterval(() => {}, 1); Promise.resolve().then(() => process.exit(2));",
+		"<first>",
+		LIMITS,
+		&r,
+	)
 	lava.page_runner_run(&runner)
 	testing.expectf(t, r.first.done && r.first.status == .Ok && r.first.exit == 2, "first page: %v", r.first)
 	testing.expectf(t, r.second.done && r.second.status == .Ok && r.second.exit == 11, "second page: %v", r.second)
@@ -621,9 +807,11 @@ record_heap :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.R
 @(private = "file")
 run_one_by_one :: proc(t: ^testing.T, every: int, sources: []string, limits: []lava.Page_Limits, out: []Heap_Outcome) {
 	runner: lava.Page_Runner
+
 	if !lava.page_runner_init(&runner, 1, record_heap, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
+
 	defer lava.page_runner_destroy(&runner)
 	runner.heap_sample_every = every
 	for src, i in sources {
@@ -654,12 +842,21 @@ runner_samples_every_nth_page_per_vm :: proc(t: ^testing.T) {
 	lim := []lava.Page_Limits{LIMITS, LIMITS, LIMITS}
 	seq: [3]Heap_Outcome
 	run_one_by_one(t, 2, src, lim, seq[:])
-	testing.expectf(t, seq[0].heap == 0 && seq[1].heap > 0 && seq[2].heap == 0, "sampled the wrong pages on one VM: %v %v %v", seq[0].heap, seq[1].heap, seq[2].heap)
+	testing.expectf(
+		t,
+		seq[0].heap == 0 && seq[1].heap > 0 && seq[2].heap == 0,
+		"sampled the wrong pages on one VM: %v %v %v",
+		seq[0].heap,
+		seq[1].heap,
+		seq[2].heap,
+	)
 
 	runner: lava.Page_Runner
+
 	if !lava.page_runner_init(&runner, 2, record_heap, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
+
 	defer lava.page_runner_destroy(&runner)
 	runner.heap_sample_every = 2
 	pair: [4]Heap_Outcome
@@ -702,7 +899,13 @@ runner_heap_sample_grows_with_the_page :: proc(t: ^testing.T) {
 	lim := []lava.Page_Limits{LIMITS, LIMITS}
 	out: [2]Heap_Outcome
 	run_one_by_one(t, 1, src, lim, out[:])
-	testing.expectf(t, out[0].heap > 0 && out[1].heap > out[0].heap + 4 << 20, "heap not attributed per page: light %d, heavy %d", out[0].heap, out[1].heap)
+	testing.expectf(
+		t,
+		out[0].heap > 0 && out[1].heap > out[0].heap + 4 << 20,
+		"heap not attributed per page: light %d, heavy %d",
+		out[0].heap,
+		out[1].heap,
+	)
 }
 
 @(private = "file")
@@ -731,13 +934,19 @@ late_write :: proc(w: ^Late_Writer) {
 @(test)
 runner_run_returns_with_a_watched_fd_and_no_pages :: proc(t: ^testing.T) {
 	fds: [2]linux.Fd
-	if linux.pipe2(&fds, {.CLOEXEC, .NONBLOCK}) != nil do testing.fail_now(t, "pipe2 failed")
+
+	if linux.pipe2(&fds, {.CLOEXEC, .NONBLOCK}) != nil {
+		testing.fail_now(t, "pipe2 failed")
+	}
+
 	defer linux.close(fds[0])
 	defer linux.close(fds[1])
 	runner: lava.Page_Runner
+
 	if !lava.page_runner_init(&runner, 1, record_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
+
 	defer lava.page_runner_destroy(&runner)
 	testing.expect(t, lava.page_runner_watch_fd(&runner, i32(fds[0])), "watch refused")
 	w := Late_Writer{fds[1], 1500 * time.Millisecond}
@@ -762,22 +971,30 @@ runner_run_returns_with_a_watched_fd_and_no_pages :: proc(t: ^testing.T) {
 @(test)
 runner_step_wakes_on_a_watched_fd :: proc(t: ^testing.T) {
 	bare: lava.Page_Runner
+
 	if !lava.page_runner_init(&bare, 1, record_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
+
 	start := time.tick_now()
 	lava.page_runner_step(&bare)
 	testing.expectf(t, time.duration_seconds(time.tick_since(start)) < 0.5, "step with nothing to wait on blocked")
 	lava.page_runner_destroy(&bare)
 
 	fds: [2]linux.Fd
-	if linux.pipe2(&fds, {.CLOEXEC, .NONBLOCK}) != nil do testing.fail_now(t, "pipe2 failed")
+
+	if linux.pipe2(&fds, {.CLOEXEC, .NONBLOCK}) != nil {
+		testing.fail_now(t, "pipe2 failed")
+	}
+
 	defer linux.close(fds[0])
 	defer linux.close(fds[1])
 	runner: lava.Page_Runner
+
 	if !lava.page_runner_init(&runner, 1, record_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
+
 	defer lava.page_runner_destroy(&runner)
 	testing.expect(t, lava.page_runner_watch_fd(&runner, i32(fds[0])), "watch refused")
 	w := Late_Writer{fds[1], 300 * time.Millisecond}
@@ -789,7 +1006,10 @@ runner_step_wakes_on_a_watched_fd :: proc(t: ^testing.T) {
 	for time.duration_seconds(time.tick_since(start)) < 3 {
 		lava.page_runner_step(&runner)
 		steps += 1
-		if n, _ := linux.read(fds[0], buf[:]); n > 0 do break
+
+		if n, _ := linux.read(fds[0], buf[:]); n > 0 {
+			break
+		}
 	}
 	elapsed := time.duration_seconds(time.tick_since(start))
 	testing.expectf(t, elapsed > 0.2 && elapsed < 3, "the byte written at 300 ms was seen after %.2fs", elapsed)

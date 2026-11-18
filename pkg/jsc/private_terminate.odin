@@ -46,10 +46,14 @@ when ODIN_OS == .Linux {
 	// Thread-local like the other probes in this package: a dlsym answer is the same
 	// on every thread, but a per-thread latch needs no synchronization and costs one
 	// dlsym per thread. Latched only on the definitive outcome, a missing symbol.
-	@(private = "file", thread_local) g_term_checked: bool
-	@(private = "file", thread_local) g_term_ensure: Ensure_Term_Proc
-	@(private = "file", thread_local) g_term_lock_ctor: Term_Lock_Ctor_Proc
-	@(private = "file", thread_local) g_term_lock_dtor: Term_Lock_Dtor_Proc
+	@(private = "file", thread_local)
+	g_term_checked: bool
+	@(private = "file", thread_local)
+	g_term_ensure: Ensure_Term_Proc
+	@(private = "file", thread_local)
+	g_term_lock_ctor: Term_Lock_Ctor_Proc
+	@(private = "file", thread_local)
+	g_term_lock_dtor: Term_Lock_Dtor_Proc
 
 	termination_exception :: proc "contextless" (ctx: JSContextRef) -> JSValueRef {
 		if !g_term_checked {
@@ -57,17 +61,26 @@ when ODIN_OS == .Linux {
 			pe := term_dlsym(nil, "_ZN3JSC2VM26ensureTerminationExceptionEv")
 			pl := term_dlsym(nil, "_ZN3JSC12JSLockHolderC1EPNS_14JSGlobalObjectE")
 			pd := term_dlsym(nil, "_ZN3JSC12JSLockHolderD1Ev")
+
 			if pe != nil && pl != nil && pd != nil {
 				g_term_ensure = transmute(Ensure_Term_Proc)pe
 				g_term_lock_ctor = transmute(Term_Lock_Ctor_Proc)pl
 				g_term_lock_dtor = transmute(Term_Lock_Dtor_Proc)pd
 			}
 		}
-		if g_term_ensure == nil || ctx == nil do return nil
+
+		if g_term_ensure == nil || ctx == nil {
+			return nil
+		}
+
 		// A JSContextGroupRef is the VM (toJS(JSContextGroupRef)); host_function.odin
 		// relies on the same identity for VM::throwException.
 		vm := JSContextGetGroup(ctx)
-		if vm == nil do return nil
+
+		if vm == nil {
+			return nil
+		}
+
 		holder: rawptr
 		g_term_lock_ctor(&holder, rawptr(ctx))
 		exc := g_term_ensure(vm)

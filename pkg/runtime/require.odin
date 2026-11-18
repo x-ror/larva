@@ -34,12 +34,26 @@ module_precache_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	if argument_count < 2 do return jsc.JSValueMakeUndefined(ctx)
+
+	if argument_count < 2 {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
+
 	state := get_state_from_ctx(ctx)
-	if state == nil do return jsc.JSValueMakeUndefined(ctx)
+
+	if state == nil {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
+
 	path, allocated := jsc_value_to_string_or_default(ctx, arguments[0])
-	defer if allocated do delete(path, context.allocator)
-	if !allocated do return jsc.JSValueMakeUndefined(ctx)
+	defer if allocated {
+		delete(path, context.allocator)
+	}
+
+	if !allocated {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
+
 	module_cache_set(ctx, state, path, arguments[1])
 	return jsc.JSValueMakeUndefined(ctx)
 }
@@ -56,13 +70,18 @@ native_require_cb :: proc "c" (
 	// All the path/wrapper scratch in this call is temporary; reclaim it on exit
 	// instead of letting the per-thread arena grow unbounded across requires.
 	defer free_all(context.temp_allocator)
-	if argument_count < 1 do return jsc.JSValueMakeUndefined(ctx)
+
+	if argument_count < 1 {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
 
 	state := get_state_from_ctx(ctx)
 
 	args := arguments[:int(argument_count)]
 	specifier, alloc := jsc_value_to_string_or_default(ctx, args[0])
-	defer if alloc do delete(specifier, context.allocator)
+	defer if alloc {
+		delete(specifier, context.allocator)
+	}
 
 	// Module cache: a previously-loaded module (by specifier or resolved path)
 	// returns its existing exports so top-level code runs exactly once.
@@ -75,11 +94,15 @@ native_require_cb :: proc "c" (
 	// for anything it does not own, so we fall through to the native builtins
 	// and the filesystem below.
 	builtin_exception: jsc.JSValueRef
+
 	if builtin := require_builtin(ctx, args[0], &builtin_exception); builtin != nil {
 		module_cache_put(ctx, state, specifier, builtin)
 		return builtin
 	} else if builtin_exception != nil {
-		if exception != nil do exception^ = builtin_exception
+		if exception != nil {
+			exception^ = builtin_exception
+		}
+
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
@@ -100,21 +123,28 @@ native_require_cb :: proc "c" (
 	// require resolves identically to a synchronous one.
 	base_dir: string
 	base_dir_alloc: bool
+
 	if len(args) >= 2 && jsc.JSValueIsString(ctx, args[1]) {
 		base_dir, base_dir_alloc = jsc_value_to_string_or_default(ctx, args[1])
 	} else {
 		base_dir, base_dir_alloc = global_dirname(ctx)
 	}
-	defer if base_dir_alloc do delete(base_dir, context.allocator)
+
+	defer if base_dir_alloc {
+		delete(base_dir, context.allocator)
+	}
 
 	resolved, resolved_ok := resolve_module_path(specifier, base_dir)
+
 	if !resolved_ok {
 		// Node throws MODULE_NOT_FOUND rather than silently yielding undefined.
 		if exception != nil {
 			exception^ = make_module_not_found(ctx, specifier)
 		}
+
 		return jsc.JSValueMakeUndefined(ctx)
 	}
+
 	defer delete(resolved, context.allocator)
 
 	if cached, ok := module_cache_get(state, resolved); ok {
@@ -123,12 +153,15 @@ native_require_cb :: proc "c" (
 
 	if strings.has_suffix(resolved, ".json") {
 		data, err := os.read_entire_file(resolved, context.allocator)
+
 		if err != os.ERROR_NONE {
 			if exception != nil {
 				exception^ = make_js_error(ctx, fmt.tprintf("Cannot read module '%s'", resolved))
 			}
+
 			return jsc.JSValueMakeUndefined(ctx)
 		}
+
 		defer delete(data, context.allocator)
 
 		// Parse as JSON (Node uses JSON.parse), NOT JSEvaluateScript — wrapping the
@@ -136,9 +169,14 @@ native_require_cb :: proc "c" (
 		// file and accept non-JSON. JSValueMakeFromJSONString returns null on a
 		// malformed document, which we surface as a SyntaxError like Node.
 		json_str := js_string_from_string(string(data))
-		if json_str == nil do return jsc.JSValueMakeUndefined(ctx)
+
+		if json_str == nil {
+			return jsc.JSValueMakeUndefined(ctx)
+		}
+
 		defer jsc.JSStringRelease(json_str)
 		value := jsc.JSValueMakeFromJSONString(ctx, json_str)
+
 		if value == nil {
 			if exception != nil {
 				exception^ = make_js_named_error(
@@ -147,27 +185,37 @@ native_require_cb :: proc "c" (
 					fmt.tprintf("Unexpected token in JSON in %s", resolved),
 				)
 			}
+
 			return jsc.JSValueMakeUndefined(ctx)
 		}
+
 		module_cache_put(ctx, state, resolved, value)
 		return value
 	}
 
 	if strings.has_suffix(resolved, ".mjs") {
 		data, err := os.read_entire_file(resolved, context.allocator)
+
 		if err != os.ERROR_NONE {
 			if exception != nil {
 				exception^ = make_js_error(ctx, fmt.tprintf("Cannot read module '%s'", resolved))
 			}
+
 			return jsc.JSValueMakeUndefined(ctx)
 		}
+
 		defer delete(data, context.allocator)
 
 		wrapped, wrap_ok := esm_wrap_source(ctx, string(data), resolved, exception)
-		if !wrap_ok do return jsc.JSValueMakeUndefined(ctx)
+
+		if !wrap_ok {
+			return jsc.JSValueMakeUndefined(ctx)
+		}
+
 		defer delete(wrapped, context.allocator)
 
 		value := eval_source_value(ctx, wrapped, resolved, exception)
+
 		if exception == nil || exception^ == nil {
 			module_cache_put(ctx, state, resolved, value)
 		} else {
@@ -178,17 +226,21 @@ native_require_cb :: proc "c" (
 			// succeeding with broken (empty) exports.
 			module_cache_remove(ctx, state, resolved)
 		}
+
 		return value
 	}
 
 	if strings.has_suffix(resolved, ".cjs") || strings.has_suffix(resolved, ".js") {
 		data, err := os.read_entire_file(resolved, context.allocator)
+
 		if err != os.ERROR_NONE {
 			if exception != nil {
 				exception^ = make_js_error(ctx, fmt.tprintf("Cannot read module '%s'", resolved))
 			}
+
 			return jsc.JSValueMakeUndefined(ctx)
 		}
+
 		defer delete(data, context.allocator)
 
 		dirname := filepath.dir(resolved)
@@ -216,9 +268,13 @@ native_require_cb :: proc "c" (
 			");return module.exports;})()",
 		}
 		wrapped, wrapped_err := strings.concatenate(wrapper_parts[:], context.temp_allocator)
-		if wrapped_err != nil do return jsc.JSValueMakeUndefined(ctx)
+
+		if wrapped_err != nil {
+			return jsc.JSValueMakeUndefined(ctx)
+		}
 
 		value := eval_source_value(ctx, wrapped, resolved, exception)
+
 		if exception == nil || exception^ == nil {
 			// Overwrite the pre-registered partial entry with the final exports
 			// (the body may have reassigned module.exports).
@@ -228,6 +284,7 @@ native_require_cb :: proc "c" (
 			// re-loads it rather than getting half-initialised exports.
 			module_cache_remove(ctx, state, resolved)
 		}
+
 		return value
 	}
 
@@ -237,18 +294,14 @@ native_require_cb :: proc "c" (
 	if exception != nil {
 		exception^ = make_module_not_found(ctx, specifier)
 	}
+
 	return jsc.JSValueMakeUndefined(ctx)
 }
 
 // make_module_not_found builds the Error Node throws for an unresolved require,
 // including the `code: 'MODULE_NOT_FOUND'` property user code commonly checks.
 make_module_not_found :: proc(ctx: jsc.JSContextRef, specifier: string) -> jsc.JSValueRef {
-	return make_native_error(
-		ctx,
-		"Error",
-		fmt.tprintf("Cannot find module '%s'", specifier),
-		"MODULE_NOT_FOUND",
-	)
+	return make_native_error(ctx, "Error", fmt.tprintf("Cannot find module '%s'", specifier), "MODULE_NOT_FOUND")
 }
 
 // inject_native_function attaches a native function to `object`, preferring
@@ -302,20 +355,26 @@ inject_native_function :: proc(
 	arity: int = 1,
 ) {
 	c_name, err := strings.clone_to_cstring(name, context.temp_allocator)
-	if err != nil do return
+
+	if err != nil {
+		return
+	}
 
 	js_name := jsc.JSStringCreateWithUTF8CString(c_name)
 	defer jsc.JSStringRelease(js_name)
 
 	fn: jsc.JSObjectRef
+
 	if host != nil {
 		fn, _ = jsc.host_function_create(ctx, name, host, arity)
 	} else {
 		fn = host_native_create(ctx, name, callback, arity)
 	}
+
 	if fn == nil {
 		fn = jsc.JSObjectMakeFunctionWithCallback(ctx, js_name, callback)
 	}
+
 	jsc.JSObjectSetProperty(ctx, object, js_name, cast(jsc.JSValueRef)fn, {}, nil)
 }
 

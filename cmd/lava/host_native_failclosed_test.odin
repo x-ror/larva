@@ -35,12 +35,18 @@ import lava "lava:pkg/runtime"
 host_native_dispatch_miss_fails_closed :: proc(t: ^testing.T) {
 	c, ok := make_context()
 	testing.expect(t, ok, "could not create a JSC global context")
-	if !ok do return
+
+	if !ok {
+		return
+	}
+
 	defer destroy_context(c)
 
 	// Without the private-ABI path nothing is registered, so there is no miss to
 	// observe and every assertion below would pass vacuously.
-	if !host_path_active(t, c.ctx) do return
+	if !host_path_active(t, c.ctx) {
+		return
+	}
 
 	state := lava.new_runtime_state(nil)
 	jsc.JSObjectSetPrivate(jsc.JSContextGetGlobalObject(c.ctx), cast(rawptr)state)

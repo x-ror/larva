@@ -61,6 +61,7 @@ stdio_write_sync_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
+
 	if argument_count < 2 {
 		return jsc.JSValueMakeNumber(ctx, 0)
 	}
@@ -84,6 +85,7 @@ stdio_write_sync_cb :: proc "c" (
 		if exception != nil {
 			exception^ = make_js_error(ctx, "stdio writeSync: fd must be 1 or 2")
 		}
+
 		return jsc.JSValueMakeNumber(ctx, 0)
 	}
 
@@ -91,17 +93,23 @@ stdio_write_sync_cb :: proc "c" (
 	// typed-array view is BORROWED into the JSC heap, which is safe here only because the
 	// write below runs to completion on this thread with no JS in between.
 	bytes, owned, ok := fs_resolve_write_payload(ctx, arguments[1])
+
 	if !ok {
 		if exception != nil {
 			exception^ = make_js_error(ctx, "stdio writeSync: unsupported chunk type")
 		}
+
 		return jsc.JSValueMakeNumber(ctx, 0)
 	}
-	defer if owned do delete(bytes, context.allocator)
+
+	defer if owned {
+		delete(bytes, context.allocator)
+	}
 
 	if len(bytes) == 0 {
 		return jsc.JSValueMakeNumber(ctx, 0)
 	}
+
 	process_write_bytes(target, bytes)
 	return jsc.JSValueMakeNumber(ctx, f64(len(bytes)))
 }
