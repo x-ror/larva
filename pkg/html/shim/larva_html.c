@@ -3,8 +3,10 @@
 // parser needs (see larva_html_begin). Everything else is bound from Odin
 // (pkg/html/lexbor.odin). Built by scripts/build-lexbor.sh.
 
+#include <lexbor/css/css.h>
 #include <lexbor/dom/dom.h>
 #include <lexbor/html/html.h>
+#include <lexbor/selectors/selectors.h>
 #include <stdlib.h>
 
 // One per document being parsed. The tree builder installs its own token callback on
@@ -16,6 +18,26 @@ typedef struct {
   lxb_dom_node_t *script; // the <script> whose end tag was just tokenized, else NULL
   size_t closed;          // script end tags seen since the last take; > 1 means one was lost
 } larva_html_hook;
+
+// --- CSS selectors ---------------------------------------------------------------
+//
+// A compiled selector list owns its memory: the CSS parser starts with none
+// (lxb_css_parser_init leaves parser->memory NULL), so each lxb_css_selectors_parse
+// creates a fresh one and hands it to the list it returns. Lists therefore outlive the
+// engine that compiled them and are freed one by one with larva_css_free.
+
+typedef struct {
+  lxb_css_parser_t *parser;
+  lxb_selectors_t *selectors;
+} larva_css;
+
+// Called per match in tree order; return true to stop the search.
+typedef bool (*larva_css_found_f)(lxb_dom_node_t *node, void *ctx);
+
+typedef struct {
+  larva_css_found_f found;
+  void *ctx;
+} larva_css_find_ctx;
 
 // Runs BEFORE the tree builder handles the token. For a script end tag in the text
 // insertion mode the tree's current node is that <script> element; the tree pops it
@@ -90,21 +112,6 @@ const lxb_char_t *larva_html_attr(lxb_dom_node_t *node, const lxb_char_t *name, 
   return lxb_dom_element_get_attribute(lxb_dom_interface_element(node), name, name_len, len);
 }
 
-// --- CSS selectors ---------------------------------------------------------------
-//
-// A compiled selector list owns its memory: the CSS parser starts with none
-// (lxb_css_parser_init leaves parser->memory NULL), so each lxb_css_selectors_parse
-// creates a fresh one and hands it to the list it returns. Lists therefore outlive the
-// engine that compiled them and are freed one by one with larva_css_free.
-
-#include <lexbor/css/css.h>
-#include <lexbor/selectors/selectors.h>
-
-typedef struct {
-  lxb_css_parser_t *parser;
-  lxb_selectors_t *selectors;
-} larva_css;
-
 larva_css *larva_css_create(void) {
   larva_css *e = calloc(1, sizeof(*e));
   if (e == NULL)
@@ -148,14 +155,6 @@ lxb_css_selector_list_t *larva_css_compile(larva_css *e, const lxb_char_t *css, 
 void larva_css_free(lxb_css_selector_list_t *list) {
   lxb_css_selector_list_destroy_memory(list);
 }
-
-// Called per match in tree order; return true to stop the search.
-typedef bool (*larva_css_found_f)(lxb_dom_node_t *node, void *ctx);
-
-typedef struct {
-  larva_css_found_f found;
-  void *ctx;
-} larva_css_find_ctx;
 
 static lxb_status_t larva_css_found(lxb_dom_node_t *node, lxb_css_selector_specificity_t spec,
                                     void *ctx) {

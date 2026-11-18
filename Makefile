@@ -375,12 +375,19 @@ test-lava-nohostfn: build
 # "lava:pkg/runtime", so without it strip-semicolon cannot parse the package and
 # the target exits non-zero. CI's "Format (Odin)" step runs this and requires a
 # clean diff afterwards.
+ODINFMT ?= odinfmt
+
 fmt:
 	$(ODIN) strip-semicolon cmd/lava -collection:lava=.
 	$(ODIN) strip-semicolon pkg/jsc -no-entry-point
 	# Larva's own C (.clang-format). pkg/jsc's C++ comes from Lava and is left as Lava
 	# formats it, so a sync does not fight over whitespace.
 	clang-format -i pkg/html/shim/*.c
+	# Odin in pkg/html: imports sorted, odinfmt.json there. odinfmt ships with the OLS editor
+	# extension, not on PATH by default; point ODINFMT at it. Lava-synced packages are left
+	# to strip-semicolon above, so a sync does not fight over whitespace.
+	@if command -v $(ODINFMT) >/dev/null 2>&1; then $(ODINFMT) -w pkg/html; \
+	else echo 'make fmt: odinfmt not found; set ODINFMT=/path/to/odinfmt to format pkg/html'; fi
 
 # `rm` isn't a Windows command and can't take the $(RUNSCRIPT) prefix (bash would treat
 # `rm` as a script), so invoke the shell explicitly: $(SHELL) is Git Bash on Windows and

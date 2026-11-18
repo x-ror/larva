@@ -19,10 +19,7 @@ import "core:c"
 // The paths are relative to this file and must match OUT/LIB/SHIM_LIB in
 // scripts/build-lexbor.sh; `foreign import` takes only literals. The shim comes first:
 // it references lexbor, and a static link resolves left to right.
-foreign import lexbor {
-	"../../.deps/lexbor/lib/liblarva_html_shim.a",
-	"../../.deps/lexbor/lib/liblexbor_static.a",
-}
+foreign import lexbor {"../../.deps/lexbor/lib/liblarva_html_shim.a", "../../.deps/lexbor/lib/liblexbor_static.a"}
 
 // lexbor/core/base.h: `typedef unsigned int lxb_status_t`, LXB_STATUS_OK = 0x0000.
 lxb_status_t :: c.uint

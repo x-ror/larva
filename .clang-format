@@ -15,3 +15,6 @@ AllowShortLambdasOnASingleLine: All
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
 IncludeBlocks: Preserve
+# #includes sorted within each blank-line-separated block. clang-format cannot reorder
+# declarations; the types-before-functions order is a convention (CLAUDE.md §4).
+SortIncludes: CaseSensitive
