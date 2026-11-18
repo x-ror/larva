@@ -7,7 +7,7 @@ import jsc "lava:pkg/jsc"
 import pico "lava:pkg/runtime/picohttpparser"
 
 // node:http server support — the request-HEAD parser bridge. The protocol surface
-// (Server, IncomingMessage, ServerResponse) lives in js/internal/http.js on top of
+// (Server, IncomingMessage, ServerResponse) lives in js/node/http.js on top of
 // node:net; this exposes one native primitive, parseRequest(buf, lastLen), that runs
 // picohttpparser (phr_parse_request) over the accumulated request bytes and returns one
 // flat ARRAY (built with a single JSObjectMakeArray call — the cheapest possible shape

@@ -23,7 +23,7 @@
   // all — see the note on pushCodePoint. Routing those per-code-unit loops
   // through the variadic ArrayPrototypePush measured 1.43x on the JS decode
   // path (callerN's arguments switch is ~7x a direct call).
-  var P = require('primordials');
+  var P = require('internal/primordials');
   var StringPrototypeSlice = P.StringPrototypeSlice;
   var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;
   var StringPrototypeCodePointAt = P.StringPrototypeCodePointAt;
@@ -178,39 +178,17 @@
     ];
   }
 
-  // Node's ERR_INVALID_ARG_TYPE "Received …" tail. buffer.js carries the same
-  // shape as a file-private helper, and there is no shared errors module to
-  // host it — exporting it from buffer.js would leak into the surface of
-  // require('buffer'), so this stays a deliberate second, minimal copy.
-  function describeReceived(v) {
-    if (v === null) return 'null';
-    var t = typeof v;
-    if (t === 'undefined') return 'undefined';
-    if (t === 'string') {
-      var s = v.length > 28 ? StringPrototypeSlice(v, 0, 25) + '...' : v;
-      return "type string ('" + s + "')";
-    }
-    // -0 renders as "-0" in Node (util.inspect); string concatenation erases the
-    // sign. `1/v < 0` rather than ObjectIs, matching the buffer.js/crypto.js
-    // copies of this helper — one idiom across all three.
-    if (t === 'number') return 'type number (' + (v === 0 && 1 / v < 0 ? '-0' : v) + ')';
-    if (t === 'boolean') return 'type boolean (' + v + ')';
-    if (t === 'bigint') return 'type bigint (' + v + 'n)';
-    if (t === 'symbol') return 'type symbol (' + v.toString() + ')';
-    var ctor = v.constructor && v.constructor.name;
-    return 'an instance of ' + (ctor || 'Object');
-  }
-
-  function errInvalidArgType(message) {
-    var e = new TypeErrorG(message);
-    e.code = 'ERR_INVALID_ARG_TYPE';
-    return e;
-  }
+  // Node-shaped coded errors come from internal/errors (CLAUDE.md §5).
+  var errors = require('internal/errors');
+  var nodeError = errors.nodeError;
+  var nativeError = errors.nativeError;
+  var ERR_INVALID_ARG_TYPE = errors.ERR_INVALID_ARG_TYPE;
 
   // Node's validateObject(value, 'options', kValidateObjectAllowObjects) as it is
   // called from TextDecoder — nullable, and arrays and functions allowed. Verified
-  // against node 24 rather than read off the docs: `null`, `[1,2]` and `()=>{}`
-  // are accepted; every scalar including `-0`, `NaN`, `''` and `false` throws.
+  // against node 26.13.0 (probe, 2026-11-16) rather than read off the docs: `null`,
+  // `[1,2]` and `()=>{}` are accepted; every scalar including `-0`, `NaN`, `''` and
+  // `false` throws.
   // It runs BEFORE the label is looked at (see the constructor), which is why it
   // exists as a function instead of being folded into the `options || kEmptyObject`
   // line — the order is observable when both arguments are bad.
@@ -224,17 +202,16 @@
     if (options === undefined || options === null) return;
     var t = typeof options;
     if (t === 'object' || t === 'function') return;
-    throw errInvalidArgType(
-      'The "options" argument must be of type object. Received ' + describeReceived(options),
-    );
+    throw ERR_INVALID_ARG_TYPE('options', 'object', options);
   }
 
   // NOT `instanceof`, on any of the three arms. `instanceof` dispatches through
   // `Ctor[Symbol.hasInstance]`, a configurable own property, so a caller flips the
   // brand in either direction and steers the value into the wrong arm. Measured
-  // against node 24, which is native here and immune on every cell: forging
-  // `DataView[Symbol.hasInstance]` to false made `decode(dataView)` THROW
-  // TypeError; forging `ArrayBuffer`'s to false made `decode(arrayBuffer)` throw;
+  // against node 26.13.0 (probe, 2026-11-16), which is native here and immune on
+  // every cell: forging `DataView[Symbol.hasInstance]` to false made
+  // `decode(dataView)` THROW TypeError; forging `ArrayBuffer`'s to false made
+  // `decode(arrayBuffer)` throw;
   // and forging `Uint8Array`'s or `ArrayBuffer`'s to TRUE made `decode()` return
   // "" — a silent empty decode of valid input, which is the worse half. Six
   // diverging cells in all, of which a review flagged one.
@@ -265,11 +242,13 @@
         TypedArrayPrototypeGetByteLength(input),
       );
     }
-    // Node names this argument "list" and appends no "Received" tail here,
-    // unlike its other ERR_INVALID_ARG_TYPE messages. SharedArrayBuffer is in
-    // the text because Node's is; Lava does not implement it, so that arm is
-    // unreachable and the wording is parity-only.
-    throw errInvalidArgType(
+    // Node names this argument "list" and appends no "Received" tail here: it is
+    // thrown by the C++ encoding binding, which is also why String(e) carries no
+    // [code]. SharedArrayBuffer is in the text because Node's is; Lava does not
+    // implement it, so that arm is unreachable and the wording is parity-only.
+    throw nativeError(
+      TypeErrorG,
+      'ERR_INVALID_ARG_TYPE',
       'The "list" argument must be an instance of SharedArrayBuffer, ArrayBuffer or ArrayBufferView.',
     );
   }
@@ -313,10 +292,7 @@
   }
 
   TextEncoder.prototype.encodeInto = function (source, dest) {
-    if (!(dest instanceof Uint8ArrayG))
-      throw errInvalidArgType(
-        'The "dest" argument must be an instance of Uint8Array. Received ' + describeReceived(dest),
-      );
+    if (!(dest instanceof Uint8ArrayG)) throw ERR_INVALID_ARG_TYPE('dest', 'Uint8Array', dest);
     source = StringG(source);
     var read = 0,
       written = 0,
@@ -376,9 +352,12 @@
   }
 
   function fatalErr(enc) {
-    var e = new TypeErrorG('The encoded data was not valid for encoding ' + enc);
-    e.code = 'ERR_ENCODING_INVALID_ENCODED_DATA';
-    return e;
+    // C++-thrown in node (the decoder binding): no [code] in String(e).
+    return nativeError(
+      TypeErrorG,
+      'ERR_ENCODING_INVALID_ENCODED_DATA',
+      'The encoded data was not valid for encoding ' + enc,
+    );
   }
 
   // The code-unit accumulator is a PREALLOCATED Uint16Array written by index,
@@ -612,9 +591,11 @@
     if (options !== undefined && options !== null) validateOptions(options);
     var enc = normalizeLabel(text);
     if (enc === undefined) {
-      var labelErr = new RangeErrorG('The "' + text + '" encoding is not supported');
-      labelErr.code = 'ERR_ENCODING_NOT_SUPPORTED';
-      throw labelErr;
+      throw nodeError(
+        RangeErrorG,
+        'ERR_ENCODING_NOT_SUPPORTED',
+        'The "' + text + '" encoding is not supported',
+      );
     }
     // An omitted `options` must not inherit fatal/ignoreBOM from a poisoned
     // Object.prototype, hence the shared null-prototype kEmptyObject. An options

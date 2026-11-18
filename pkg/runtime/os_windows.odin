@@ -229,7 +229,7 @@ os_user_info :: proc() -> Os_User_Info {
 // os_network_interfaces walks GetAdaptersAddresses and emits one flat record per
 // unicast IPv4/IPv6 address, with the adapter's hardware MAC (all-zero for an
 // adapter that exposes none, e.g. loopback) and the netmask derived from the
-// on-link prefix length. js/internal/os.js groups them by name and adds the family
+// on-link prefix length. js/node/os.js groups them by name and adds the family
 // string + CIDR.
 os_network_interfaces :: proc() -> []Os_Net_Iface {
 	flags := windows.GAA_Flags{.Skip_Anycast, .Skip_Multicast, .Skip_DNS_Server}
@@ -293,7 +293,7 @@ os_network_interfaces :: proc() -> []Os_Net_Iface {
 
 // os_get_priority maps the process's priority class to the libuv nice band and
 // returns 0 on success. An unknown pid fails OpenProcess -> nonzero errno, which
-// js/internal/os.js surfaces as ERR_SYSTEM_ERROR (matching Node). pid 0 means the
+// js/node/os.js surfaces as ERR_SYSTEM_ERROR (matching Node). pid 0 means the
 // current process: GetCurrentProcess returns a pseudo-handle needing no close.
 os_get_priority :: proc(pid: int) -> (value: int, err: int) {
 	current := pid == 0
@@ -512,7 +512,7 @@ format_v6 :: proc(addr: ^windows.in6_addr) -> string {
 }
 
 // v4_mask renders the IPv4 netmask for an on-link prefix length (e.g. 24 ->
-// "255.255.255.0"); js/internal/os.js counts its set bits back into the CIDR.
+// "255.255.255.0"); js/node/os.js counts its set bits back into the CIDR.
 @(private = "file")
 v4_mask :: proc(prefix: u8) -> string {
 	b: [4]u8

@@ -113,7 +113,11 @@ const ROUTES = [
     targets: ['make test-http-smoke', 'make bench-http'],
   },
   {
-    re: globToRe('**/js/internal/http.js'),
+    re: globToRe('**/js/node/http.js'),
+    targets: ['make test-http-smoke', 'make bench-http'],
+  },
+  {
+    re: globToRe('**/js/internal/http/**'),
     targets: ['make test-http-smoke', 'make bench-http'],
   },
   {
@@ -125,7 +129,7 @@ const ROUTES = [
     targets: ['make test-net-smoke', 'make test-zerocopy-smoke'],
   },
   {
-    re: globToRe('**/js/internal/net.js'),
+    re: globToRe('**/js/node/net.js'),
     targets: ['make test-net-smoke', 'make test-zerocopy-smoke'],
   },
   {
@@ -133,7 +137,7 @@ const ROUTES = [
     targets: ['make test-https-smoke'],
   },
   {
-    re: globToRe('**/js/internal/https.js'),
+    re: globToRe('**/js/node/https.js'),
     targets: ['make test-https-smoke'],
   },
   {
@@ -142,6 +146,10 @@ const ROUTES = [
   },
   {
     re: globToRe('**/js/internal/fetch.js'),
+    targets: ['make test-fetch-smoke'],
+  },
+  {
+    re: globToRe('**/js/internal/fetch/*.js'),
     targets: ['make test-fetch-smoke'],
   },
   {
@@ -157,11 +165,11 @@ const ROUTES = [
     targets: ['make test-fs-lava'],
   },
   {
-    re: globToRe('**/js/internal/fs.js'),
+    re: globToRe('**/js/node/fs.js'),
     targets: ['make test-fs-lava'],
   },
   {
-    re: globToRe('**/js/internal/stream.js'),
+    re: globToRe('**/js/node/stream.js'),
     targets: ['make test-http-smoke', 'make test-net-smoke', 'make test-stdio'],
   },
   {
@@ -173,7 +181,7 @@ const ROUTES = [
     targets: ['make test-compat-lava-strict'],
   },
   {
-    re: globToRe('**/js/internal/loader.js'),
+    re: globToRe('**/js/bootstrap/loader.js'),
     targets: [
       'make test-compat-lava-strict',
       'make test-fs-lava',
@@ -184,7 +192,7 @@ const ROUTES = [
     ],
   },
   {
-    re: globToRe('**/js/internal/esm.js'),
+    re: globToRe('**/js/bootstrap/esm.js'),
     targets: ['make test-compat-lava-strict'],
   },
   {
@@ -192,7 +200,11 @@ const ROUTES = [
     targets: ['make test-odin', 'make test-compat-lava', 'make api-surface'],
   },
   {
-    re: globToRe('**/js/internal/crypto.js'),
+    re: globToRe('**/js/node/crypto.js'),
+    targets: ['make test-odin', 'make test-compat-lava', 'make api-surface'],
+  },
+  {
+    re: globToRe('**/js/internal/crypto/*.js'),
     targets: ['make test-odin', 'make test-compat-lava', 'make api-surface'],
   },
   {
@@ -200,15 +212,19 @@ const ROUTES = [
     targets: ['make check-js', 'make check-primordials', 'make test-compat-lava'],
   },
   {
-    re: globToRe('pkg/runtime/js/*.js'),
-    targets: ['make check-js', 'make check-primordials', 'make test-compat-lava'],
+    re: globToRe('**/js/node/url.js'),
+    targets: ['make bench-gate', 'make test-property'],
   },
   {
-    re: globToRe('**/js/internal/url.js'),
+    re: globToRe('**/js/internal/{url,idna,punycode}.js'),
     targets: ['make bench-gate', 'make test-property'],
   },
   {
     re: globToRe('**/js/internal/encoding.js'),
+    targets: ['make test-property'],
+  },
+  {
+    re: globToRe('**/js/node/buffer.js'),
     targets: ['make test-property'],
   },
   {
@@ -323,7 +339,6 @@ export function routePaths(paths) {
     'make bun-buffer-tests',
     'make api-surface',
     'make test-compat-lava-strict',
-    'make bench-gate',
     'make bench-http',
   ].filter((t) => targets.has(t));
 

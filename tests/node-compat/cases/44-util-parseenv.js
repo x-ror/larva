@@ -35,12 +35,20 @@ assert.deepEqual({ ...parseEnv('H=ab#cd') }, { H: 'ab' });
 // unquoted values keep interior spaces, colons, slashes
 assert.deepEqual({ ...parseEnv('URL=http://x:8080/p') }, { URL: 'http://x:8080/p' });
 
-// a literal `__proto__` key is dropped (no prototype pollution); the result is a plain
-// object, like Node's
-const p = parseEnv('__proto__=evil\nSAFE=1');
-assert.deepEqual({ ...p }, { SAFE: '1' });
-assert.equal(Object.getPrototypeOf(p), Object.prototype);
+// node 26 returns a null-prototype object, so a literal `__proto__` key is kept as an
+// ordinary own data property (byte-sorted with the rest) and cannot reach any
+// prototype; node 24 dropped it and returned a plain object.
+const p = parseEnv('__proto__=evil\nSAFE=1\nb=2');
+assert.equal(Object.getPrototypeOf(p), null);
+assert.deepEqual(Object.keys(p), ['SAFE', '__proto__', 'b']);
+assert.deepEqual(Object.getOwnPropertyDescriptor(p, '__proto__'), {
+  value: 'evil',
+  writable: true,
+  enumerable: true,
+  configurable: true,
+});
 assert.equal({}.evil, undefined);
+assert.equal(Object.prototype.evil, undefined);
 
 // an unterminated quote keeps the opening quote and takes the rest of the line literally
 assert.deepEqual({ ...parseEnv('K="unterminated\nA=1') }, { K: '"unterminated', A: '1' });

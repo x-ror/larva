@@ -86,7 +86,7 @@ native_require_cb :: proc "c" (
 	// node:path is served by the JS internal-module loader above (require_builtin).
 
 	// node:fs is served by the JS internal-module loader above (require_builtin), like
-	// node:path — js/internal/fs.js wraps the Odin primitives from make_fs_bindings. It
+	// node:path — js/node/fs.js wraps the Odin primitives from make_fs_bindings. It
 	// used to be assembled here instead, the one built-in with no JS layer, and that is
 	// what let fs.readFileSync return a bare Uint8Array where node returns a Buffer for a
 	// year (issue #329). Nothing may rebuild it here: require_builtin runs FIRST, so a
@@ -265,11 +265,12 @@ make_module_not_found :: proc(ctx: jsc.JSContextRef, specifier: string) -> jsc.J
 // `.length` IS user-visible and Node is the oracle.
 //
 // THE TWO CREATION PATHS ARE NOT OBSERVABLY EQUIVALENT, which earlier comments
-// left the reader to assume. Measured on setTimeout (2026-07-28):
+// left the reader to assume. Measured on setTimeout (2026-07-28; node row re-probed
+// 2026-11-16):
 //
 //	host path (jsc.host_function_create): .length == arity, constructible
 //	C-API fallback:                       .length == 0,     `new` throws TypeError
-//	node 24:                              .length == 2,     constructible
+//	node 26.13.0:                         .length == 2,     constructible
 //
 // "Constructible" on the host path is itself only half of Node: create_raw
 // reuses the call callback as the constructor slot, so `new setTimeout(fn)`

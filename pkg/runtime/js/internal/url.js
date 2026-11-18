@@ -1,20 +1,22 @@
-// node:url — WHATWG URL and URLSearchParams, implemented in JS (as Node does for
+// internal/url — node:url's WHATWG half, laid out like node's lib/internal/url.js:
+// the URL Standard parser (percent-encoding, host/IPv4/IPv6, the state machine),
+// `URL`, `URLSearchParams`, `fileURLToPath`, `urlToHttpOptions` and the validating
+// `domainToASCII`/`domainToUnicode`. The IDNA mapping and its Punycode codec are
+// internal/idna and internal/punycode (node's lib/internal/idna.js); they throw
+// nothing, so the host parser that calls them stays here with every throw it
+// feeds, and no frame leaves node:internal/url. Implemented in JS (as Node does for
 // the parsing-heavy modules like node:path) so the fiddly state-machine semantics
 // match the URL Standard and Node byte-for-byte. JavaScriptCore's bare engine ships
 // no URL/URLSearchParams (those are WebCore APIs), so the whole surface lives here.
 //
-// The module installs the `URL` and `URLSearchParams` globals (preserving the
-// `createObjectURL`/`revokeObjectURL` statics that node:buffer attaches) and is
-// exported by both `require('url')` and `require('node:url')`. It also keeps the
-// `fileURLToPath` the ESM loader and node:sqlite depend on, and adds
-// `pathToFileURL`, `urlToHttpOptions`, `format`, `domainToASCII`, `domainToUnicode`.
+// node/url.js stays the public entry: it keeps `pathToFileURL` and `format`, whose
+// throws node frames in `node:url`, installs the `URL`/`URLSearchParams` globals and
+// assembles the exports. Everything thrown from this file frames
+// `node:internal/url`, as node's does (pinned by
+// tests/node-compat/cases/87-url-internal-modules.js). Not publicly requireable.
 //
-// Deliberate deviations from Node:
-//   * IDNA/UTS-46 host processing is approximated (NFC + lowercase + Punycode)
-//     rather than the full ICU mapping; common Unicode domains round-trip, but
-//     exotic mapping/validation edge cases may differ.
-//   * The legacy `url.parse`/`url.resolve`/`url.Url` API is not provided; only the
-//     WHATWG surface is.
+// The documented IDNA deviation (UTS-46 approximated, not the full ICU mapping) is
+// stated where the mapping lives, in internal/idna.js.
 (function (require, module, _exports) {
   'use strict';
 
@@ -26,7 +28,7 @@
   // are pristine and cannot be re-pointed later (a poisoned Math.floor, String,
   // decodeURIComponent, or String.prototype.normalize otherwise silently
   // substitutes hosts / disables IPv4 normalization; see the URL vector audit).
-  var P = require('primordials');
+  var P = require('internal/primordials');
   // Every regex below runs over a caller-supplied URL, so none may go through
   // `re.test(...)`: `RegExp.prototype.exec` is a writable data property and the
   // spec's RegExpExec re-reads it off the receiver, so a plain assignment steers
@@ -34,11 +36,9 @@
   // `RegExpPrototypeTest` for exactly that reason. `%2f`/`%5c` detection below is
   // the path-traversal check, so this is not cosmetic.
   //
-  // NOT a complete rule for this file: the `StringPrototypeReplace(…, /re/, …)`
-  // sites below route through the same RegExpExec re-read and are still steerable —
-  // and a GLOBAL one spins rather than answering wrongly, because a forged result
-  // never advances lastIndex. Tracked in ROADMAP. The last global regex in this file
-  // was toUSVString's, now a code-unit walk; LEADING_SLASHES_RE is non-global.
+  // The last GLOBAL regex in this file was toUSVString's, now a code-unit walk. The
+  // one non-global `StringPrototypeReplace(…, /re/, …)` site left in node:url is
+  // pathToFileURL's, which moved to node/url.js with it.
   var reTest = P.RegExpMatches;
   var allChars = P.allChars;
   var isAsciiDigit = P.isAsciiDigit;
@@ -46,7 +46,6 @@
   var isAsciiOctalDigit = P.isAsciiOctalDigit;
   var PERCENT_2F_RE = /%2f/i;
   var PERCENT_5C_RE = /%5c/i;
-  var LEADING_SLASHES_RE = /^\/+/;
   var ArrayPrototypePush = P.ArrayPrototypePush;
   var ArrayPrototypePop = P.ArrayPrototypePop;
   var ArrayPrototypeShift = P.ArrayPrototypeShift;
@@ -77,6 +76,11 @@
   // Free globals / statics, captured pristine at module-eval.
   var StringG = String;
   var NumberG = P.Number;
+  var TypeErrorG = P.TypeError;
+  var errors = require('internal/errors');
+  var nodeError = errors.nodeError;
+  var nativeError = errors.nativeError;
+  var ERR_INVALID_ARG_TYPE = errors.ERR_INVALID_ARG_TYPE;
   var StringFromCharCode = String.fromCharCode;
   var StringFromCodePoint = String.fromCodePoint;
   var MathFloor = Math.floor;
@@ -107,9 +111,15 @@
     );
   }
 
-  // A unique sentinel distinct from any valid parser result; using a symbol means
-  // it can never collide with a legitimately-produced host string or number.
-  var FAILURE = { failure: true };
+  // The IDNA half (separator fold, UTS-46 approximation, Punycode) lives in
+  // internal/idna, as node's does in lib/internal/idna.js. Captured at module-eval
+  // so parseHost calls straight into it, with no wrapper on the URL parse path;
+  // FAILURE is the sentinel idna returns, so every `=== FAILURE` below stays one
+  // identity compare against the same object.
+  var idna = require('internal/idna');
+  var FAILURE = idna.FAILURE;
+  var domainToASCII = idna.domainToASCII;
+  var domainToUnicode = idna.domainToUnicode;
 
   // ------------------------------------------------------------------ //
   // Percent-encoding                                                    //
@@ -146,29 +156,6 @@
 
   function isTabOrNewline(c) {
     return c === 0x09 || c === 0x0a || c === 0x0d;
-  }
-
-  // U+3002 IDEOGRAPHIC FULL STOP, U+FF0E FULLWIDTH FULL STOP, U+FF61 HALFWIDTH
-  // IDEOGRAPHIC FULL STOP — the IDNA label separators that fold to '.'. Getting
-  // this wrong is host confusion, not a cosmetic difference.
-  function isIdnaSeparator(c) {
-    return c === 0x3002 || c === 0xff0e || c === 0xff61;
-  }
-
-  // The fold, not a strip: these three map TO '.', they are not removed.
-  function foldIdnaSeparators(s) {
-    var n = s.length;
-    var i = 0;
-    for (; i < n; i++) {
-      if (isIdnaSeparator(StringPrototypeCharCodeAt(s, i))) break;
-    }
-    if (i === n) return s;
-    var out = StringPrototypeSlice(s, 0, i);
-    for (; i < n; i++) {
-      var c = StringPrototypeCharCodeAt(s, i);
-      out += isIdnaSeparator(c) ? '.' : StringFromCharCode(c);
-    }
-    return out;
   }
 
   // The WHATWG percent-encode sets, each a predicate over a code point. Every set
@@ -303,190 +290,6 @@
     } catch {
       return FAILURE;
     }
-  }
-
-  // ------------------------------------------------------------------ //
-  // Punycode (RFC 3492) — used by the simplified IDNA host processing.  //
-  // ------------------------------------------------------------------ //
-
-  var PUNY_BASE = 36;
-  var PUNY_TMIN = 1;
-  var PUNY_TMAX = 26;
-  var PUNY_SKEW = 38;
-  var PUNY_DAMP = 700;
-  var PUNY_INITIAL_BIAS = 72;
-  var PUNY_INITIAL_N = 128;
-
-  function punyAdapt(delta, numPoints, firstTime) {
-    delta = firstTime ? MathFloor(delta / PUNY_DAMP) : delta >> 1;
-    delta += MathFloor(delta / numPoints);
-    var k = 0;
-    while (delta > ((PUNY_BASE - PUNY_TMIN) * PUNY_TMAX) >> 1) {
-      delta = MathFloor(delta / (PUNY_BASE - PUNY_TMIN));
-      k += PUNY_BASE;
-    }
-    return k + MathFloor(((PUNY_BASE - PUNY_TMIN + 1) * delta) / (delta + PUNY_SKEW));
-  }
-
-  function punyEncodeDigit(d) {
-    // 0..25 -> a..z, 26..35 -> 0..9
-    return d + 22 + (d < 26 ? 75 : 0);
-  }
-  function punyDecodeDigit(cp) {
-    if (cp - 48 < 10) return cp - 22; // 0..9
-    if (cp - 65 < 26) return cp - 65; // A..Z
-    if (cp - 97 < 26) return cp - 97; // a..z
-    return PUNY_BASE;
-  }
-
-  function punycodeEncode(input) {
-    var output = [];
-    var codePoints = [];
-    for (var s = 0; s < input.length; s++) {
-      var cp = StringPrototypeCodePointAt(input, s);
-      if (cp > 0xffff) s++;
-      ArrayPrototypePush(codePoints, cp);
-    }
-    var n = PUNY_INITIAL_N;
-    var delta = 0;
-    var bias = PUNY_INITIAL_BIAS;
-    var basicLength = 0;
-    var i;
-    for (i = 0; i < codePoints.length; i++) {
-      if (codePoints[i] < 0x80) {
-        ArrayPrototypePush(output, codePoints[i]);
-        basicLength++;
-      }
-    }
-    var handled = basicLength;
-    if (basicLength > 0) ArrayPrototypePush(output, 0x2d); // '-'
-    while (handled < codePoints.length) {
-      var m = 0x7fffffff;
-      for (i = 0; i < codePoints.length; i++) {
-        if (codePoints[i] >= n && codePoints[i] < m) m = codePoints[i];
-      }
-      delta += (m - n) * (handled + 1);
-      n = m;
-      for (i = 0; i < codePoints.length; i++) {
-        var c = codePoints[i];
-        if (c < n) delta++;
-        if (c === n) {
-          var q = delta;
-          for (var k = PUNY_BASE; ; k += PUNY_BASE) {
-            var t = k <= bias ? PUNY_TMIN : k >= bias + PUNY_TMAX ? PUNY_TMAX : k - bias;
-            if (q < t) break;
-            ArrayPrototypePush(output, punyEncodeDigit(t + ((q - t) % (PUNY_BASE - t))));
-            q = MathFloor((q - t) / (PUNY_BASE - t));
-          }
-          ArrayPrototypePush(output, punyEncodeDigit(q));
-          bias = punyAdapt(delta, handled + 1, handled === basicLength);
-          delta = 0;
-          handled++;
-        }
-      }
-      delta++;
-      n++;
-    }
-    var str = '';
-    for (i = 0; i < output.length; i++) str += StringFromCharCode(output[i]);
-    return str;
-  }
-
-  function punycodeDecode(input) {
-    var output = [];
-    var n = PUNY_INITIAL_N;
-    var bias = PUNY_INITIAL_BIAS;
-    var i = 0;
-    var basic = input.lastIndexOf('-');
-    if (basic < 0) basic = 0;
-    for (var j = 0; j < basic; j++) {
-      if (StringPrototypeCharCodeAt(input, j) >= 0x80) throw new RangeError('Invalid input');
-      ArrayPrototypePush(output, StringPrototypeCharCodeAt(input, j));
-    }
-    var index = basic > 0 ? basic + 1 : 0;
-    while (index < input.length) {
-      var oldi = i;
-      var w = 1;
-      for (var k = PUNY_BASE; ; k += PUNY_BASE) {
-        if (index >= input.length) throw new RangeError('Invalid input');
-        var digit = punyDecodeDigit(StringPrototypeCharCodeAt(input, index++));
-        if (digit >= PUNY_BASE) throw new RangeError('Invalid input');
-        i += digit * w;
-        var t = k <= bias ? PUNY_TMIN : k >= bias + PUNY_TMAX ? PUNY_TMAX : k - bias;
-        if (digit < t) break;
-        w *= PUNY_BASE - t;
-      }
-      var outLen = output.length + 1;
-      bias = punyAdapt(i - oldi, outLen, oldi === 0);
-      n += MathFloor(i / outLen);
-      i %= outLen;
-      ArrayPrototypeSplice(output, i, 0, n);
-      i++;
-    }
-    var str = '';
-    for (var o = 0; o < output.length; o++) str += StringFromCodePoint(output[o]);
-    return str;
-  }
-
-  function hasNonASCII(str) {
-    for (var i = 0; i < str.length; i++) {
-      if (StringPrototypeCharCodeAt(str, i) > 0x7f) return true;
-    }
-    return false;
-  }
-
-  // Simplified IDNA ToASCII. Approximates UTS-46 by: normalizing the three IDNA
-  // label separators to '.', applying NFKC + lowercasing each Unicode label (so
-  // fullwidth/compatibility characters fold the way ICU maps them), and emitting
-  // the Punycode "xn--…" form. ASCII labels are just lowercased. Not the full ICU
-  // mapping table, but round-trips the overwhelming majority of real domains.
-  function domainToASCII(domain) {
-    if (domain === '') return '';
-    // IDEOGRAPHIC FULL STOP, FULLWIDTH FULL STOP, HALFWIDTH IDEOGRAPHIC FULL STOP.
-    // Fold the three IDNA separators to '.', without a RegExp — see stripChars.
-    domain = foldIdnaSeparators(domain);
-    var labels = StringPrototypeSplit(domain, '.');
-    var out = [];
-    for (var i = 0; i < labels.length; i++) {
-      var label = labels[i];
-      if (hasNonASCII(label)) {
-        var mapped = (
-          label.normalize ? StringPrototypeNormalize(label, 'NFKC') : label
-        ).toLowerCase();
-        if (!hasNonASCII(mapped)) {
-          // The mapping folded the label to pure ASCII (e.g. fullwidth digits).
-          ArrayPrototypePush(out, mapped);
-          continue;
-        }
-        try {
-          ArrayPrototypePush(out, 'xn--' + punycodeEncode(mapped));
-        } catch {
-          return FAILURE;
-        }
-      } else {
-        ArrayPrototypePush(out, StringPrototypeToLowerCase(label));
-      }
-    }
-    return ArrayPrototypeJoin(out, '.');
-  }
-
-  function domainToUnicode(domain) {
-    if (domain === '') return '';
-    var labels = StringPrototypeSplit(domain, '.');
-    var out = [];
-    for (var i = 0; i < labels.length; i++) {
-      var label = labels[i];
-      if (label.slice(0, 4).toLowerCase() === 'xn--') {
-        try {
-          ArrayPrototypePush(out, punycodeDecode(label.slice(4)));
-        } catch {
-          ArrayPrototypePush(out, label);
-        }
-      } else {
-        ArrayPrototypePush(out, label);
-      }
-    }
-    return ArrayPrototypeJoin(out, '.');
   }
 
   // ------------------------------------------------------------------ //
@@ -1401,31 +1204,23 @@
     var baseRecord;
     if (base !== undefined && base !== null) {
       baseRecord = basicURLParse(StringG(base));
-      if (baseRecord === FAILURE) throw invalidURL(base);
+      if (baseRecord === FAILURE) throw invalidURL(nativeError, input, base);
     }
     var record = basicURLParse(StringG(input), baseRecord);
-    if (record === FAILURE) throw invalidURL(input);
+    if (record === FAILURE) {
+      throw invalidURL(nativeError, input, baseRecord === undefined ? undefined : base);
+    }
     return record;
   }
 
-  function invalidURL(input) {
-    var err = new TypeError('Invalid URL');
-    err.code = 'ERR_INVALID_URL';
+  // ERR_INVALID_URL in node's two shapes: the constructor's parse runs in C++, so
+  // String(e) is `TypeError: Invalid URL`; the href setter throws from JS, so it is
+  // `TypeError [ERR_INVALID_URL]: Invalid URL`. Both carry `input`, and `base` when the
+  // parse ran against one (node 26.13.0, case 76).
+  function invalidURL(make, input, base) {
+    var err = make(TypeErrorG, 'ERR_INVALID_URL', 'Invalid URL');
     err.input = StringG(input);
-    return err;
-  }
-
-  // ERR_INVALID_ARG_TYPE, matching Node's message shape closely enough that the
-  // `.code` (what callers branch on) is identical.
-  function invalidArgType(name, expected, value) {
-    var received =
-      value === null
-        ? 'null'
-        : 'type ' + typeof value + ' (' + (typeof value === 'object' ? '' : value) + ')';
-    var err = new TypeError(
-      'The "' + name + '" argument must be ' + expected + '. Received ' + received,
-    );
-    err.code = 'ERR_INVALID_ARG_TYPE';
+    if (base !== undefined) err.base = StringG(base);
     return err;
   }
 
@@ -1846,7 +1641,7 @@
     },
     set: function (value) {
       var record = basicURLParse(toUSVString(value));
-      if (record === FAILURE) throw invalidURL(value);
+      if (record === FAILURE) throw invalidURL(nodeError, value);
       this[kRecord] = record;
       refreshSearchParams(this);
     },
@@ -2072,7 +1867,7 @@
     var href;
     if (typeof input === 'string') href = new URL(input).href;
     else if (input instanceof URL) href = input.href;
-    else throw invalidArgType('path', 'of type string or an instance of URL', input);
+    else throw ERR_INVALID_ARG_TYPE('path', ['string', 'URL'], input);
     return fileURLToPathFromHref(href);
   }
 
@@ -2080,9 +1875,7 @@
   // node:sqlite, which call it on an href, behave exactly as before).
   function fileURLToPathFromHref(url) {
     if (url.slice(0, 5).toLowerCase() !== 'file:') {
-      var schemeErr = new TypeError('The URL must be of scheme file');
-      schemeErr.code = 'ERR_INVALID_URL_SCHEME';
-      throw schemeErr;
+      throw nodeError(TypeErrorG, 'ERR_INVALID_URL_SCHEME', 'The URL must be of scheme file');
     }
     var isWindows = process.platform === 'win32';
     var rest = url.slice(5);
@@ -2099,8 +1892,15 @@
     var query = rest.indexOf('?');
     if (query !== -1) rest = rest.slice(0, query);
     if (reTest(PERCENT_2F_RE, rest) || (isWindows && reTest(PERCENT_5C_RE, rest))) {
-      var sepErr = new TypeError('File URL path must not include encoded / or \\ characters');
-      sepErr.code = 'ERR_INVALID_FILE_URL_PATH';
+      // node words the two platforms differently and attaches the href as `input`.
+      var sepErr = nodeError(
+        TypeErrorG,
+        'ERR_INVALID_FILE_URL_PATH',
+        isWindows
+          ? 'File URL path must not include encoded \\ or / characters'
+          : 'File URL path must not include encoded / characters',
+      );
+      sepErr.input = url;
       throw sepErr;
     }
 
@@ -2111,63 +1911,19 @@
       }
       var letter = StringPrototypeCharCodeAt(winPath, 1) | 0x20;
       if (letter < 97 || letter > 122 || StringPrototypeCharAt(winPath, 2) !== ':') {
-        var pathErr = new TypeError('File URL path must be absolute');
-        pathErr.code = 'ERR_INVALID_FILE_URL_PATH';
-        throw pathErr;
+        throw nodeError(TypeErrorG, 'ERR_INVALID_FILE_URL_PATH', 'File URL path must be absolute');
       }
       return winPath.slice(1);
     }
 
     if (host !== '' && !isLocalhost) {
-      var hostErr = new TypeError(
+      throw nodeError(
+        TypeErrorG,
+        'ERR_INVALID_FILE_URL_HOST',
         'File URL host must be "localhost" or empty on ' + process.platform,
       );
-      hostErr.code = 'ERR_INVALID_FILE_URL_HOST';
-      throw hostErr;
     }
     return decodeURIComponentG(rest);
-  }
-
-  function pathToFileURL(filepath) {
-    if (typeof filepath !== 'string') {
-      throw invalidArgType('path', 'of type string', filepath);
-    }
-    var path = require('node:path');
-    var isWindows = process.platform === 'win32';
-    var input = filepath;
-    var resolved = path.resolve(input);
-    // path.resolve drops a trailing separator; Node preserves it on the URL, so
-    // re-append a '/' when the original path ended in one and resolve removed it.
-    var lastChar = StringPrototypeCharCodeAt(input, input.length - 1);
-    var endedWithSep = lastChar === 0x2f || (isWindows && lastChar === 0x5c);
-    if (endedWithSep && resolved[resolved.length - 1] !== path.sep) resolved += '/';
-    var url = new URL('file://');
-    // Percent-encode the path's special characters, then assign as pathname so the
-    // URL machinery normalizes it. We encode %, #, ? and (on POSIX) backslash so
-    // they are not reinterpreted; control chars and others are handled by the setter.
-    var encoded = resolved
-      .replaceAll('%', '%25')
-      .replaceAll('\\', isWindows ? '\\' : '%5C')
-      .replaceAll('\n', '%0A')
-      .replaceAll('\r', '%0D')
-      .replaceAll('	', '%09');
-    if (isWindows) {
-      // Normalize separators for the file URL; UNC paths keep the host.
-      encoded = StringPrototypeReplaceAll(encoded, '\\', '/');
-      if (encoded.slice(0, 2) === '//') {
-        // UNC \\server\share -> file://server/share
-        var withoutLead = encoded.slice(2);
-        var slash = withoutLead.indexOf('/');
-        var serverHost = slash === -1 ? withoutLead : withoutLead.slice(0, slash);
-        url.hostname = serverHost;
-        url.pathname = slash === -1 ? '/' : withoutLead.slice(slash);
-        return url;
-      }
-      url.pathname = '/' + StringPrototypeReplace(encoded, LEADING_SLASHES_RE, '');
-    } else {
-      url.pathname = encoded;
-    }
-    return url;
   }
 
   function urlToHttpOptions(url) {
@@ -2194,35 +1950,6 @@
     return options;
   }
 
-  function format(urlInput, options) {
-    if (!(urlInput instanceof URL)) {
-      throw new TypeError('The "url" argument must be an instance of URL.');
-    }
-    options = options || {};
-    var auth = options.auth !== false;
-    var fragment = options.fragment !== false;
-    var search = options.search !== false;
-    var unicode = options.unicode === true;
-
-    var url = urlInput[kRecord];
-    var output = url.scheme + ':';
-    if (url.host !== null) {
-      output += '//';
-      var hasCreds = url.username !== '' || url.password !== '';
-      if (auth && hasCreds) {
-        output += url.username;
-        if (url.password !== '') output += ':' + url.password;
-        output += '@';
-      }
-      output += unicode ? domainToUnicode(url.host) : url.host;
-      if (url.port !== null) output += ':' + url.port;
-    }
-    output += serializePath(url);
-    if (search && url.query !== null) output += '?' + url.query;
-    if (fragment && url.fragment !== null) output += '#' + url.fragment;
-    return output;
-  }
-
   // Extract and host-parse the domain argument to domainToASCII/Unicode, applying
   // the same preprocessing the URL parser does: remove ASCII tab/newline, then take
   // everything up to the first authority terminator (/ \ ? #). Returns the parsed
@@ -2239,37 +1966,11 @@
     return parseHost(input, true);
   }
 
-  // ------------------------------------------------------------------ //
-  // Global installation + module exports                               //
-  // ------------------------------------------------------------------ //
-
-  // Preserve the object-URL statics node:buffer attaches to globalThis.URL (it may
-  // have run first and stubbed URL, or may run after us). Copy any it already set
-  // onto the real class so `URL.createObjectURL`/`revokeObjectURL` keep working.
-  var priorURL = globalThis.URL;
-  if (priorURL && typeof priorURL === 'object') {
-    if (typeof priorURL.createObjectURL === 'function') {
-      URL.createObjectURL = priorURL.createObjectURL;
-    }
-    if (typeof priorURL.revokeObjectURL === 'function') {
-      URL.revokeObjectURL = priorURL.revokeObjectURL;
-    }
-  }
-
-  if (typeof globalThis.URL !== 'function') {
-    globalThis.URL = URL;
-  }
-  if (globalThis.URLSearchParams === undefined) {
-    globalThis.URLSearchParams = URLSearchParams;
-  }
-
   module.exports = {
     URL: URL,
     URLSearchParams: URLSearchParams,
     fileURLToPath: fileURLToPath,
-    pathToFileURL: pathToFileURL,
     urlToHttpOptions: urlToHttpOptions,
-    format: format,
     // Node's domainToASCII/domainToUnicode validate their input as a host (the
     // same machinery URL parsing uses) and return '' for anything that is not a
     // valid domain — so they can be used as a normalization/validation primitive.
@@ -2285,5 +1986,11 @@
       var host = hostFromDomainArg(domain);
       return host === FAILURE ? '' : domainToUnicode(host);
     },
+    // For node/url.js's format(), which node frames in node:url and so stays there:
+    // the record slot, the path serializer, and the Punycode host decoder (the
+    // unvalidated one; the public `domainToUnicode` above validates first).
+    kRecord: kRecord,
+    serializePath: serializePath,
+    hostToUnicode: domainToUnicode,
   };
 });

@@ -1,9 +1,10 @@
 // Prototype-pollution ratchet — CLI entry point.
 //
-// The detector lives in lib/primordials-detect.mjs and its fixtures in
-// lib/primordials-fixtures.mjs; this file is the baseline comparison, the
-// --update path, and the report. See the detector for what each class means
-// and why the tool parses rather than scans.
+// The detector lives in lib/primordials-detect.mjs, its fixtures in
+// lib/primordials-fixtures.mjs and the tree scan in lib/primordials-scan.mjs;
+// this file is the baseline comparison, the --update path, and the report. See
+// the detector for what each class means and why the tool parses rather than
+// scans.
 //
 // Usage:
 //   node scripts/check-primordials.mjs                  # check against baseline
@@ -11,8 +12,8 @@
 //   node scripts/check-primordials.mjs --update --allow-raise
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import { relative, sep } from 'node:path';
-import { KINDS, countFile, walkDir, JS_DIR, BASELINE } from './lib/primordials-detect.mjs';
+import { KINDS, BASELINE, ROOT } from './lib/primordials-detect.mjs';
+import { scanTree } from './lib/primordials-scan.mjs';
 import { selfTest } from './lib/primordials-fixtures.mjs';
 import { compare, raises, totals } from './lib/primordials-baseline.mjs';
 
@@ -33,21 +34,10 @@ if (selfTestFailures.length > 0) {
   process.exit(1);
 }
 
-const files = walkDir(JS_DIR).sort();
-const counts = {};
-const allHits = {};
-for (const file of files) {
-  const key = relative(JS_DIR, file).split(sep).join('/');
-  const { hits } = countFile(file);
-  // PER-CLASS counts, not one number. The classes differ by an order of
-  // magnitude, and a single total would let a file trade a fixed accessor for a
-  // new global and still pass.
-  const byKind = {};
-  for (const k of KINDS) byKind[k] = 0;
-  for (const h of hits) byKind[h.kind]++;
-  counts[key] = byKind;
-  allHits[key] = hits;
-}
+// The scan, including the eager/lazy classification, is lib/primordials-scan.mjs so
+// a test can drive it over a fixture tree. This file stays a plain script with no
+// entry-point guard: its body must run however it is invoked.
+const { files, counts, allHits } = scanTree(ROOT);
 
 const perKindLine = () => KINDS.map((k) => `${k} ${totals(counts).perKind[k]}`).join(', ');
 const grandTotal = () => totals(counts).total;
@@ -136,11 +126,13 @@ if (stale.length > 0) {
 if (failed) {
   console.error(
     '\nPollution ratchet FAILED: a module gained pollutable sites. The fix depends on\n' +
-      "the class:  method/invoke -> route through primordials (require('primordials'),\n" +
+      "the class:  method/invoke -> route through primordials (require('internal/primordials'),\n" +
       '            ReflectApply for .call/.apply)\n' +
       '            accessor     -> read via a captured getter, e.g.\n' +
       '                            TypedArrayPrototypeGetBuffer(view)\n' +
-      '            global       -> capture at module-eval (`var StringG = String;`)\n' +
+      '            global       -> capture at module-eval (`var StringG = String;`) in an\n' +
+      '                            eager module; in a lazy one take the loader handle\n' +
+      "                            (require('internal/primordials'), require.pristineBuffer)\n" +
       'A genuine false positive (the receiver is a class instance, not a built-in) takes\n' +
       '`// primordials-ok` on the same line. On a line carrying candidates from more\n' +
       'than one class the bare marker suppresses nothing — name it:\n' +

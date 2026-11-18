@@ -8,28 +8,30 @@
 
   // Captured for encodeValue, which replaced a global-flag replace reachable from a
   // remote Content-Type. This file is not otherwise hardened — see the ratchet baseline.
-  var P = require('primordials');
+  var P = require('internal/primordials');
   var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;
   var StringPrototypeSlice = P.StringPrototypeSlice;
   var RegExpMatches = P.RegExpMatches;
 
-  var kData = Symbol('data'); // MIMEParams: the Map of name -> value
-  var kType = Symbol('type');
-  var kSubtype = Symbol('subtype');
-  var kParams = Symbol('params');
+  // Taken off the primordials table, not the live globals: this module is LAZY (its factory
+  // runs on the user's first require of util), so a module-eval `Symbol(...)` here reads
+  // whatever user code left on globalThis — #426, pinned by
+  // tests/node-compat/cases/75-lazy-global-capture.js.
+  var SymbolG = P.Symbol;
+  var ObjectDefineProperties = P.ObjectDefineProperties;
+
+  var kData = SymbolG('data'); // MIMEParams: the Map of name -> value
+  var kType = SymbolG('type');
+  var kSubtype = SymbolG('subtype');
+  var kParams = SymbolG('params');
 
   // An HTTP token code point (RFC 9110): the chars allowed unquoted in a type/subtype/name.
   var NotHTTPTokenCodePoint = /[^!#$%&'*+\-.^_`|~A-Za-z0-9]/;
   // An HTTP quoted-string code point: tab, the printable ASCII range (U+0020..U+007E), and
   // the Latin-1 high range (U+0080..U+00FF). Anything else (other controls, newline) cannot
-  // appear even inside quotes.
-  var NotHTTPQuotedStringCodePoint = new RegExp(
-    String.fromCharCode(91, 94, 9) +
-      String.fromCharCode(32) +
-      String.fromCharCode(45, 126) +
-      String.fromCharCode(128) +
-      String.fromCharCode(45, 255, 93),
-  );
+  // appear even inside quotes. A literal with escapes rather than the `new RegExp(String.
+  // fromCharCode(...))` it used to be: same class, and no read of a replaceable global.
+  var NotHTTPQuotedStringCodePoint = /[^\t\x20-\x7E\x80-\xFF]/;
   // Node's HTTP whitespace is tab, LF, CR and space — NOT form-feed (U+000C), unlike the
   // looser WHATWG set: a leading/trailing `\f` makes the type invalid rather than being
   // stripped, and a `\f` in a value keeps it (so the value fails the quoted-string check).
@@ -59,16 +61,17 @@
     return from === 0 ? str : out + StringPrototypeSlice(str, from);
   }
 
+  var nodeError = require('internal/errors').nodeError;
+  var TypeErrorP = P.TypeError;
+
   function mimeError(production, input, index) {
     var msg = 'The MIME syntax for a ' + production + ' in "' + input + '" is invalid';
     if (index !== undefined && index !== -1) msg += ' at ' + index;
-    var e = new TypeError(msg);
-    e.code = 'ERR_INVALID_MIME_SYNTAX';
-    return e;
+    return nodeError(TypeErrorP, 'ERR_INVALID_MIME_SYNTAX', msg);
   }
 
   // Validate a token production (type/subtype/parameter name). `input` is the string shown
-  // in the error. The reported index is relative to `value`, not to `input`: node 24 says
+  // in the error. The reported index is relative to `value`, not to `input`: node 26.13.0 says
   // `The MIME syntax for a subtype in "text/p@in" is invalid at 1`.
   function validateToken(production, value, input) {
     if (value.length === 0) throw mimeError(production, input, -1);
@@ -77,12 +80,16 @@
   }
 
   function parse(str) {
-    // Only leading whitespace is trimmed from the whole input; trailing whitespace is
-    // removed per-component (subtype, unquoted value) so it cannot eat characters inside a
-    // quoted value (e.g. an unterminated `a="b\t` keeps the tab). Errors quote the input
-    // as given, leading whitespace included, as node does.
+    // The whole input is trimmed at both ends first (WHATWG mimesniff step 1), so an
+    // unterminated `a="b\t` loses the tab — node 26 does this; node 24 trimmed only the
+    // leading end and kept it. Subtype and unquoted values are still trimmed per
+    // component, since whitespace before a ';' is not at the end of the input. Errors
+    // quote the input as given, as node does.
     var input = str;
     str = str.replace(LEADING_HTTP_WS, '');
+    var end = str.length;
+    while (end > 0 && isHTTPWhitespace(str[end - 1])) end--;
+    str = StringPrototypeSlice(str, 0, end);
     var slash = str.indexOf('/');
     if (slash === -1) throw mimeError('type', input, -1);
     var type = str.slice(0, slash);
@@ -141,15 +148,16 @@
           position++;
         }
         value = buf;
-        // Do not skip the rest of the line to the next ';' here: Node resumes the loop
-        // right after the closing quote (the single advance below steps past the next
-        // char), so parameters that follow a quoted value across whitespace/';' survive.
+        // Everything after the closing quote up to the next ';' is discarded (WHATWG
+        // mimesniff, node 26): `a="b" c=d` keeps only a. node 24 resumed one char past
+        // the quote and kept c=d.
+        while (position < len && str[position] !== ';') position++;
       } else {
         var valStart = position;
         while (position < len && str[position] !== ';') position++;
         value = str.slice(valStart, position).replace(TRAILING_HTTP_WS, '');
       }
-      if (position < len) position++; // step past the ';' (or the char after a closing quote)
+      if (position < len) position++; // step past the ';'
 
       // Keep only well-formed, non-duplicate parameters (first wins). An empty value is
       // dropped only when it was unquoted; a quoted "" is a valid empty value, matching
@@ -219,7 +227,8 @@
 
   // Every name-taking method folds the name the way parse does, so a parsed `charset`
   // is reachable as get('Charset') and set('Charset') replaces it rather than adding a
-  // second parameter (node 24.21, verified; node 22 compared names as given). The fold
+  // second parameter (since node 24.21; re-verified on 26.13.0; node 22 compared names as
+  // given). The fold
   // happens before validation, so a syntax error quotes the folded name.
   MIMEParams.prototype.get = function get(name) {
     var data = this[kData];
@@ -257,7 +266,7 @@
     return serializeParams(this[kData]);
   };
   MIMEParams.prototype.toJSON = MIMEParams.prototype.toString;
-  MIMEParams.prototype[Symbol.iterator] = MIMEParams.prototype.entries;
+  MIMEParams.prototype[SymbolG.iterator] = MIMEParams.prototype.entries;
 
   function MIMEType(string) {
     if (new.target === undefined) {
@@ -271,7 +280,7 @@
     this[kParams] = params;
   }
 
-  Object.defineProperties(MIMEType.prototype, {
+  ObjectDefineProperties(MIMEType.prototype, {
     type: {
       configurable: true,
       enumerable: true,

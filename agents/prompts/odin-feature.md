@@ -24,7 +24,7 @@ Read `CLAUDE.md` and `docs/LARVA.md` first. Reuse index:
 Decide which profile the surface belongs to (`docs/LARVA.md` decision 1) — it
 picks the oracle for every later phase:
 
-- **Node** (`process`, `require`, `Buffer`, `node:*`) → real `node` 22+/24.
+- **Node** (`process`, `require`, `Buffer`, `node:*`) → real `node` 26+ (`.nvmrc`).
 - **Window** (anything a page can reach) → recorded Chrome output. No `process`,
   `require` or `Buffer`; plain `TypeError`/`DOMException` with Chrome's messages
   and no `code`; plain `Uint8Array`.

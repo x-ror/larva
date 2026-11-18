@@ -352,7 +352,7 @@ tls_server_begin_close :: proc(conn: ^Net_Connection) {
 	tls_pump_wbio(conn)
 }
 
-// --- native bindings (the `native` object js/internal/https.js receives) -----
+// --- native bindings (the `native` object js/node/https.js receives) -----
 
 // make_https_bindings builds the bindings for node:https. createSecureContext is the synchronous
 // throw point Node callers expect (bad PEM / key-cert mismatch / encrypted key all throw from

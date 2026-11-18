@@ -48,13 +48,27 @@ try {
 }
 assert.equal(boundary && boundary.code, 'ERR_OUT_OF_RANGE');
 
-// run(): changes/lastInsertRowid are numbers by default (lossy, never throw),
-// BigInt under setReadBigInts(true).
+// run(): changes/lastInsertRowid are numbers by default, BigInt under
+// setReadBigInts(true). From node 26 an unsafe rowid throws like a column read does
+// (node 24 returned a lossy number) — AFTER the row is written, so the insert stands.
 db.exec('CREATE TABLE u (id INTEGER PRIMARY KEY)');
+const small = db.prepare('INSERT INTO u (id) VALUES (5)').run();
+assert.equal(small.lastInsertRowid, 5);
+assert.equal(small.changes, 1);
 const ins = db.prepare('INSERT INTO u (id) VALUES (9007199254740995)');
-const r = ins.run();
-assert.equal(typeof r.lastInsertRowid, 'number');
-assert.equal(typeof r.changes, 'number');
+let unsafe;
+try {
+  ins.run();
+} catch (e) {
+  unsafe = e;
+}
+assert.ok(unsafe instanceof RangeError, 'unsafe rowid: RangeError');
+assert.equal(unsafe.code, 'ERR_OUT_OF_RANGE');
+assert.equal(
+  unsafe.message,
+  'Value is too large to be represented as a JavaScript number: 9007199254740995',
+);
+assert.equal(db.prepare('SELECT count(*) AS c FROM u WHERE id = 9007199254740995').get().c, 1);
 
 const insBig = db.prepare('INSERT INTO u (id) VALUES (9007199254740999)');
 insBig.setReadBigInts(true);

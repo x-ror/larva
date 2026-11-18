@@ -7,7 +7,7 @@ it is _mergeable_. A change can be fast and still not merge.
 
 ### 1. Oracle conformance (primary)
 
-The oracle depends on the profile (`docs/LARVA.md` decision 1): real Node 22+/24
+The oracle depends on the profile (`docs/LARVA.md` decision 1): real Node 26+ (`.nvmrc`)
 for the Node profile, recorded Chrome output for the Window profile, both for
 shared Web API code. A diff touching several profiles is graded by its worst.
 

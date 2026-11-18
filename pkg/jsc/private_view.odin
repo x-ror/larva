@@ -366,7 +366,7 @@ when ODIN_OS == .Linux {
 	//   unavailable — and the caller must use the C API.
 	// Node:
 	//   A length-tracking view's length follows its buffer, and a fixed view
-	//   the buffer has shrunk under reads as length 0 (node 24.21, verified by
+	//   the buffer has shrunk under reads as length 0 (node 26.13.0, verified by
 	//   tests/node-compat/cases/68-resizable-view-bytes.js). Declining those
 	//   views is what keeps this path from answering either wrongly.
 	//

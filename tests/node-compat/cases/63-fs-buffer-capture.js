@@ -1,6 +1,6 @@
 // fs must not resolve Buffer through the mutable `node:buffer` exports.
 //
-// `js/internal/fs.js` is a LAZY internal module: its factory does not run until user code
+// `js/node/fs.js` is a LAZY internal module: its factory does not run until user code
 // calls require('fs'). A `require('buffer').Buffer` capture at ITS module-eval therefore
 // reads whatever the exports object holds by then — and that is the same object user code
 // holds. §5's "capture at module-eval is safe" rule only holds for modules the LOADER

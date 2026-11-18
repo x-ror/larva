@@ -20,7 +20,7 @@ for how the runtime pieces fit together.
 
 ## Requirements
 
-- Odin
+- Odin (CI pins `dev-2026-11a` with LLVM 18)
 - JavaScriptCore development headers and libraries
 - SQLite development headers and libraries (for `node:sqlite`)
 - OpenSSL development headers and libraries (for `fetch` HTTPS/TLS). The roadmap
@@ -40,7 +40,7 @@ fetch JavaScriptCore/WebKit and the SQLite amalgamation into the ignored `.deps/
 cache. `scripts/build-sqlite-windows.sh` then compiles SQLite into
 `build/sqlite3.lib`; WebKit is linked from `.deps/webkit/bun-webkit/lib`.
 
-Node 24+ and Bun are needed for the JavaScript gates — run `bun install` once.
+Node 26+ (`26.13.0` pinned in [`.nvmrc`](.nvmrc); oracle suites refuse an older major) and Bun are needed for the JavaScript gates — run `bun install` once.
 They are dev-only (`markdownlint-cli2`, `acorn`/`acorn-walk` for the
 prototype-pollution ratchet, `fast-check` for `make test-property`); `bin/lava`
 links none of them. `make check-js` is an always-gate and now fails without them.

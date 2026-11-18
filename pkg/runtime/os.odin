@@ -6,7 +6,7 @@ import "core:fmt"
 import "core:os"
 import jsc "lava:pkg/jsc"
 
-// node:os native bridge. js/internal/os.js implements the public surface and
+// node:os native bridge. js/node/os.js implements the public surface and
 // computes everything that is a pure function of process.platform/process.env
 // (homedir/tmpdir/EOL/devNull/endianness/constants); the live system numbers come
 // from here. The platform-specific syscalls live in os_posix.odin (Linux+Darwin
@@ -27,7 +27,7 @@ Os_Cpu :: struct {
 	user, nice, sys, idle, irq: i64,
 }
 
-// Os_Net_Iface is one flat interface address record; js/internal/os.js groups
+// Os_Net_Iface is one flat interface address record; js/node/os.js groups
 // these by name and decorates each with the string family and the CIDR. family is
 // 4 or 6; scopeid is only meaningful for IPv6 (0 otherwise). mac is "xx:..:xx".
 Os_Net_Iface :: struct {
@@ -69,7 +69,7 @@ os_getenv_or :: proc(key: string, fallback: string) -> string {
 	return v
 }
 
-// make_os_bindings builds the `native` object handed to js/internal/os.js.
+// make_os_bindings builds the `native` object handed to js/node/os.js.
 make_os_bindings :: proc(ctx: jsc.JSContextRef) -> jsc.JSObjectRef {
 	bindings := jsc.JSObjectMake(ctx, nil, nil)
 	inject_native_function(ctx, bindings, "hostname", os_hostname_cb)
@@ -324,7 +324,7 @@ os_userinfo_cb :: proc "c" (
 
 // --- priority ---------------------------------------------------------------
 //
-// js/internal/os.js validates pid/priority (int32; priority in [-20, 19]) and
+// js/node/os.js validates pid/priority (int32; priority in [-20, 19]) and
 // throws the Node-shaped TypeError/RangeError before calling these, so the native
 // side only performs the syscall. A failed syscall (unknown pid -> ESRCH, or
 // EPERM) becomes an ERR_SYSTEM_ERROR, matching Node's _getPriority/_setPriority.

@@ -10,8 +10,8 @@
 (function (require, module) {
   'use strict';
 
-  var P = require('primordials');
-  var TypeError = P.TypeError;
+  var P = require('internal/primordials');
+  var TypeErrorP = P.TypeError;
   var ObjectKeys = P.ObjectKeys;
   var ObjectPrototypeHasOwnProperty = P.ObjectPrototypeHasOwnProperty;
   var ArrayPrototypePush = P.ArrayPrototypePush;
@@ -27,11 +27,8 @@
     return ObjectPrototypeHasOwnProperty(obj, key) ? obj[key] : undefined;
   }
 
-  function codedError(code, message) {
-    var e = new TypeError(message);
-    e.code = code;
-    return e;
-  }
+  var errors = require('internal/errors');
+  var nodeError = errors.nodeError;
 
   function findLongOptionForShort(shortOption, options) {
     var keys = ObjectKeys(options);
@@ -209,17 +206,23 @@
 
   function checkOptionUsage(token, options) {
     if (!ObjectPrototypeHasOwnProperty(options, token.name)) {
-      throw codedError('ERR_PARSE_ARGS_UNKNOWN_OPTION', "Unknown option '" + token.rawName + "'");
+      throw nodeError(
+        TypeErrorP,
+        'ERR_PARSE_ARGS_UNKNOWN_OPTION',
+        "Unknown option '" + token.rawName + "'",
+      );
     }
     var spec = options[token.name];
     if (spec.type === 'string' && typeof token.value !== 'string') {
-      throw codedError(
+      throw nodeError(
+        TypeErrorP,
         'ERR_PARSE_ARGS_INVALID_OPTION_VALUE',
         "Option '" + token.rawName + " <value>' argument missing",
       );
     }
     if (spec.type === 'boolean' && token.value !== undefined) {
-      throw codedError(
+      throw nodeError(
+        TypeErrorP,
         'ERR_PARSE_ARGS_INVALID_OPTION_VALUE',
         "Option '" + token.rawName + "' does not take an argument",
       );
@@ -228,7 +231,8 @@
 
   function checkOptionLikeValue(token) {
     if (!token.inlineValue && isOptionLikeValue(token.value)) {
-      throw codedError(
+      throw nodeError(
+        TypeErrorP,
         'ERR_PARSE_ARGS_INVALID_OPTION_VALUE',
         "Option '" +
           token.rawName +
@@ -268,7 +272,7 @@
     var options = objectGetOwn(config, 'options') || {};
 
     if (typeof options !== 'object' || options === null) {
-      throw codedError('ERR_INVALID_ARG_TYPE', 'The "options" argument must be of type object');
+      throw errors.ERR_INVALID_ARG_TYPE('options', 'object', options);
     }
 
     var tokens = argsToTokens(args, options);
@@ -286,7 +290,8 @@
         storeOption(token.name, token.value, options, result.values);
       } else if (token.kind === 'positional') {
         if (!allowPositionals) {
-          throw codedError(
+          throw nodeError(
+            TypeErrorP,
             'ERR_PARSE_ARGS_UNEXPECTED_POSITIONAL',
             "Unexpected argument '" +
               token.value +

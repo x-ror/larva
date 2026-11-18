@@ -43,7 +43,7 @@ g_bytes_ptr_mode: BytesPtr_Mode // written once per thread after first offset vi
 //   A view over a resizable ArrayBuffer has no fixed length: a length-tracking
 //   one follows the buffer's current size, and a fixed window the buffer has
 //   shrunk below reads as length 0 — so `decode(new Uint8Array(rab))` sees every
-//   byte and a stale window sees none (node 24.21, verified by
+//   byte and a stale window sees none (node 26.13.0, verified by
 //   tests/node-compat/cases/68-resizable-view-bytes.js). The cell fast path
 //   declines those views and the C API below answers for them; its byteLength
 //   applies the spec's rules for every view mode.
@@ -122,15 +122,26 @@ make_uint8_array :: proc(ctx: jsc.JSContextRef, data: []byte) -> jsc.JSValueRef 
 		ptr = raw_data(pad)
 		n = 0
 	}
+	// No free on a nil return: JSC already ran jsc_buffer_deallocator (see
+	// make_uint8_array_uninit).
 	array := jsc.make_uint8_nocopy_locked(ctx, ptr, c.size_t(n), jsc_buffer_deallocator)
 	return cast(jsc.JSValueRef)array
 }
 
 MAX_UNINIT_ALLOC :: 0x7fff_ffff // 2^31 - 1 bytes
 
+// make_uint8_array_uninit allocates `size` uninitialized bytes on runtime.heap_allocator()
+// (matching jsc_buffer_deallocator) and hands them to JavaScriptCore as a NoCopy Uint8Array.
+// A nil return needs no free here: JSTypedArray.h documents for
+// JSObjectMakeTypedArrayWithBytesNoCopy that "If an exception is thrown during this
+// function the bytesDeallocator will always be called" (MacOSX.sdk JavaScriptCore
+// Headers/JSTypedArray.h:61) — the bytes are wrapped in ArrayBuffer::createFromBytes
+// with the deallocator as its destructor before the typed array is created, so a
+// failed create drops that buffer and frees them. Deleting again is a double free.
 make_uint8_array_uninit :: proc(ctx: jsc.JSContextRef, size: int) -> (jsc.JSValueRef, bool) {
 	if size <= 0 || size > MAX_UNINIT_ALLOC do return nil, false
-	data, err := mem.alloc_bytes_non_zeroed(size, mem.DEFAULT_ALIGNMENT, context.allocator)
+	heap := runtime.heap_allocator()
+	data, err := mem.alloc_bytes_non_zeroed(size, mem.DEFAULT_ALIGNMENT, heap)
 	if err != nil || len(data) != size do return nil, false
 	array := jsc.make_uint8_nocopy_locked(
 		ctx,

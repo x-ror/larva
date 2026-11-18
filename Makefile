@@ -25,7 +25,7 @@ endif
 SOURCE ?= console.log('hello from Lava')
 FILE ?=
 
-.PHONY: test-stdio help bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-sqlite-odin test-sqlite-node test-sqlite-lava test-fs-node test-fs-lava test-eventloop-node test-eventloop-lava test-fetch-smoke test-net-smoke test-http-smoke test-https-smoke test-multicore-smoke test-zerocopy-smoke test-bench-pages-smoke bench bench-gate bench-http bench-pages fmt clean
+.PHONY: gates test-stdio help bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-sqlite-odin test-sqlite-node test-sqlite-lava test-fs-node test-fs-lava test-eventloop-node test-eventloop-lava test-fetch-smoke test-net-smoke test-http-smoke test-https-smoke test-multicore-smoke test-zerocopy-smoke bench bench-gate bench-http fmt clean test-bench-pages-smoke bench-pages
 
 help:
 	@printf '%s\n' 'Lava commands'
@@ -43,9 +43,9 @@ help:
 	@printf '%s\n' '  make check              Type-check Odin packages (incl. windows/darwin front-ends)'
 	@printf '%s\n' '  make check-cli          Type-check cmd/lava only'
 	@printf '%s\n' '  make check-runtime      Type-check runtime packages only'
-	@printf '%s\n' '  make check-js           Vite+ fmt/lint + orphan-JS + scripts tests + primordials + global-replace'
+	@printf '%s\n' '  make check-js           Vite+ fmt/lint + JS module graph + scripts tests + primordials + global-replace'
 	@printf '%s\n' '  make fix-js             Auto-fix JS formatting/lint'
-	@printf '%s\n' '  make check-md           Markdown lint (markdownlint-cli2)'
+	@printf '%s\n' '  make check-md           Markdown fmt + lint'
 	@printf '%s\n' '  make fix-md             Auto-fix markdown lint'
 	@printf '%s\n' '  make check-actions      actionlint over .github/workflows'
 	@printf '%s\n' '  make check-primordials  Prototype-pollution ratchet (UPDATE=1 to lower; RAISE=--allow-raise)'
@@ -73,6 +73,7 @@ help:
 	@printf '%s\n' '  make test-property      Differential property tests (PROPERTY_RUNS=N)'
 	@printf '%s\n' '  make test-scripts       node:test over scripts/ only (also inside check-js)'
 	@printf '%s\n' '  make test-mutation      Mutation gate (CHANGED=1: only what the diff affects; FILTER=name)'
+	@printf '%s\n' '  make gates              Run routed gates for the current diff (stops on first failure)'
 	@printf '%s\n' '  make bun-buffer-tests   Ported Buffer cases node-vs-Lava'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Smokes (bind local ports)'
@@ -92,6 +93,7 @@ help:
 	@printf '%s\n' '  SKIP_KNOWN_LAVA_GAPS=1  Skip paths listed in the matching known-lava-gaps.txt'
 	@printf '%s\n' '  NODE_BIN=/path/to/node  Override the Node oracle binary'
 	@printf '%s\n' '  LAVA_BIN=/path/to/lava  Override the Lava binary under test'
+	@printf '%s\n' '  CASE_TIMEOUT_SEC=30     Per-case wall-clock timeout in seconds (default 30)'
 
 bootstrap-windows-deps:
 	$(RUNSCRIPT) ./scripts/bootstrap-windows-deps.sh
@@ -150,7 +152,7 @@ check-js:
 fix-js:
 	bun run js:fix
 
-# Markdown lint over the repo's own docs (config + rationale for the two disabled rules:
+# Markdown format (bun fmt, bunfig.toml) + lint over the repo's own docs (lint config + rationale for the two disabled rules:
 # .markdownlint-cli2.jsonc). Catches MD040 and friends locally instead of in review.
 check-md:
 	bun run md:check
@@ -177,6 +179,12 @@ check-primordials:
 # --test-name-pattern for iterating on one case. Part of `make check-js`.
 test-scripts:
 	node --test 'scripts/**/*.test.mjs'
+
+# Honest gate runner (#360): routes the current diff through runtime/gates/route-gates.mjs,
+# runs each gate without piping into tail, stops on the first failure, and prints a
+# summary table with real exit codes. Pass PATHS="file1 file2" or ARGS="--all" to override.
+gates:
+	node scripts/run-gates.mjs $(ARGS) $(PATHS)
 
 # MUTATION GATE. Applies each entry in tests/mutation-manifest.json to production
 # source and requires the named test to go RED. CLAUDE.md §6 has always demanded

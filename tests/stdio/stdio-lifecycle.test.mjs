@@ -8,7 +8,7 @@
 // (`>"$node_stdout"` in scripts/lib/compare.sh), so tests/node-compat/cases/61 is the file
 // half; this file is the pipe half, and it is where Lava's two declared deviations live.
 //
-// Measured on node 24.18.1, `write('A'); end('B'); <tick>; write('C')`:
+// Measured on node 26.13.0, `write('A'); end('B'); <tick>; write('C')`:
 //
 //   shape   node stdout   node exit   why
 //   file    A B C         0           SyncWriteStream + dummyDestroy: end() is undone

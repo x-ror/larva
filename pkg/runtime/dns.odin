@@ -7,7 +7,7 @@ import "core:strings"
 import jsc "lava:pkg/jsc"
 import eventloop "lava:pkg/runtime/eventloop"
 
-// node:dns bridge — Tier 1 (lookup). js/internal/dns.js implements the public
+// node:dns bridge — Tier 1 (lookup). js/node/dns.js implements the public
 // dns / dns.promises surface on top of these native primitives; the actual name
 // resolution is core:net's DNS client (NOT the system getaddrinfo — core:net
 // parses /etc/resolv.conf + /etc/hosts and speaks DNS itself), run off the event
@@ -22,7 +22,7 @@ import eventloop "lava:pkg/runtime/eventloop"
 // queries below. The record-type queries (resolve4/resolveMx/…) and reverse/
 // lookupService are Tier 2 and live behind c-ares (see pkg/std/cares).
 
-// Result order codes shared with js/internal/dns.js (ORDER_CODES). Only the
+// Result order codes shared with js/node/dns.js (ORDER_CODES). Only the
 // IPv6-first case changes which family we try first; verbatim and ipv4first both
 // try IPv4 first (core:net has no single interleaved OS order to preserve).
 ORDER_VERBATIM :: 0
@@ -62,7 +62,7 @@ Dns_Lookup_Request :: struct {
 	err_code: string, // static literal, e.g. "ENOTFOUND" / "EAI_AGAIN"
 }
 
-// make_dns_bindings builds the `native` object handed to js/internal/dns.js.
+// make_dns_bindings builds the `native` object handed to js/node/dns.js.
 make_dns_bindings :: proc(ctx: jsc.JSContextRef) -> jsc.JSObjectRef {
 	bindings := jsc.JSObjectMake(ctx, nil, nil)
 	inject_native_function(ctx, bindings, "lookup", dns_lookup_cb)

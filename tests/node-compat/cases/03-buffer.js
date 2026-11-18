@@ -45,4 +45,47 @@ if (typeof BigInt === 'function') {
 assert.equal(Buffer.copyBytesFrom(new Uint16Array([0x1234])).toString('hex'), '3412');
 assert.equal(require('node:buffer').atob('Zm9v'), 'foo');
 assert.equal(require('node:buffer').btoa('foo'), 'Zm9v');
+assert.equal(globalThis.atob, require('node:buffer').atob);
+assert.equal(globalThis.btoa, require('node:buffer').btoa);
+assert.equal(atob('Zm9v'), 'foo');
+assert.equal(btoa('foo'), 'Zm9v');
+// HTML forgiving-base64: ASCII whitespace is skipped, '=' only at the end and only
+// when it completes a quantum, a lone trailing char is an encoding error. Lava has no
+// DOMException, so name/code/message are what is compared (see buffer.js atob).
+for (const args of [
+  [],
+  ['!'],
+  [' Zm9v '],
+  ['Zm9'],
+  ['Zm9v='],
+  ['Zm9v=='],
+  ['Zm8='],
+  ['Zm8=='],
+  ['Z'],
+  ['a='],
+  ['a=='],
+  ['abcde='],
+  ['ab='],
+  ['abc=='],
+  ['Zm9v\n\t\f\r'],
+  ['Zm9v\v'],
+  ['Zm 9v'],
+  [undefined],
+  [null],
+]) {
+  try {
+    console.log('atob', JSON.stringify(args), JSON.stringify(atob(...args)));
+  } catch (e) {
+    console.log('atob', JSON.stringify(args), e.name, e.code, e.message);
+  }
+}
+for (const args of [[], ['\u0100'], ['\u00ff'], [null], [123]]) {
+  try {
+    console.log('btoa', JSON.stringify(args), JSON.stringify(btoa(...args)));
+  } catch (e) {
+    console.log('btoa', JSON.stringify(args), e.name, e.code, e.message);
+  }
+}
 assert.equal(require('node:buffer').isAscii(Buffer.from('abc')), true);
+// Node 26 removed SlowBuffer (DEP0030 end-of-life): the export is gone, not deprecated.
+assert.equal('SlowBuffer' in require('node:buffer'), false, 'node:buffer has no SlowBuffer');
