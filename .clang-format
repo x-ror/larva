@@ -1,4 +1,4 @@
-# C/C++ style for the code we own (pkg/html/shim): tabs (width 4, as the Odin code),
+# C/C++ style for the code we own (pkg/jsc, pkg/html/shim): tabs (width 4, as the Odin code),
 # attached braces, 120 columns, `T *p`. Editors that format on save pick this up; `make fmt` applies it.
 BasedOnStyle: LLVM
 Language: Cpp
