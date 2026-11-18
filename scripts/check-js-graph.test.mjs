@@ -333,7 +333,8 @@ test('eager: a function-body require does not make its target eager', () => {
 // that list equal to what the ratchet computes, so neither can drift alone.
 test('eager: the Odin cross-check list matches the computed set', () => {
   const odin = readFileSync(join(ROOT, 'cmd', 'lava', 'lazy_builtins_test.odin'), 'utf8');
-  const m = /STATIC_EAGER :: \[\?\]string\{([^}]*)\}/.exec(odin);
+  // odinfmt writes `[?]string {`; older text had no space before the brace.
+  const m = /STATIC_EAGER :: \[\?\]string\s*\{([^}]*)\}/.exec(odin);
   assert.ok(m, 'STATIC_EAGER not found in lazy_builtins_test.odin');
   const listed = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]).sort();
   assert.deepEqual(listed, eagerModules(ROOT));
