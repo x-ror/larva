@@ -139,6 +139,7 @@ chunked_feed :: proc(c: ^Chunked, data: []byte, out: ^[dynamic]byte) -> (ok: boo
 	return true
 }
 
+// core:encoding/hex has the same switch as hex_digit, but private to that package.
 @(private = "file")
 hex_value :: proc(b: byte) -> (v: byte, ok: bool) {
 	switch b {

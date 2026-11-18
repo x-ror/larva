@@ -4,6 +4,7 @@ package larva_http
 import "base:runtime"
 import "core:c"
 import "core:net"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "core:sys/linux"
@@ -101,7 +102,7 @@ transfer_start :: proc(
 		on_done = on_done,
 		user_data = user_data,
 		method = strings.clone(req.method if req.method != "" else "GET"),
-		body = clone_bytes(req.body),
+		body = slice.clone(req.body),
 		max_body = req.max_body_bytes if req.max_body_bytes > 0 else DEFAULT_MAX_BODY_BYTES,
 		url_text = strings.clone(req.url),
 		url = url,
@@ -119,19 +120,6 @@ transfer_start :: proc(
 	t.timer = eventloop.set_timeout(loop, on_timeout, u64(timeout), t)
 	eventloop.set_immediate(loop, on_start, t)
 	return .None
-}
-
-// clone_bytes keeps an empty body as nil, so build_request sends no Content-Length for
-// a GET.
-@(private = "file")
-clone_bytes :: proc(b: []byte) -> []byte {
-	if len(b) == 0 {
-		return nil
-	}
-
-	out := make([]byte, len(b))
-	copy(out, b)
-	return out
 }
 
 @(private = "file")

@@ -204,6 +204,7 @@ ascii_lower :: proc(b: byte) -> byte {
 }
 
 // is_html_space is the HTML spec's ASCII whitespace: tab, LF, FF, CR, space.
+// core:strings.is_ascii_space also takes vertical tab, which HTML does not.
 @(private = "file")
 is_html_space :: proc(b: byte) -> bool {
 	return b == '\t' || b == '\n' || b == '\f' || b == '\r' || b == ' '

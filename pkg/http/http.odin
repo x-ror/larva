@@ -3,6 +3,7 @@ package larva_http
 import "base:runtime"
 import "core:strings"
 import eventloop "lava:pkg/runtime/eventloop"
+import pico "lava:pkg/runtime/picohttpparser"
 
 // The Fetch standard's redirect limit.
 MAX_REDIRECTS :: 20
@@ -14,10 +15,9 @@ DEFAULT_MAX_BODY_BYTES :: 64 * 1024 * 1024
 // Status line and headers together. The same bound the runtime's fetch uses.
 MAX_HEAD_BYTES :: 64 * 1024
 
-Header :: struct {
-	name:  string,
-	value: string,
-}
+// The parser's {name, value} pair, reused rather than declared twice. Headers in a
+// Request or Response are owned copies, not views into a parse buffer.
+Header :: pico.Header
 
 Request :: struct {
 	method:         string, // "" is GET

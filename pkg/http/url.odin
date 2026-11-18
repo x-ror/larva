@@ -136,6 +136,8 @@ resolve_url :: proc(base: string, ref: string, allocator := context.allocator) -
 }
 
 // host_header is the Host value: the port only when it is not the scheme's default.
+// Not net.join_port: it runs split_port on the host first, which misreads a bare
+// IPv6 literal such as `::1`.
 @(private)
 host_header :: proc(u: Url, allocator := context.allocator) -> string {
 	host := u.host
