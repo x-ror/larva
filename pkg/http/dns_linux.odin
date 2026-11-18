@@ -25,15 +25,11 @@ DNS_Job :: struct {
 }
 
 // dns_lookup resolves `host` and calls `on_done` on the loop thread. nil when the pool
-// would not take the job.
+// would not take the job. The job lives on the heap, not in the caller's allocator: it can
+// outlive the transfer that asked for it, until its worker comes back.
 @(private)
-dns_lookup :: proc(
-	loop: ^eventloop.Loop,
-	host: string,
-	on_done: DNS_Done_Proc,
-	user_data: rawptr,
-	allocator: runtime.Allocator,
-) -> ^DNS_Job {
+dns_lookup :: proc(loop: ^eventloop.Loop, host: string, on_done: DNS_Done_Proc, user_data: rawptr) -> ^DNS_Job {
+	allocator := runtime.heap_allocator()
 	job := new(DNS_Job, allocator)
 	job^ = {
 		on_done   = on_done,
