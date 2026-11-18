@@ -6,6 +6,8 @@ on:
     branches: [master]
   # sync-lava.yml starts CI on the sync branch this way: a PR it opens with
   # GITHUB_TOKEN does not trigger pull_request runs.
+  # The test and mutation jobs run ONLY from here while tests are paused (see those
+  # jobs): Actions → CI → Run workflow. So a sync PR the workflow opens still runs them.
   workflow_dispatch:
 
 # Cancel superseded runs on the same ref (e.g. new pushes to a PR).
@@ -106,7 +108,10 @@ jobs:
   test:
     name: Linux (full build + tests)
     needs: scope
-    if: needs.scope.outputs.scope == 'code' || needs.scope.outputs.scope == 'full'
+    # PAUSED (owner's call, 2026-11-18): the Node-only modules are out of the default
+    # build (LAVA_NODE_MODULES) while the engine core is built, and the suites are not
+    # run until that work is done. Manual runs only; drop the event check to resume.
+    if: github.event_name == 'workflow_dispatch' && (needs.scope.outputs.scope == 'code' || needs.scope.outputs.scope == 'full')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -238,7 +243,8 @@ jobs:
   mutation:
     name: Mutation gate (${{ matrix.shard }}/3)
     needs: scope
-    if: needs.scope.outputs.scope != 'docs'
+    # PAUSED with the test job above; manual runs only.
+    if: github.event_name == 'workflow_dispatch' && needs.scope.outputs.scope != 'docs'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
