@@ -42,6 +42,13 @@ Source :: struct {
 	after_eq: bool, // inside that candidate, an attribute value may start next
 }
 
+@(private = "file")
+Match :: enum {
+	No,
+	Yes,
+	Need_More, // `b` ends before it can be told
+}
+
 @(private)
 source_init :: proc(s: ^Source, allocator := context.allocator) {
 	s^ = {
@@ -144,13 +151,6 @@ next_cut :: proc(s: ^Source, eof: bool) -> int {
 		return end - s.off
 	}
 	return s.tag - s.off
-}
-
-@(private = "file")
-Match :: enum {
-	No,
-	Yes,
-	Need_More, // `b` ends before it can be told
 }
 
 // match_script_end says whether `b` starts with an end tag named "script": the

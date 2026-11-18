@@ -10,13 +10,13 @@ import "core:c"
 // Selectors is the matching engine. lexbor keeps per-search state in it, so it is not
 // shared between threads: one per thread, reused across documents.
 Selectors :: struct {
-	engine: larva_css_engine,
+	engine: css_engine,
 }
 
 // Selector is a compiled selector list. It belongs to no document and no engine: one
 // compile serves any number of searches, until selector_destroy.
 Selector :: struct {
-	list: lxb_selector_list,
+	list: css_list,
 }
 
 // selectors_init creates the engine. false off Linux (no lexbor build) or when lexbor

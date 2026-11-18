@@ -56,6 +56,9 @@ Pump_Status :: enum {
 	Failed, // see error_message; the tree is whatever was built
 }
 
+// Script_Proc runs at each parser-blocking script during parse_all. It may call write.
+Script_Proc :: #type proc(p: ^Parser, script: Node, user_data: rawptr)
+
 // init creates an empty document and starts parsing it.
 //
 // Returns:
@@ -167,13 +170,16 @@ pump :: proc(p: ^Parser) -> (script: Node, status: Pump_Status) {
 	}
 }
 
-// Script_Proc runs at each parser-blocking script during parse_all. It may call write.
-Script_Proc :: #type proc(p: ^Parser, script: Node, user_data: rawptr)
-
 // parse_all parses `data` as the whole document, calling `on_script` at each pause.
 // `chunk` > 0 feeds the input that many bytes at a time, as network reads would; 0
 // feeds it at once.
-parse_all :: proc(p: ^Parser, data: []byte, on_script: Script_Proc = nil, user_data: rawptr = nil, chunk := 0) -> bool {
+parse_all :: proc(
+	p: ^Parser,
+	data: []byte,
+	on_script: Script_Proc = nil,
+	user_data: rawptr = nil,
+	chunk := 0,
+) -> bool {
 	off := 0
 	for {
 		script, status := pump(p)
@@ -219,16 +225,16 @@ serialize :: proc(p: ^Parser, allocator := context.allocator) -> (markup: string
 	return strings.to_string(b), true
 }
 
+@(private = "file")
+fail :: proc(p: ^Parser, why: string) -> Pump_Status {
+	p.err = why
+	return .Failed
+}
+
 // collect_markup appends what a lexbor serializer emits to the strings.Builder in ctx.
 @(private)
 collect_markup :: proc "c" (data: [^]u8, len: c.size_t, ctx: rawptr) -> lxb_status_t {
 	context = runtime.default_context()
 	strings.write_bytes(cast(^strings.Builder)ctx, data[:len])
 	return LXB_STATUS_OK
-}
-
-@(private = "file")
-fail :: proc(p: ^Parser, why: string) -> Pump_Status {
-	p.err = why
-	return .Failed
 }

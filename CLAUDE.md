@@ -159,6 +159,12 @@ appears in CI, read the code or shrink the CPU set; do not just re-run.
   `host_native_create` path. The UTF-16→UTF-8 bridge belongs in `pkg/jsc`, not
   `environment.odin`.
 - `make fmt` (`odin strip-semicolon`) before committing Odin.
+- **Declaration order in a file**, Odin and C alike: imports/includes (sorted), then
+  constants, then types, then procedures — public ones first, private helpers last.
+  The formatters sort imports and includes (`odinfmt.json` `sort_imports`,
+  `.clang-format` `SortIncludes`); nothing reorders declarations, so this is on the
+  author. Applies to Larva's own packages (`pkg/html`); Lava-synced files keep Lava's
+  layout so a sync does not fight over it.
 
 ### Contract comments
 

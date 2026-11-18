@@ -19,10 +19,7 @@ import "core:c"
 // The paths are relative to this file and must match OUT/LIB/SHIM_LIB in
 // scripts/build-lexbor.sh; `foreign import` takes only literals. The shim comes first:
 // it references lexbor, and a static link resolves left to right.
-foreign import lexbor {
-	"../../.deps/lexbor/lib/liblarva_html_shim.a",
-	"../../.deps/lexbor/lib/liblexbor_static.a",
-}
+foreign import lexbor {"../../.deps/lexbor/lib/liblarva_html_shim.a", "../../.deps/lexbor/lib/liblexbor_static.a"}
 
 // lexbor/core/base.h: `typedef unsigned int lxb_status_t`, LXB_STATUS_OK = 0x0000.
 lxb_status_t :: c.uint
@@ -30,12 +27,12 @@ LXB_STATUS_OK :: lxb_status_t(0)
 
 lxb_document :: distinct rawptr // lxb_html_document_t *
 larva_hook :: distinct rawptr // larva_html_hook * (shim)
-larva_css_engine :: distinct rawptr // larva_css * (shim)
-lxb_selector_list :: distinct rawptr // lxb_css_selector_list_t *
+css_engine :: distinct rawptr // larva_css * (shim)
+css_list :: distinct rawptr // lxb_css_selector_list_t *
 
 lxb_serialize_cb :: #type proc "c" (data: [^]u8, len: c.size_t, ctx: rawptr) -> lxb_status_t
 // Returns true to stop the search. C `bool`, so Odin `bool`, never b32 (CLAUDE.md §4).
-larva_css_found_cb :: #type proc "c" (node: Node, ctx: rawptr) -> bool
+css_found_cb :: #type proc "c" (node: Node, ctx: rawptr) -> bool
 
 @(default_calling_convention = "c")
 foreign lexbor {
@@ -54,9 +51,9 @@ foreign lexbor {
 	larva_html_attr :: proc(node: Node, name: [^]u8, name_len: c.size_t, len: ^c.size_t) -> [^]u8 ---
 	larva_html_serialize_node :: proc(node: Node, cb: lxb_serialize_cb, ctx: rawptr) -> lxb_status_t ---
 
-	larva_css_create :: proc() -> larva_css_engine ---
-	larva_css_destroy :: proc(e: larva_css_engine) ---
-	larva_css_compile :: proc(e: larva_css_engine, css: [^]u8, len: c.size_t) -> lxb_selector_list ---
-	larva_css_free :: proc(list: lxb_selector_list) ---
-	larva_css_find :: proc(e: larva_css_engine, root: Node, list: lxb_selector_list, found: larva_css_found_cb, ctx: rawptr) -> bool ---
+	larva_css_create :: proc() -> css_engine ---
+	larva_css_destroy :: proc(e: css_engine) ---
+	larva_css_compile :: proc(e: css_engine, css: [^]u8, len: c.size_t) -> css_list ---
+	larva_css_free :: proc(list: css_list) ---
+	larva_css_find :: proc(e: css_engine, root: Node, list: css_list, found: css_found_cb, ctx: rawptr) -> bool ---
 }
