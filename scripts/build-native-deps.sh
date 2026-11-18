@@ -32,3 +32,6 @@ build_archive() {
 }
 
 build_archive "$ROOT_DIR/pkg/runtime/picohttpparser" picohttpparser
+
+# lexbor + the pkg/html shim (pinned source build into .deps/; see the script).
+"$ROOT_DIR/scripts/build-lexbor.sh"

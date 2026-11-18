@@ -25,4 +25,6 @@ Libraries linked at build time, not distributed here
 JavaScriptCore (WebKitGTK)   LGPL-2.1-or-later and BSD-2-Clause; linked dynamically
 OpenSSL 3                    Apache-2.0
 SQLite                       public domain
+lexbor (pinned commit)       Apache-2.0; linked statically, built from source by
+                             scripts/build-lexbor.sh (pkg/html)
 Odin core library            zlib License

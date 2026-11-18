@@ -2,6 +2,8 @@ package main
 
 import "core:fmt"
 import "core:os"
+import "core:strconv"
+import html "lava:pkg/html"
 import lava_runtime "lava:pkg/runtime"
 import eventloop "lava:pkg/runtime/eventloop"
 
@@ -24,6 +26,8 @@ main :: proc() {
 		eval_command(args[2:])
 	case "run":
 		run_command(args[2:])
+	case "html":
+		html_command(args[2:])
 	case:
 		fmt.eprintfln("unknown command: %s", args[1])
 		fmt.eprintln("try `lava --help`")
@@ -38,6 +42,8 @@ print_help :: proc() {
 Usage:
   lava eval <source>    Evaluate JavaScript source
   lava run <file>       Run a JavaScript file
+  lava html [--scripts] [--chunk N] <file|->
+                        Parse HTML and print the serialized document
   lava --version        Print version
   lava --help           Print help
 
@@ -114,4 +120,76 @@ print_result :: proc(result: lava_runtime.Result, user_data: rawptr) {
 	}
 
 	lava_runtime.process_write(os.stderr, result.message, "\n")
+}
+
+// html_command parses an HTML file (or stdin, `-`) and prints the serialized
+// document. No script runs: --scripts reports each parser-blocking script on stderr
+// at the moment the parser pauses for it, where a page loader would execute it.
+// --chunk N feeds the input N bytes at a time, as network reads would, to exercise
+// the incremental path; by default it is fed at once.
+html_command :: proc(args: []string) {
+	usage :: proc() -> ! {
+		fmt.eprintln("usage: lava html [--scripts] [--chunk N] <file|->")
+		os.exit(2)
+	}
+	Html_Options :: struct {
+		list_scripts: bool,
+		scripts:      int,
+	}
+	opts: Html_Options
+	chunk := 0
+	path := ""
+	for i := 0; i < len(args); i += 1 {
+		switch a := args[i]; {
+		case a == "--scripts":
+			opts.list_scripts = true
+		case a == "--chunk":
+			i += 1
+			if i == len(args) do usage()
+			n, ok := strconv.parse_int(args[i])
+			if !ok || n <= 0 do usage()
+			chunk = n
+		case len(a) > 1 && a[0] == '-', path != "":
+			usage()
+		case:
+			path = a
+		}
+	}
+	if path == "" do usage()
+
+	data: []byte
+	err: os.Error
+	if path == "-" do data, err = os.read_entire_file_from_file(os.stdin, context.allocator)
+	else do data, err = os.read_entire_file(path, context.allocator)
+	if err != nil {
+		fmt.eprintfln("lava html: cannot read %s: %v", path, err)
+		os.exit(1)
+	}
+
+	report :: proc(p: ^html.Parser, script: html.Node, user_data: rawptr) {
+		o := cast(^Html_Options)user_data
+		o.scripts += 1
+		if !o.list_scripts do return
+		// An SVG <script> names its file with href, an HTML one with src.
+		src, ok := html.attr(script, "src", context.temp_allocator)
+		if !ok do src, ok = html.attr(script, "href", context.temp_allocator)
+		if ok {
+			fmt.eprintfln("[script %d] src=%s", o.scripts, src)
+		} else {
+			fmt.eprintfln("[script %d] inline, %d bytes", o.scripts, len(html.text(script, context.temp_allocator)))
+		}
+	}
+
+	p: html.Parser
+	ok := html.init(&p) && html.parse_all(&p, data, report, &opts, chunk)
+	markup: string
+	if ok do markup, ok = html.serialize(&p)
+	if !ok {
+		msg := html.error_message(&p)
+		fmt.eprintfln("lava html: %s", msg if msg != "" else "serialization failed")
+		html.destroy(&p)
+		os.exit(1)
+	}
+	fmt.println(markup)
+	html.destroy(&p)
 }

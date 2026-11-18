@@ -25,6 +25,9 @@ for how the runtime pieces fit together.
 - SQLite development headers and libraries (for `node:sqlite`)
 - OpenSSL development headers and libraries (for `fetch` HTTPS/TLS). The roadmap
   replaces it with BoringSSL (stage 2); until that lands, OpenSSL is what links.
+- `cmake`, `curl` and network access on the first build (Linux): `pkg/html` links
+  [lexbor](https://github.com/lexbor/lexbor), which `scripts/build-lexbor.sh` downloads
+  at a pinned commit, checks against its sha256 and builds into `.deps/`.
 
 On Linux, the JSC package is exposed through `pkg-config` as `javascriptcoregtk-6.0`,
 SQLite as `sqlite3`, and OpenSSL as `openssl`
