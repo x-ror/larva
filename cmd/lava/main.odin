@@ -2,6 +2,8 @@ package main
 
 import "core:fmt"
 import "core:os"
+import "core:strings"
+import html "lava:pkg/html"
 import lava_runtime "lava:pkg/runtime"
 import eventloop "lava:pkg/runtime/eventloop"
 
@@ -24,6 +26,8 @@ main :: proc() {
 		eval_command(args[2:])
 	case "run":
 		run_command(args[2:])
+	case "html":
+		html_command(args[2:])
 	case:
 		fmt.eprintfln("unknown command: %s", args[1])
 		fmt.eprintln("try `lava --help`")
@@ -38,6 +42,8 @@ print_help :: proc() {
 Usage:
   lava eval <source>    Evaluate JavaScript source
   lava run <file>       Run a JavaScript file
+  lava html [--scripts] <file|->
+                        Parse HTML and print the serialized document
   lava --version        Print version
   lava --help           Print help
 
@@ -114,4 +120,76 @@ print_result :: proc(result: lava_runtime.Result, user_data: rawptr) {
 	}
 
 	lava_runtime.process_write(os.stderr, result.message, "\n")
+}
+
+// html_command parses an HTML file (or stdin, `-`) with pkg/html and prints the
+// serialized document. The input is fed in 16 KiB pieces, as a network read would
+// deliver it, so the incremental path is the one exercised. Scripts are not run: with
+// --scripts each parser-blocking script is reported on stderr at the moment the
+// parser pauses for it, which is where a page loader would execute it.
+html_command :: proc(args: []string) {
+	list_scripts := false
+	path := ""
+	for a in args {
+		if a == "--scripts" do list_scripts = true
+		else do path = a
+	}
+	if path == "" {
+		fmt.eprintln("usage: lava html [--scripts] <file|->")
+		os.exit(2)
+	}
+	data: []byte
+	err: os.Error
+	if path == "-" do data, err = os.read_entire_file_from_file(os.stdin, context.allocator)
+	else do data, err = os.read_entire_file(path, context.allocator)
+	if err != nil {
+		fmt.eprintfln("lava html: cannot read %s: %v", path, err)
+		os.exit(1)
+	}
+	defer delete(data)
+
+	p: html.Parser
+	defer html.destroy(&p)
+	if !html.init(&p) {
+		fmt.eprintln("lava html: lexbor could not create a document")
+		os.exit(1)
+	}
+	CHUNK :: 16 * 1024
+	off, scripts := 0, 0
+	loop: for {
+		script, st := html.pump(&p)
+		switch st {
+		case .Script:
+			scripts += 1
+			if list_scripts {
+				if src, ok := html.attr(script, "src"); ok {
+					fmt.eprintfln("[script %d] src=%s", scripts, src)
+				} else {
+					body := html.text(script)
+					fmt.eprintfln("[script %d] inline, %d bytes", scripts, len(body))
+					delete(body)
+				}
+			}
+		case .Need_Input:
+			if off >= len(data) {
+				html.finish(&p)
+				continue
+			}
+			end := min(off + CHUNK, len(data))
+			html.feed(&p, data[off:end])
+			off = end
+		case .Done:
+			break loop
+		case .Failed:
+			fmt.eprintln("lava html: lexbor reported a parse failure")
+			os.exit(1)
+		}
+	}
+	b := strings.builder_make()
+	defer strings.builder_destroy(&b)
+	if !html.serialize(&p, &b) {
+		fmt.eprintln("lava html: serialization failed")
+		os.exit(1)
+	}
+	fmt.println(strings.to_string(b))
 }
