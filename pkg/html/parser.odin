@@ -73,15 +73,19 @@ init :: proc(p: ^Parser, allocator := context.allocator) -> bool {
 		return false
 	}
 	p.doc = lxb_html_document_create()
+
 	if p.doc == nil {
 		p.err = "pkg/html: lexbor could not create a document"
 		return false
 	}
+
 	p.hook = larva_html_begin(p.doc)
+
 	if p.hook == nil {
 		p.err = "pkg/html: lexbor could not start parsing"
 		return false
 	}
+
 	return true
 }
 
@@ -89,8 +93,14 @@ init :: proc(p: ^Parser, allocator := context.allocator) -> bool {
 // dangling afterwards.
 destroy :: proc(p: ^Parser) {
 	// The document first: the hook is lexbor's tokenizer callback context until then.
-	if p.doc != nil do lxb_html_document_destroy(p.doc)
-	if p.hook != nil do larva_html_hook_free(p.hook)
+	if p.doc != nil {
+		lxb_html_document_destroy(p.doc)
+	}
+
+	if p.hook != nil {
+		larva_html_hook_free(p.hook)
+	}
+
 	delete(p.input.buf)
 	delete(p.written.buf)
 	p^ = {}
@@ -114,7 +124,10 @@ finish :: proc(p: ^Parser) {
 // Returns:
 //   false, and nothing is inserted, once the document is done or the parser failed.
 write :: proc(p: ^Parser, text: string) -> bool {
-	if p.ended || p.err != "" do return false
+	if p.ended || p.err != "" {
+		return false
+	}
+
 	inject_at(&p.written.buf, p.ins, ..transmute([]byte)text)
 	p.ins += len(text)
 	return true
@@ -123,10 +136,17 @@ write :: proc(p: ^Parser, text: string) -> bool {
 // pump parses until the next parser-blocking script, the end of what has been fed, or
 // the end of the document.
 pump :: proc(p: ^Parser) -> (script: Node, status: Pump_Status) {
-	if p.err != "" do return nil, .Failed
-	if p.ended do return nil, .Done
+	if p.err != "" {
+		return nil, .Failed
+	}
+
+	if p.ended {
+		return nil, .Done
+	}
+
 	for {
 		src, src_eof := &p.input, p.eof
+
 		if source_pending(&p.written) > 0 {
 			src, src_eof = &p.written, true
 		} else if len(p.written.buf) > 0 {
@@ -139,30 +159,38 @@ pump :: proc(p: ^Parser) -> (script: Node, status: Pump_Status) {
 				source_compact(&p.input)
 				return nil, .Need_Input
 			}
+
 			p.ended = true
+
 			if lxb_html_document_parse_chunk_end(p.doc) != LXB_STATUS_OK {
 				return nil, fail(p, "pkg/html: lexbor failed to end the document")
 			}
+
 			return nil, .Done
 		}
 
 		n := next_cut(src, src_eof)
+
 		if n == 0 {
 			source_compact(&p.input)
 			return nil, .Need_Input
 		}
+
 		if lxb_html_document_parse_chunk(p.doc, raw_data(src.buf[src.off:]), c.size_t(n)) != LXB_STATUS_OK {
 			return nil, fail(p, "pkg/html: lexbor failed to parse")
 		}
+
 		src.off += n
 
 		closed: c.size_t
 		s := larva_html_take_script(p.hook, &closed)
+
 		if closed > 1 {
 			// A slice closed two scripts: the first was never handed out. cut.odin keeps
 			// this from happening; failing beats losing a script quietly.
 			return nil, fail(p, "pkg/html: two scripts closed in one slice")
 		}
+
 		if s != nil {
 			p.ins = p.written.off
 			return s, .Script
@@ -185,12 +213,15 @@ parse_all :: proc(
 		script, status := pump(p)
 		switch status {
 		case .Script:
-			if on_script != nil do on_script(p, script, user_data)
+			if on_script != nil {
+				on_script(p, script, user_data)
+			}
 		case .Need_Input:
 			if off == len(data) {
 				finish(p)
 				continue
 			}
+
 			end := len(data) if chunk <= 0 else min(off + chunk, len(data))
 			feed(p, data[off:end])
 			off = end
@@ -216,12 +247,17 @@ error_message :: proc(p: ^Parser) -> string {
 // serialize returns the document's markup — the doctype, then the html element.
 // Comparing it with Chrome's is the oracle's job (#2), not done yet.
 serialize :: proc(p: ^Parser, allocator := context.allocator) -> (markup: string, ok: bool) {
-	if p.doc == nil do return "", false
+	if p.doc == nil {
+		return "", false
+	}
+
 	b := strings.builder_make(allocator)
+
 	if lxb_html_serialize_deep_cb(larva_html_document_node(p.doc), collect_markup, &b) != LXB_STATUS_OK {
 		strings.builder_destroy(&b)
 		return "", false
 	}
+
 	return strings.to_string(b), true
 }
 

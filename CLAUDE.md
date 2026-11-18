@@ -159,6 +159,11 @@ appears in CI, read the code or shrink the CPU set; do not just re-run.
   `host_native_create` path. The UTF-16→UTF-8 bridge belongs in `pkg/jsc`, not
   `environment.odin`.
 - `make fmt` (`odin strip-semicolon`) before committing Odin.
+- **`if` always has braces, on their own lines** — no `if x do y`, no `if x {y}` —
+  and **a blank line before and after every `if` statement**, unless it opens or
+  closes a block or a `case` (a comment directly above belongs to the `if`). Applied
+  by `make fmt`: odinfmt `convert_do`, clang-format `InsertBraces`, then
+  `scripts/fmt-if.mjs`, which neither formatter covers.
 - **Declaration order in a file**, Odin and C alike: imports/includes (sorted), then
   constants, then types, then procedures — public ones first, private helpers last.
   The formatters sort imports and includes (`odinfmt.json` `sort_imports`,
