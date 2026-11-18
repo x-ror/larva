@@ -1,16 +1,15 @@
 package larva_http
 
-import "core:strconv"
 import "core:strings"
 
 // RFC 9110 `tchar`: what a method token may contain.
 @(private = "file")
-TOKEN_PUNCTUATION :: "!#$%&'*+-.^_`|~"
+TOKEN_PUNCTUATION :: Ascii_Set{'!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~'}
 // A header name may not hold these; a header value may not hold CR or LF.
 @(private = "file")
-NAME_FORBIDDEN :: ":\r\n \t"
+NAME_FORBIDDEN :: Ascii_Set{':', '\r', '\n', ' ', '\t'}
 @(private = "file")
-VALUE_FORBIDDEN :: "\r\n"
+VALUE_FORBIDDEN :: Ascii_Set{'\r', '\n'}
 
 // Dropped when a redirect leaves the origin, as Fetch and Node's undici do: they would
 // hand the next host credentials meant for this one.
@@ -20,6 +19,19 @@ CREDENTIAL_HEADERS :: [?]string{"Authorization", "Cookie", "Proxy-Authorization"
 // request into a GET without a body, or the request would promise a body it never sends.
 @(private = "file")
 BODY_HEADERS :: [?]string{"Content-Length", "Content-Type", "Content-Encoding", "Content-Language", "Content-Location"}
+
+// Request line, Host and the defaults below, so build_request grows its buffer once.
+@(private = "file")
+DEFAULT_HEAD_BYTES :: 256
+
+@(private = "file", rodata)
+DEFAULT_HEADERS := [?]Header {
+	{"User-Agent", DEFAULT_USER_AGENT},
+	{"Accept", "*/*"},
+	// Decoding gzip/br/zstd comes with the stage-2 network stack (#9).
+	{"Accept-Encoding", "identity"},
+	{"Connection", "close"},
+}
 
 @(private)
 request_is_valid :: proc(req: Request) -> bool {
@@ -31,8 +43,8 @@ request_is_valid :: proc(req: Request) -> bool {
 
 	for &h in req.headers {
 		if h.name == "" ||
-		   strings.index_any(h.name, NAME_FORBIDDEN) >= 0 ||
-		   strings.index_any(h.value, VALUE_FORBIDDEN) >= 0 {
+		   index_byte_set(h.name, NAME_FORBIDDEN) >= 0 ||
+		   index_byte_set(h.value, VALUE_FORBIDDEN) >= 0 {
 			return false
 		}
 	}
@@ -40,36 +52,42 @@ request_is_valid :: proc(req: Request) -> bool {
 	return true
 }
 
-// build_request writes the request head and body into `out`. A caller's header replaces
-// the default of the same name.
+// build_request writes the request head and body into `out`, grown once up front. A
+// caller's header replaces the default of the same name.
 @(private)
 build_request :: proc(out: ^[dynamic]byte, method: string, url: Url, headers: []Header, body: []byte) {
 	clear(out)
 	sb := strings.Builder {
 		buf = out^,
 	}
+
+	size := len(method) + len(url.target) + len(url.host) + len(body) + DEFAULT_HEAD_BYTES
+	for &h in headers {
+		size += len(h.name) + len(": \r\n") + len(h.value)
+	}
+
+	strings.builder_grow(&sb, size)
 	strings.write_string(&sb, method)
 	strings.write_byte(&sb, ' ')
 	strings.write_string(&sb, url.target)
 	strings.write_string(&sb, " HTTP/1.1\r\n")
 
-	length_buf: [len("18446744073709551615")]byte
-	defaults := [?]Header {
-		{"Host", host_header(url, context.temp_allocator)},
-		{"User-Agent", DEFAULT_USER_AGENT},
-		{"Accept", "*/*"},
-		// Decoding gzip/br/zstd comes with the stage-2 network stack (#9).
-		{"Accept-Encoding", "identity"},
-		{"Connection", "close"},
+	if !has_header(headers, "Host") {
+		strings.write_string(&sb, "Host: ")
+		write_host_header(&sb, url)
+		strings.write_string(&sb, "\r\n")
 	}
-	for &d in defaults {
+
+	for &d in DEFAULT_HEADERS {
 		if !has_header(headers, d.name) {
 			write_header(&sb, d)
 		}
 	}
 
 	if (len(body) > 0 || method_has_body(method)) && !has_header(headers, "Content-Length") {
-		write_header(&sb, {"Content-Length", strconv.write_int(length_buf[:], i64(len(body)), 10)})
+		strings.write_string(&sb, "Content-Length: ")
+		strings.write_int(&sb, len(body))
+		strings.write_string(&sb, "\r\n")
 	}
 
 	for &h in headers {
@@ -145,10 +163,5 @@ method_has_body :: proc(method: string) -> bool {
 
 @(private = "file")
 is_token_char :: proc(b: byte) -> bool {
-	return(
-		('A' <= b && b <= 'Z') ||
-		('a' <= b && b <= 'z') ||
-		('0' <= b && b <= '9') ||
-		strings.index_byte(TOKEN_PUNCTUATION, b) >= 0 \
-	)
+	return ('A' <= b && b <= 'Z') || ('a' <= b && b <= 'z') || ('0' <= b && b <= '9') || b in TOKEN_PUNCTUATION
 }

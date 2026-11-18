@@ -5,7 +5,6 @@ import "base:runtime"
 import "core:c"
 import "core:net"
 import "core:slice"
-import "core:strconv"
 import "core:strings"
 import "core:sys/linux"
 import eventloop "lava:pkg/runtime/eventloop"
@@ -23,6 +22,9 @@ import openssl "lava:pkg/tls"
 // Bytes read from the socket per call.
 @(private = "file")
 READ_CHUNK :: 16 * 1024
+// The most of a Content-Length body reserved before its bytes arrive.
+@(private = "file")
+INITIAL_BODY_RESERVE :: 64 * 1024
 
 @(private = "file")
 State :: enum {
@@ -112,7 +114,7 @@ transfer_start :: proc(
 		resp = {allocator = allocator, headers = make([dynamic]Header), body = make([dynamic]byte)},
 	}
 	t.headers = make([]Header, len(req.headers))
-	for h, i in req.headers {
+	for &h, i in req.headers {
 		t.headers[i] = {strings.clone(h.name), strings.clone(h.value)}
 	}
 
@@ -334,7 +336,7 @@ write :: proc(t: ^Transfer) {
 
 @(private = "file")
 read :: proc(t: ^Transfer) {
-	buf: [READ_CHUNK]byte
+	buf: [READ_CHUNK]byte = ---
 	for {
 		n, io := recv(t, buf[:])
 		switch io {
@@ -437,22 +439,33 @@ ssl_io :: proc(t: ^Transfer, ret: c.int) -> IO {
 }
 
 // feed takes response bytes. false means the transfer is finished (or redirected) and
-// `t` must not be touched again by the caller.
+// `t` must not be touched again by the caller. A head that arrives whole in one read,
+// as most do, is parsed in place and never copied into t.head.
 @(private = "file")
 feed :: proc(t: ^Transfer, data: []byte) -> bool {
 	if t.state == .Reading_Body {
 		return feed_body(t, data)
 	}
 
-	append(&t.head, ..data)
+	buffered := len(t.head) > 0
+
+	if buffered {
+		append(&t.head, ..data)
+	}
+
+	buf := t.head[:] if buffered else data
 	for {
-		parsed: [pico.MAX_HEADERS]pico.Header
-		consumed, status, reason, count, result := pico.parse_response(t.head[:], t.head_parsed, parsed[:])
+		parsed: [pico.MAX_HEADERS]pico.Header = ---
+		consumed, status, reason, count, result := pico.parse_response(buf, t.head_parsed, parsed[:])
 		switch result {
 		case .Partial:
-			if len(t.head) > MAX_HEAD_BYTES {
+			if len(buf) > MAX_HEAD_BYTES {
 				finish(t, .Head_Too_Large)
 				return false
+			}
+
+			if !buffered {
+				append(&t.head, ..buf)
 			}
 
 			t.head_parsed = len(t.head)
@@ -470,27 +483,38 @@ feed :: proc(t: ^Transfer, data: []byte) -> bool {
 
 		// 1xx interim responses (100 Continue, 103 Early Hints) precede the real one.
 		if status >= 100 && status < 200 {
-			remove_range(&t.head, 0, consumed)
+			if buffered {
+				remove_range(&t.head, 0, consumed)
+				buf = t.head[:]
+			} else {
+				buf = buf[consumed:]
+			}
+
 			t.head_parsed = 0
 			continue
 		}
 
-		return on_head(t, status, reason, parsed[:count], consumed)
+		return on_head(t, status, reason, parsed[:count], buf[consumed:])
 	}
 }
 
+// on_head handles a complete head; `tail` is what followed it in the same bytes. A
+// redirect is followed before anything is copied out of the head.
 @(private = "file")
-on_head :: proc(t: ^Transfer, status: int, reason: string, headers: []pico.Header, consumed: int) -> bool {
+on_head :: proc(t: ^Transfer, status: int, reason: string, headers: []pico.Header, tail: []byte) -> bool {
+	if is_redirect(status) {
+		if location, ok := find_header(headers, "Location"); ok {
+			redirect(t, status, location)
+			return false
+		}
+	}
+
 	context.allocator = t.allocator
 	t.resp.status = status
 	t.resp.reason = strings.clone(reason)
+	non_zero_reserve(&t.resp.headers, len(headers))
 	for &h in headers {
 		append(&t.resp.headers, Header{strings.clone(h.name), strings.clone(h.value)})
-	}
-
-	if location, ok := header(&t.resp, "Location"); ok && is_redirect(status) {
-		redirect(t, status, location)
-		return false
 	}
 
 	mode, length, framing_ok := body_framing(t, status)
@@ -513,7 +537,13 @@ on_head :: proc(t: ^Transfer, status: int, reason: string, headers: []pico.Heade
 		return false
 	}
 
-	if !feed_body(t, t.head[consumed:]) {
+	if mode == .Length {
+		// Not all of a large Content-Length up front: the server states it before
+		// sending a byte.
+		non_zero_reserve(&t.resp.body, min(length, INITIAL_BODY_RESERVE))
+	}
+
+	if !feed_body(t, tail) {
 		return false
 	}
 
@@ -522,18 +552,27 @@ on_head :: proc(t: ^Transfer, status: int, reason: string, headers: []pico.Heade
 }
 
 // body_framing applies RFC 9112 §6.3: no body for HEAD, 204 and 304; with
-// Transfer-Encoding, chunked only when it is the final coding, else read to close;
-// otherwise one Content-Length, all copies equal, digits only; else read to close.
+// Transfer-Encoding, chunked only when it is the final coding (of the last such
+// header, the lines forming one list), else read to close; otherwise one
+// Content-Length, all copies equal, digits only; else read to close.
 @(private = "file")
 body_framing :: proc(t: ^Transfer, status: int) -> (mode: Body_Mode, length: int, ok: bool) {
 	if t.method == "HEAD" || status == 204 || status == 304 {
 		return .None, 0, true
 	}
 
-	if te, has_te := header(&t.resp, "Transfer-Encoding"); has_te {
-		codings := strings.split(te, ",", context.temp_allocator)
-		last := strings.trim(codings[len(codings) - 1], OWS)
-		return .Chunked if ascii_equal_fold(last, "chunked") else .Until_Close, 0, true
+	#reverse for &h in t.resp.headers {
+		if !ascii_equal_fold(h.name, "Transfer-Encoding") {
+			continue
+		}
+
+		last := h.value
+
+		if i := strings.last_index_byte(last, ','); i >= 0 {
+			last = last[i + 1:]
+		}
+
+		return .Chunked if ascii_equal_fold(trim_ows(last), "chunked") else .Until_Close, 0, true
 	}
 
 	found := false
@@ -542,7 +581,7 @@ body_framing :: proc(t: ^Transfer, status: int) -> (mode: Body_Mode, length: int
 			continue
 		}
 
-		n, num_ok := parse_length(strings.trim(h.value, OWS))
+		n, num_ok := parse_length(trim_ows(h.value))
 
 		if !num_ok || (found && n != length) {
 			return .None, 0, false
@@ -554,7 +593,8 @@ body_framing :: proc(t: ^Transfer, status: int) -> (mode: Body_Mode, length: int
 	return .Length if found else .Until_Close, length, true
 }
 
-// parse_length takes digits only: strconv also accepts a sign, `_` and a base prefix.
+// parse_length takes digits only, in one pass with an overflow check: strconv also
+// accepts a sign, `_` and a base prefix.
 @(private = "file")
 parse_length :: proc(s: string) -> (n: int, ok: bool) {
 	if s == "" {
@@ -565,9 +605,17 @@ parse_length :: proc(s: string) -> (n: int, ok: bool) {
 		if b < '0' || b > '9' {
 			return 0, false
 		}
+
+		d := int(b - '0')
+
+		if n > (max(int) - d) / 10 {
+			return 0, false
+		}
+
+		n = n * 10 + d
 	}
 
-	return strconv.parse_int(s, 10)
+	return n, true
 }
 
 @(private = "file")
@@ -584,6 +632,12 @@ feed_body :: proc(t: ^Transfer, data: []byte) -> bool {
 			return false
 		}
 	case .Until_Close:
+		// Checked before the append: past the cap, growing the buffer would double it.
+		if len(data) > t.max_body - len(t.resp.body) {
+			finish(t, .Body_Too_Large)
+			return false
+		}
+
 		append(&t.resp.body, ..data)
 	}
 
@@ -733,7 +787,7 @@ finish :: proc(t: ^Transfer, err: Error) {
 
 	resp := t.resp
 	resp.error = err
-	resp.url = strings.clone(t.url_text)
+	resp.url = t.url_text
 	on_done, user_data := t.on_done, t.user_data
 
 	delete(t.method)
@@ -744,7 +798,6 @@ finish :: proc(t: ^Transfer, err: Error) {
 
 	delete(t.headers)
 	delete(t.body)
-	delete(t.url_text)
 	url_destroy(&t.url)
 	delete(t.out)
 	delete(t.head)

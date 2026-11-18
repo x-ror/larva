@@ -15,10 +15,9 @@ DEFAULT_MAX_BODY_BYTES :: 64 * 1024 * 1024
 // Status line and headers together. The same bound the runtime's fetch uses.
 MAX_HEAD_BYTES :: 64 * 1024
 
-// RFC 9110 optional whitespace around header values: space and tab only, not every
-// Unicode space strings.trim_space would decode and drop.
+// A set of ASCII bytes, tested with `b in set`; any byte >= 128 is simply not in it.
 @(private)
-OWS :: " \t"
+Ascii_Set :: bit_set[byte(0) ..< 128;u128]
 
 // The parser's {name, value} pair, reused rather than declared twice. Headers in a
 // Request or Response are owned copies, not views into a parse buffer.
@@ -101,13 +100,7 @@ fetch :: proc(
 // case-insensitively; core:strings.equal_fold folds Unicode too, so a server's
 // `Tranſfer-Encoding` would pass for Transfer-Encoding.
 header :: proc(r: ^Response, name: string) -> (value: string, ok: bool) {
-	for &h in r.headers {
-		if ascii_equal_fold(h.name, name) {
-			return h.value, true
-		}
-	}
-
-	return "", false
+	return find_header(r.headers[:], name)
 }
 
 // is_html says whether the response declares an HTML body, or declares no type at all.
@@ -118,8 +111,7 @@ is_html :: proc(r: ^Response) -> bool {
 		return true
 	}
 
-	media, _, _ := strings.partition(content_type, ";")
-	media = strings.trim(media, OWS)
+	media := trim_ows(strings.truncate_to_byte(content_type, ';'))
 	return ascii_equal_fold(media, "text/html") || ascii_equal_fold(media, "application/xhtml+xml")
 }
 
@@ -155,4 +147,42 @@ ascii_equal_fold :: proc(a, b: string) -> bool {
 @(private)
 ascii_lower :: proc(b: byte) -> byte {
 	return b + ('a' - 'A') if 'A' <= b && b <= 'Z' else b
+}
+
+// trim_ows drops RFC 9110 optional whitespace, space and tab, from both ends. Bytewise:
+// strings.trim decodes UTF-8 and would drop every Unicode space.
+@(private)
+trim_ows :: proc(s: string) -> string {
+	lo, hi := 0, len(s)
+	for lo < hi && (s[lo] == ' ' || s[lo] == '\t') {
+		lo += 1
+	}
+
+	for hi > lo && (s[hi - 1] == ' ' || s[hi - 1] == '\t') {
+		hi -= 1
+	}
+
+	return s[lo:hi]
+}
+
+@(private)
+index_byte_set :: proc(s: string, set: Ascii_Set) -> int {
+	for b, i in transmute([]byte)s {
+		if b in set {
+			return i
+		}
+	}
+
+	return -1
+}
+
+@(private)
+find_header :: proc(headers: []Header, name: string) -> (value: string, ok: bool) {
+	for &h in headers {
+		if ascii_equal_fold(h.name, name) {
+			return h.value, true
+		}
+	}
+
+	return "", false
 }

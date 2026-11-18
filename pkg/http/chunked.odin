@@ -1,5 +1,7 @@
 package larva_http
 
+import "core:bytes"
+
 // Incremental decoder for `Transfer-Encoding: chunked` (RFC 9112 §7.1). Bytes arrive in
 // whatever pieces the socket hands out; any piece can end mid-size-line or mid-CRLF, so
 // the state carries across calls.
@@ -128,9 +130,14 @@ chunked_feed :: proc(c: ^Chunked, data: []byte, out: ^[dynamic]byte) -> (ok: boo
 
 			c.state = .Done
 		case .Trailer_Line:
-			if b == '\n' {
-				c.state = .Trailer_Start
+			rel := bytes.index_byte(data[i:], '\n')
+
+			if rel < 0 {
+				return true
 			}
+
+			i += rel
+			c.state = .Trailer_Start
 		case .Done:
 			return true
 		}
