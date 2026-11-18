@@ -2,7 +2,7 @@
 //
 // Node's formatWithOptions short-circuits before the substitution loop — string
 // first argument and nothing after it means the string is the answer, directives
-// and all. Verified against node 24 rather than read off the docs: `format('%s')`,
+// and all. Verified against node 26.13.0 rather than read off the docs: `format('%s')`,
 // `format('%z')`, `format('100%')` and `format('%%')` all come back untouched.
 //
 // Lava got every one of those right EXCEPT `%%`, which it folded to `%` even with
@@ -11,7 +11,7 @@
 // 31-row contract probe diverged, all of them `%%`.
 //
 // TWO implementations are covered on purpose. `util.format` runs
-// internal/util.js's formatWithOptions; `console.log` runs console.js's own
+// internal/util/inspect.js's formatWithOptions; `console.log` runs console.js's own
 // formatArgs, because console.js is the bootstrap prelude — it receives native
 // write functions and has no `require`, so it cannot delegate. A test through
 // `util` alone would leave console.js unpinned, and the two are pinned by separate

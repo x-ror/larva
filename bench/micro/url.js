@@ -30,11 +30,15 @@
 // before being benched — a ratio between two runtimes doing different work means
 // nothing.
 //
-// THE CAPS WERE PROVEN TO FIRE, by hand, and are NOT wired into the mutation gate.
-// Slowing basicURLParse's shared entry with ~45 redundant stripChars passes moved
-// special 11.34x -> 17.42x, ipv4 -> 15.35x and octal -> 11.68x, all three breaching
-// and each named individually, while urlsearchparams-* stayed put — so the caps
-// fire and they name the right bench. (The first attempt discarded the redundant
+// THE CAPS WERE ONCE PROVEN TO FIRE, by hand, and are NOT wired into the mutation
+// gate. Slowing basicURLParse's shared entry with ~45 redundant stripChars passes
+// moved special 11.34x -> 17.42x, ipv4 -> 15.35x and octal -> 11.68x, all three
+// breaching the caps of that time and each named individually, while
+// urlsearchparams-* stayed put. That proof is STALE: the caps have since been
+// widened for CI runner noise (bench/thresholds.json "//url": special 28.0,
+// ipv4 20.0, octal 13.5), and that same slowdown would breach none of them. No
+// current url-* cap has been shown to fire; re-prove one with a slowdown large
+// enough to clear it before trusting it as a regression detector. (The first attempt discarded the redundant
 // result and JIT dead-code elimination removed it: MORE work measured FASTER, 40
 // passes 16.70x vs 120 passes 13.90x. A mutation that can be optimised away proves
 // nothing.)

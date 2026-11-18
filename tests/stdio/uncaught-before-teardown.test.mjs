@@ -7,7 +7,7 @@
 // exit and would only ever see a timeout. What CAN be compared is whether the uncaught
 // error has been written by the time the process is stuck in that join.
 //
-// Measured on node v24.22.1 (probe case H): node prints the error and its stack to
+// Measured on node v26.13.0 (probe case H): node prints the error and its stack to
 // stderr at once and then hangs. Lava hung with EMPTY stderr: the CLI printed the
 // Result only after runtime.eval returned, and eval's deferred eventloop.destroy joins
 // the worker first. The fix is eval's `report` hook (runtime.odin), which the CLI passes

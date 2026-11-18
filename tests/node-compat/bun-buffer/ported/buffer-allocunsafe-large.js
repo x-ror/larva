@@ -1,6 +1,6 @@
 // Large / unpooled unsafe allocation (issue #212). Buffer.allocUnsafe above the
-// pool threshold, Buffer.allocUnsafeSlow, and SlowBuffer get their own backing
-// store. Node leaves those bytes uninitialized (its allocator skips the
+// pool threshold and Buffer.allocUnsafeSlow get their own backing store (Node 26
+// removed SlowBuffer, so it is no longer exercised here). Node leaves those bytes uninitialized (its allocator skips the
 // zero-fill); Lava now backs them with a native uninitialized allocation instead
 // of a zero-filled `new Buffer(size)`.
 //
@@ -13,9 +13,7 @@
 // stale bytes, that Buffer.alloc stays fully zero-filled, and that an impossible
 // size still throws RangeError. These are pure ArrayBuffer/Uint8Array semantics
 // and so behave identically on Linux, macOS/Darwin, and Windows.
-process.noDeprecation = true; // silence Node's DEP0030 for SlowBuffer() (no-op on Lava)
 const assert = require('node:assert/strict');
-const { SlowBuffer } = require('node:buffer');
 
 const HALF = Buffer.poolSize >>> 1; // exactly the pool threshold (not pooled)
 const BIG = Buffer.poolSize + 4096; // comfortably above the pool, and != poolSize
@@ -95,17 +93,6 @@ for (const size of [1, 8, HALF, 70000]) {
   assert.equal(s[size - 1], 0x5a);
 }
 
-// --- SlowBuffer: same unpooled path as allocUnsafeSlow ----------------------
-{
-  const sb = SlowBuffer(100);
-  assert.ok(sb instanceof Buffer, 'SlowBuffer returns a Buffer');
-  assert.equal(sb.length, 100);
-  assert.equal(sb.byteOffset, 0, 'SlowBuffer is unpooled');
-  assert.equal(sb.buffer.byteLength, 100, 'SlowBuffer owns a right-sized store');
-  sb.writeUInt32LE(0x01020304, 0);
-  assert.equal(sb.readUInt32LE(0), 0x01020304, 'SlowBuffer round-trips writes');
-}
-
 // --- Copy paths over a large (native-backed) result never leak stale bytes ---
 // Buffer.from must reflect exactly the source bytes, and Buffer.concat must
 // zero-fill any tail an explicit length leaves uncovered, even though the
@@ -148,7 +135,6 @@ for (const size of [1, 8, HALF, 70000]) {
   for (const fn of [
     () => Buffer.allocUnsafe(MAX),
     () => Buffer.allocUnsafeSlow(MAX),
-    () => SlowBuffer(MAX),
     () => Buffer.allocUnsafe(2 ** 48),
   ]) {
     assert.throws(fn, RangeError, 'impossible size throws RangeError');

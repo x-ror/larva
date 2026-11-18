@@ -125,6 +125,7 @@ export const PROTECTED_WRITE_PATHS = [
   'scripts/lib/primordials-baseline.mjs',
   'scripts/lib/primordials-detect.mjs',
   'scripts/lib/primordials-fixtures.mjs',
+  'scripts/lib/primordials-scan.mjs',
   'scripts/check-primordials.mjs',
   'scripts/run-mutations.mjs',
   'scripts/run-node-compat-all.sh',

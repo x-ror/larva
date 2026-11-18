@@ -1,0 +1,340 @@
+// node:test view of scripts/check-js-graph.mjs, whose rules live in
+// lib/js-graph-check.mjs: one fixture tree per rule, each a minimal pkg/runtime layout
+// that is clean except for the ONE defect the rule exists to catch. The clean fixture
+// runs first, so a rule that fires on everything cannot pass by accident, and every
+// failing fixture asserts the exact rule set — a fixture that also tripped a second
+// rule would be testing its own scaffolding.
+//
+// Run: node --test scripts/check-js-graph.test.mjs   (or `make test-scripts`)
+
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { checkJsGraph } from './lib/js-graph-check.mjs';
+import { eagerModules } from './lib/js-graph.mjs';
+import { ROOT } from './lib/primordials-detect.mjs';
+
+const ODIN = `package runtime
+LOADER :: #load("js/bootstrap/loader.js", string)
+ESM :: #load("js/bootstrap/esm.js", string)
+DIRS := [?]Dir{
+	{"node", #load_directory("js/node")},
+	{"node/stream", #load_directory("js/node/stream")},
+	{"internal", #load_directory("js/internal")},
+}
+init :: proc() {
+	set_named(ctx, natives, "node/buffer", b)
+}
+`;
+
+const CLEAN = {
+  'pkg/runtime/globals.odin': ODIN,
+  'pkg/runtime/js/bootstrap/loader.js':
+    "(function (factories) { function req(name) { return name; } req('internal/primordials'); req('internal/fetch'); return req; });",
+  'pkg/runtime/js/bootstrap/esm.js': '(function (primordials) { return function () {}; });',
+  'pkg/runtime/js/node/buffer.js':
+    "(function (require, module) { var p = require('internal/primordials'); module.exports = {}; });",
+  'pkg/runtime/js/node/stream.js':
+    "(function (require, module) { require('buffer'); function late() { return require('node:stream/web'); } module.exports = { late }; });",
+  'pkg/runtime/js/node/stream/web.js':
+    "(function (require, module) { require('stream'); module.exports = {}; });",
+  'pkg/runtime/js/internal/primordials.js':
+    '(function (require, module) { module.exports = {}; });',
+  'pkg/runtime/js/internal/fetch.js':
+    "(function (require, module) { require('stream/web'); module.exports = {}; });",
+};
+
+function tree(overrides) {
+  const root = mkdtempSync(join(tmpdir(), 'js-graph-'));
+  const files = { ...CLEAN, ...overrides };
+  for (const [rel, src] of Object.entries(files)) {
+    if (src === null) continue;
+    mkdirSync(dirname(join(root, rel)), { recursive: true });
+    writeFileSync(join(root, rel), src);
+  }
+  return root;
+}
+
+function rules(overrides) {
+  const root = tree(overrides);
+  try {
+    return checkJsGraph(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function eager(overrides) {
+  const root = tree(overrides);
+  try {
+    return eagerModules(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+const only = (vs) => [...new Set(vs.map((v) => v.rule))].sort();
+
+test('clean fixture has no violations (late-bound stream <-> stream/web is not a cycle)', () => {
+  assert.deepEqual(rules({}), []);
+});
+
+test('the real tree is clean', () => {
+  assert.deepEqual(checkJsGraph(ROOT), []);
+});
+
+// The CLI runs under two runtimes: the tests below spawn it with this node, and the
+// real gate runs it under bun (make check-js -> package.json js:graph -> `bun run
+// scripts/check-js-graph.mjs`). Bun's argv handling (the optional root, a symlinked
+// script path) is its own, so every CLI case runs once per runtime. bun is resolved
+// from PATH and is NOT optional: make check-js already requires it, and a skipped bun
+// arm would read as a pass of the gate's real runtime.
+//
+// Each resolved binary is also asked who it is. The CLI mutants below fail the same
+// way under either runtime, so without this a [bun] arm quietly running node (or a
+// [node] arm running bun, under `bun run js:scripttests` behind a node shim) would
+// pass every recorded mutation while testing the wrong runtime.
+const CLI = join(import.meta.dirname, 'check-js-graph.mjs');
+
+// Every spawn below goes through here so a hung runtime fails ITS test, by name,
+// instead of hanging the whole suite with nothing attached. The bound is generous on
+// purpose: the CLI finishes in well under a second on a dev box (~0.1 s wall under
+// node and bun, `time` over three runs each), so 60 s only ever trips on a real
+// hang, never on a slow CI core. Checking the spawn before anything else keeps a
+// timeout or a kill from surfacing as a confusing "did not print its OK line".
+const SPAWN_TIMEOUT_MS = 60_000;
+function run(label, bin, args) {
+  // SIGKILL, not the default SIGTERM: a child that traps SIGTERM outlives the timeout
+  // and spawnSync waits on it, so the bound would not bound anything (measured: a
+  // SIGTERM-trapping child with an 8 s sleep held a 500 ms timeout for 8020 ms; with
+  // SIGKILL it returned ETIMEDOUT at 504 ms).
+  const r = spawnSync(bin, args, {
+    encoding: 'utf8',
+    timeout: SPAWN_TIMEOUT_MS,
+    killSignal: 'SIGKILL',
+  });
+  // The error first: a timeout AND an overflowed maxBuffer (ENOBUFS) both kill the
+  // child with SIGTERM, so reading the signal alone misnames the second as an outside
+  // kill. ENOENT passes through untouched, for the caller's own missing-binary message.
+  if (r.error && r.error.code !== 'ENOENT') {
+    assert.fail(
+      r.error.code === 'ETIMEDOUT'
+        ? `${label} timed out after ${SPAWN_TIMEOUT_MS} ms`
+        : `${label} failed to run: ${r.error.code ?? r.error.message}`,
+    );
+  }
+  assert.equal(r.signal, null, `${label} was killed by ${r.signal}`);
+  return r;
+}
+const RUNTIMES = [
+  ['node', () => process.execPath, 'undefined'],
+  [
+    'bun',
+    () => {
+      const r = run('graph CLI [bun] version probe', 'bun', ['--version']);
+      assert.ok(
+        !r.error && r.status === 0,
+        `bun not runnable from PATH (${r.error?.code ?? `exit ${r.status}`}); make check-js runs the graph CLI under bun, so it is required here`,
+      );
+      return 'bun';
+    },
+    'object',
+  ],
+];
+
+for (const [rt, resolveBin, typeofBun] of RUNTIMES) {
+  const exe = () => {
+    const bin = resolveBin();
+    const r = run(`graph CLI [${rt}] identity probe`, bin, [
+      '-e',
+      'process.stdout.write(typeof Bun)',
+    ]);
+    assert.equal(r.stdout, typeofBun, `graph CLI [${rt}] binary is not ${rt}: ${bin}`);
+    return bin;
+  };
+
+  // The CLI itself must report. It once sat behind an "am I the entry point?" guard so
+  // this file could import checkJsGraph, and that guard failed OPEN: run through a
+  // symlink under node, argv[1] is the link while import.meta.url is the realpath, the
+  // body never ran, and the gate exited 0 having printed nothing. The rules now live in
+  // lib/ and the CLI has no guard; this pins both the plain invocation and the symlinked
+  // one, since an exit code alone cannot tell "checked and passed" from "never checked".
+  // The guard regression is pinned by the [node] symlink arm only. The [bun] symlink
+  // arm mirrors the gate's own invocation but is NOT mutation-pinned: bun realpaths
+  // argv[1] (verified on bun 1.4.4), so that guard would have held under bun and no
+  // recorded mutation can kill this arm.
+  test(`graph CLI [${rt}] reports OK on the real tree, also when invoked through a symlink`, () => {
+    const bin = exe();
+    const dir = mkdtempSync(join(tmpdir(), 'js-graph-cli-'));
+    try {
+      const link = join(dir, 'check-js-graph.mjs');
+      symlinkSync(CLI, link);
+      for (const [how, path] of [
+        ['direct path', CLI],
+        ['symlink', link],
+      ]) {
+        const r = run(`graph CLI [${rt}] (${how})`, bin, [path]);
+        assert.equal(r.status, 0, `graph CLI [${rt}] (${how}) exited ${r.status}: ${r.stderr}`);
+        assert.match(
+          r.stdout,
+          /^OK: embedded JS module graph is literal/m,
+          `graph CLI [${rt}] (${how}) did not print its OK line; stdout: ${JSON.stringify(r.stdout)}`,
+        );
+        // A clean run says OK and nothing else. CI shows stderr as the failure channel,
+        // so a warning or a half-printed violation list beside a 0 exit is a gate
+        // whose output contradicts its verdict.
+        assert.equal(
+          r.stderr,
+          '',
+          `graph CLI [${rt}] (${how}) wrote to stderr on a clean run: ${JSON.stringify(r.stderr)}`,
+        );
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // The other half of the CLI contract: on a violating tree it must FAIL, and say why.
+  // Run only on the clean real tree, a CLI that exited 0 on violations, printed OK
+  // without checking, or dropped the violation lines would all have passed above. The
+  // CLI takes an optional root for exactly this; the fixture is the one-defect natives
+  // tree the rule test below uses.
+  test(`graph CLI [${rt}] fails on a violating tree and names the violation`, () => {
+    const bin = exe();
+    const root = tree({ 'pkg/runtime/globals.odin': ODIN.replace('"node/buffer"', '"buffer"') });
+    try {
+      const r = run(`graph CLI [${rt}] (violating tree)`, bin, [CLI, root]);
+      // OK first: a CLI that skips the check also exits 0, and this keeps the two
+      // mutants (wrong exit code, result discarded) reporting distinct failures.
+      assert.doesNotMatch(
+        r.stdout,
+        /^OK:/m,
+        `graph CLI [${rt}] printed OK on a violating tree: ${r.stdout}`,
+      );
+      assert.equal(
+        r.status,
+        1,
+        `graph CLI [${rt}] exited ${r.status} on a violating tree: ${r.stderr}`,
+      );
+      assert.match(
+        r.stderr,
+        /^JS module graph: 1 violation\(s\):$/m,
+        `graph CLI [${rt}] header: ${r.stderr}`,
+      );
+      assert.match(
+        r.stderr,
+        /^  unresolved: pkg\/runtime\/globals\.odin  natives key "buffer" names no module$/m,
+        `graph CLI [${rt}] violation line: ${r.stderr}`,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test('dynamic: a non-literal require argument', () => {
+  const vs = rules({
+    'pkg/runtime/js/node/buffer.js':
+      "(function (require, module) { var n = 'internal/primordials'; require(n); module.exports = {}; });",
+  });
+  assert.deepEqual(only(vs), ['dynamic']);
+  assert.match(vs.find((v) => v.rule === 'dynamic').where, /node\/buffer\.js:1$/);
+});
+
+test('unresolved: a require literal with no file', () => {
+  const vs = rules({
+    'pkg/runtime/js/node/buffer.js':
+      "(function (require, module) { require('internal/primordials'); require('internal/mim'); module.exports = {}; });",
+  });
+  assert.deepEqual(only(vs), ['unresolved']);
+  assert.match(vs[0].msg, /internal\/mim/);
+});
+
+test('unresolved: a natives key naming no module', () => {
+  const vs = rules({ 'pkg/runtime/globals.odin': ODIN.replace('"node/buffer"', '"buffer"') });
+  assert.deepEqual(only(vs), ['unresolved']);
+  assert.match(vs[0].msg, /natives key "buffer"/);
+});
+
+test('unreachable: an internal module nothing requires', () => {
+  const vs = rules({
+    'pkg/runtime/js/internal/mime.js': '(function (require, module) { module.exports = {}; });',
+  });
+  assert.deepEqual(only(vs), ['unreachable']);
+  assert.match(vs[0].where, /internal\/mime\.js$/);
+});
+
+test('unembedded: a directory of .js no #load_directory reads', () => {
+  const vs = rules({
+    'pkg/runtime/js/node/util.js':
+      "(function (require, module) { require('util/types'); module.exports = {}; });",
+    'pkg/runtime/js/node/util/types.js': '(function (require, module) { module.exports = {}; });',
+  });
+  assert.deepEqual(only(vs), ['unembedded']);
+  assert.match(vs[0].where, /node\/util\/types\.js$/);
+});
+
+test('unembedded: #load_directory of bootstrap/ would put esm.js on the module table', () => {
+  const vs = rules({
+    'pkg/runtime/globals.odin': ODIN.replace(
+      '\t{"internal", #load_directory("js/internal")},',
+      '\t{"internal", #load_directory("js/internal")},\n\t{"bootstrap", #load_directory("js/bootstrap")},',
+    ),
+  });
+  assert.deepEqual(only(vs), ['unembedded']);
+  assert.match(vs[0].msg, /js\/bootstrap/);
+});
+
+test('cycle: two module-eval requires that close a loop', () => {
+  const vs = rules({
+    'pkg/runtime/js/node/stream.js':
+      "(function (require, module) { require('buffer'); require('stream/web'); module.exports = {}; });",
+  });
+  assert.deepEqual(only(vs), ['cycle']);
+  assert.match(
+    vs[0].msg,
+    /node\/stream -> node\/stream\/web -> node\/stream|node\/stream\/web -> node\/stream -> node\/stream\/web/,
+  );
+});
+
+// --- the eager set the pollution ratchet reads (lib/js-graph.mjs eagerModules) ---
+//
+// A module-eval capture is pristine only in a module instantiated before user code,
+// so the ratchet exempts module-eval reads in exactly these ids. Getting the set too
+// LARGE is the bug direction: a lazy module called eager has its captures exempted.
+
+test('eager: closes over module-eval requires from the loader roots', () => {
+  // Roots are the loader's req() literals (primordials, fetch); buffer, stream and
+  // stream/web are eager only through fetch -> stream/web -> stream -> buffer.
+  assert.deepEqual(eager({}), [
+    'internal/fetch',
+    'internal/primordials',
+    'node/buffer',
+    'node/stream',
+    'node/stream/web',
+  ]);
+});
+
+test('eager: a function-body require does not make its target eager', () => {
+  const ids = eager({
+    'pkg/runtime/js/node/stream.js':
+      "(function (require, module) { require('buffer'); function late() { return require('os'); } module.exports = { late }; });",
+    'pkg/runtime/js/node/os.js': '(function (require, module) { module.exports = {}; });',
+  });
+  assert.ok(ids.includes('node/stream'), `stream is eager: ${ids}`);
+  assert.ok(!ids.includes('node/os'), `node/os is lazy, got eager: ${ids}`);
+});
+
+// The runtime side of the same set. cmd/lava/lazy_builtins_test.odin carries the list
+// as STATIC_EAGER and checks it against what context init actually compiles; this keeps
+// that list equal to what the ratchet computes, so neither can drift alone.
+test('eager: the Odin cross-check list matches the computed set', () => {
+  const odin = readFileSync(join(ROOT, 'cmd', 'lava', 'lazy_builtins_test.odin'), 'utf8');
+  const m = /STATIC_EAGER :: \[\?\]string\{([^}]*)\}/.exec(odin);
+  assert.ok(m, 'STATIC_EAGER not found in lazy_builtins_test.odin');
+  const listed = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]).sort();
+  assert.deepEqual(listed, eagerModules(ROOT));
+});

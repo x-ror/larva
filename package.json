@@ -2,14 +2,14 @@
   "private": true,
   "license": "AGPL-3.0-only",
   "scripts": {
-    "js:check": "bun fmt --check 'pkg/runtime/js/**/*.js' 'tests/**/*.js' 'tests/**/*.mjs' 'tests/**/*.cjs' 'scripts/**/*.{js,mjs}' 'bench/**/*.js' 'bench/**/*.mjs' 'runtime/**/*.mjs' && bun run js:deadcode && bun run js:scripttests && bun run js:primordials && bun run js:globalreplace",
-    "js:deadcode": "bun run scripts/check-orphan-js.mjs",
+    "js:check": "bun fmt --check 'pkg/runtime/js/**/*.js' 'tests/**/*.js' 'tests/**/*.mjs' 'tests/**/*.cjs' 'scripts/**/*.{js,mjs}' 'bench/**/*.js' 'bench/**/*.mjs' 'runtime/**/*.mjs' && bun run js:graph && bun run js:scripttests && bun run js:primordials && bun run js:globalreplace",
+    "js:graph": "bun run scripts/check-js-graph.mjs",
     "js:fix": "bun fmt 'pkg/runtime/js/**/*.js' 'tests/**/*.js' 'tests/**/*.mjs' 'tests/**/*.cjs' 'scripts/**/*.{js,mjs}' 'bench/**/*.js' 'bench/**/*.mjs' 'runtime/**/*.mjs'",
     "js:primordials": "bun run scripts/check-primordials.mjs",
     "js:globalreplace": "bun run scripts/check-global-replace.mjs",
     "actions:check": "bun run scripts/check-actions.mjs",
-    "md:check": "markdownlint-cli2",
-    "md:fix": "markdownlint-cli2 --fix",
+    "md:check": "bun fmt --check '**/*.md' && markdownlint-cli2",
+    "md:fix": "bun fmt '**/*.md' && markdownlint-cli2 --fix",
     "js:scripttests": "node --test 'scripts/**/*.test.mjs' 'runtime/**/*.test.mjs'"
   },
   "devDependencies": {

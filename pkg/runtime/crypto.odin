@@ -11,7 +11,7 @@ import "core:math/rand"
 import jsc "lava:pkg/jsc"
 
 // Native backing for the node:crypto built-in. The JavaScript surface
-// (createHash/createHmac/randomBytes/pbkdf2/...) lives in js/internal/crypto.js
+// (createHash/createHmac/randomBytes/pbkdf2/...) lives in js/node/crypto.js
 // and consults these primitives through the `native` bindings object the loader
 // passes as the factory's fourth argument — the same pattern `console` uses to
 // receive its write primitives without exposing them on globalThis.
@@ -21,7 +21,7 @@ import jsc "lava:pkg/jsc"
 // placeholder the pure-JS module shipped with.
 
 // crypto_algorithm maps a canonical Node digest name to an Odin hash.Algorithm.
-// The JS layer (js/internal/crypto.js) lowercases the name and resolves every
+// The JS layer (js/node/crypto.js) lowercases the name and resolves every
 // OpenSSL/Node alias (RSA-SHA256, sha256WithRSAEncryption, ssl3-md5, …) to one
 // of the canonical names below before crossing the boundary, and rejects any
 // digest Lava does not support — so this switch only handles the canonical set
@@ -300,7 +300,7 @@ crypto_timing_safe_equal_cb :: proc "c" (
 	return jsc.JSValueMakeBoolean(ctx, b32(crypto.compare_constant_time(a, b) == 1))
 }
 
-// TODO(crypto-native-api): js/internal/crypto.js now exposes throwing templates
+// TODO(crypto-native-api): js/node/crypto.js now exposes throwing templates
 // for every missing top-level Node crypto export. Add native callbacks here as
 // those APIs graduate from placeholders and need Odin-backed primitives:
 //
@@ -318,7 +318,7 @@ crypto_timing_safe_equal_cb :: proc "c" (
 //     (getFips is a constant 0 in JS — Lava has no FIPS provider)
 //   - randomness aliases/features: getRandomValues and randomUUIDv7
 
-// make_crypto_bindings builds the `native` object handed to js/internal/crypto.js.
+// make_crypto_bindings builds the `native` object handed to js/node/crypto.js.
 make_crypto_bindings :: proc(ctx: jsc.JSContextRef) -> jsc.JSObjectRef {
 	bindings := jsc.JSObjectMake(ctx, nil, nil)
 	inject_native_function(ctx, bindings, "randomFill", crypto_random_fill_cb)

@@ -125,7 +125,7 @@ inject_global_string :: proc(
 	jsc.JSObjectSetProperty(ctx, global_obj, js_name, js_val, {}, nil)
 }
 
-// node:path is implemented in JavaScript (js/internal/path.js) so the POSIX and
+// node:path is implemented in JavaScript (js/node/path.js) so the POSIX and
 // Windows normalize/resolve/relative semantics match Node exactly; it is wired
 // through the internal-module loader like the other built-ins.
 
@@ -154,7 +154,7 @@ eval_source_value :: proc(
 }
 
 // esm_wrap_source rewrites an ES module `source` (resolved at `filename`) into a
-// self-contained CommonJS expression by calling js/internal/esm.js. The returned
+// self-contained CommonJS expression by calling js/bootstrap/esm.js. The returned
 // string is allocated in context.allocator and must be freed by the caller. On
 // failure it sets `exception` (when non-nil) and returns ("", false).
 esm_wrap_source :: proc(

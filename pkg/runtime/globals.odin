@@ -34,7 +34,7 @@ Runtime_State :: struct {
 	// clone so module_cache_remove frees the key in O(1) (no scan to recover it).
 	module_cache:      map[string]Cached_Module,
 	builtin_require:   jsc.JSValueRef, // JS resolver for internal modules (events/util/assert/buffer); GC-protected
-	esm_transform:     jsc.JSValueRef, // js/internal/esm.js transform(source,url,filename,dirname); GC-protected
+	esm_transform:     jsc.JSValueRef, // js/bootstrap/esm.js transform(source,url,filename,dirname); GC-protected
 	// Standard JS error constructors (Error/TypeError/RangeError/…) snapshotted and
 	// GC-protected from globalThis at context init, before any user code runs (see
 	// capture_error_intrinsics). make_native_error builds native throws from these
@@ -47,7 +47,7 @@ Runtime_State :: struct {
 	// initial JSEvaluateScript returned cleanly (see resolve_exit_code).
 	async_failed:      bool,
 	rejection_handler: jsc.JSValueRef, // GC-protected fn registered with JSC; unprotected on destroy
-	// process.nextTick scheduling shim (js/internal/microtasks.js). JSC auto-drains
+	// process.nextTick scheduling shim (js/bootstrap/microtasks.js). JSC auto-drains
 	// its promise-job queue at every C boundary, so to keep nextTick callbacks
 	// ahead of those jobs (Node semantics) native must bracket the boundary itself:
 	// dispatch_fn runs an event-loop callback and drains nextTicks before returning,
@@ -98,6 +98,9 @@ Runtime_State :: struct {
 	// and read by install_process. Empty for embedders that don't set it (then
 	// install_process falls back to os.args).
 	script_argv:       []string,
+	// Embedded builtin factories compiled so far (builtin_compile_cb). Only an
+	// observable for cmd/lava/lazy_builtins_test.odin; nothing branches on it.
+	builtin_compiles:  int,
 }
 
 // JS_Callback bridges a JS function into an event-loop Callback. The function
@@ -671,7 +674,7 @@ clear_timer_cb :: proc "c" (
 // process.nextTick and queueMicrotask are installed from JS (MICROTASK_PRELUDE)
 // rather than as native callbacks: their Node-matching ordering relative to
 // JSC's promise-job queue is expressed most naturally in JS. See
-// install_microtasks and js/internal/microtasks.js.
+// install_microtasks and js/bootstrap/microtasks.js.
 
 // --- console ---
 //
@@ -699,7 +702,7 @@ output_mutex: sync.Mutex
 // Node:
 //   node writes files and TTYs synchronously on POSIX and QUEUES pipes on its loop,
 //   flushing before a natural exit. On a natural exit `console.log('x'.repeat(300000))`
-//   delivers 300001 bytes where Lava delivered 65536 (node 24.18.1, parent-set O_NONBLOCK
+//   delivers 300001 bytes where Lava delivered 65536 (node 26.13.0, parent-set O_NONBLOCK
 //   pipe). It is not a blanket "node never truncates": across `process.exit(0)` node drops
 //   its queued write and delivers 65536 on the same harness — the exact signature this
 //   fix removes from Lava.
@@ -985,7 +988,7 @@ performance_now_cb :: proc "c" (
 
 // install_microtasks evaluates MICROTASK_PRELUDE to a factory and calls it with
 // (globalThis, process) so it can install process.nextTick and queueMicrotask
-// with Node-matching ordering. See js/internal/microtasks.js for why these live
+// with Node-matching ordering. See js/bootstrap/microtasks.js for why these live
 // in JS on top of JSC's promise-job queue rather than the native event loop.
 install_microtasks :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef) {
 	process := get_named(ctx, global, "process")
@@ -996,7 +999,7 @@ install_microtasks :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef) {
 		ctx,
 		"lava:microtasks",
 		override_dir,
-		"js/internal/microtasks.js",
+		"js/bootstrap/microtasks.js",
 		MICROTASK_PRELUDE,
 	)
 	if factory == nil || !jsc.JSValueIsObject(ctx, factory) do return
@@ -1025,7 +1028,7 @@ install_microtasks :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef) {
 	// The factory returns { drainNextTicks, dispatch }. Stash both (GC-protected)
 	// on Runtime_State; invoke_user_callback drives them so process.nextTick keeps
 	// its priority over promise jobs across JSC's auto-draining promise queue (the
-	// "why" is in js/internal/microtasks.js).
+	// "why" is in js/bootstrap/microtasks.js).
 	if exports == nil || !jsc.JSValueIsObject(ctx, exports) do return
 	state := get_state_from_ctx(ctx)
 	if state == nil do return
@@ -1157,81 +1160,40 @@ microtask_report_uncaught_cb :: proc "c" (
 	return jsc.JSValueMakeUndefined(ctx)
 }
 
-// install_internal_modules evaluates the JS built-in modules (util, events,
-// assert, buffer) to factory functions, hands them to the loader, and stores
-// the resulting resolver on Runtime_State. native_require_cb consults that
-// resolver before hitting the filesystem. The loader also eagerly instantiates
-// modules that install globals (Buffer), so those exist without a require.
+// install_internal_modules hands the module loader a native `compile(id)` and the
+// per-module natives, and stores the resulting resolver on Runtime_State.
+// native_require_cb consults that resolver before hitting the filesystem. The
+// loader eagerly instantiates the modules that install globals (Buffer, fetch,
+// URL, …), so those exist without a require; every other builtin's factory is
+// compiled by builtin_compile_cb on its first require.
+//
+// Compile-on-first-require, not at init: evaluating all 39 factory sources made a
+// script that requires nothing pay for http, sqlite and assert. Lazily, only the
+// eager closure (13 files) is compiled before user code — 17 internal
+// JSEvaluateScript calls instead of 43 — and `lava run bench/micro/noop.js` went
+// 16.85 -> 14.63 ms (medians of 50 interleaved spawn-to-exit runs per arm after 5
+// warmups, darwin arm64, -o:speed, f106ab4 vs this change). The cost moves to each
+// lazy module's first require, once per context. See builtin_compile_cb.
 install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef) {
 	state := get_state_from_ctx(ctx)
 	if state == nil do return
 
-	Module :: struct {
-		name:   string,
-		path:   string,
-		source: string,
-	}
-	modules := [?]Module {
-		{"primordials", "js/internal/primordials.js", INTERNAL_PRIMORDIALS},
-		{"util", "js/internal/util.js", INTERNAL_UTIL},
-		{"events", "js/internal/events.js", INTERNAL_EVENTS},
-		{"assert", "js/internal/assert.js", INTERNAL_ASSERT},
-		{"buffer", "js/internal/buffer.js", INTERNAL_BUFFER},
-		{"crypto", "js/internal/crypto.js", INTERNAL_CRYPTO},
-		{"stream/web", "js/internal/streams.js", INTERNAL_STREAMS},
-		{"stream", "js/internal/stream.js", INTERNAL_STREAM},
-		{"stream/promises", "js/internal/stream_promises.js", INTERNAL_STREAM_PROMISES},
-		{"fetch", "js/internal/fetch.js", INTERNAL_FETCH},
-		{"abort", "js/internal/abort.js", INTERNAL_ABORT},
-		{"timers/promises", "js/internal/timers_promises.js", INTERNAL_TIMERS_PROMISES},
-		{"encoding", "js/internal/encoding.js", INTERNAL_ENCODING},
-		{"url", "js/internal/url.js", INTERNAL_URL},
-		{"structured_clone", "js/internal/structured_clone.js", INTERNAL_STRUCTURED_CLONE},
-		{"path", "js/internal/path.js", INTERNAL_PATH},
-		{"path/posix", "js/internal/path_posix.js", INTERNAL_PATH_POSIX},
-		{"path/win32", "js/internal/path_win32.js", INTERNAL_PATH_WIN32},
-		{"sqlite", "js/internal/sqlite.js", INTERNAL_SQLITE},
-		{"dns", "js/internal/dns.js", INTERNAL_DNS},
-		{"dns/promises", "js/internal/dns_promises.js", INTERNAL_DNS_PROMISES},
-		{"net", "js/internal/net.js", INTERNAL_NET},
-		{"http", "js/internal/http.js", INTERNAL_HTTP},
-		{"https", "js/internal/https.js", INTERNAL_HTTPS},
-		{"os", "js/internal/os.js", INTERNAL_OS},
-		{"querystring", "js/internal/querystring.js", INTERNAL_QUERYSTRING},
-		{"string_decoder", "js/internal/string_decoder.js", INTERNAL_STRING_DECODER},
-		{"timers", "js/internal/timers.js", INTERNAL_TIMERS},
-		{"util/types", "js/internal/util_types.js", INTERNAL_UTIL_TYPES},
-		{"punycode", "js/internal/punycode.js", INTERNAL_PUNYCODE},
-		{"process", "js/internal/process.js", INTERNAL_PROCESS},
-		{"console", "js/internal/console.js", INTERNAL_CONSOLE},
-		{"tty", "js/internal/tty.js", INTERNAL_TTY},
-		{"diagnostics_channel", "js/internal/diagnostics_channel.js", INTERNAL_DIAGNOSTICS_CHANNEL},
-		// Internal helpers backing util.parseArgs / util.parseEnv / util.MIMEType; hidden
-		// from the public resolver (loader.js publicReq), like primordials — Node has no
-		// node:parse_args or node:mime.
-		{"parse_args", "js/internal/parse_args.js", INTERNAL_PARSE_ARGS},
-		{"parse_env", "js/internal/parse_env.js", INTERNAL_PARSE_ENV},
-		{"mime", "js/internal/mime.js", INTERNAL_MIME},
-		{"stdio", "js/internal/stdio.js", INTERNAL_STDIO},
-		{"fs", "js/internal/fs.js", INTERNAL_FS},
-	}
-
 	override_dir := js_override_dir()
-	factories := jsc.JSObjectMake(ctx, nil, nil)
-	for m in modules {
-		factory := eval_internal_source(ctx, m.name, override_dir, m.path, m.source)
-		if factory == nil do continue
-		set_named(ctx, factories, m.name, factory)
-	}
-
-	loader := eval_internal_source(ctx, "internal:loader", override_dir, "js/internal/loader.js", INTERNAL_LOADER)
+	loader := eval_internal_source(ctx, "internal:loader", override_dir, "js/bootstrap/loader.js", BOOTSTRAP_LOADER)
 	if loader == nil || !jsc.JSValueIsObject(ctx, loader) do return
 
-	// Native primitives keyed by module name. The loader passes natives[key] to
+	// Cold native: called once per builtin per context, so the generic host path,
+	// not a *_host wrapper. Passed as a bare argument, so it is reachable only from
+	// the loader's closure — never from user code.
+	compile := host_native_create(ctx, "compile", builtin_compile_cb, 1)
+	if compile == nil do compile = make_native_function(ctx, "compile", builtin_compile_cb)
+	if compile == nil do return
+
+	// Native primitives keyed by module id. The loader passes natives[id] to
 	// each factory as its fourth argument, so a module receives its Odin-backed
 	// bindings without anything landing on globalThis (cf. install_console).
 	natives := jsc.JSObjectMake(ctx, nil, nil)
-	set_named(ctx, natives, "crypto", cast(jsc.JSValueRef)make_crypto_bindings(ctx))
+	set_named(ctx, natives, "node/crypto", cast(jsc.JSValueRef)make_crypto_bindings(ctx))
 	// The SAME bindings object serves both `buffer` and `encoding`. encoding.js
 	// used to reach the utf-8 decoder as `Buffer.prototype.toString.call(bytes,
 	// 'utf8')`, which put a live `Function.prototype.call` read on the RETURN path
@@ -1240,31 +1202,31 @@ install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef)
 	// encoding.js the codec directly removes the read, and skips toString's length
 	// getter, range clamp and encoding-name dispatch on the way.
 	buffer_bindings := make_buffer_bindings(ctx)
-	set_named(ctx, natives, "buffer", cast(jsc.JSValueRef)buffer_bindings)
-	set_named(ctx, natives, "encoding", cast(jsc.JSValueRef)buffer_bindings)
-	set_named(ctx, natives, "fetch", cast(jsc.JSValueRef)make_fetch_bindings(ctx))
-	set_named(ctx, natives, "sqlite", cast(jsc.JSValueRef)make_sqlite_bindings(ctx))
-	set_named(ctx, natives, "dns", cast(jsc.JSValueRef)make_dns_bindings(ctx))
-	set_named(ctx, natives, "net", cast(jsc.JSValueRef)make_net_bindings(ctx))
-	set_named(ctx, natives, "http", cast(jsc.JSValueRef)make_http_bindings(ctx))
-	set_named(ctx, natives, "https", cast(jsc.JSValueRef)make_https_bindings(ctx))
-	set_named(ctx, natives, "os", cast(jsc.JSValueRef)make_os_bindings(ctx))
-	set_named(ctx, natives, "tty", cast(jsc.JSValueRef)make_tty_bindings(ctx))
-	set_named(ctx, natives, "stdio", cast(jsc.JSValueRef)make_stdio_bindings(ctx))
-	set_named(ctx, natives, "fs", cast(jsc.JSValueRef)make_fs_bindings(ctx))
+	set_named(ctx, natives, "node/buffer", cast(jsc.JSValueRef)buffer_bindings)
+	set_named(ctx, natives, "internal/encoding", cast(jsc.JSValueRef)buffer_bindings)
+	set_named(ctx, natives, "internal/fetch", cast(jsc.JSValueRef)make_fetch_bindings(ctx))
+	set_named(ctx, natives, "node/sqlite", cast(jsc.JSValueRef)make_sqlite_bindings(ctx))
+	set_named(ctx, natives, "node/dns", cast(jsc.JSValueRef)make_dns_bindings(ctx))
+	set_named(ctx, natives, "node/net", cast(jsc.JSValueRef)make_net_bindings(ctx))
+	set_named(ctx, natives, "node/http", cast(jsc.JSValueRef)make_http_bindings(ctx))
+	set_named(ctx, natives, "node/https", cast(jsc.JSValueRef)make_https_bindings(ctx))
+	set_named(ctx, natives, "node/os", cast(jsc.JSValueRef)make_os_bindings(ctx))
+	set_named(ctx, natives, "node/tty", cast(jsc.JSValueRef)make_tty_bindings(ctx))
+	set_named(ctx, natives, "internal/stdio", cast(jsc.JSValueRef)make_stdio_bindings(ctx))
+	set_named(ctx, natives, "node/fs", cast(jsc.JSValueRef)make_fs_bindings(ctx))
 	// Intrinsic process/console objects. Captured here (context init, before user
 	// code) and handed to the factories so require('node:process') /
 	// require('node:console') never re-read the globals — node returns the
 	// intrinsic even when a dependency reassigned globalThis.process / console
 	// before the first require (#247). install_process runs before this proc.
 	if process_val := get_named(ctx, global, "process"); process_val != nil {
-		set_named(ctx, natives, "process", process_val)
+		set_named(ctx, natives, "node/process", process_val)
 	}
 	if console_val := get_named(ctx, global, "console"); console_val != nil {
-		set_named(ctx, natives, "console", console_val)
+		set_named(ctx, natives, "node/console", console_val)
 	}
 
-	args := [2]jsc.JSValueRef{cast(jsc.JSValueRef)factories, cast(jsc.JSValueRef)natives}
+	args := [2]jsc.JSValueRef{cast(jsc.JSValueRef)compile, cast(jsc.JSValueRef)natives}
 	exception: jsc.JSValueRef
 	resolver := jsc.JSObjectCallAsFunction(
 		ctx,
@@ -1283,7 +1245,7 @@ install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef)
 	jsc.JSValueProtect(ctx, resolver)
 	state.builtin_require = resolver
 
-	// The ESM source transform (js/internal/esm.js) evaluates to a FACTORY —
+	// The ESM source transform (js/bootstrap/esm.js) evaluates to a FACTORY —
 	// `factory(primordials) -> transform(source, url, filename, dirname)`. The
 	// transform is stored on the state, not registered as a requireable module, so
 	// native_require_cb can rewrite `.mjs` files to CommonJS without exposing it to
@@ -1299,7 +1261,7 @@ install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef)
 	// Fail CLOSED. Without the table the transform would run on live intrinsics, so a
 	// missing one leaves state.esm_transform nil and `.mjs` reports "ESM transform
 	// unavailable" instead of silently transforming with the poisonable path.
-	esm_factory := eval_internal_source(ctx, "lava:esm", override_dir, "js/internal/esm.js", INTERNAL_ESM)
+	esm_factory := eval_internal_source(ctx, "lava:esm", override_dir, "js/bootstrap/esm.js", BOOTSTRAP_ESM)
 	if esm_factory != nil && jsc.JSValueIsObject(ctx, esm_factory) {
 		primordials := get_named(ctx, cast(jsc.JSObjectRef)resolver, "primordials")
 		if primordials != nil && jsc.JSValueIsObject(ctx, primordials) {
@@ -1321,6 +1283,100 @@ install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef)
 			}
 		}
 	}
+}
+
+// builtin_compile_cb is the loader's `compile(id)`: it evaluates the embedded
+// source of module `id` (`node/os`, `node/stream/web`, `internal/mime`) and
+// returns its factory `(require, module, exports, native) => exports?`.
+//
+// Returns:
+//   The factory; undefined for a non-string or an id with no embedded file, and
+//   for a source that failed to evaluate (reported to stderr, as at init before
+//   this was lazy — the loader then answers "not a builtin").
+// Node:
+//   Not observable: Node also compiles a builtin on its first require, and the
+//   loader's cache (bootstrap/loader.js) keeps it to once per context.
+//
+// The id is matched against EMBEDDED_JS_DIRS — exact directory prefix, exact
+// basename — so only a file in the embedded set is reachable: 'node/constructor',
+// '__proto__', '' and anything with '..' match no row. The override path and the
+// source name are rebuilt from the MATCHED row, never from the argument, so a
+// LAVA_JS_OVERRIDE build cannot be steered to read a file outside js/ either.
+// The scan is linear over ~40 rows with no allocation; it runs once per builtin,
+// plus once per `require` of a bare name that is not a builtin (express, lodash)
+// on its way to the filesystem resolver.
+//
+// js_override_dir is recomputed per call rather than cached on Runtime_State: in a
+// normal build it is a compile-time "" and costs nothing; only override builds
+// (mutation runs) pay one os.exists per compile.
+builtin_compile_cb :: proc "c" (
+	ctx: jsc.JSContextRef,
+	function: jsc.JSObjectRef,
+	this_object: jsc.JSObjectRef,
+	argument_count: c.size_t,
+	arguments: [^]jsc.JSValueRef,
+	exception: ^jsc.JSValueRef,
+) -> jsc.JSValueRef {
+	context = runtime.default_context()
+	// Everything below is scratch for this one evaluation (path and cstring
+	// copies); nothing outlives the call. A guard rather than leaning on the
+	// caller's choke point: compile runs under native_require_cb's per-require
+	// free_all, under eval's at init, or under a loop tick's when a builtin
+	// requires a lazy internal module from a callback.
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+	undefined := jsc.JSValueMakeUndefined(ctx)
+	state := get_state_from_ctx(ctx)
+	if state == nil || argument_count < 1 || !jsc.JSValueIsString(ctx, arguments[0]) do return undefined
+
+	// The loader builds ids by concatenation, so the argument is usually a rope,
+	// which value_chars8 declines; read_string_arg flattens it. Where the cell read
+	// is unavailable (off Linux) the C API hands back UTF-16 even for an ASCII
+	// string, so narrow it into a stack buffer; a non-ASCII unit or an id longer
+	// than any embedded one cannot match.
+	r := read_string_arg(ctx, arguments[0])
+	defer if r.str != nil do jsc.JSStringRelease(r.str)
+	if !r.ok do return undefined
+	narrow: [64]byte
+	id: string
+	if r.is8 {
+		id = string(r.s8)
+	} else {
+		if len(r.s16) > len(narrow) do return undefined
+		for u, i in r.s16 {
+			if u >= 0x80 do return undefined
+			narrow[i] = byte(u)
+		}
+		id = string(narrow[:len(r.s16)])
+	}
+
+	slash := strings.last_index_byte(id, '/')
+	if slash <= 0 do return undefined
+	prefix, base := id[:slash], id[slash + 1:]
+	if len(base) == 0 do return undefined
+
+	for dir in EMBEDDED_JS_DIRS {
+		if dir.prefix != prefix do continue
+		for file in dir.files {
+			if len(file.name) != len(base) + 3 || !strings.has_suffix(file.name, ".js") do continue
+			if file.name[:len(base)] != base do continue
+
+			rel_path, rel_err := strings.concatenate({"js/", dir.prefix, "/", file.name}, context.temp_allocator)
+			if rel_err != nil do return undefined
+			// Source name is what a stack frame shows: `node:buffer`, `node:stream/web`
+			// for public modules and `node:internal/fetch` for internal ones, the shape
+			// node's own frames take (`node:internal/url`).
+			spec := rel_path[len("js/"):len(rel_path) - len(".js")]
+			if strings.has_prefix(spec, "node/") do spec = spec[len("node/"):]
+			source_name, name_err := strings.concatenate({"node:", spec}, context.temp_allocator)
+			if name_err != nil do return undefined
+			factory := eval_internal_source(ctx, source_name, js_override_dir(), rel_path, string(file.data))
+			if factory == nil do return undefined
+			state.builtin_compiles += 1
+			return factory
+		}
+		return undefined
+	}
+	return undefined
 }
 
 // require_builtin asks the JS resolver for an internal module by specifier.
@@ -1390,7 +1446,7 @@ install_console :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef) {
 	if out_fn == nil || err_fn == nil do return
 
 	override_dir := js_override_dir()
-	factory := eval_internal_source(ctx, "lava:console", override_dir, "js/console.js", CONSOLE_PRELUDE)
+	factory := eval_internal_source(ctx, "lava:console", override_dir, "js/bootstrap/console.js", CONSOLE_PRELUDE)
 	if factory == nil || !jsc.JSValueIsObject(ctx, factory) do return
 
 	args := [2]jsc.JSValueRef{cast(jsc.JSValueRef)out_fn, cast(jsc.JSValueRef)err_fn}
@@ -1594,55 +1650,53 @@ build_env_object :: proc(ctx: jsc.JSContextRef) -> jsc.JSObjectRef {
 // installs it on globalThis. Implemented in JS (like Node) so util.format
 // substitution, value inspection, grouping and table rendering stay simple. The
 // primitives arrive as arguments, so they are never visible on globalThis.
-CONSOLE_PRELUDE :: #load("js/console.js", string)
+CONSOLE_PRELUDE :: #load("js/bootstrap/console.js", string)
 
 // process.nextTick / queueMicrotask ordering shim (factory `(globalThis,
 // process) => {}`). Installed after `process` exists; see install_microtasks.
-MICROTASK_PRELUDE :: #load("js/internal/microtasks.js", string)
+MICROTASK_PRELUDE :: #load("js/bootstrap/microtasks.js", string)
 
-// Internal built-in modules, embedded at compile time. Each evaluates to a
-// factory `(require, module, exports) => exports?`; the loader wires them up.
-INTERNAL_LOADER :: #load("js/internal/loader.js", string)
-INTERNAL_PRIMORDIALS :: #load("js/internal/primordials.js", string)
-INTERNAL_UTIL :: #load("js/internal/util.js", string)
-INTERNAL_EVENTS :: #load("js/internal/events.js", string)
-INTERNAL_ASSERT :: #load("js/internal/assert.js", string)
-INTERNAL_BUFFER :: #load("js/internal/buffer.js", string)
-INTERNAL_CRYPTO :: #load("js/internal/crypto.js", string)
-INTERNAL_STREAMS :: #load("js/internal/streams.js", string)
-INTERNAL_STREAM :: #load("js/internal/stream.js", string)
-INTERNAL_STREAM_PROMISES :: #load("js/internal/stream_promises.js", string)
-INTERNAL_FETCH :: #load("js/internal/fetch.js", string)
-INTERNAL_ABORT :: #load("js/internal/abort.js", string)
-INTERNAL_TIMERS_PROMISES :: #load("js/internal/timers_promises.js", string)
-INTERNAL_ENCODING :: #load("js/internal/encoding.js", string)
-INTERNAL_URL :: #load("js/internal/url.js", string)
-INTERNAL_STRUCTURED_CLONE :: #load("js/internal/structured_clone.js", string)
-INTERNAL_PATH :: #load("js/internal/path.js", string)
-INTERNAL_PATH_POSIX :: #load("js/internal/path_posix.js", string)
-INTERNAL_PATH_WIN32 :: #load("js/internal/path_win32.js", string)
-INTERNAL_SQLITE :: #load("js/internal/sqlite.js", string)
-INTERNAL_DNS :: #load("js/internal/dns.js", string)
-INTERNAL_DNS_PROMISES :: #load("js/internal/dns_promises.js", string)
-INTERNAL_OS :: #load("js/internal/os.js", string)
-INTERNAL_QUERYSTRING :: #load("js/internal/querystring.js", string)
-INTERNAL_STRING_DECODER :: #load("js/internal/string_decoder.js", string)
-INTERNAL_TIMERS :: #load("js/internal/timers.js", string)
-INTERNAL_UTIL_TYPES :: #load("js/internal/util_types.js", string)
-INTERNAL_PUNYCODE :: #load("js/internal/punycode.js", string)
-INTERNAL_PROCESS :: #load("js/internal/process.js", string)
-INTERNAL_CONSOLE :: #load("js/internal/console.js", string)
-INTERNAL_TTY :: #load("js/internal/tty.js", string)
-INTERNAL_FS :: #load("js/internal/fs.js", string)
-INTERNAL_NET :: #load("js/internal/net.js", string)
-INTERNAL_HTTP :: #load("js/internal/http.js", string)
-INTERNAL_HTTPS :: #load("js/internal/https.js", string)
-INTERNAL_DIAGNOSTICS_CHANNEL :: #load("js/internal/diagnostics_channel.js", string)
-INTERNAL_PARSE_ARGS :: #load("js/internal/parse_args.js", string)
-INTERNAL_PARSE_ENV :: #load("js/internal/parse_env.js", string)
-INTERNAL_MIME :: #load("js/internal/mime.js", string)
-INTERNAL_STDIO :: #load("js/internal/stdio.js", string)
+// The module loader: evaluates to `(compile, natives) => resolver`. A bootstrap
+// file, not a module — it is what makes the modules below requireable.
+BOOTSTRAP_LOADER :: #load("js/bootstrap/loader.js", string)
 
 // ESM-to-CommonJS source transform. Stored on Runtime_State rather than handed to
-// the module resolver (see install_internal_modules); evaluates to a function.
-INTERNAL_ESM :: #load("js/internal/esm.js", string)
+// the module resolver (see install_internal_modules); evaluates to a function. It
+// lives in js/bootstrap/, which no #load_directory reads, precisely so it can never
+// land on the module table.
+BOOTSTRAP_ESM :: #load("js/bootstrap/esm.js", string)
+
+// Embedded_JS_Dir is one directory of built-in modules, embedded whole. Each file
+// evaluates to a factory `(require, module, exports, native) => exports?`; its id
+// is `<prefix>/<basename without .js>`, which is also the path under js/.
+Embedded_JS_Dir :: struct {
+	prefix: string,
+	files:  []runtime.Load_Directory_File,
+}
+
+// EMBEDDED_JS_DIRS lists DIRECTORIES, never files: a module enters the binary by
+// existing under one of these, so there is no hand-kept file table to drift from the
+// tree (scripts/check-js-graph.mjs fails when a directory holding .js is missing
+// here). One entry per directory because #load_directory is not recursive — it
+// returns basenames and skips subdirectories, which is also why `node/stream/web`
+// needs the `node/stream` row. It loads every file, so the loop filters on `.js`.
+//
+// A package-level VARIABLE, not a `::` constant: `#load_directory` compiles only in
+// a package-level `:=` declaration (odin 2026-11a rejects the constant and the
+// proc-local forms). Nothing writes to it after init.
+EMBEDDED_JS_DIRS := [?]Embedded_JS_Dir {
+	{"node", #load_directory("js/node")},
+	{"node/dns", #load_directory("js/node/dns")},
+	{"node/path", #load_directory("js/node/path")},
+	{"node/stream", #load_directory("js/node/stream")},
+	{"node/timers", #load_directory("js/node/timers")},
+	{"node/util", #load_directory("js/node/util")},
+	{"internal", #load_directory("js/internal")},
+	{"internal/crypto", #load_directory("js/internal/crypto")},
+	{"internal/fetch", #load_directory("js/internal/fetch")},
+	{"internal/http", #load_directory("js/internal/http")},
+	{"internal/os", #load_directory("js/internal/os")},
+	{"internal/streams", #load_directory("js/internal/streams")},
+	{"internal/util", #load_directory("js/internal/util")},
+	{"internal/webstreams", #load_directory("js/internal/webstreams")},
+}

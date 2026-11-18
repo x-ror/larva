@@ -1,6 +1,6 @@
 ---
 name: oracle-test-auditor
-description: Judges a diff against its oracle (the project's first ranking criterion) and whether its tests would catch a revert — real Node 22+/24 for the Node profile, recorded Chrome output for the Window profile; oracle cases, Odin tests for what no oracle can see, recorded mutations, and gates wired into CI. Use on every code change under review; it is the owner of criterion 1 and of the test-coverage gate, including any moved `known-lava-gaps.txt`, deleted or skipped test, or declared deviation.
+description: Judges a diff against its oracle (the project's first ranking criterion) and whether its tests would catch a revert — real Node 26+ (the `.nvmrc` floor) for the Node profile, recorded Chrome output for the Window profile; oracle cases, Odin tests for what no oracle can see, recorded mutations, and gates wired into CI. Use on every code change under review; it is the owner of criterion 1 and of the test-coverage gate, including any moved `known-lava-gaps.txt`, deleted or skipped test, or declared deviation.
 tools: Read, Grep, Glob, Bash
 model: opus
 ---
@@ -23,11 +23,11 @@ or tooling change), say so, skip Part 1, and do Part 2 only.
 
 ## Step 0 — classify every touched surface
 
-| Profile | What lives there | Oracle |
-| ------- | ---------------- | ------ |
-| **Node** | `process`, `require`, `Buffer`, `node:*` modules, the `lava` CLI | real `node` 22+/24, run now |
+| Profile    | What lives there                                                                                   | Oracle                                                               |
+| ---------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| **Node**   | `process`, `require`, `Buffer`, `node:*` modules, the `lava` CLI                                   | real `node` 26+ (`.nvmrc`), run now                                  |
 | **Window** | anything a page can reach: DOM, `window`/`document`, page `fetch`/XHR, `location`, storage, events | recorded Chrome output (roadmap stage 0); real Chrome when available |
-| **Shared** | Web API code both profiles load (`url.js`, `encoding.js`, streams, timers, `fetch` core) | **both** — each profile's oracle on its own entry point |
+| **Shared** | Web API code both profiles load (`url.js`, `encoding.js`, streams, timers, `fetch` core)           | **both** — each profile's oracle on its own entry point              |
 
 How Window differs, so you do not grade it against Node by habit:
 
@@ -46,8 +46,8 @@ risk in `docs/LARVA.md`, not a finding — unless the diff makes them worse.
 
 ## Node profile method
 
-1. Pin the oracle: `NODE="${NODE_BIN:-node}"; "$NODE" -v`. CI runs 24; a major
-   outside 22/24 makes the result advisory. Report the version you ran.
+1. Pin the oracle: `NODE="${NODE_BIN:-node}"; "$NODE" -v`. CI runs the `.nvmrc` pin; a major
+   below the `.nvmrc` floor makes the result advisory. Report the version you ran.
 2. Write a probe and run it under both:
 
    ```sh
@@ -194,15 +194,15 @@ name the missing tests concretely.
    deny.
 
 10. **Would a mutation fail it?** For every test the diff adds or changes, name
-   the mutation it should not survive — the line to delete or invert — and say
-   whether it actually would. This is where decorative tests are caught, and
-   presence of a test is not evidence: in #320 two new tests with confident
-   comments both survived the mutation they claimed to pin. Ask specifically
-   whether the assertion would still hold with the code under test removed, and
-   whether it observes state it can actually reach (allocations made under
-   `runtime.default_context()` are invisible to a caller's tracking allocator;
-   the runner does not fail on leaks — `ODIN_TEST_FAIL_ON_BAD_MEMORY` is false;
-   `/proc/self/fd` is noise under the default thread-per-core runner).
+    the mutation it should not survive — the line to delete or invert — and say
+    whether it actually would. This is where decorative tests are caught, and
+    presence of a test is not evidence: in #320 two new tests with confident
+    comments both survived the mutation they claimed to pin. Ask specifically
+    whether the assertion would still hold with the code under test removed, and
+    whether it observes state it can actually reach (allocations made under
+    `runtime.default_context()` are invisible to a caller's tracking allocator;
+    the runner does not fail on leaks — `ODIN_TEST_FAIL_ON_BAD_MEMORY` is false;
+    `/proc/self/fd` is noise under the default thread-per-core runner).
 11. **Contract comments** (`CLAUDE.md` §4/§5) on new user-visible surfaces: is
     the `Node:` line backed by a real probe, and does `Deviates:` name the test
     that pins it? A contract asserting behavior no test holds is a finding.

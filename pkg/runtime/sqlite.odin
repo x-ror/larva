@@ -7,14 +7,14 @@ import "core:strconv"
 import jsc "lava:pkg/jsc"
 import sqlite "lava:pkg/std/sqlite"
 
-// node:sqlite bridge. js/internal/sqlite.js implements the DatabaseSync /
+// node:sqlite bridge. js/node/sqlite.js implements the DatabaseSync /
 // StatementSync classes on top of these native primitives; the heavy lifting
 // (the libsqlite3 calls) lives in pkg/std/sqlite. JS holds opaque integer handle
 // ids; the real ^sqlite.Database / ^sqlite.Statement live in the per-context
 // registries on Runtime_State, so they are closed/freed when the context is torn
 // down even if user code forgets to call db.close().
 
-// make_sqlite_bindings builds the `native` object handed to js/internal/sqlite.js.
+// make_sqlite_bindings builds the `native` object handed to js/node/sqlite.js.
 make_sqlite_bindings :: proc(ctx: jsc.JSContextRef) -> jsc.JSObjectRef {
 	bindings := jsc.JSObjectMake(ctx, nil, nil)
 	inject_native_function(ctx, bindings, "open", sqlite_open_cb)
@@ -293,7 +293,7 @@ sqlite_bind_cb :: proc "c" (
 	index := int(jsc.JSValueToNumber(ctx, args[1], nil))
 	value := args[2]
 
-	// js/internal/sqlite.js validates the value type before calling here, so the
+	// js/node/sqlite.js validates the value type before calling here, so the
 	// bridge only ever sees the bindable types (null/number/string/TypedArray) and
 	// routes BigInt through sqlite_bind_bigint_cb. The default branch stays as a
 	// defensive backstop: undefined, booleans, plain objects, etc. throw rather
@@ -304,7 +304,7 @@ sqlite_bind_cb :: proc "c" (
 		res = sqlite.bind_null(stmt, index)
 	case .Number:
 		// Node binds EVERY JS number with sqlite3_bind_double, whole ones included
-		// (verified against node 24: `SELECT typeof(?)` with 42 reports "real").
+		// (verified against node 26.13.0: `SELECT typeof(?)` with 42 reports "real").
 		// Binding a whole number as INTEGER changed results, not just the type tag:
 		// SQLite divides integers with integer division, so `SELECT ? / 2` with 5
 		// returned 2 instead of 2.5, and a value written into a typeless column came
@@ -379,7 +379,7 @@ sqlite_bind_bigint_cb :: proc "c" (
 // Node:
 //   node:sqlite stamps ERR_SQLITE_ERROR on EVERY library-originated error — a bad
 //   path in the constructor, a syntax error from exec/prepare, a constraint
-//   violation surfaced from step, a rejected bind — verified against node 24
+//   violation surfaced from step, a rejected bind — verified against node 26.13.0
 //   (`new DatabaseSync('/nonexistent/x.db')`, `db.exec('NOT SQL')`, a UNIQUE
 //   violation). Only the bind path used to set it here, so the documented
 //   `err.code === 'ERR_SQLITE_ERROR'` branch silently missed every other error.
@@ -468,13 +468,7 @@ sqlite_row_cb :: proc "c" (
 		value: jsc.JSValueRef
 		switch sqlite.column_type(stmt, i) {
 		case .Integer:
-			value = sqlite_int_value(
-				ctx,
-				sqlite.column_int(stmt, i),
-				read_big_ints,
-				true,
-				exception,
-			)
+			value = sqlite_int_value(ctx, sqlite.column_int(stmt, i), read_big_ints, exception)
 			// An out-of-range INTEGER throws (ERR_OUT_OF_RANGE) — abandon the row.
 			if exception != nil && exception^ != nil do return jsc.JSValueMakeUndefined(ctx)
 		case .Float:
@@ -509,8 +503,8 @@ sqlite_changes_cb :: proc "c" (
 	db := sqlite_get_db(state, sqlite_arg_id(ctx, arguments[0]))
 	if db == nil do return jsc.JSValueMakeNumber(ctx, 0)
 	read_big_ints := sqlite_read_big_ints(ctx, argument_count, arguments, 1)
-	// changes/lastInsertRowid never throw (Node returns a lossy number by default).
-	return sqlite_int_value(ctx, sqlite.changes(db), read_big_ints, false, exception)
+	// Unsafe counts throw like a column read (node 26); see sqlite_int_value.
+	return sqlite_int_value(ctx, sqlite.changes(db), read_big_ints, exception)
 }
 
 sqlite_last_insert_rowid_cb :: proc "c" (
@@ -527,7 +521,7 @@ sqlite_last_insert_rowid_cb :: proc "c" (
 	db := sqlite_get_db(state, sqlite_arg_id(ctx, arguments[0]))
 	if db == nil do return jsc.JSValueMakeNumber(ctx, 0)
 	read_big_ints := sqlite_read_big_ints(ctx, argument_count, arguments, 1)
-	return sqlite_int_value(ctx, sqlite.last_insert_rowid(db), read_big_ints, false, exception)
+	return sqlite_int_value(ctx, sqlite.last_insert_rowid(db), read_big_ints, exception)
 }
 
 // --- helpers ---
@@ -553,18 +547,18 @@ sqlite_read_big_ints :: proc(
 
 // sqlite_int_value converts an i64 column/rowid value to a JS value honoring the
 // statement's readBigInts flag. With read_big_ints it returns a BigInt; otherwise
-// a JS number — throwing ERR_OUT_OF_RANGE (like node:sqlite) when throw_on_unsafe
-// is set and the value is not exactly representable. run()'s changes/lastInsertRowid
-// pass throw_on_unsafe=false: Node returns those as a lossy number, never throwing.
+// a JS number, throwing ERR_OUT_OF_RANGE (like node:sqlite) when the value is not
+// exactly representable. That includes run()'s changes/lastInsertRowid: node 26
+// throws for them after the statement has run (the row stays written); node 24
+// returned a lossy number. Pinned by tests/std/sqlite/cases/04-bigint.js.
 sqlite_int_value :: proc(
 	ctx: jsc.JSContextRef,
 	v: i64,
 	read_big_ints: bool,
-	throw_on_unsafe: bool,
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	if read_big_ints do return sqlite_make_bigint(ctx, v)
-	if throw_on_unsafe && (v > SQLITE_MAX_SAFE_INTEGER || v < -SQLITE_MAX_SAFE_INTEGER) {
+	if (v > SQLITE_MAX_SAFE_INTEGER || v < -SQLITE_MAX_SAFE_INTEGER) {
 		if exception != nil {
 			msg := fmt.tprintf(
 				"Value is too large to be represented as a JavaScript number: %d",

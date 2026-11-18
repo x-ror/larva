@@ -59,7 +59,10 @@ try {
   fail(e.message);
 }
 
-const sock = tls.connect({ host: '127.0.0.1', port, ca, servername: '127.0.0.1' }, () => {
+// No `servername`: node 26 rejects an IP address there (ERR_INVALID_ARG_VALUE, RFC 6066
+// forbids IP SNI). Without it the identity is checked against `host`, which the smoke
+// cert carries as IP:127.0.0.1.
+const sock = tls.connect({ host: '127.0.0.1', port, ca }, () => {
   sock.write(
     'POST /g HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 2\r\nConnection: keep-alive\r\n\r\nhi',
   );

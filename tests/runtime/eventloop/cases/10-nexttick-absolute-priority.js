@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 // Node drains the ENTIRE process.nextTick queue before any promise job, even a
 // nextTick queued *after* the promise (absolute nextTick priority).
 //
-// KNOWN LAVA GAP (see issue #16 and js/internal/microtasks.js): Lava layers
+// KNOWN LAVA GAP (see issue #16 and js/bootstrap/microtasks.js): Lava layers
 // nextTick on JSC's promise-microtask queue, which it cannot reorder ahead of a
 // promise job already enqueued earlier in the turn — so Lava reports
 // ['promise', 'nextTick'] here. This case is listed in known-lava-gaps.txt so it

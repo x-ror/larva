@@ -11,7 +11,7 @@
 Lava is a Node-compatible JavaScript runtime built on **JavaScriptCore (JSC)** as
 the execution engine and **Odin** as the systems language for everything around
 it: the engine FFI, the event loop, the I/O transports, and the native half of
-the standard library. Compatibility targets modern Node (22+/24 behavior) rather
+the standard library. Compatibility targets modern Node (26+ behavior, floor pinned in `.nvmrc`) rather
 than legacy APIs.
 
 Two design decisions shape the whole system:
@@ -47,8 +47,9 @@ Two design decisions shape the whole system:
 │   module_resolution native resolver (file/dir/node_modules/main)       │
 │   fs / buffer / crypto / dns / sqlite / fetch*  native primitives      │
 │                                                                        │
-│   js/internal/*.js  embedded spec surface (Buffer, fetch, streams, …)  │
-│   js/console.js     console implemented in JS over two write prims     │
+│   js/node/**.js     public builtins; path == specifier (stream/web)    │
+│   js/internal/*.js  helpers only builtins may require (primordials, …) │
+│   js/bootstrap/*.js loader, microtasks, esm transform, console prelude │
 └───────────────┬───────────────────────────────────┬──────────────────┘
                 │                                     │
 ┌───────────────▼─────────────┐      ┌────────────────▼─────────────────┐
@@ -121,7 +122,7 @@ Thin, per-platform `foreign` declarations of JSC's C API. Highlights:
   failure the same way — by setting `exception^`, never by its return value —
   with two audited exceptions recorded at the dispatcher comment in
   `host_natives.odin`: `net.write` returns a backpressure bool (not a failure
-  signal), and `crypto.randomFill` returns the view it filled, which `crypto.js`
+  signal), and `crypto.randomFill` returns the view it filled, which `internal/crypto/random.js`
   identity-checks as its second fail-closed layer.
 
 - The host-call path itself is reached by `dlsym`ing a C++ mangled symbol
@@ -134,9 +135,28 @@ Thin, per-platform `foreign` declarations of JSC's C API. Highlights:
 
 ### 3.3 Standard library: native + embedded JS
 
-Built-ins are JS factories `#load`-embedded at compile time (the `EMBEDDED_*`
-constants in `globals.odin`) and instantiated by `loader.js`. Each factory
-receives `(require, module, exports,
+Built-ins are JS factories embedded at compile time and instantiated by
+`js/bootstrap/loader.js`. A factory's source is evaluated on its module's first
+require, through a native `compile(id)` (`builtin_compile_cb`) the loader keeps in its
+closure, not at context init: only the eager closure (13 of 39 files) is compiled before
+user code, which took `bench/micro/noop.js` from 16.85 to 14.63 ms (median of 50
+interleaved spawn-to-exit runs per arm, darwin arm64, `-o:speed`). The directory
+layout under `pkg/runtime/js` is the module table — there is no second list of files:
+
+| Directory    | Holds                                    | Module id / visibility                                               |
+| ------------ | ---------------------------------------- | -------------------------------------------------------------------- |
+| `node/`      | every module user code may `require`     | `node/<specifier>`; file path == specifier (`node/stream/web.js`)    |
+| `internal/`  | helpers (`primordials`, `fetch`, `mime`) | `internal/<name>`; only the factories' own `require` reaches them    |
+| `bootstrap/` | loader, microtasks, `esm.js`, console    | not modules — evaluated standalone by Odin through explicit `#load`s |
+
+`globals.odin` embeds each module directory whole with `#load_directory`
+(`EMBEDDED_JS_DIRS`, one row per directory because the directive is not recursive) and
+derives the id and the JSC source name from directory + basename: stack frames read
+`node:buffer`, `node:stream/web`, `node:internal/encoding`. The public resolver answers
+`node/` ids only, so the directory a file lives in decides whether user code can reach
+it; `scripts/check-js-graph.mjs` (`make check-js`) fails on an unembedded directory, an
+unresolvable or non-literal `require`, an unreachable file, or a top-level require
+cycle. Each factory receives `(require, module, exports,
 native)`; the native fourth argument carries Odin-backed bindings (crypto, buffer,
 fetch, sqlite, dns, fs, net, http(s), os, tty, stdio — twelve today, see
 `install_internal_modules`) so **nothing transient lands on `globalThis`**
@@ -153,12 +173,92 @@ attaches them to the `req` it passes each factory, so an internal module reads t
 It exists because a LAZY module's own `require('buffer').Buffer` runs on the user's first
 require of that module — after user code, and therefore steerable (#333). `fs`, `http`,
 `https`, `net` and `os` take it; `stream` and `stdio` do not need it because `installStdio`
-instantiates them during bootstrap.
+instantiates them during bootstrap — and with them every `internal/streams/*` file `stream`
+requires at its top level. `internal/webstreams/adapters` is the exception: `Readable`/
+`Writable.fromWeb`/`toWeb` require it on first call (it requires `readable`/`writable` back
+at its own top level, so the late edge is what keeps the graph acyclic), as node does.
+`internal/blob` is eager yet takes it too, at call time: `buffer` requires it from its own
+factory, before the table exists, and a top-level `require('buffer')` back would be a cycle.
 
-The JS layer is substantial and high quality: `url.js` (2071 LOC, WHATWG URL),
-`streams.js` (2027, Web Streams), `buffer.js` (1646), `fetch.js` (1054),
-`crypto.js` (917). Errors use Node-shaped coded errors (`ERR_INVALID_ARG_TYPE`,
-`ERR_OUT_OF_RANGE`, …). Native byte ops are gated by a size threshold
+The JS layer is substantial and high quality: URL (~2400 across `node/url.js`,
+`internal/url.js` and `internal/{idna,punycode}.js`, WHATWG URL),
+Web Streams (~2100 across `internal/webstreams/`), buffer (~1530 across `node/buffer.js` and
+`internal/buffer.js`; `Blob`, `File` and the `blob:` URL registry live in `internal/blob.js`
+and `internal/file.js`, as in node's `lib/internal`), fetch
+(~1160 across `internal/fetch.js` and `internal/fetch/`), crypto (~1070 across `node/crypto.js`
+and `internal/crypto/`). `node/stream.js` only assembles the public module; the classic
+streams live in `internal/streams/` (`legacy`, `readable`, `writable`, `duplex`,
+`transform`, `passthrough`, `destroy`, `add-abort-signal`, `end-of-stream`, `pipeline`,
+`utils`) and the Web Streams bridges in `internal/webstreams/adapters.js`, the files node
+keeps them in, so their frames read `node:internal/streams/readable`. `node/http.js` is
+likewise only the public entry (and `createServer`): the server lives in `internal/http/`
+(`common`, `incoming`, `outgoing`, `server`), split the way node splits `_http_common`,
+`_http_incoming`, `_http_outgoing` and `_http_server`. Unlike streams the names differ from
+node's — node publishes `require('_http_server')` and friends with a parser/agent surface
+Lava does not have, so a public file under that name would answer with the wrong keys —
+and frames read `node:internal/http/server` where node's read `node:_http_server`. Odin
+keys the http bindings by `node/http` only, so `loader.js` aliases that one object to
+`internal/http/outgoing` and `internal/http/server`. `node/stream/web.js` similarly
+only assembles exports and installs the globals; the implementation is in
+`internal/webstreams/` (`util`, `queuingstrategies`, `readablestream` — with tee, async
+iteration and pipeTo, as in node — `writablestream`, `transformstream`), all eager through
+`stream/web` and acyclic: `readablestream` requires `writablestream`, `transformstream`
+requires both, nothing requires back. Fetch follows undici's `lib/web/fetch` seams:
+`internal/fetch/headers`, `body` (the Body mixin plus the byte and transport-stream
+helpers), `request` and `response` (each requiring `headers` and `body`), while
+`internal/fetch` keeps the driver — body collection, redirects, the hand-off to
+`native.request` — because the loader keys natives by module id, and installs the globals.
+All five are eager through `internal/fetch`. Crypto follows node's `lib/internal/crypto`
+seams, so its frames read `node:internal/crypto/pbkdf2` exactly as node's do:
+`internal/crypto/util` (validators, byte coercion, the digest table and `getHashes`),
+`hash` (`Hash`, `Hmac`, one-shot `hash`), `random`, `pbkdf2`, `hkdf` and `scrypt`, each
+requiring only `util`. `node/crypto` keeps `createHash`/`createHmac` and `timingSafeEqual`
+where node's `lib/crypto.js` has them, assembles the exports in their old order and
+installs `globalThis.crypto`; the five files that call into Odin get the `node/crypto`
+bindings through the same `loader.js` aliasing as http. All seven are eager through the one
+`req('crypto')` root. Util follows node's `lib/internal/util` seams the same way:
+`internal/util/inspect` (`inspect`, `format`/`formatWithOptions`,
+`stripVTControlCharacters`, the `inspect.colors` table), `internal/util/comparisons`
+(`isDeepStrictEqual`), `internal/util/debuglog` (requiring `inspect` for its formatting)
+and `internal/util` (`promisify`, `deprecate`). `node/util` keeps `callbackify`,
+`inherits`, `styleText` and `toUSVString` where node's `lib/util.js` has them, plus
+`aborted`, and assembles the exports in their old order. Util calls no native, so there
+is no alias, and every file stays lazy behind `require('util')`. Buffer takes node's one
+seam: `internal/buffer` holds the encoding codecs (`normalizeEncoding`, `strToBytes`,
+`bytesToString`) and `addBufferPrototypeMethods`, which installs the fixed-width
+`read*`/`write*` accessors and the per-encoding `*Slice`/`*Write` aliases, so a bounds
+error frames `node:internal/buffer` as node's does. `node/buffer` keeps the constructor,
+the statics, the pool, the `lib/buffer.js` prototype methods and `atob`/`btoa`, calls the
+installer where those methods were always assigned (the prototype's key order is
+unchanged), and captures the codecs once at module-eval, so a `toString` pays the same
+closure call as before. `internal/buffer` decodes through `node/buffer`'s bindings via the
+same `loader.js` aliasing, and is eager through `req('buffer')`. `os` moves only its
+data: `internal/os/constants` holds the signal, errno, priority and dlopen tables, which
+node reads from its C++ constants binding rather than `lib/os.js`. The tables throw
+nothing, so no frame moves; they call no native, so there is no alias, and the file stays
+lazy behind `require('os')`. URL takes node's `lib/internal/url` seam: `internal/url` holds
+the URL Standard parser, `URL`, `URLSearchParams`, `fileURLToPath`, `urlToHttpOptions` and
+`domainToASCII`/`domainToUnicode`, so an invalid URL or a bad `fileURLToPath` argument frames
+`node:internal/url` as node's does. `node/url` keeps `pathToFileURL` and `format`, which
+node's `lib/url.js` defines and frames in `node:url`, installs the `URL`/`URLSearchParams`
+globals (after `buffer`, keeping its object-URL statics) and assembles the exports in their
+old order, borrowing the record slot, the path serializer and the Punycode decoder for
+`format`. Url calls no native, so there is no alias; `internal/url` is eager through
+`req('url')`, which keeps its module-eval captures pristine. The IDNA step takes node's
+`lib/internal/idna` seam: `internal/idna` (separator fold, UTS-46 approximation) and the
+`internal/punycode` codec under it return failure values instead of throwing, so the host
+parser and every throw it feeds stay in `internal/url` and no frame moves; both are eager
+through `internal/url`'s top-level require, and `internal/url` captures their functions at
+module-eval, so the parse path gains no call layer. `internal/punycode` is not node's public
+`punycode` (`node/punycode.js`, the userland punycode.js surface). Errors use Node-shaped
+coded errors (`ERR_INVALID_ARG_TYPE`,
+`ERR_OUT_OF_RANGE`, …), built in one place: `js/internal/errors.js` (eager, hardened)
+holds node's `determineSpecificType`, `ERR_INVALID_ARG_TYPE`/`_VALUE`, `ERR_OUT_OF_RANGE`,
+`ERR_MISSING_ARGS`, `ERR_UNKNOWN_ENCODING`, and two constructors for node's two shapes —
+`nodeError` (node's JS layer: `String(e)` is `TypeError [ERR_X]: msg`) and `nativeError`
+(node's C++ layer: `TypeError: msg`). A builtin requires it rather than keeping a local
+copy; per-module message templates call `nodeError`/`nativeError` with their own text.
+Native byte ops are gated by a size threshold
 so small inputs avoid FFI overhead — except that the threshold this sentence used to
 name (`NATIVE_BYTEOP_MIN`) does not exist in the tree: `bytesToString` dispatches to a
 native codec at every size. Removed rather than left as folklore steering review.
@@ -169,18 +269,19 @@ native codec at every size. Removed rather than left as folklore steering review
   cache → JS internal builtins (`require_builtin`) → filesystem resolution.
   `node:fs` used to sit between the last two as a natively-assembled object, the one
   built-in with no JS layer; it is now an ordinary internal builtin
-  (`js/internal/fs.js` over `make_fs_bindings`). Nothing may rebuild it in
+  (`js/node/fs.js` over `make_fs_bindings`). Nothing may rebuild it in
   `native_require_cb`: `require_builtin` runs first, so a second construction would be
   dead code silently disagreeing with the live one. Circular requires terminate via a pre-registered partial-exports
   entry (`__lava_precache`), and a module that throws while loading is _removed_
   from the cache so a later require re-runs it (Node parity).
 - `.mjs`/static `import`/`export` are handled by a **source transform**
-  (`esm.js`) that rewrites ESM onto the CommonJS `require`, not by JSC's native
+  (`js/bootstrap/esm.js`) that rewrites ESM onto the CommonJS `require`, not by JSC's native
   module records (the classic C API only runs script-goal source). This is
   pragmatic and works, with documented divergences (named imports from CJS).
-  Its output is _executed source_, which is why it is the one internal module the
-  runtime hands `primordials` as a factory argument: it is deliberately not
-  registered as a requireable module (so user code cannot reach the transform),
+  Its output is _executed source_, which is why it is the one internal file the
+  runtime hands `primordials` as a factory argument: it lives in `bootstrap/`, which
+  no `#load_directory` reads, so it is never a requireable module (user code cannot
+  reach the transform),
   and that also denies it a `require`, so `loader.js` exposes the already-built
   table on the resolver object and `globals.odin` passes it in — failing closed if
   it is absent, since a forged match group here is code injection into the module
@@ -292,8 +393,9 @@ base Error with an overridden name only when the constructor is unreachable.
 `make_js_error` / `make_js_named_error` and the typed `ERR_*` helpers
 (`err_out_of_range`, `err_invalid_arg_type`, …) all route through it; the ad-hoc
 "base Error + manual `name`/`code` patch" sites (process.exit, sqlite, module
-resolution) were migrated. The JS layer still sets `err.code` per module; growing
-the `ERR_*` helper list lets native sites adopt the same codes as they need them.
+resolution) were migrated. The JS layer builds its coded errors through
+`js/internal/errors.js` (§3.3); growing the `ERR_*` helper list lets native sites adopt
+the same codes as they need them.
 
 ### 4.5 Primordials in the JS layer
 
@@ -310,7 +412,7 @@ routing a per-code-unit codec loop through it cost 1.43x — hence
 into a null-prototype array where the loop is the inner loop.
 The loader **eager-loads it first**, before any
 other internal module and before user code, so the captured references are
-pristine; modules consume it via `require('primordials')` and get the cached table
+pristine; modules consume it via `require('internal/primordials')` and get the cached table
 (one exception — `esm.js`, which has no `require`; see §3.4).
 This is the JS-layer analog of the native error-intrinsic capture (§4.4).
 
@@ -338,6 +440,30 @@ pollutable site, each baselined separately in
 | `accessor` | `view.buffer`   | a configurable prototype getter |
 | `global`   | `String(x)`     | a replaceable global, read live |
 
+`Function.prototype.call/apply/bind` themselves are **locked** before user code:
+the loader calls `lockIntrinsics()` right after the primordials table is captured,
+turning each into a non-configurable accessor in the shape of node's
+`--frozen-intrinsics` (assignment on `Function.prototype` throws in both modes;
+`f.call = x` on an ordinary function still defines an own property). That is a
+deliberate node deviation (#450), pinned by `cmd/lava/function_call_lock_test.odin`.
+It does **not** make `.call` safe on a captured INTRINSIC: user code holds the same
+object, so `Function.prototype.apply.call = evil` defines an own `call` that
+`apply.call(listener, …)` in `events.js` then runs, and `Array.prototype.push.call = evil`
+reaches the `callerN` wrappers' `fn.call` (both probed on `bin/lava`; node runs
+neither). So the `invoke` class counts every `.call`/`.apply` (and `method` every
+`.bind`) except on one receiver: a strict function declaration the file never lets
+go of — one binding of the name in the file, never written, referenced only as
+`g(…)` or `g.call/apply/bind(…)` inside its declaring scope, and no direct `eval`
+(`capturedCallees` in `primordials-detect.mjs`). A suppression marker may carry its
+reason after an em dash: `// primordials-ok: invoke — why`.
+
+A `global` read at module-eval is exempt only in a module instantiated before user
+code — the loader's `req()` roots closed over top-level requires, computed by
+`scripts/lib/js-graph.mjs` (the parser the graph rules in `lib/js-graph-check.mjs`
+also use). In a lazy module the factory runs on the user's first `require()`, so its
+capture counts (#333).
+`cmd/lava/lazy_builtins_test.odin` checks that set against what context init compiles.
+
 `make check-primordials` (part of `make check-js`) fails on any per-class
 increase, and `--update` refuses to raise a floor without `--allow-raise`. The
 detector self-tests against known-positive and known-negative fixtures on every
@@ -348,8 +474,8 @@ is deliberately stronger than Node.
 
 A baseline of 0 in a class means "no **counted** site of that class remains", not
 "immune" — the ratchet is a floor, not a proof. Per-class counts are what make
-that readable: `events.js` is at 0 `method` and 0 `accessor` while still carrying
-`invoke` and `global` sites, which a single total hid. Do not restate the numbers
+that readable: `events.js` is at 0 `method`, `accessor` and `global` while still
+carrying `invoke` sites, which a single total hid. Do not restate the numbers
 here — `pollution-baseline.json` is the source and `make check-primordials` prints
 the live split; the counts copied into prose went stale twice. `.call`/`.apply`
 and live globals used to be the author's problem and are now gated classes;
@@ -381,10 +507,10 @@ member expression in the source to see. So the explicit half is gated and only t
 assimilation half is blind, which is why the guidance is a code convention rather
 than a counter: never `await` a caller-supplied value directly.
 
-`primordials` is internal-only: the loader serves it to internal factories but
-hides it from the public resolver native `require()` consults, so it neither
-shadows a user package named `primordials` nor answers `require('node:primordials')`
-(which Node rejects). The _specifier_ is what is hidden — the table itself also hangs
-off that resolver object as `publicReq.primordials`, which is how `esm.js` receives it
-(§3.4); the resolver is reachable only from Odin and never reaches user code. Gating
-the other internal helper modules the same way is a future follow-up.
+`primordials` is internal-only by living in `js/internal/`: the public resolver native
+`require()` consults answers `node/` ids only, so it neither shadows a user package
+named `primordials` nor answers `require('node:primordials')` (which Node rejects). The
+same holds for every file under `internal/`. The _specifier_ is what is hidden — the
+table itself also hangs off that resolver object as `publicReq.primordials`, which is
+how `esm.js` receives it (§3.4); the resolver is reachable only from Odin and never
+reaches user code.

@@ -11,6 +11,7 @@
 # set them — important under `set -u`):
 #   SKIP_KNOWN_LAVA_GAPS  "1" to skip paths listed in KNOWN_GAPS_FILE (default 0)
 #   KNOWN_GAPS_FILE       path to a gaps list (one relative path/line, # comments)
+#   CASE_TIMEOUT_SEC      per-case wall-clock timeout in seconds (default 30)
 
 # Gate integrity (agent-cycle F1): a lava-vs-lava "oracle" is byte-identical by
 # construction and must never count as a pass. Refuse when NODE_BIN is lava or
@@ -43,10 +44,65 @@ _lava_gate_integrity_check() {
 }
 _lava_gate_integrity_check || exit $?
 
+# Issue #185: the oracle suites are baselined to the Node major pinned in .nvmrc,
+# and that major is a floor, not an exact match: Lava tracks Node forward (26 now,
+# 28 planned), so a newer oracle may run and its drift shows up as case diffs.
+# An older one cannot run at all: node:sqlite alone binds `undefined` as NULL from
+# 26 where 24 threw, so its expectations are wrong for us. Fail before any case.
+_lava_node_major_check() {
+	_want=$(cut -d. -f1 "$ROOT_DIR/.nvmrc" | tr -dc '0-9')
+	# `[ x -lt N ]` on a non-integer operand errors, and `if` reads that error as
+	# false — a pass. So a pin with no digits (`lts/*`, empty) refuses outright,
+	# and an oracle whose major is not all digits counts as 0, i.e. too old.
+	if [ -z "$_want" ]; then
+		printf '%s\n' "oracle check: .nvmrc has no numeric Node major ($ROOT_DIR/.nvmrc)" >&2
+		return 2
+	fi
+	_got=$("$NODE_BIN" -p 'process.versions.node.split(".")[0]' 2>/dev/null) || _got=0
+	case "$_got" in
+	'' | *[!0-9]*) _got=0 ;;
+	esac
+	if [ "$_got" -lt "$_want" ]; then
+		printf '%s\n' "oracle requires node >= $_want (.nvmrc), found $("$NODE_BIN" --version 2>/dev/null || echo none) ($NODE_BIN)" >&2
+		return 2
+	fi
+}
+_lava_node_major_check || exit $?
+
+CASE_TIMEOUT_SEC=${CASE_TIMEOUT_SEC:-30}
+
+# Portable per-case wall-clock timeout (#399). Uses perl (present on Linux, macOS,
+# and Git for Windows) so child process groups are killed with SIGKILL on alarm
+# and exit 124 matches GNU timeout without requiring coreutils on macOS.
+_run_with_timeout() {
+	_timeout_sec=$1
+	shift
+	perl -e '
+		my $t = shift;
+		my $pid = fork // die "fork: $!";
+		if ($pid == 0) { setpgrp(0, 0); exec @ARGV or exit 127; }
+		local $SIG{ALRM} = sub { kill -9, -$pid, $pid; waitpid($pid, 0); exit 124; };
+		alarm $t;
+		waitpid($pid, 0);
+		alarm 0;
+		if ($? & 127) { exit(128 + ($? & 127)); }
+		exit($? >> 8);
+	' "$_timeout_sec" "$@"
+}
+
 run_node_case() {
 	case_file=$1
-	printf 'node %s\n' "${case_file#$ROOT_DIR/}"
-	"$NODE_BIN" "$case_file"
+	rel_case=${case_file#$ROOT_DIR/}
+	printf 'node %s\n' "$rel_case"
+	set +e
+	_run_with_timeout "$CASE_TIMEOUT_SEC" "$NODE_BIN" "$case_file"
+	_node_status=$?
+	set -e
+	if [ "$_node_status" -eq 124 ]; then
+		printf 'timeout (%ss) running node for %s\n' "$CASE_TIMEOUT_SEC" "$rel_case" >&2
+		return 124
+	fi
+	return "$_node_status"
 }
 
 # compare_case runs a case through both node and lava and fails on any
@@ -60,11 +116,20 @@ compare_case() {
 	lava_stderr="$TMP_DIR/$case_key.lava.stderr"
 
 	set +e
-	"$NODE_BIN" "$case_file" >"$node_stdout" 2>"$node_stderr"
+	_run_with_timeout "$CASE_TIMEOUT_SEC" "$NODE_BIN" "$case_file" >"$node_stdout" 2>"$node_stderr"
 	node_status=$?
-	"$LAVA_BIN" run "$case_file" >"$lava_stdout" 2>"$lava_stderr"
+	if [ "$node_status" -eq 124 ]; then
+		set -e
+		printf 'timeout (%ss) running node for %s\n' "$CASE_TIMEOUT_SEC" "${case_file#$ROOT_DIR/}" >&2
+		return 124
+	fi
+	_run_with_timeout "$CASE_TIMEOUT_SEC" "$LAVA_BIN" run "$case_file" >"$lava_stdout" 2>"$lava_stderr"
 	lava_status=$?
 	set -e
+	if [ "$lava_status" -eq 124 ]; then
+		printf 'timeout (%ss) running lava for %s\n' "$CASE_TIMEOUT_SEC" "${case_file#$ROOT_DIR/}" >&2
+		return 124
+	fi
 
 	if [ "$node_status" -ne "$lava_status" ]; then
 		printf 'exit mismatch for %s: node=%s lava=%s\n' "${case_file#$ROOT_DIR/}" "$node_status" "$lava_status"

@@ -21,7 +21,8 @@ Layering (never blur it):
 
 1. **Oracle conformance.** For the browser (`Window`/DOM/network) layer, recorded
    Chrome output is the oracle ([docs/LARVA.md](docs/LARVA.md)); for the base
-   runtime (`Node` profile), Node 22+/24 is the oracle. The observable surface —
+   runtime (`Node` profile), Node 26+ is the oracle (the `.nvmrc` floor; 28 is the
+   planned final pin). The observable surface —
    names, argument coercion order, defaults, thrown error `code`/`name`/`message`,
    event order, return types — matches the oracle, not our reading of the docs.
    Deviation is allowed **only** when it buys measured speed or memory control
@@ -87,8 +88,8 @@ Use the `odin-sdk-scout` agent for this search — it reads the real SDK source.
 
 ```sh
 make check            # Odin type-check (incl. windows/darwin cross-target front-end)
-make check-js         # bun fmt --check + orphan-JS + node:test over scripts/ + primordials ratchet
-make check-md         # markdownlint over the repo's docs (make fix-md auto-fixes)
+make check-js         # bun fmt --check + JS module graph + node:test over scripts/ + primordials ratchet
+make check-md         # bun fmt + markdownlint over the repo's docs (make fix-md auto-fixes)
 make check-actions    # actionlint over .github/workflows
 make build            # ./scripts/build.sh → bin/lava
 make test             # Odin unit tests + oracle suites
@@ -178,7 +179,7 @@ the comment block verbatim, so this is the doc source, not decoration.
 //   and the caller must fall back to JSObjectMakeFunctionWithCallback.
 // Node:
 //   setTimeout/setInterval report `.length` 2, every other global 1 — verified
-//   against node 24, not read off the docs.
+//   against node 26, not read off the docs.
 // Deviates:
 //   The C-API fallback reports 0 and is not repairable through the public API.
 //   Pinned by tests/node-compat/cases/56-native-function-arity.js.
@@ -198,16 +199,26 @@ Rules that keep this from becoming ceremony:
 - Internal helpers with no Node counterpart keep the plain why-comment. Do not
   retrofit existing code; this applies to new and changed surfaces.
 
-## 5. Embedded JS conventions (`pkg/runtime/js`, incl. the top-level preludes)
+## 5. Embedded JS conventions (`pkg/runtime/js`, incl. the bootstrap preludes)
 
-- Route through `require('primordials')` — internal modules run alongside user
+- **The directory decides visibility.** `js/node/` holds every module user code may
+  `require`, at the path of its specifier (`node/stream/web.js`); `js/internal/`
+  holds what only builtins may require (`require('internal/mime')`); `js/bootstrap/`
+  holds the loader, microtasks, `esm.js` and the console prelude, which are not
+  modules. A new file is embedded and wired by existing in the right directory —
+  there is no file list to edit. `scripts/check-js-graph.mjs` fails on a non-literal
+  or unresolvable `require`, an unreachable file, an unembedded directory, or a
+  top-level require cycle (a `require` inside a function is the sanctioned late
+  binding).
+
+- Route through `require('internal/primordials')` — internal modules run alongside user
   code that can poison prototypes. `make check-primordials` is a **ratchet**: a
   hardened file (baseline 0) rejects any new pollutable call. `UPDATE=1` only to
   _lower_ a baseline.
-  One exception, and do not add a second: `js/internal/esm.js` is evaluated
+  One exception, and do not add a second: `js/bootstrap/esm.js` is evaluated
   standalone and deliberately kept off the module table, so user code cannot reach
   the transform — which also denies it a `require`. It takes the table as a factory
-  argument instead (`loader.js` publishes it on the resolver, `globals.odin` passes
+  argument instead (`bootstrap/loader.js` publishes it on the resolver, `globals.odin` passes
   it in and fails closed without it). The exception is affordable there because the
   file emits executed source and had to be hardened regardless.
 - The ratchet parses with acorn and counts **four** classes, each baselined
@@ -218,18 +229,53 @@ Rules that keep this from becoming ceremony:
   getter such as `TypedArrayPrototypeGetBuffer`), and `global` (a replaceable
   global read live instead of captured at module-eval, which the loader runs
   before user code).
+  **`Function.prototype.call/apply/bind` are locked** realm-wide before user code
+  (`lockIntrinsics`, run by `bootstrap/loader.js`; #450): non-configurable
+  accessors, so `Function.prototype.call = x` throws in both modes while
+  `f.call = x` on an ordinary function still defines an own property, as in node.
+  That is a §1 deviation, pinned by `cmd/lava/function_call_lock_test.odin`. What
+  it buys: `Function.prototype.call = x` can no longer steer every `.call` at once.
+  The held functions are locked too (#494): `call`/`apply`/`bind` and every
+  method a primordials wrapper closes over (the set the `callerN`/fixed-arity
+  factories record, so a newly wrapped method is covered automatically) are
+  non-extensible, so neither an own `call` nor a re-pointed prototype on them
+  reaches a wrapper's `fn.call` or events.js's `apply.call(listener, …)`. Also a
+  §1 deviation — those functions answer as under `node --frozen-intrinsics`
+  (isExtensible false; own property, defineProperty and setPrototypeOf throw) but
+  are not frozen — pinned by the same test. Intrinsics no wrapper holds keep
+  node's extensibility. `call.call(fn, …)` routing was measured and rejected:
+  JSC inlines only `fn.call` (caller1 ~1 ns vs ~55 ns, Linux arm64), costing
+  `new URL` 2.64x and `URLSearchParams.get` 3.81x end to end.
+  What it does NOT buy: `.call` on a function user code can HOLD outside that
+  set — every caller-supplied callback (own `call`, re-pointed prototype), every
+  intrinsic captured raw OUTSIDE primordials and invoked with `.call`
+  (`toString.call` in structured_clone.js, `u8Fill.call` in buffer.js), and every
+  live prototype read (`Array.prototype.slice.call(…)`), which plain replacement
+  already steers. Route those through a primordials wrapper.
+  The ratchet therefore counts every `.call`/`.apply` (`invoke`) and `.bind`
+  (`method`) except on ONE receiver: a strict function declaration the file never
+  lets go of — exactly one binding of the name in the file, never written,
+  referenced only as `g(…)` or `g.call/apply/bind(…)` inside its declaring scope,
+  no direct `eval` in the file (`capturedCallees`, `scripts/lib/primordials-detect.mjs`).
+  A module-eval capture of an intrinsic or a primordials export is NOT exempt, by
+  design: a false negative there is a hole.
   **Module-eval capture is pristine only in a module the loader instantiates BEFORE user
-  code** — the eager list in `loader.js`, plus `stream`/`stdio` via `installStdio`. A LAZY
+  code** — the eager list in `bootstrap/loader.js`, plus `stream`/`stdio` via `installStdio`. A LAZY
   module's factory runs on the user's first `require()`, so a capture there is a live read
-  in disguise: `var StringG = String` at the top of `net.js` scores 0 and is still
-  steerable. Take the handle from the loader instead (`require('primordials')`,
-  `require.pristineBuffer`). The ratchet cannot see this — it exempts every module-eval
-  capture, which is why #333 shipped. Computed and destructured forms count the same as the dot
+  in disguise — `var StringG = String` at the top of `net.js` is still steerable. Take the
+  handle from the loader instead (`require('internal/primordials')`,
+  `require.pristineBuffer`). The ratchet exempts module-eval reads only in that eager set,
+  which it derives from the loader's `req()` roots closed over top-level requires
+  (`scripts/lib/js-graph.mjs`); elsewhere they count as `global`. It used to exempt every
+  module-eval capture, which is why #333 shipped. Computed and destructured forms count the same as the dot
   form, so `view['buffer']` is not a way to lower a number.
 - A false positive takes `// primordials-ok` on the line. On a line carrying
   candidates from **more than one class** the bare marker suppresses nothing —
   name it, `// primordials-ok: method` (comma-separated list allowed). An
-  unrecognized class name suppresses nothing, so a typo fails loud.
+  unrecognized class name suppresses nothing, so a typo fails loud. Either form may
+  end in a reason after ONE separator, an em dash —
+  `// primordials-ok: invoke — receiver is our own closure`; `--`, `-` or an
+  empty reason suppress nothing.
 - `UPDATE=1` only _lowers_ a baseline. Raising one needs
   `make check-primordials UPDATE=1 RAISE=--allow-raise` and a stated reason (a
   newly scanned file, or a new class). A corrupt baseline fails hard rather than
@@ -264,19 +310,33 @@ Rules that keep this from becoming ceremony:
   readable rather than reassuring. It earned that caveat: `encoding.js` stood at
   0 while `units.buffer` went through the live `%TypedArray%.prototype.buffer`
   getter, which is why the accessor class exists. And a high number is not
-  automatically work: `primordials.js` reads 9 in `invoke` **by construction**,
-  because every `callerN` wrapper is a `fn.call` — its `global` column is 1,
-  since the module-eval rule already exempts the capture table.
+  automatically work: `primordials.js`'s `global` column is 0 because the
+  module-eval rule exempts the capture table. Its 9 `invoke` sites, though, are
+  real: every `callerN` wrapper is a `fn.call` on a captured intrinsic, which the
+  lock above does not protect (an own `call` on the intrinsic steers it).
 - Pick the primordial by **arity**. `callerN` (`ArrayPrototypePush`) carries an
   `arguments` switch and belongs at cold call sites; per-element loops use the
   fixed-arity wrappers (`ArrayPrototypePush1`/`Push2`) or plain indexed writes
   into a preallocated null-prototype array. Getting this wrong cost 1.43x on the
   TextDecoder JS path.
+- New and rewritten code writes constructors as `class` (`class Blob`,
+  `class File extends Blob`), whatever node does internally. **Exception, and do
+  not add to it without a probe:** constructors that npm code inherits from with
+  the pre-ES6 pattern `function S() { Base.call(this) }` + `util.inherits(S, Base)`
+  stay function constructors. That call throws on a class, so a class there breaks
+  working packages, not just a message. Today these are `EventEmitter`, `Stream`,
+  `Readable`, `Writable`, `Duplex`, `Transform`, `PassThrough`, and `Buffer`
+  (callable without `new`). For every other class, the TypeError text for a call
+  without `new` is JSC's own wording: an engine trait, declared with `@deviates`,
+  pinned by a Lava-only assertion, and never printed by an oracle case. Method
+  enumerability stays explicit wherever it is observable today.
 - Nothing transient lands on `globalThis`; natives arrive as the factory's fourth
   argument.
 - Errors follow the **profile** ([docs/LARVA.md](docs/LARVA.md) decision 1). Node
   profile: Node-shaped coded errors (`ERR_INVALID_ARG_TYPE`, `ERR_OUT_OF_RANGE`)
-  with Node's exact message template. Window profile (anything a page can reach):
+  with Node's exact message template, built through `require('internal/errors')`
+  (`ERR_*`, and `nodeError`/`nativeError` for node's JS/C++ shapes), never a local
+  copy. Window profile (anything a page can reach):
   plain `TypeError`/`RangeError`/`DOMException` with Chrome's message and no
   `code`, byte results as plain `Uint8Array`, and no `process`/`require`/`Buffer`
   reachable. Shared Web API code (`url.js`, `encoding.js`, …) takes its error
@@ -298,7 +358,7 @@ Rules that keep this from becoming ceremony:
    * @returns {string}
    * @throws {TypeError} ERR_INVALID_ARG_TYPE — options is a non-null scalar.
    * @node Options are validated BEFORE the input is converted; `decode(5, 5)`
-   *       reports the options (node 24, verified).
+   *       reports the options (node 26, verified).
    * @deviates none
    */
   ```

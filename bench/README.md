@@ -38,18 +38,18 @@ so the harness itself can be smoke-tested anywhere Node is present.
 
 ## The gate, and calibrating it
 
-`thresholds.json` ships with **generous starter caps**: they catch only catastrophic
-regressions and are not meant to flake. CI currently runs `make bench` (report-only) so
-the ratio table shows in the job log without ever failing the build.
+CI runs `make bench-gate` on Linux (`ubuntu-latest`) and fails the build when any
+benchmark's median-of-3 `lava/node` ratio exceeds its cap in `thresholds.json`.
+`make bench` runs a single launch per side as a local report-only view (never fails).
 
-To turn the gate on:
+When adding or tuning benchmarks:
 
-1. Run `make bench` (locally or read a CI run's table) to observe Lava's real ratios.
-2. Tighten each cap in `thresholds.json` toward its observed ratio, leaving headroom for
-   CI noise (a cap of ~1.5–2× the observed ratio is a reasonable start).
-3. Flip the CI step from `make bench` to `make bench-gate` (`.github/workflows/ci.yml`).
+1. Run `make bench` / `make bench-gate` (or read a CI run's table) to observe Lava's real ratios.
+2. Adjust caps in `thresholds.json` with headroom for CI noise and document the
+   measurement method, commit, and hardware/CI context in the comment keys.
 
-A benchmark with no entry in `thresholds.json` is always report-only.
+A benchmark with no entry in `thresholds.json` (and not listed in `report_only`)
+fails `make bench-gate` so new benchmarks cannot land unmonitored.
 
 ## Pages per thread (`make bench-pages`)
 
@@ -57,14 +57,14 @@ A benchmark with no entry in `thresholds.json` is always report-only.
 page runner (#4) and reports, per N, the median of 5 launches (one process per N per
 launch, so a "cold" VM really has run nothing):
 
-| metric | meaning |
-| --- | --- |
-| `cold_ms` | mean `page_runner_open` of the first N pages, each on a fresh VM: Node-profile runtime install plus a one-timer script |
-| `warm_ms` | the same for the next N pages on the same VMs (JSC CodeCache warm) |
-| `rss_growth_kb_per_live_page` | whole-process VmRSS growth with N pages just opened, divided by N; includes JSC's one-time process init |
-| `rss_growth_kb_per_vm` | whole-process VmRSS growth after `TOTAL` pages of churn, divided by VMs created (see below) |
-| `pages_per_s` | sustained, N pages in flight, `TOTAL` pages in all |
-| `*_failed` | pages of each round that did not finish `.Ok`; any makes the launch exit 1 |
+| metric                        | meaning                                                                                                                |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `cold_ms`                     | mean `page_runner_open` of the first N pages, each on a fresh VM: Node-profile runtime install plus a one-timer script |
+| `warm_ms`                     | the same for the next N pages on the same VMs (JSC CodeCache warm)                                                     |
+| `rss_growth_kb_per_live_page` | whole-process VmRSS growth with N pages just opened, divided by N; includes JSC's one-time process init                |
+| `rss_growth_kb_per_vm`        | whole-process VmRSS growth after `TOTAL` pages of churn, divided by VMs created (see below)                            |
+| `pages_per_s`                 | sustained, N pages in flight, `TOTAL` pages in all                                                                     |
+| `*_failed`                    | pages of each round that did not finish `.Ok`; any makes the launch exit 1                                             |
 
 `rss_growth_kb_per_vm` is an upper bound, not the steady-state cost of an idle pooled
 VM: it lumps together JSC's process init, each VM's heap as left uncollected
@@ -79,12 +79,12 @@ bench-pages` (`-o:speed`), every page with `cpu_budget` = 30 s of thread CPU
 (`BENCH_LIMITS`), `TOTAL` = 1000 pages per launch, medians of 5 launches per N,
 interleaved (each round runs N = 1, 10, 50, 100 once):
 
-| N | cold_ms | warm_ms | rss_growth_kb_per_live_page | rss_growth_kb_per_vm | pages_per_s |
-| --- | --- | --- | --- | --- | --- |
-| 1 | 28.95 | 9.88 | 23808 | 59216 | 111 |
-| 10 | 23.49 | 10.6 | 6233 | 26254 | 109 |
-| 50 | 23.93 | 10.17 | 4659 | 19701 | 113 |
-| 100 | 24.44 | 10.94 | 4463 | 18688 | 107 |
+| N   | cold_ms | warm_ms | rss_growth_kb_per_live_page | rss_growth_kb_per_vm | pages_per_s |
+| --- | ------- | ------- | --------------------------- | -------------------- | ----------- |
+| 1   | 28.95   | 9.88    | 23808                       | 59216                | 111         |
+| 10  | 23.49   | 10.6    | 6233                        | 26254                | 109         |
+| 50  | 23.93   | 10.17   | 4659                        | 19701                | 113         |
+| 100 | 24.44   | 10.94   | 4463                        | 18688                | 107         |
 
 Read: a page's start-up is dominated by the runtime install, cold or warm, so
 throughput is CPU-bound and flat in N on one thread.

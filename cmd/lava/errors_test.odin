@@ -74,7 +74,7 @@ node_error_factory :: proc(t: ^testing.T) {
 // node_error_received_types pins determine_received_type's "Received …" rendering
 // (via err_invalid_arg_type's message) across every value kind — including BigInt,
 // the primitive JSValueGetType's enum omits — so it matches the JS-side
-// inspectReceived (js/internal/crypto.js). A bare context suffices: only the
+// inspectReceived (js/node/crypto.js). A bare context suffices: only the
 // message text is asserted here, which does not depend on captured intrinsics.
 @(test)
 node_error_received_types :: proc(t: ^testing.T) {

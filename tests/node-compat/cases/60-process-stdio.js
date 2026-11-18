@@ -1,7 +1,7 @@
 // process.stdout / process.stderr — the shape node exposes, diffed against node.
 //
 // Node's `process.stdout` is polymorphic by fd type, which is the part a reimplementation
-// gets wrong. Measured against node 24.18.1:
+// gets wrong. Measured against node 26.13.0 (probe, 2026-11-16; tty via script(1)):
 //
 //   stdout ->  constructor        write(300KB)   isTTY      columns
 //   file       SyncWriteStream    true           undefined  undefined
