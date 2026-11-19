@@ -61,7 +61,7 @@ class Handler(BaseHTTPRequestHandler):
             body = open(os.path.join(DIR, case["name"] + ".in"), "rb").read()
             headers = [("Content-Type", "application/octet-stream")]
             headers += [("Content-Encoding", e) for e in case["encoding"]]
-            self.reply(200, headers, body)
+            self.reply(case.get("status", 200), headers, body)
         else:
             self.reply(404, [], b"")
 
@@ -69,7 +69,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         for name, value in headers:
             self.send_header(name, value)
-        self.send_header("Content-Length", str(len(body)))
+        # A 204 carries no body, so no length either (RFC 9110 §8.6).
+        if status != 204:
+            self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 

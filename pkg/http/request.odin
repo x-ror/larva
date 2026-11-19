@@ -23,7 +23,6 @@ DEFAULT_HEAD_BYTES :: 256
 DEFAULT_HEADERS := [?]Header {
 	{"User-Agent", DEFAULT_USER_AGENT},
 	{"Accept", "*/*"},
-	{"Accept-Encoding", ""}, // depends on the URL: accept_encoding
 	{"Connection", "close"},
 }
 
@@ -80,9 +79,13 @@ build_request :: proc(out: ^[dynamic]byte, method: string, url: Url, headers: []
 
 	for &d in DEFAULT_HEADERS {
 		if !has_header(headers, d.name) {
-			value := accept_encoding(url) if d.name == "Accept-Encoding" else d.value
-			write_header(&sb, {d.name, value})
+			write_header(&sb, d)
 		}
+	}
+
+	// Not among the defaults: what is offered depends on the URL.
+	if !has_header(headers, "Accept-Encoding") {
+		write_header(&sb, {"Accept-Encoding", accept_encoding(url)})
 	}
 
 	if (len(body) > 0 || method_has_body(method)) && !has_header(headers, "Content-Length") {

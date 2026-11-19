@@ -23,6 +23,14 @@ if [ "$(uname -s)" != "Darwin" ]; then
 	check_pkg openssl
 fi
 
+# pkg/http's content decoding links the system libraries on Linux: zlib through
+# vendor:zlib (system:z there), brotli and zstd through content_coding_linux.odin.
+if [ "$(uname -s)" = Linux ]; then
+	check_pkg zlib
+	check_pkg libbrotlidec
+	check_pkg libzstd
+fi
+
 if [ "$missing" -ne 0 ]; then
 	printf '%s\n' 'Install the missing development package before enabling native JSC runtime execution.'
 	exit 1

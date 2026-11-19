@@ -25,12 +25,15 @@ for how the runtime pieces fit together.
 - SQLite development headers and libraries (for `node:sqlite`)
 - OpenSSL development headers and libraries (for `fetch` HTTPS/TLS). The roadmap
   replaces it with BoringSSL (stage 2); until that lands, OpenSSL is what links.
+- zlib, brotli (`libbrotlidec`) and zstd development headers and libraries (Linux):
+  `pkg/http` decodes gzip, deflate, br and zstd response bodies through them.
 - `cmake`, `git` and network access on the first build (Linux): `pkg/html` links
   [lexbor](https://github.com/lexbor/lexbor), which `scripts/build-lexbor.sh` fetches
   at a pinned commit, checks by its commit id and builds into `.deps/`.
 
 On Linux, the JSC package is exposed through `pkg-config` as `javascriptcoregtk-6.0`,
-SQLite as `sqlite3`, and OpenSSL as `openssl`
+SQLite as `sqlite3`, OpenSSL as `openssl`, and the decoders as `zlib`, `libbrotlidec`
+and `libzstd`
 (e.g. `apt-get install libjavascriptcoregtk-6.0-dev libsqlite3-dev libssl-dev libbrotli-dev
 libzstd-dev zlib1g-dev`).
 

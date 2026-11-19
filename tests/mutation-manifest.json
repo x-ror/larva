@@ -3750,11 +3750,11 @@
       "expect_detail": "gzip-truncated: want the body Chrome decoded, got Decoding"
     },
     {
-      "name": "decodes_as_chrome_does dies when deflate_decode stops honouring a zlib header",
-      "why": "RFC 9110 deflate is zlib-wrapped; inflating it raw fails the common case to serve the rare one.",
+      "name": "decodes_as_chrome_does dies when deflate_decode stops trying zlib first",
+      "why": "RFC 9110 deflate is zlib-wrapped and Chrome reads it so first; inflating it raw fails the common case to serve the rare one.",
       "source": "pkg/http/content_coding.odin",
-      "find": "\t\twindow = ZLIB_DEFLATE",
-      "replace": "\t\twindow = RAW_DEFLATE",
+      "find": "\terr := inflate(input, ZLIB_DEFLATE, out)",
+      "replace": "\terr := inflate(input, RAW_DEFLATE, out)",
       "gate": "make:test-http-odin",
       "expect_detail": "deflate-zlib: want the body Chrome decoded, got Decoding"
     },
@@ -3843,14 +3843,14 @@
       "name": "fetch_decodes_the_response_body dies when finish stops decoding the response body",
       "why": "The decoder is reached only through finish(); without the call every fetch() hands the caller the encoded bytes and no unit test of decode_content notices.",
       "source": "pkg/http/transfer_linux.odin",
-      "find": "\t\terr = decode_content(&t.resp.body, t.resp.headers[:], t.url, t.max_body)\n",
-      "replace": "\n",
+      "find": "\t\tchain, err = plan_decoding(t.resp.headers[:], t.url)",
+      "replace": "\t\terr = .None",
       "gate": "make:test-http-odin",
       "expect_detail": "fetch gzip: want"
     },
     {
       "name": "decoded_output_past_max_body_is_refused dies when sink_room stops refusing a full sink",
-      "why": "A codec handed a buffer with no room makes no progress: without the refusal a body that decodes past max_body spins a CPU forever, which is the observable effect and so the recorded reason.",
+      "why": "A codec handed a buffer with no room makes no progress: without the refusal a gzip, deflate or br body that decodes past max_body spins a CPU forever (zstd reports an error instead), which is the observable effect and so the recorded reason.",
       "source": "pkg/http/content_coding.odin",
       "find": "\t\tif s.n >= s.limit {",
       "replace": "\t\tif false {",
@@ -3868,11 +3868,11 @@
       "expect_detail": "larva_http.accept_encoding_follows_the_secure_context"
     },
     {
-      "name": "request_offers_what_it_decodes dies when build_request sends the placeholder Accept-Encoding",
-      "why": "An empty Accept-Encoding asks for identity (RFC 9110 §12.5.3), so every server would stop compressing.",
+      "name": "request_offers_what_it_decodes dies when build_request stops offering what it decodes",
+      "why": "Without an Accept-Encoding a server sends identity, and every page arrives uncompressed.",
       "source": "pkg/http/request.odin",
-      "find": "\t\t\tvalue := accept_encoding(url) if d.name == \"Accept-Encoding\" else d.value",
-      "replace": "\t\t\tvalue := d.value",
+      "find": "\tif !has_header(headers, \"Accept-Encoding\") {",
+      "replace": "\tif false {",
       "gate": "make:test-http-odin",
       "expect_detail": "larva_http.request_offers_what_it_decodes"
     },
@@ -3902,6 +3902,141 @@
       "replace": "DECODABLE_GONE :: Codings{.Gzip, .Deflate}",
       "gate": "make:check-runtime",
       "expect_detail": "Undeclared name: DECODABLE"
+    },
+    {
+      "name": "decodes_as_chrome_does dies when deflate_decode stops retrying a refused stream as raw deflate",
+      "why": "Chrome decodes a raw deflate stream whose first bytes pass for a zlib header by replaying it raw; failing it loses pages Chrome renders.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\tif err != .Decoding || out.n > 0 {",
+      "replace": "\tif true {",
+      "gate": "make:test-http-odin",
+      "expect_detail": "deflate-raw-zlib-lookalike: want the body Chrome decoded, got Decoding"
+    },
+    {
+      "name": "decodes_as_chrome_does dies when the raw retry drops Chrome's stand-in zlib header",
+      "why": "Chrome replays raw deflate behind a dummy zlib header, so bytes after the raw stream are checked as an adler32 and fail it.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\treturn inflate(input, ZLIB_DEFLATE, out, header[:])",
+      "replace": "\treturn inflate(input, RAW_DEFLATE, out)",
+      "gate": "make:test-http-odin",
+      "expect_detail": "deflate-raw-trailing-junk: Chrome failed it, got None"
+    },
+    {
+      "name": "decodes_as_chrome_does dies when brotli_decode fails a stream cut short",
+      "why": "Chrome renders what a truncated br stream decoded.",
+      "source": "pkg/http/content_coding_linux.odin",
+      "find": "\t\tcase .Success, .Needs_More_Input:\n\t\t\treturn .None",
+      "replace": "\t\tcase .Success:\n\t\t\treturn .None\n\t\tcase .Needs_More_Input:\n\t\t\treturn .Decoding",
+      "gate": "make:test-http-odin",
+      "expect_detail": "br-truncated: want the body Chrome decoded, got Decoding"
+    },
+    {
+      "name": "decodes_as_chrome_does dies when zstd_decode ignores a library error",
+      "why": "Bytes that start no zstd frame fail the body in Chrome; ignoring the error hands back what came before them.",
+      "source": "pkg/http/content_coding_linux.odin",
+      "find": "\t\tif ZSTD_isError(ret) != 0 {\n\t\t\treturn .Decoding",
+      "replace": "\t\tif ZSTD_isError(ret) != 0 {\n\t\t\treturn .None",
+      "gate": "make:test-http-odin",
+      "expect_detail": "zstd-trailing-junk: Chrome failed it, got None"
+    },
+    {
+      "name": "decodes_as_chrome_does dies when gzip_header stops skipping FEXTRA",
+      "why": "A member with an extra field would be inflated from inside its header.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\tif .Extra in flags {",
+      "replace": "\tif false {",
+      "gate": "make:test-http-odin",
+      "expect_detail": "gzip-all-header-fields"
+    },
+    {
+      "name": "decodes_as_chrome_does dies when gzip_header stops skipping FCOMMENT",
+      "why": "A member with a comment would be inflated from inside its header.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\tif .Comment in flags {",
+      "replace": "\tif false {",
+      "gate": "make:test-http-odin",
+      "expect_detail": "gzip-all-header-fields"
+    },
+    {
+      "name": "decodes_as_chrome_does dies when gzip_header stops skipping FHCRC",
+      "why": "A member with a header CRC would be inflated from its CRC bytes.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\tif .Hcrc in flags {",
+      "replace": "\tif false {",
+      "gate": "make:test-http-odin",
+      "expect_detail": "gzip-all-header-fields"
+    },
+    {
+      "name": "accept_encoding_follows_the_secure_context dies when is_secure_host stops recognising *.localhost",
+      "why": "Chrome treats every *.localhost name as a secure context and offers it br and zstd.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\tif len(name) > len(LOCALHOST) && ascii_equal_fold(name[len(name) - len(LOCALHOST):], LOCALHOST) {",
+      "replace": "\tif false {",
+      "gate": "make:test-http-odin",
+      "expect_detail": "http://app.localhost:18080/: want"
+    },
+    {
+      "name": "accept_encoding_follows_the_secure_context dies when is_secure_host stops recognising ::1",
+      "why": "Chrome treats [::1] as a secure context and offers it br and zstd.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\t\treturn ip6 == net.IP6_Loopback",
+      "replace": "\t\treturn false",
+      "gate": "make:test-http-odin",
+      "expect_detail": "http://[::1]:18080/: want"
+    },
+    {
+      "name": "accept_encoding_follows_the_secure_context dies when is_secure_host keeps a trailing dot",
+      "why": "Chrome drops one trailing dot before its localhost check: localhost. is offered br and zstd.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\tname := strings.trim_suffix(host, \".\")",
+      "replace": "\tname := host",
+      "gate": "make:test-http-odin",
+      "expect_detail": "http://localhost.:18080/: want"
+    },
+    {
+      "name": "decoded_body_keeps_little_spare_capacity dies when decode_content stops trimming the final body",
+      "why": "An incompressible body keeps the first guess's four times its size as capacity, charged to the caller's allocator for as long as it holds the body.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\tif cap(body) - len(body) > len(body) / 4 {",
+      "replace": "\tif false {",
+      "gate": "make:test-http-odin",
+      "expect_detail": "bytes kept for a 65536-byte body"
+    },
+    {
+      "name": "fetch_times_out_while_the_body_decodes dies when finish decodes on the loop thread",
+      "why": "Decoding inline blocks the loop: the timeout cannot fire and every other transfer waits.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "\t\t\tt.decode = decode_start(t.loop, &t.resp.body, chain, t.max_body, on_decoded, t)",
+      "replace": "\t\t\tt.decode = nil",
+      "gate": "make:test-http-odin",
+      "expect_detail": "want Timeout while the body decodes, got None"
+    },
+    {
+      "name": "fetch_times_out_while_the_body_decodes dies when an abandoned decode keeps its body",
+      "why": "A decode the timeout overtook owns the body; not freeing it when it returns leaks one body per timed-out response.",
+      "source": "pkg/http/decode_linux.odin",
+      "find": "\tif requester == nil {\n\t\tdelete(body)\n",
+      "replace": "\tif requester == nil {\n",
+      "gate": "make:test-http-odin",
+      "expect_detail": "leak"
+    },
+    {
+      "name": "fetch_decodes_the_response_body dies when a failed fetch keeps what it received",
+      "why": "A Response with an error carries only the error and the URL; status, headers and a partial body would read as data.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "\tif err != .None {\n\t\treset_response(t)",
+      "replace": "\tif err != .None {\n",
+      "gate": "make:test-http-odin",
+      "expect_detail": "failed, yet status"
+    },
+    {
+      "name": "fetch_decodes_the_response_body dies when a redirect is taken for the final response",
+      "why": "A 302 with a Location is followed: the decoded body must be the final response's, its coding the final one's.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "\tif !folded && is_redirect(status) {",
+      "replace": "\tif false {",
+      "gate": "make:test-http-odin",
+      "expect_detail": "fetch br/br: want 1 redirect, got 0"
     },
     {
       "name": "route-gates.test.mjs dies when pkg/http stops routing test-http-odin",

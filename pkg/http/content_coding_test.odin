@@ -8,6 +8,7 @@ import "core:net"
 import "core:strings"
 import "core:testing"
 import "core:thread"
+import "core:time"
 import eventloop "lava:pkg/runtime/eventloop"
 
 // The Content-Encoding fixtures and what Chrome decoded from each: gen.mjs writes
@@ -79,39 +80,35 @@ decodes_as_chrome_does :: proc(t: ^testing.T) {
 	}
 }
 
-// Recorded from Chrome 158 against a local server echoing the header back.
+// Every URL in testdata/accept-encoding/recorded.json is offered what Chrome offered it
+// (record-chrome.py there, a navigation to a local server echoing the header back).
 @(test)
 accept_encoding_follows_the_secure_context :: proc(t: ^testing.T) {
-	SECURE :: "gzip, deflate, br, zstd"
-	INSECURE :: "gzip, deflate"
-	cases := [?]struct {
-		https: bool,
-		host:  string,
-		want:  string,
-	} {
-		{true, "example.com", SECURE},
-		{true, "127.0.0.1", SECURE},
-		{false, "127.0.0.1", SECURE},
-		{false, "127.200.1.9", SECURE},
-		{false, "::1", SECURE},
-		{false, "localhost", SECURE},
-		{false, "LocalHost", SECURE},
-		{false, "app.localhost", SECURE},
-		{false, "plain.test", INSECURE},
-		{false, "example.com", INSECURE},
-		{false, "128.0.0.1", INSECURE},
-		{false, "::2", INSECURE},
-		{false, "localhost.example", INSECURE},
-		{false, "notlocalhost", INSECURE},
+	Recording :: struct {
+		chrome: string,
+		cases:  []struct {
+			url:             string,
+			accept_encoding: string,
+		},
 	}
 
-	for c in cases {
-		url := Url {
-			https = c.https,
-			host  = c.host,
-		}
+	recording: Recording
+	err := json.unmarshal(#load("testdata/accept-encoding/recorded.json"), &recording, allocator = context.temp_allocator)
+	testing.expectf(t, err == nil, "recorded.json: %v", err)
+	testing.expect(t, len(recording.cases) >= 14, "recorded.json lists too few URLs")
+
+	for c in recording.cases {
+		url, url_err := parse_url(c.url, context.temp_allocator)
+		testing.expectf(t, url_err == .None, "%s: %v", c.url, url_err)
 		got := accept_encoding(url)
-		testing.expectf(t, got == c.want, "https=%v %s: want %q, got %q", c.https, c.host, c.want, got)
+		testing.expectf(t, got == c.accept_encoding, "%s: want %q, got %q", c.url, c.accept_encoding, got)
+	}
+
+	// Lava-only: addresses no local Chrome can be pointed at, pinning that the loopback
+	// rules stop at 127.0.0.0/8 and ::1.
+	for host in ([]string{"128.0.0.1", "::2"}) {
+		got := accept_encoding(Url{host = host})
+		testing.expectf(t, got == "gzip, deflate", "http://%s: want %q, got %q", host, "gzip, deflate", got)
 	}
 }
 
@@ -209,6 +206,21 @@ decoded_output_past_max_body_is_refused :: proc(t: ^testing.T) {
 	}
 }
 
+// The decoded body is handed over without most of the decoder's slack: content that does
+// not compress decodes to about its input's size, a quarter of the first buffer the
+// decoder guessed for it, and the caller's allocator would otherwise carry the other
+// three quarters for as long as it keeps the body.
+@(test)
+decoded_body_keeps_little_spare_capacity :: proc(t: ^testing.T) {
+	headers := [?]Header{{"Content-Encoding", "gzip"}}
+	body := make([dynamic]byte)
+	defer delete(body)
+	append(&body, ..fixture(t, "gzip-incompressible.in"))
+	got := decode_content(&body, headers[:], SECURE_URL, DEFAULT_MAX_BODY_BYTES)
+	testing.expectf(t, got == .None && len(body) == 64 * 1024, "decode: %v, %d bytes", got, len(body))
+	testing.expectf(t, cap(body) <= len(body) + len(body) / 4, "%d bytes kept for a %d-byte body", cap(body), len(body))
+}
+
 // fetch() decodes the final response's body: a real request to a loopback server sending
 // the recorded fixtures with their Content-Encoding comes back with the bytes Chrome
 // decoded, or fails where Chrome failed. 127.0.0.1 is a secure context, so br is offered
@@ -231,10 +243,12 @@ fetch_decodes_the_response_body :: proc(t: ^testing.T) {
 		thread.destroy(server)
 	}
 
+	// `redirect` answers 302 to /br/br, its own body gzip-encoded as servers that compress
+	// every text/html response send it: the coding is the redirect's, not the final one's.
 	cases := [?]struct {
 		name:     string,
 		encoding: string,
-	}{{"gzip", "gzip"}, {"br", "br"}, {"gzip-corrupt", "gzip"}}
+	}{{"gzip", "gzip"}, {"br", "br"}, {"gzip-corrupt", "gzip"}, {"br/br", "redirect"}}
 
 	for c in cases {
 		on_done :: proc(resp: Response, user_data: rawptr) {
@@ -249,8 +263,9 @@ fetch_decodes_the_response_body :: proc(t: ^testing.T) {
 		eventloop.run(&loop)
 		eventloop.destroy(&loop)
 		defer response_destroy(&resp)
+		name := c.name[strings.last_index_byte(c.name, '/') + 1:]
 
-		if want, ok := find_fixture(strings.concatenate({c.name, ".out"}, context.temp_allocator)); ok {
+		if want, ok := find_fixture(strings.concatenate({name, ".out"}, context.temp_allocator)); ok {
 			testing.expectf(t, resp.error == .None, "fetch %s: want the body Chrome decoded, got %v", c.name, resp.error)
 			testing.expectf(
 				t,
@@ -263,8 +278,71 @@ fetch_decodes_the_response_body :: proc(t: ^testing.T) {
 			)
 		} else {
 			testing.expectf(t, resp.error == .Decoding, "fetch %s: Chrome failed it, got %v", c.name, resp.error)
+			// A failed response carries the error and the URL, nothing of what was received.
+			testing.expectf(
+				t,
+				resp.status == 0 && len(resp.headers) == 0 && len(resp.body) == 0,
+				"fetch %s: failed, yet status %d, %d headers, %d body bytes",
+				c.name,
+				resp.status,
+				len(resp.headers),
+				len(resp.body),
+			)
+		}
+
+		if c.encoding == "redirect" {
+			testing.expectf(t, resp.redirects == 1, "fetch %s: want 1 redirect, got %d", c.name, resp.redirects)
 		}
 	}
+}
+
+// Decoding runs off the loop thread with the transfer's timer still armed: a timeout that
+// comes due while the body decodes ends the fetch with .Timeout, and the decode, when it
+// returns, frees what it held (the runner fails the test on a leak). Every pool worker is
+// kept busy first, so the decode is still queued when the timer fires; decoded on the loop
+// thread, the body would be ready long before it.
+@(test)
+fetch_times_out_while_the_body_decodes :: proc(t: ^testing.T) {
+	TIMEOUT_MS :: 200
+	BUSY :: 600 * time.Millisecond
+
+	listener, listen_err := net.listen_tcp({net.IP4_Loopback, 0})
+
+	if !testing.expectf(t, listen_err == nil, "listen: %v", listen_err) {
+		return
+	}
+
+	defer net.close(listener)
+	endpoint, _ := net.bound_endpoint(listener)
+	server := thread.create_and_start_with_poly_data(listener, serve_fixtures)
+	defer {
+		net.shutdown(listener, .Both)
+		thread.join(server)
+		thread.destroy(server)
+	}
+
+	on_done :: proc(resp: Response, user_data: rawptr) {
+		(cast(^Response)user_data)^ = resp
+	}
+
+	busy :: proc(_: rawptr) {
+		time.sleep(BUSY)
+	}
+
+	resp: Response
+	loop := eventloop.init(real_time = true)
+	for _ in 0 ..< eventloop.THREADPOOL_SIZE {
+		testing.expect(t, eventloop.pool_submit(&loop, busy, nil), "pool_submit")
+	}
+
+	url := fmt.tprintf("http://127.0.0.1:%d/gzip/gzip", endpoint.port)
+	err := fetch(&loop, {url = url, timeout_ms = TIMEOUT_MS}, on_done, &resp)
+	testing.expectf(t, err == .None, "fetch: %v", err)
+	eventloop.run(&loop)
+	eventloop.destroy(&loop)
+	defer response_destroy(&resp)
+	testing.expectf(t, resp.error == .Timeout, "want Timeout while the body decodes, got %v", resp.error)
+	testing.expectf(t, len(resp.body) == 0, "a timed-out fetch kept %d body bytes", len(resp.body))
 }
 
 // serve_fixtures answers each connection on `listener` with the fixture its request
@@ -302,15 +380,22 @@ serve_one :: proc(client: net.TCP_Socket) {
 	_, _, after_method := strings.partition(line, " /")
 	target, _, _ := strings.partition(after_method, " ")
 	encoding, _, name := strings.partition(target, "/")
-	// No allocation: this thread runs in the default context, outside the test's tracking.
-	body: []byte
-	for f in fixtures {
-		if strings.has_prefix(f.name, name) && f.name[len(name):] == ".in" {
-			body = f.data
-		}
+	head: [256]byte
+
+	if encoding == "redirect" {
+		body := find_in("gzip")
+		response := fmt.bprintf(
+			head[:],
+			"HTTP/1.1 302 Found\r\nLocation: /%s\r\nContent-Type: text/html\r\nContent-Encoding: gzip\r\nContent-Length: %d\r\nConnection: close\r\n\r\n",
+			name,
+			len(body),
+		)
+		net.send_tcp(client, transmute([]byte)response)
+		net.send_tcp(client, body)
+		return
 	}
 
-	head: [256]byte
+	body := find_in(name)
 	response := fmt.bprintf(
 		head[:],
 		"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Encoding: %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n",
@@ -319,6 +404,19 @@ serve_one :: proc(client: net.TCP_Socket) {
 	)
 	net.send_tcp(client, transmute([]byte)response)
 	net.send_tcp(client, body)
+}
+
+// find_in returns `<name>.in` without allocating: the fixture server's thread runs in the
+// default context, outside the test's tracking.
+@(private = "file")
+find_in :: proc(name: string) -> []byte {
+	for f in fixtures {
+		if strings.has_prefix(f.name, name) && f.name[len(name):] == ".in" {
+			return f.data
+		}
+	}
+
+	return nil
 }
 
 @(private = "file")

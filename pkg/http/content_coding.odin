@@ -11,6 +11,22 @@ import zlib "vendor:zlib"
 // (stack-10, stack-11 in testdata/content-coding). Real servers send one.
 MAX_CONTENT_CODINGS :: 10
 
+// What Chrome offers outside a secure context, and decodes there.
+@(private = "file")
+INSECURE_CODINGS :: Codings{.Gzip, .Deflate}
+
+// The first decode step's output, before it has seen how far the input expands. Like the
+// four-times-the-input guess in sink_room, a guess and not a measurement: doubling from
+// there keeps growth amortized O(1) per byte whatever the start.
+@(private = "file")
+INITIAL_OUTPUT :: 16 * 1024
+
+// zlib's windowBits for a raw deflate stream and for a zlib-wrapped one.
+@(private = "file")
+RAW_DEFLATE :: -15
+@(private = "file")
+ZLIB_DEFLATE :: 15
+
 // Coding is a Content-Encoding this client can decode.
 Coding :: enum u8 {
 	Gzip,
@@ -21,22 +37,8 @@ Coding :: enum u8 {
 
 Codings :: bit_set[Coding]
 
-// What Chrome offers outside a secure context, and decodes there.
-@(private = "file")
-INSECURE_CODINGS :: Codings{.Gzip, .Deflate}
-
-// The first decode step's output, before it has seen how far the input expands.
-@(private = "file")
-INITIAL_OUTPUT :: 16 * 1024
-
-
-// zlib's windowBits for a raw deflate stream and for a zlib-wrapped one.
-@(private = "file")
-RAW_DEFLATE :: -15
-@(private = "file")
-ZLIB_DEFLATE :: 15
-
-@(private = "file")
+// Chain is the codings a response's Content-Encoding lists, in the order listed.
+@(private)
 Chain :: struct {
 	codings: [MAX_CONTENT_CODINGS]Coding,
 	n:       int,
@@ -84,11 +86,12 @@ Sink :: struct {
 //
 // Node:
 //   Chrome is the oracle (docs/LARVA.md): "gzip, deflate, br, zstd" to https:// and to
-//   localhost, "gzip, deflate" to any other http:// host. Recorded from Chrome 158
-//   against a local server, by host name: https://127.0.0.1, http://127.0.0.1 and
-//   http://plain.test mapped to 127.0.0.1.
+//   localhost, "gzip, deflate" to any other http:// host. Recorded from Chrome 158 for
+//   every URL in testdata/accept-encoding/recorded.json, by its record-chrome.py.
 // Deviates:
-//   A build whose target cannot decode br and zstd (DECODABLE) does not offer them.
+//   A build whose target cannot decode br and zstd (DECODABLE) does not offer them. Not
+//   pinned by a test: such targets have no transport and no test run, and make check
+//   type-checks their content_coding_other.odin.
 @(private)
 accept_encoding :: proc(url: Url) -> string {
 	if accepted_codings(url) >= {.Brotli, .Zstd} {
@@ -134,26 +137,58 @@ accepted_codings :: proc(url: Url) -> Codings {
 //   early yields what it decoded so far; bytes after the end of the first gzip member
 //   or brotli stream are ignored, a gzip trailer is not checked, a zlib adler32 is;
 //   zstd decodes every current-format frame, refuses trailing bytes, a legacy frame and
-//   a window over 8 MiB; deflate without a valid zlib header is taken as raw deflate.
+//   a window over 8 MiB; deflate that zlib refuses before its first output byte is
+//   decoded again as raw deflate (see deflate_decode).
+//
+// Memory, per step: the step's input and its output buffer are live together, the
+// output at most max_body + 1 bytes, and growing it can briefly hold the old and the new
+// buffer while the allocator copies. The codecs' own state comes on top, from the C
+// heap and outside max_body: zlib's 32 KiB window, brotli's ring buffer (up to 16 MiB
+// for a stream that declares a large window, RFC 7932 §9.1) and zstd's window (at most
+// 8 MiB, ZSTD_WINDOW_LOG_MAX). Only the final body is handed back; each step's input is
+// freed as the next begins.
 //
 // Decoding waits for the whole body rather than running as it arrives: the body is
 // buffered whole anyway, and one pass over it keeps a single codec state per step.
 // gzip and deflate go through the system zlib rather than core:compress/deflate, which
-// decodes a truncated stream one byte past where zlib (and Chrome) stop — 10 bytes for
-// gzip-truncated where Chrome yields 9 — and decodes every gzip member, where Chrome
-// stops after the first.
+// decodes a truncated stream one byte past where zlib (and Chrome) stop — on
+// gzip-truncated.in it gave 10 bytes where Chrome's recording, gzip-truncated.out, holds
+// 9 — and decodes every gzip member, where Chrome stops after the first.
 @(private)
 decode_content :: proc(body: ^[dynamic]byte, headers: []Header, url: Url, max_body: int) -> Error {
+	chain, err := plan_decoding(headers, url)
+
+	if err != .None || chain.n == 0 {
+		return err
+	}
+
+	return run_decoding(body, chain, max_body)
+}
+
+// plan_decoding is decode_content's first half, which reads only the headers: the codings
+// to undo, none (n == 0) when the body is to be left as sent, or .Decoding when the
+// response fails without a look at its body. The transfer uses it to settle on the loop
+// thread what needs no decoding, and hands only the rest to a worker.
+@(private)
+plan_decoding :: proc(headers: []Header, url: Url) -> (Chain, Error) {
 	chain, kind := parse_chain(headers, accepted_codings(url))
 
 	switch kind {
 	case .Identity:
-		return .None
+		return {}, .None
 	case .Refused:
-		return .Decoding
+		return {}, .Decoding
 	case .Decode:
 	}
 
+	return chain, .None
+}
+
+// run_decoding is decode_content's second half: it undoes `chain` over `body`, touching
+// nothing but the body and its allocator, so it may run on a pool worker.
+@(private)
+run_decoding :: proc(body: ^[dynamic]byte, chain: Chain, max_body: int) -> Error {
+	chain := chain
 	allocator := body.allocator
 	// One byte past max_body, saturated: max(int) is a valid max_body_bytes.
 	limit := max_body + 1 if max_body < max(int) else max_body
@@ -193,6 +228,16 @@ decode_content :: proc(body: ^[dynamic]byte, headers: []Header, url: Url, max_bo
 		body^ = out.buf
 	}
 
+	// resize keeps the capacity, and a step's first output buffer is four times its input:
+	// kept, an incompressible body would cost the caller four times its size for as long
+	// as it holds it (decoded_body_keeps_little_spare_capacity). Only the final body is
+	// trimmed, as every earlier one is freed within the call. A quarter of slack is let
+	// be, so a body that ended near a growth step is not copied for little; a judgment,
+	// not a measurement.
+	if cap(body) - len(body) > len(body) / 4 {
+		shrink(body)
+	}
+
 	return .None
 }
 
@@ -207,8 +252,9 @@ sink_room :: proc(s: ^Sink, input_len: int) -> ([]byte, bool) {
 			return nil, false
 		}
 
-		// Doubling, from a guess at the input's expansion: amortized O(1) per byte. Written
-		// so nothing overflows: s.n < limit, and 2*s.n is s.n plus at most limit - s.n.
+		// Doubling, from a guess at the input's expansion (4x, unmeasured, like
+		// INITIAL_OUTPUT): amortized O(1) per byte. Written so nothing overflows:
+		// s.n < limit, and 2*s.n is s.n plus at most limit - s.n.
 		size := max(INITIAL_OUTPUT, s.n + min(s.n, s.limit - s.n))
 
 		if input_len < max(int) / 4 {
@@ -300,11 +346,15 @@ parse_coding :: proc(s: string) -> (Coding, bool) {
 is_secure_host :: proc(host: string) -> bool {
 	LOCALHOST :: ".localhost"
 
-	if ascii_equal_fold(host, LOCALHOST[1:]) {
+	// One trailing dot names the same host, and Chrome drops it before the localhost
+	// check (localhost., x.localhost. in testdata/accept-encoding).
+	name := strings.trim_suffix(host, ".")
+
+	if ascii_equal_fold(name, LOCALHOST[1:]) {
 		return true
 	}
 
-	if len(host) > len(LOCALHOST) && ascii_equal_fold(host[len(host) - len(LOCALHOST):], LOCALHOST) {
+	if len(name) > len(LOCALHOST) && ascii_equal_fold(name[len(name) - len(LOCALHOST):], LOCALHOST) {
 		return true
 	}
 
@@ -336,18 +386,30 @@ gzip_decode :: proc(input: []byte, out: ^Sink) -> Error {
 	return inflate(input[offset:], RAW_DEFLATE, out)
 }
 
-// deflate_decode undoes `deflate`: RFC 9110 means a zlib stream, and a raw deflate
-// stream is what some servers send instead. A valid zlib header decides, as in Chrome.
+// deflate_decode undoes `deflate` as Chrome does: RFC 9110 means a zlib stream, and a
+// raw deflate stream is what some servers send instead. zlib decides, not a look at the
+// header: a stream zlib refuses before it has produced a byte is decoded again from the
+// start as raw deflate, so a raw stream whose first bytes pass for a zlib header, even
+// one asking for a preset dictionary, still decodes (deflate-raw-zlib-lookalike,
+// deflate-raw-fdict-lookalike). The raw retry runs behind a stand-in zlib header, as
+// Chrome's does, so four or more bytes after the raw stream are checked as its adler32
+// and fail it (deflate-raw-trailing-junk).
+//
+// Chrome sniffs over its first network reads, which depend on how the body arrived;
+// "before the first output byte" is the deterministic reading of it that every recorded
+// case agrees with.
 @(private = "file")
 deflate_decode :: proc(input: []byte, out: ^Sink) -> Error {
-	window := c.int(RAW_DEFLATE)
+	err := inflate(input, ZLIB_DEFLATE, out)
 
-	// RFC 1950 §2.2: method 8, window at most 32 KiB, and CMF*256+FLG a multiple of 31.
-	if len(input) >= 2 && input[0] & 0x0F == zlib.DEFLATED && input[0] >> 4 <= 7 && (u16(input[0]) << 8 | u16(input[1])) % 31 == 0 {
-		window = ZLIB_DEFLATE
+	if err != .Decoding || out.n > 0 {
+		return err
 	}
 
-	return inflate(input, window, out)
+	// CMF 0x78 (deflate, 32 KiB window), FLG 0x01: the smallest valid zlib header.
+	STAND_IN_HEADER :: [2]byte{0x78, 0x01}
+	header := STAND_IN_HEADER
+	return inflate(input, ZLIB_DEFLATE, out, header[:])
 }
 
 // gzip_header returns the offset of a gzip member's deflate data (RFC 1952 §2.3).
@@ -413,11 +475,11 @@ skip_zero_terminated :: proc(input: []byte, from: int) -> int {
 	return len(input) + 1 if nul < 0 else from + nul + 1
 }
 
-// inflate runs zlib over the whole of `input`. Running out of input is not an error: the
-// stream was cut short and keeps what it decoded, as in Chrome. Bytes after the end of
-// the stream are ignored.
+// inflate runs zlib over `header` and then the whole of `input`. Running out of input is
+// not an error: the stream was cut short and keeps what it decoded, as in Chrome. Bytes
+// after the end of the stream are ignored.
 @(private = "file")
-inflate :: proc(input: []byte, window: c.int, out: ^Sink) -> Error {
+inflate :: proc(input: []byte, window: c.int, out: ^Sink, header: []byte = nil) -> Error {
 	strm: zlib.z_stream
 
 	switch zlib.inflateInit2(&strm, window) {
@@ -429,6 +491,17 @@ inflate :: proc(input: []byte, window: c.int, out: ^Sink) -> Error {
 	}
 
 	defer zlib.inflateEnd(&strm)
+
+	if len(header) > 0 {
+		// A header produces no output, but zlib wants room to report progress into.
+		scratch: [4]byte
+		strm.next_in, strm.avail_in = raw_data(header), zlib.uInt(len(header))
+		strm.next_out, strm.avail_out = raw_data(scratch[:]), len(scratch)
+
+		if zlib.inflate(&strm, zlib.NO_FLUSH) != zlib.OK || strm.avail_in != 0 {
+			return .Decoding
+		}
+	}
 
 	rest := input
 	for {

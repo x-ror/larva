@@ -126,6 +126,41 @@
 		"secure": true
 	},
 	{
+		"name": "deflate-raw-zlib-lookalike",
+		"encoding": [
+			"deflate"
+		],
+		"secure": true
+	},
+	{
+		"name": "deflate-raw-fdict-lookalike",
+		"encoding": [
+			"deflate"
+		],
+		"secure": true
+	},
+	{
+		"name": "deflate-bad-fcheck",
+		"encoding": [
+			"deflate"
+		],
+		"secure": true
+	},
+	{
+		"name": "deflate-window-8",
+		"encoding": [
+			"deflate"
+		],
+		"secure": true
+	},
+	{
+		"name": "deflate-raw-trailing-junk",
+		"encoding": [
+			"deflate"
+		],
+		"secure": true
+	},
+	{
 		"name": "br",
 		"encoding": [
 			"br"
@@ -225,6 +260,20 @@
 	},
 	{
 		"name": "zstd-then-legacy-v07",
+		"encoding": [
+			"zstd"
+		],
+		"secure": true
+	},
+	{
+		"name": "zstd-skippable-then-legacy-v07",
+		"encoding": [
+			"zstd"
+		],
+		"secure": true
+	},
+	{
+		"name": "zstd-then-skippable-cut-short",
 		"encoding": [
 			"zstd"
 		],
@@ -383,6 +432,21 @@
 		"encoding": [
 			"br",
 			"foo"
+		],
+		"secure": false
+	},
+	{
+		"name": "insecure-br-204",
+		"encoding": [
+			"br"
+		],
+		"secure": false,
+		"status": 204
+	},
+	{
+		"name": "insecure-br-empty-200",
+		"encoding": [
+			"br"
 		],
 		"secure": false
 	}
