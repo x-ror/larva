@@ -3756,7 +3756,7 @@
       "find": "\terr := inflate(input, ZLIB_DEFLATE, out)",
       "replace": "\terr := inflate(input, RAW_DEFLATE, out)",
       "gate": "make:test-http-odin",
-      "expect_detail": "deflate-zlib: want the body Chrome decoded, got Decoding"
+      "expect_detail": "larva_http.decodes_as_chrome_does"
     },
     {
       "name": "decodes_as_chrome_does dies when zstd_decode accepts a window over 8 MiB",
