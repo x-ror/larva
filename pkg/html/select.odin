@@ -19,8 +19,10 @@ Selector :: struct {
 	list: css_list,
 }
 
-// selectors_init creates the engine. false off Linux (no lexbor build) or when lexbor
-// could not allocate.
+// selectors_init creates the engine.
+//
+// Returns:
+//   false off Linux (no lexbor build) or when lexbor could not allocate.
 selectors_init :: proc(s: ^Selectors) -> bool {
 	s.engine = larva_css_create()
 	return s.engine != nil
@@ -51,11 +53,13 @@ selector_destroy :: proc(sel: ^Selector) {
 }
 
 // query_all appends to `out` every descendant of `root` that `sel` matches, in tree
-// order, as querySelectorAll. `root` is a document or element node.
+// order. `root` is a document or element node.
 //
 // Returns:
 //   false on a bad argument, a failed search, or when `out` could not grow; `out` then
 //   holds the matches found so far.
+// Chrome:
+//   querySelectorAll is the model; unverified — no recording exists yet (#2).
 query_all :: proc(s: ^Selectors, root: Node, sel: Selector, out: ^[dynamic]Node) -> bool {
 	if s == nil || s.engine == nil || root == nil || sel.list == nil || out == nil {
 		return false
@@ -93,7 +97,13 @@ query_all :: proc(s: ^Selectors, root: Node, sel: Selector, out: ^[dynamic]Node)
 }
 
 // query_first returns the first descendant of `root`, in tree order, that `sel`
-// matches, as querySelector; nil when none does.
+// matches.
+//
+// Returns:
+//   ok false on a bad argument or a failed search. Nothing matching is ok true with a
+//   nil node.
+// Chrome:
+//   querySelector is the model; unverified — no recording exists yet (#2).
 query_first :: proc(s: ^Selectors, root: Node, sel: Selector) -> (node: Node, ok: bool) {
 	if s == nil || s.engine == nil || root == nil || sel.list == nil {
 		return nil, false

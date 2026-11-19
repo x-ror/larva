@@ -14,7 +14,12 @@ OUTER_HTML_RESERVE :: 128
 // lexbor detaches nodes from the tree but frees them only with the document.
 Node :: distinct rawptr
 
-// text returns `node`'s textContent, copied into `allocator`; "" for none.
+// text returns `node`'s text content, copied into `allocator`.
+//
+// Returns:
+//   "" when the node is nil, has no text, or the copy cannot be allocated.
+// Chrome:
+//   Node.textContent is the model; unverified — no recording exists yet (#2).
 text :: proc(node: Node, allocator := context.allocator) -> string {
 	if node == nil {
 		return ""
@@ -38,6 +43,8 @@ text :: proc(node: Node, allocator := context.allocator) -> string {
 // Returns:
 //   ok false when `node` is not an element or has no such attribute. An attribute
 //   without a value (`<script async>`) is ok true with "".
+// Chrome:
+//   Element.getAttribute is the model, with ok false for its null; unverified — no recording exists yet (#2).
 attr_view :: proc(node: Node, name: string) -> (value: string, ok: bool) {
 	if node == nil {
 		return "", false
@@ -73,7 +80,13 @@ attr :: proc(node: Node, name: string, allocator := context.allocator) -> (value
 	return copied, true
 }
 
-// outer_html returns `node`'s markup, the node itself included, as outerHTML does.
+// outer_html returns `node`'s markup, the node itself included.
+//
+// Returns:
+//   ok false when the node is nil or the markup cannot be allocated — never a
+//   truncated string.
+// Chrome:
+//   Element.outerHTML is the model; unverified — no recording exists yet (#2).
 outer_html :: proc(node: Node, allocator := context.allocator) -> (markup: string, ok: bool) {
 	if node == nil {
 		return "", false

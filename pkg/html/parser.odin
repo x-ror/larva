@@ -106,7 +106,7 @@ destroy :: proc(p: ^Parser) {
 	p^ = {}
 }
 
-// feed appends network bytes. They are parsed by pump.
+// feed appends network bytes; nothing is parsed until pump.
 feed :: proc(p: ^Parser, data: []byte) {
 	append(&p.input.buf, ..data)
 }
@@ -118,12 +118,14 @@ finish :: proc(p: ^Parser) {
 }
 
 // write inserts `text` at the insertion point: right after the script pump last
-// returned, after any text earlier writes put there, before the rest of the input —
-// as document.write does. Scripts in `text` pause in turn.
+// returned, after any text earlier writes put there, before the rest of the input.
+// Scripts in `text` pause in turn.
 //
 // Returns:
 //   false, and nothing is inserted, once the document is done, the parser failed, or
 //   the text could not be stored.
+// Chrome:
+//   document.write is the model; unverified — no recording exists yet (#2).
 write :: proc(p: ^Parser, text: string) -> bool {
 	if p.ended || p.err != "" {
 		return false
@@ -265,7 +267,12 @@ error_message :: proc(p: ^Parser) -> string {
 }
 
 // serialize returns the document's markup — the doctype, then the html element.
-// Comparing it with Chrome's is the oracle's job (#2), not done yet.
+//
+// Returns:
+//   ok false when init failed or the markup cannot be allocated — never a truncated
+//   string.
+// Chrome:
+//   the page's serialized DOM is the model; unverified — no recording exists yet (#2).
 serialize :: proc(p: ^Parser, allocator := context.allocator) -> (markup: string, ok: bool) {
 	if p.doc == nil {
 		return "", false
@@ -320,7 +327,8 @@ serialize_with :: proc(
 	return strings.to_string(b), true
 }
 
-// collect_markup appends what a lexbor serializer emits to the strings.Builder in `raw`.
+// A non-OK status is the only thing that stops a lexbor serializer, so a failed append
+// has to become one.
 @(private = "file")
 collect_markup :: proc "c" (data: [^]u8, n: c.size_t, raw: rawptr) -> lxb_status_t {
 	if n == 0 {

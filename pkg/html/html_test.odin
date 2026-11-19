@@ -16,7 +16,6 @@ Capped :: struct {
 	limit:   int,
 }
 
-// Nested counts the scripts write_from_a_written_script_goes_before_the_rest has seen.
 @(private = "file")
 Nested :: struct {
 	seen: int,
@@ -51,7 +50,8 @@ attr_without_a_value_is_present :: proc(t: ^testing.T) {
 }
 
 // A Node is any node — document(p) hands out the Document — and only an element has an
-// attribute list. Reading one off anything else is a wild read (it crashed).
+// attribute list. Reading one off anything else is a wild read: attr on the Document
+// segfaulted before the shim checked the node type.
 @(test)
 attr_on_a_non_element_is_absent :: proc(t: ^testing.T) {
 	p: Parser
@@ -90,7 +90,10 @@ write_from_a_written_script_goes_before_the_rest :: proc(t: ^testing.T) {
 	parse(t, &p, `<body><script>outer</script><p>tail</p>`, on_script, &n)
 	markup, ok := serialize(&p)
 	defer delete(markup)
-	want := `<html><head></head><body><script>outer</script><b>1</b><script>inner</script><b>2</b><b>3</b><b>4</b><p>tail</p></body></html>`
+	want :=
+		`<html><head></head><body><script>outer</script>` +
+		`<b>1</b><script>inner</script><b>2</b><b>3</b><b>4</b>` +
+		`<p>tail</p></body></html>`
 	testing.expectf(t, ok && markup == want, "write order: got %s", markup)
 }
 
