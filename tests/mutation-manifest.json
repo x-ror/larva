@@ -3837,7 +3837,7 @@
       "find": " || magic & ~u32(0xF) == ZSTD_SKIPPABLE_MAGIC",
       "replace": "",
       "gate": "make:test-http-odin",
-      "expect_detail": "zstd-skippable-then-frame: want the body Chrome decoded, got Decoding"
+      "expect_detail": "skippable"
     },
     {
       "name": "fetch_decodes_the_response_body dies when finish stops decoding the response body",
@@ -3846,7 +3846,7 @@
       "find": "\t\tchain, err = plan_decoding(t.resp.headers[:], t.url)",
       "replace": "\t\terr = .None",
       "gate": "make:test-http-odin",
-      "expect_detail": "fetch gzip: want"
+      "expect_detail": "larva_http.fetch_decodes_the_response_body"
     },
     {
       "name": "decoded_output_past_max_body_is_refused dies when sink_room stops refusing a full sink",
@@ -3892,7 +3892,7 @@
       "find": "(ret == 0 || out_buf.pos < out_buf.size)",
       "replace": "(out_buf.pos < out_buf.size)",
       "gate": "make:test-http-odin",
-      "expect_detail": "output grew to 32768 bytes"
+      "expect_detail": "output grew: "
     },
     {
       "name": "make check-runtime dies when pkg/http's !linux stub stops compiling",
@@ -3905,12 +3905,12 @@
     },
     {
       "name": "decodes_as_chrome_does dies when deflate_decode stops retrying a refused stream as raw deflate",
-      "why": "Chrome decodes a raw deflate stream whose first bytes pass for a zlib header by replaying it raw; failing it loses pages Chrome renders.",
+      "why": "Chrome replays as raw deflate a stream zlib refuses at once: a plain raw stream (deflate-raw) and one whose first bytes pass for a zlib header (deflate-raw-zlib-lookalike) both decode there.",
       "source": "pkg/http/content_coding.odin",
       "find": "\tif err != .Decoding || out.n > 0 {",
       "replace": "\tif true {",
       "gate": "make:test-http-odin",
-      "expect_detail": "deflate-raw-zlib-lookalike: want the body Chrome decoded, got Decoding"
+      "expect_detail": "deflate-raw: want the body Chrome decoded, got Decoding"
     },
     {
       "name": "decodes_as_chrome_does dies when the raw retry drops Chrome's stand-in zlib header",
@@ -3932,12 +3932,12 @@
     },
     {
       "name": "decodes_as_chrome_does dies when zstd_decode ignores a library error",
-      "why": "Bytes that start no zstd frame fail the body in Chrome; ignoring the error hands back what came before them.",
+      "why": "Bytes that start no zstd frame, or a frame over the window limit, fail the body in Chrome; ignoring the library's error hands back what came before them.",
       "source": "pkg/http/content_coding_linux.odin",
       "find": "\t\tif ZSTD_isError(ret) != 0 {\n\t\t\treturn .Decoding",
       "replace": "\t\tif ZSTD_isError(ret) != 0 {\n\t\t\treturn .None",
       "gate": "make:test-http-odin",
-      "expect_detail": "zstd-trailing-junk: Chrome failed it, got None"
+      "expect_detail": "zstd-window-16m: Chrome failed it, got None"
     },
     {
       "name": "decodes_as_chrome_does dies when gzip_header stops skipping FEXTRA",

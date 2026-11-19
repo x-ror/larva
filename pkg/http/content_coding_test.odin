@@ -4,6 +4,7 @@ package larva_http
 import "core:bytes"
 import "core:encoding/json"
 import "core:fmt"
+import "core:mem"
 import "core:net"
 import "core:strings"
 import "core:testing"
@@ -149,16 +150,29 @@ decoded_size_is_capped :: proc(t: ^testing.T) {
 
 // A frame that ends exactly as it fills the output buffer is complete: ZSTD_decompressStream
 // says so by returning 0. Treating the full buffer as "maybe more" doubles it, copying
-// the whole body, to learn there is nothing left.
+// the whole body, to learn there is nothing left. The final body's capacity cannot show
+// that, as decode_content trims spare capacity before returning; the bytes ever
+// allocated can: the input, and one 16 KiB output buffer.
 @(test)
 zstd_that_fills_the_buffer_does_not_grow_it :: proc(t: ^testing.T) {
+	track: mem.Tracking_Allocator
+	mem.tracking_allocator_init(&track, context.allocator)
+	defer mem.tracking_allocator_destroy(&track)
+	allocator := mem.tracking_allocator(&track)
+
 	headers := [?]Header{{"Content-Encoding", "zstd"}}
-	body := make([dynamic]byte)
+	input := fixture(t, "zstd-fills-first-buffer.in")
+	body := make([dynamic]byte, allocator)
 	defer delete(body)
-	append(&body, ..fixture(t, "zstd-fills-first-buffer.in"))
+	append(&body, ..input)
 	got := decode_content(&body, headers[:], SECURE_URL, DEFAULT_MAX_BODY_BYTES)
 	testing.expectf(t, got == .None && len(body) == 16 * 1024, "decode: %v, %d bytes", got, len(body))
-	testing.expectf(t, cap(body) == 16 * 1024, "output grew to %d bytes for a 16384-byte body", cap(body))
+	testing.expectf(
+		t,
+		track.total_memory_allocated <= i64(len(input) + 16 * 1024 + 64),
+		"output grew: %d bytes allocated for a 16384-byte body",
+		track.total_memory_allocated,
+	)
 }
 
 // A body that decodes to more than max_body fails as too large, whether the first output
