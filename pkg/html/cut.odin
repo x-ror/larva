@@ -1,6 +1,7 @@
 package larva_html
 
 import "core:bytes"
+import "core:encoding/endian"
 
 // Where to cut the input before handing it to lexbor.
 //
@@ -28,6 +29,33 @@ SCRIPT_END_TAG :: "</script"
 @(private = "file")
 END_TAG_MAX :: 4096
 
+// "</script" as a little-endian u64, and the mask that folds the six letters to lower
+// case. `<` and `/` stay exact: OR-ing 0x20 into them would let 0x1C and 0x0F match. A
+// byte ORed with 0x20 equals a lower-case letter only if it is that letter in either
+// case, so the fold is ASCII-only, as the tokenizer's is.
+@(private = "file")
+SCRIPT_END_U64 ::
+	u64('<') |
+	u64('/') << 8 |
+	u64('s') << 16 |
+	u64('c') << 24 |
+	u64('r') << 32 |
+	u64('i') << 40 |
+	u64('p') << 48 |
+	u64('t') << 56
+@(private = "file")
+SCRIPT_END_FOLD :: u64(0x2020_2020_2020_0000)
+
+@(private = "file")
+Low_Byte_Set :: bit_set[byte(0) ..< 64;u64]
+// The HTML spec's ASCII whitespace: tab, LF, FF, CR, space. core:strings.is_ascii_space
+// also takes vertical tab, which HTML does not.
+@(private = "file")
+HTML_SPACE :: Low_Byte_Set{'\t', '\n', '\f', '\r', ' '}
+// What may follow the tag name for `</script` to be the script end tag.
+@(private = "file")
+SCRIPT_END_TERM :: HTML_SPACE + {'/', '>'}
+
 // Source is bytes waiting to be parsed: the network input, or text from
 // document.write. Everything before `off` has been handed to lexbor.
 @(private)
@@ -52,7 +80,7 @@ Match :: enum {
 @(private)
 source_init :: proc(s: ^Source, allocator := context.allocator) {
 	s^ = {
-		buf = make([dynamic]byte, 0, 0, allocator),
+		buf = make([dynamic]byte, allocator),
 		tag = -1,
 	}
 }
@@ -133,29 +161,35 @@ next_cut :: proc(s: ^Source, eof: bool) -> int {
 
 	// Inside a candidate: find its `>`, skipping quoted attribute values, as the
 	// tokenizer does in the attribute states of an end tag.
-	for ; s.tag_pos < end; s.tag_pos += 1 {
-		b := s.buf[s.tag_pos]
-
+	for s.tag_pos < end {
 		if s.quote != 0 {
-			if b == s.quote {
-				s.quote = 0
+			k := bytes.index_byte(s.buf[s.tag_pos:end], s.quote)
+
+			if k < 0 {
+				s.tag_pos = end
+				break
 			}
 
+			s.tag_pos += k + 1
+			s.quote = 0
 			continue
 		}
 
-		switch {
-		case b == '>':
-			cut := s.tag_pos + 1
+		b := s.buf[s.tag_pos]
+		s.tag_pos += 1
+		switch b {
+		case '>':
 			s.tag = -1
-			s.scan = cut
-			return cut - s.off
-		case (b == '"' || b == '\'') && s.after_eq:
-			s.quote = b
-			s.after_eq = false
-		case b == '=':
+			s.scan = s.tag_pos
+			return s.tag_pos - s.off
+		case '"', '\'':
+			if s.after_eq {
+				s.quote = b
+				s.after_eq = false
+			}
+		case '=':
 			s.after_eq = true
-		case is_html_space(b):
+		case '\t', '\n', '\f', '\r', ' ':
 		// keeps after_eq: `a = "v"` is one attribute
 		case:
 			s.after_eq = false
@@ -173,39 +207,30 @@ next_cut :: proc(s: ^Source, eof: bool) -> int {
 
 // match_script_end says whether `b` starts with an end tag named "script": the
 // characters of SCRIPT_END_TAG in any ASCII case, then whitespace, `/` or `>`. Anything
-// else after the name (`</scripts>`) is a different tag.
+// else after the name (`</scripts>`) is a different tag. It runs at every `<` of a
+// page, so the common case is one 8-byte compare.
 @(private = "file")
 match_script_end :: proc(b: []byte) -> Match {
-	needle := SCRIPT_END_TAG
-	for i in 0 ..< len(needle) {
-		if i >= len(b) {
-			return .Need_More
+	if len(b) > len(SCRIPT_END_TAG) {
+		if endian.unchecked_get_u64le(b) | SCRIPT_END_FOLD != SCRIPT_END_U64 {
+			return .No
 		}
 
-		if ascii_lower(b[i]) != needle[i] {
+		return .Yes if b[len(SCRIPT_END_TAG)] in SCRIPT_END_TERM else .No
+	}
+
+	needle := SCRIPT_END_TAG
+	for i in 0 ..< len(b) {
+		ch := b[i]
+
+		if i >= len("</") {
+			ch |= 0x20
+		}
+
+		if ch != needle[i] {
 			return .No
 		}
 	}
 
-	if len(b) == len(needle) {
-		return .Need_More
-	}
-
-	next := b[len(needle)]
-	return .Yes if next == '/' || next == '>' || is_html_space(next) else .No
-}
-
-// ascii_lower folds A–Z only. HTML tag names compare ASCII case-insensitively; a
-// Unicode fold (core:strings.equal_fold) would also match U+017F to 's', which the
-// tokenizer does not.
-@(private = "file")
-ascii_lower :: proc(b: byte) -> byte {
-	return b + ('a' - 'A') if 'A' <= b && b <= 'Z' else b
-}
-
-// is_html_space is the HTML spec's ASCII whitespace: tab, LF, FF, CR, space.
-// core:strings.is_ascii_space also takes vertical tab, which HTML does not.
-@(private = "file")
-is_html_space :: proc(b: byte) -> bool {
-	return b == '\t' || b == '\n' || b == '\f' || b == '\r' || b == ' '
+	return .Need_More
 }

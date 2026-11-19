@@ -44,6 +44,7 @@ Parser :: struct {
 	input:   Source, // network bytes
 	written: Source, // document.write text, parsed before the rest of `input`
 	ins:     int, // where the next write goes in `written`
+	fed:     int, // bytes fed and written so far: the size serialize expects to produce
 	eof:     bool, // finish was called
 	ended:   bool, // lexbor has ended the document
 	err:     string, // why the parser failed; "" while it has not
@@ -108,7 +109,8 @@ destroy :: proc(p: ^Parser) {
 
 // feed appends network bytes. They are parsed by pump.
 feed :: proc(p: ^Parser, data: []byte) {
-	append(&p.input.buf, ..data)
+	non_zero_append(&p.input.buf, ..data)
+	p.fed += len(data)
 }
 
 // finish marks the end of the input; the pump that runs out of input then ends the
@@ -128,8 +130,31 @@ write :: proc(p: ^Parser, text: string) -> bool {
 		return false
 	}
 
-	inject_at(&p.written.buf, p.ins, ..transmute([]byte)text)
+	if len(text) == 0 {
+		return true
+	}
+
+	// Writes from one script land one after another at the end: append, which grows the
+	// buffer geometrically. inject_at resizes to the exact length, so a script calling
+	// document.write in a loop would copy the buffer each time.
+	if p.ins == len(p.written.buf) {
+		if _, err := non_zero_append(&p.written.buf, text); err != nil {
+			return false
+		}
+	} else {
+		need := len(p.written.buf) + len(text)
+
+		if need > cap(p.written.buf) && non_zero_reserve(&p.written.buf, max(2 * cap(p.written.buf), need)) != nil {
+			return false
+		}
+
+		if _, err := inject_at(&p.written.buf, p.ins, text); err != nil {
+			return false
+		}
+	}
+
 	p.ins += len(text)
+	p.fed += len(text)
 	return true
 }
 
@@ -251,14 +276,7 @@ serialize :: proc(p: ^Parser, allocator := context.allocator) -> (markup: string
 		return "", false
 	}
 
-	b := strings.builder_make(allocator)
-
-	if lxb_html_serialize_deep_cb(larva_html_document_node(p.doc), collect_markup, &b) != LXB_STATUS_OK {
-		strings.builder_destroy(&b)
-		return "", false
-	}
-
-	return strings.to_string(b), true
+	return serialize_with(larva_html_document_node(p.doc), true, p.fed, allocator)
 }
 
 @(private = "file")
@@ -267,10 +285,59 @@ fail :: proc(p: ^Parser, why: string) -> Pump_Status {
 	return .Failed
 }
 
-// collect_markup appends what a lexbor serializer emits to the strings.Builder in ctx.
 @(private)
-collect_markup :: proc "c" (data: [^]u8, len: c.size_t, ctx: rawptr) -> lxb_status_t {
-	context = runtime.default_context()
-	strings.write_bytes(cast(^strings.Builder)ctx, data[:len])
+Serialize_Ctx :: struct {
+	b:   ^strings.Builder,
+	ctx: runtime.Context,
+}
+
+// serialize_with serializes `node` — its children only when `deep`, the node itself too
+// otherwise — into a builder grown once to `size_hint`. The caller's context travels
+// into the C callback, so the builder grows in the caller's allocator; an allocation
+// failure stops the serializer instead of returning truncated markup.
+@(private)
+serialize_with :: proc(
+	node: Node,
+	deep: bool,
+	size_hint: int,
+	allocator := context.allocator,
+) -> (
+	markup: string,
+	ok: bool,
+) {
+	b := strings.builder_make(allocator)
+
+	if strings.builder_grow(&b, max(size_hint, 64)) != nil {
+		return "", false
+	}
+
+	sc := Serialize_Ctx {
+		b   = &b,
+		ctx = context,
+	}
+	status :=
+		lxb_html_serialize_deep_cb(node, collect_markup, &sc) if deep else lxb_html_serialize_tree_cb(node, collect_markup, &sc)
+
+	if status != LXB_STATUS_OK {
+		strings.builder_destroy(&b)
+		return "", false
+	}
+
+	return strings.to_string(b), true
+}
+
+@(private = "file")
+collect_markup :: proc "c" (data: [^]u8, n: c.size_t, raw: rawptr) -> lxb_status_t {
+	if n == 0 {
+		return LXB_STATUS_OK
+	}
+
+	sc := cast(^Serialize_Ctx)raw
+	context = sc.ctx
+
+	if _, err := non_zero_append(&sc.b.buf, ..data[:n]); err != nil {
+		return LXB_STATUS_ERROR_MEMORY_ALLOCATION
+	}
+
 	return LXB_STATUS_OK
 }

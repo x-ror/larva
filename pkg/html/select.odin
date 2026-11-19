@@ -35,36 +35,75 @@ selectors_destroy :: proc(s: ^Selectors) {
 //
 // Returns:
 //   ok false when `css` is not a valid selector list (querySelector would throw a
-//   SyntaxError).
+//   SyntaxError), or the engine was never initialized.
 compile :: proc(s: ^Selectors, css: string) -> (sel: Selector, ok: bool) {
+	if s == nil || s.engine == nil {
+		return {}, false
+	}
+
 	list := larva_css_compile(s.engine, raw_data(css), c.size_t(len(css)))
 	return Selector{list}, list != nil
 }
 
 selector_destroy :: proc(sel: ^Selector) {
-	larva_css_free(sel.list)
+	lxb_css_selector_list_destroy_memory(sel.list)
 	sel^ = {}
 }
 
 // query_all appends to `out` every descendant of `root` that `sel` matches, in tree
 // order, as querySelectorAll. `root` is a document or element node.
+//
+// Returns:
+//   false on a bad argument, a failed search, or when `out` could not grow; `out` then
+//   holds the matches found so far.
 query_all :: proc(s: ^Selectors, root: Node, sel: Selector, out: ^[dynamic]Node) -> bool {
-	found :: proc "c" (node: Node, ctx: rawptr) -> bool {
-		// `out` grows through its own allocator; the context is only for append itself.
-		context = runtime.default_context()
-		append(cast(^[dynamic]Node)ctx, node)
+	if s == nil || s.engine == nil || root == nil || sel.list == nil || out == nil {
 		return false
 	}
-	return larva_css_find(s.engine, root, sel.list, found, out)
+
+	// A zero-value array binds its allocator on the first append, which runs inside the
+	// C callback; bind it here to the caller's.
+	if out.allocator.procedure == nil {
+		out.allocator = context.allocator
+	}
+
+	Find_Ctx :: struct {
+		out: ^[dynamic]Node,
+		ctx: runtime.Context,
+		err: runtime.Allocator_Error,
+	}
+
+	found :: proc "c" (node: Node, raw: rawptr) -> bool {
+		fc := cast(^Find_Ctx)raw
+		context = fc.ctx
+
+		if _, err := non_zero_append(fc.out, node); err != nil {
+			fc.err = err
+			return true
+		}
+
+		return false
+	}
+
+	fc := Find_Ctx {
+		out = out,
+		ctx = context,
+	}
+	return larva_css_find(s.engine, root, sel.list, found, &fc) && fc.err == nil
 }
 
 // query_first returns the first descendant of `root`, in tree order, that `sel`
 // matches, as querySelector; nil when none does.
 query_first :: proc(s: ^Selectors, root: Node, sel: Selector) -> (node: Node, ok: bool) {
+	if s == nil || s.engine == nil || root == nil || sel.list == nil {
+		return nil, false
+	}
+
 	found :: proc "c" (n: Node, ctx: rawptr) -> bool {
 		(cast(^Node)ctx)^ = n
 		return true
 	}
+
 	ok = larva_css_find(s.engine, root, sel.list, found, &node)
 	return
 }

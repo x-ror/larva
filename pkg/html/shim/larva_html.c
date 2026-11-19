@@ -79,18 +79,31 @@ lxb_dom_node_t *larva_html_document_node(lxb_html_document_t *doc) {
 	return lxb_dom_interface_node(doc);
 }
 
-lxb_char_t *larva_html_text(lxb_dom_node_t *node, size_t *len) {
-	return lxb_dom_node_text_content(node, len);
-}
-
 void larva_html_text_free(lxb_dom_node_t *node, lxb_char_t *text) {
 	if (text != NULL) {
 		lxb_dom_document_destroy_text(node->owner_document, text);
 	}
 }
 
+// The value of attribute `name` on element `node`, or NULL when `node` is not an element
+// or has no such attribute. An attribute without a value (`<script async>`) is present
+// with an empty value: lexbor's own getter returns NULL for it. Owned by the element.
 const lxb_char_t *larva_html_attr(lxb_dom_node_t *node, const lxb_char_t *name, size_t name_len, size_t *len) {
-	return lxb_dom_element_get_attribute(lxb_dom_interface_element(node), name, name_len, len);
+	static const lxb_char_t empty = '\0';
+
+	*len = 0;
+	if (node == NULL || node->type != LXB_DOM_NODE_TYPE_ELEMENT) {
+		return NULL;
+	}
+
+	lxb_dom_attr_t *a = lxb_dom_element_attr_by_name(lxb_dom_interface_element(node), name, name_len);
+
+	if (a == NULL) {
+		return NULL;
+	}
+
+	const lxb_char_t *v = lxb_dom_attr_value(a, len);
+	return v != NULL ? v : &empty;
 }
 
 larva_css *larva_css_create(void) {
@@ -142,10 +155,6 @@ lxb_css_selector_list_t *larva_css_compile(larva_css *e, const lxb_char_t *css, 
 	return list;
 }
 
-void larva_css_free(lxb_css_selector_list_t *list) {
-	lxb_css_selector_list_destroy_memory(list);
-}
-
 static lxb_status_t larva_css_found(lxb_dom_node_t *node, lxb_css_selector_specificity_t spec, void *ctx) {
 	larva_css_find_ctx *f = ctx;
 	return f->found(node, f->ctx) ? LXB_STATUS_STOP : LXB_STATUS_OK;
@@ -156,8 +165,4 @@ bool larva_css_find(larva_css *e, lxb_dom_node_t *root, const lxb_css_selector_l
 	larva_css_find_ctx f = {found, ctx};
 	lxb_status_t st = lxb_selectors_find(e->selectors, root, list, larva_css_found, &f);
 	return st == LXB_STATUS_OK || st == LXB_STATUS_STOP || st == LXB_STATUS_STOPPED;
-}
-
-lxb_status_t larva_html_serialize_node(lxb_dom_node_t *node, lxb_html_serialize_cb_f cb, void *ctx) {
-	return lxb_html_serialize_tree_cb(node, cb, ctx);
 }
