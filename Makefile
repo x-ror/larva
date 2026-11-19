@@ -290,9 +290,12 @@ test-html-odin: native-deps
 	$(ODIN) test pkg/html
 
 # Links system zlib, brotlidec and zstd; the expectations are recorded Chrome output
-# (pkg/http/testdata/content-coding). Linux only, as the transport is.
+# (pkg/http/testdata/content-coding). Linux only, as the transport is. A leak fails the
+# run: core/testing only reports one unless FAIL_ON_BAD_MEMORY is set (a #config, so
+# -define, not an environment variable), and a decode step that keeps its input buffer
+# survived the leak report alone.
 test-http-odin:
-	$(ODIN) test pkg/http -collection:lava=.
+	$(ODIN) test pkg/http -collection:lava=. -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true
 
 ifeq ($(OS),Windows_NT)
 test-sqlite-odin:
