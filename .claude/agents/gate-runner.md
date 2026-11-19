@@ -51,8 +51,8 @@ The brief's `phase:` picks one.
 ## Environment first
 
 Before the first target, compare the toolchain with what CI pins — `node
---version` against `.node-version` (and `node-version:` in `ci.yml`), `odin
-version` if the brief names one. On a mismatch:
+--version` against `.nvmrc` (what `ci.yml` reads via `node-version-file`; `.node-version`
+mirrors it), `odin version` if the brief names one. On a mismatch:
 
 - Look for the pinned version before saying it is absent: `ls /opt`, `type -a node`,
   the version manager on the box. "Not on `PATH`" is not "not
