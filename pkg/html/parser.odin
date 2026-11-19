@@ -44,7 +44,6 @@ Parser :: struct {
 	input:   Source, // network bytes
 	written: Source, // document.write text, parsed before the rest of `input`
 	ins:     int, // where the next write goes in `written`
-	fed:     int, // bytes fed and written so far: the size serialize expects to produce
 	eof:     bool, // finish was called
 	ended:   bool, // lexbor has ended the document
 	err:     string, // why the parser failed; "" while it has not
@@ -109,8 +108,7 @@ destroy :: proc(p: ^Parser) {
 
 // feed appends network bytes. They are parsed by pump.
 feed :: proc(p: ^Parser, data: []byte) {
-	non_zero_append(&p.input.buf, ..data)
-	p.fed += len(data)
+	append(&p.input.buf, ..data)
 }
 
 // finish marks the end of the input; the pump that runs out of input then ends the
@@ -124,7 +122,8 @@ finish :: proc(p: ^Parser) {
 // as document.write does. Scripts in `text` pause in turn.
 //
 // Returns:
-//   false, and nothing is inserted, once the document is done or the parser failed.
+//   false, and nothing is inserted, once the document is done, the parser failed, or
+//   the text could not be stored.
 write :: proc(p: ^Parser, text: string) -> bool {
 	if p.ended || p.err != "" {
 		return false
@@ -134,27 +133,23 @@ write :: proc(p: ^Parser, text: string) -> bool {
 		return true
 	}
 
-	// Writes from one script land one after another at the end: append, which grows the
-	// buffer geometrically. inject_at resizes to the exact length, so a script calling
-	// document.write in a loop would copy the buffer each time.
+	// Reserve first, so a refused write leaves nothing behind: append stores as much as
+	// fits before it reports the failure, and that prefix would be parsed. The growth is
+	// geometric because inject_at resizes to the exact length — a script calling
+	// document.write in a loop would otherwise reallocate on every call.
+	need := len(p.written.buf) + len(text)
+
+	if need > cap(p.written.buf) && non_zero_reserve(&p.written.buf, max(2 * cap(p.written.buf), need)) != nil {
+		return false
+	}
+
 	if p.ins == len(p.written.buf) {
-		if _, err := non_zero_append(&p.written.buf, text); err != nil {
-			return false
-		}
+		non_zero_append(&p.written.buf, text)
 	} else {
-		need := len(p.written.buf) + len(text)
-
-		if need > cap(p.written.buf) && non_zero_reserve(&p.written.buf, max(2 * cap(p.written.buf), need)) != nil {
-			return false
-		}
-
-		if _, err := inject_at(&p.written.buf, p.ins, text); err != nil {
-			return false
-		}
+		inject_at(&p.written.buf, p.ins, text)
 	}
 
 	p.ins += len(text)
-	p.fed += len(text)
 	return true
 }
 
@@ -276,7 +271,7 @@ serialize :: proc(p: ^Parser, allocator := context.allocator) -> (markup: string
 		return "", false
 	}
 
-	return serialize_with(larva_html_document_node(p.doc), true, p.fed, allocator)
+	return serialize_with(larva_html_document_node(p.doc), true, 0, allocator)
 }
 
 @(private = "file")
@@ -285,21 +280,24 @@ fail :: proc(p: ^Parser, why: string) -> Pump_Status {
 	return .Failed
 }
 
-@(private)
-Serialize_Ctx :: struct {
-	b:   ^strings.Builder,
-	ctx: runtime.Context,
-}
-
 // serialize_with serializes `node` — its children only when `deep`, the node itself too
-// otherwise — into a builder grown once to `size_hint`. The caller's context travels
-// into the C callback, so the builder grows in the caller's allocator; an allocation
-// failure stops the serializer instead of returning truncated markup.
+// otherwise. `reserve` > 0 is the builder's first capacity.
+//
+// The builder is bound to `allocator` by builder_make, so growing it inside the C
+// callback (which runs under the default context) still goes to `allocator`. An
+// allocation failure stops the serializer instead of returning truncated markup.
+//
+// The callback appends with the zeroing `append` on purpose, and the whole document is
+// not pre-reserved. Both were measured on a 1.2 MB page (-o:speed, medians of 7
+// interleaved launches, 25 parse+serialize rounds each): reserving the input size and
+// appending without zeroing took serialize from 3.37 to 2.89 ms but the next parse in
+// the same process from 6.91 to 7.87 ms — the memory the builder no longer touches is
+// what lexbor then faults in — 10.76 ms a round against 10.28.
 @(private)
 serialize_with :: proc(
 	node: Node,
 	deep: bool,
-	size_hint: int,
+	reserve: int,
 	allocator := context.allocator,
 ) -> (
 	markup: string,
@@ -307,16 +305,12 @@ serialize_with :: proc(
 ) {
 	b := strings.builder_make(allocator)
 
-	if strings.builder_grow(&b, max(size_hint, 64)) != nil {
+	if reserve > 0 && strings.builder_grow(&b, reserve) != nil {
 		return "", false
 	}
 
-	sc := Serialize_Ctx {
-		b   = &b,
-		ctx = context,
-	}
 	status :=
-		lxb_html_serialize_deep_cb(node, collect_markup, &sc) if deep else lxb_html_serialize_tree_cb(node, collect_markup, &sc)
+		lxb_html_serialize_deep_cb(node, collect_markup, &b) if deep else lxb_html_serialize_tree_cb(node, collect_markup, &b)
 
 	if status != LXB_STATUS_OK {
 		strings.builder_destroy(&b)
@@ -326,16 +320,17 @@ serialize_with :: proc(
 	return strings.to_string(b), true
 }
 
+// collect_markup appends what a lexbor serializer emits to the strings.Builder in `raw`.
 @(private = "file")
 collect_markup :: proc "c" (data: [^]u8, n: c.size_t, raw: rawptr) -> lxb_status_t {
 	if n == 0 {
 		return LXB_STATUS_OK
 	}
 
-	sc := cast(^Serialize_Ctx)raw
-	context = sc.ctx
+	// Only for append itself: the builder grows through its own allocator.
+	context = runtime.default_context()
 
-	if _, err := non_zero_append(&sc.b.buf, ..data[:n]); err != nil {
+	if _, err := strings.write_bytes(cast(^strings.Builder)raw, data[:n]); err != nil {
 		return LXB_STATUS_ERROR_MEMORY_ALLOCATION
 	}
 

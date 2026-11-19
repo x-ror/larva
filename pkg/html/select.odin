@@ -61,23 +61,24 @@ query_all :: proc(s: ^Selectors, root: Node, sel: Selector, out: ^[dynamic]Node)
 		return false
 	}
 
-	// A zero-value array binds its allocator on the first append, which runs inside the
-	// C callback; bind it here to the caller's.
+	// A zero-value array binds its allocator on its first append, and that append runs
+	// inside the C callback, under the default context: left alone, `out` would land in
+	// the default heap allocator instead of the caller's. Bind it here.
 	if out.allocator.procedure == nil {
 		out.allocator = context.allocator
 	}
 
 	Find_Ctx :: struct {
 		out: ^[dynamic]Node,
-		ctx: runtime.Context,
 		err: runtime.Allocator_Error,
 	}
 
 	found :: proc "c" (node: Node, raw: rawptr) -> bool {
+		// Only for append itself: `out` grows through its own allocator.
+		context = runtime.default_context()
 		fc := cast(^Find_Ctx)raw
-		context = fc.ctx
 
-		if _, err := non_zero_append(fc.out, node); err != nil {
+		if _, err := append(fc.out, node); err != nil {
 			fc.err = err
 			return true
 		}
@@ -87,7 +88,6 @@ query_all :: proc(s: ^Selectors, root: Node, sel: Selector, out: ^[dynamic]Node)
 
 	fc := Find_Ctx {
 		out = out,
-		ctx = context,
 	}
 	return larva_css_find(s.engine, root, sel.list, found, &fc) && fc.err == nil
 }
