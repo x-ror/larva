@@ -25,6 +25,8 @@ const raw = (b) => zlib.deflateRawSync(b);
 const br = (b) => zlib.brotliCompressSync(b);
 const zstd = (b, ...args) => execFileSync('zstd', ['-q', '-c', ...args], { input: b });
 const half = (b) => b.subarray(0, b.length >> 1);
+const gzipTimes = (b, n) => (n === 0 ? b : gzipTimes(gzip(b), n - 1));
+const gzipList = (n) => Array(n).fill('gzip').join(', ');
 
 // A gzip member with every optional header field (RFC 1952 §2.3.1): FEXTRA, FNAME,
 // FCOMMENT and FHCRC, which a decoder must skip, not inflate.
@@ -36,6 +38,20 @@ function gzipAllFields(b) {
   crc16.writeUInt16LE(zlib.crc32(fields) & 0xffff);
   const plain = gzip(b);
   return Buffer.concat([fields, crc16, raw(b), plain.subarray(plain.length - 8)]);
+}
+
+// A zstd v0.7 frame (magic 0xFD2FB527, a 1 KiB window, one raw block and the end block),
+// which a libzstd built with legacy support decodes; no encoder writes this format today.
+function zstdLegacy07(b) {
+  const block = Buffer.from([0x40 | (b.length >> 16), (b.length >> 8) & 0xff, b.length & 0xff]);
+  return Buffer.concat([Buffer.from([0x27, 0xb5, 0x2f, 0xfd, 0, 0]), block, b, Buffer.from([0xc0, 0, 0])]);
+}
+
+// A skippable frame (RFC 8878 §3.1.2, magic 0x184D2A50) carrying `b` as its user data.
+function zstdSkippable(b) {
+  const head = Buffer.from([0x50, 0x2a, 0x4d, 0x18, 0, 0, 0, 0]);
+  head.writeUInt32LE(b.length, 4);
+  return Buffer.concat([head, b]);
 }
 
 const g = gzip(text);
@@ -91,9 +107,15 @@ const cases = [
   ['zstd-window-8m', ['zstd'], true, zstd(text, '--long=23', '--no-content-size')],
   ['zstd-fills-first-buffer', ['zstd'], true, zstd(first)],
   ['zstd-window-16m', ['zstd'], true, zstd(text, '--long=24', '--no-content-size')],
+  ['zstd-legacy-v07', ['zstd'], true, zstdLegacy07(text)],
+  ['zstd-then-legacy-v07', ['zstd'], true, Buffer.concat([zs, zstdLegacy07(second)])],
+  ['zstd-skippable-then-frame', ['zstd'], true, Buffer.concat([zstdSkippable(second), zs])],
   ['stack-gzip-zstd', ['gzip, zstd'], true, zstd(g)],
   ['stack-two-lines', ['gzip', 'br'], true, br(g)],
   ['stack-deflate-gzip', ['deflate, gzip'], true, gzip(z)],
+  ['stack-10', [gzipList(10)], true, gzipTimes(text, 10)],
+  ['stack-11', [gzipList(11)], true, gzipTimes(text, 11)],
+  ['stack-17-then-unknown', [`${gzipList(17)}, foo`], true, gzipTimes(text, 17)],
   ['raw-unknown', ['foo'], true, text],
   ['raw-identity', ['identity'], true, text],
   ['raw-identity-in-chain', ['identity, gzip'], true, g],
@@ -105,9 +127,28 @@ const cases = [
   ['insecure-deflate', ['deflate'], false, z],
   ['insecure-br', ['br'], false, b],
   ['insecure-zstd', ['zstd'], false, zs],
+  ['insecure-br-then-unknown', ['br, foo'], false, b],
+  ['insecure-unknown-then-br', ['foo, br'], false, b],
+  ['insecure-zstd-identity', ['zstd, identity'], false, zs],
+  ['insecure-br-line-unknown-line', ['br', 'foo'], false, b],
+];
+
+// Bodies for the decoded-size limit, which is Larva's (Chrome has none), so they are not
+// cases and have no recording: 64 KiB of content, several times the decoder's first
+// output buffer, so refusing it at a max_body between the two takes more than one growth.
+const sixtyFour = Buffer.alloc(64 * 1024, '<p>abcdefghij</p>');
+const limitOnly = [
+  ['limit-gzip', gzip(sixtyFour)],
+  ['limit-deflate', zlib.deflateSync(sixtyFour)],
+  ['limit-br', br(sixtyFour)],
+  ['limit-zstd', zstd(sixtyFour)],
 ];
 
 for (const [name, , , body] of cases) {
+  writeFileSync(join(dir, `${name}.in`), body);
+}
+
+for (const [name, body] of limitOnly) {
   writeFileSync(join(dir, `${name}.in`), body);
 }
 

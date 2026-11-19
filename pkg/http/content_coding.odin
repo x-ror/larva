@@ -7,8 +7,9 @@ import "core:net"
 import "core:strings"
 import zlib "vendor:zlib"
 
-// The most codings one response may stack. Real servers send one.
-MAX_CONTENT_CODINGS :: 16
+// The most codings one response may stack, Chrome 158's limit: ten decode, eleven fail
+// (stack-10, stack-11 in testdata/content-coding). Real servers send one.
+MAX_CONTENT_CODINGS :: 10
 
 // Coding is a Content-Encoding this client can decode.
 Coding :: enum u8 {
@@ -45,7 +46,7 @@ Chain :: struct {
 Chain_Kind :: enum {
 	Identity, // nothing to undo, or a coding the chain cannot be undone through
 	Decode,
-	Too_Long,
+	Refused, // a coding not offered to the URL, or more than MAX_CONTENT_CODINGS
 }
 
 // The gzip FLG byte (RFC 1952 §2.3.1); the reserved bits 5-7 are ignored, as Chrome does.
@@ -125,17 +126,15 @@ accepted_codings :: proc(url: Url) -> Codings {
 // Node:
 //   Chrome 158, recorded through fetch() into testdata/content-coding by
 //   record-chrome.py. Header lines are joined and split at commas, each element trimmed
-//   and matched ASCII case-insensitively. One element that is not gzip, x-gzip,
-//   deflate, br or zstd (identity and an empty element included) leaves the whole body
-//   as sent. A stream that ends early yields what it decoded so far; bytes after the
-//   end of the first gzip member or brotli stream are ignored, a gzip trailer is not
-//   checked, a zlib adler32 is; zstd decodes every frame, refuses trailing bytes and a
-//   window over 8 MiB; deflate without a valid zlib header is taken as raw deflate.
-// Deviates:
-//   A chain longer than MAX_CONTENT_CODINGS fails with .Decoding: each coding may cost
-//   a pass over max_body bytes, so an unbounded chain lets a server spend the
-//   client's CPU at no cost of its own. Chrome sets no limit. Pinned by
-//   chain_longer_than_the_cap_is_refused.
+//   and matched ASCII case-insensitively, and the whole list decides, in this order: a
+//   coding not offered to the URL fails the response wherever it stands, an unknown
+//   element beside it included; else one element that is not gzip, x-gzip, deflate, br
+//   or zstd (identity and an empty element included) leaves the whole body as sent,
+//   however long the list; else more than MAX_CONTENT_CODINGS fail. A stream that ends
+//   early yields what it decoded so far; bytes after the end of the first gzip member
+//   or brotli stream are ignored, a gzip trailer is not checked, a zlib adler32 is;
+//   zstd decodes every current-format frame, refuses trailing bytes, a legacy frame and
+//   a window over 8 MiB; deflate without a valid zlib header is taken as raw deflate.
 //
 // Decoding waits for the whole body rather than running as it arrives: the body is
 // buffered whole anyway, and one pass over it keeps a single codec state per step.
@@ -145,21 +144,14 @@ accepted_codings :: proc(url: Url) -> Codings {
 // stops after the first.
 @(private)
 decode_content :: proc(body: ^[dynamic]byte, headers: []Header, url: Url, max_body: int) -> Error {
-	chain, kind := parse_chain(headers)
+	chain, kind := parse_chain(headers, accepted_codings(url))
 
 	switch kind {
 	case .Identity:
 		return .None
-	case .Too_Long:
+	case .Refused:
 		return .Decoding
 	case .Decode:
-	}
-
-	accepted := accepted_codings(url)
-	for coding in chain.codings[:chain.n] {
-		if coding not_in accepted {
-			return .Decoding
-		}
 	}
 
 	allocator := body.allocator
@@ -233,16 +225,21 @@ sink_room :: proc(s: ^Sink, input_len: int) -> ([]byte, bool) {
 	return s.buf[s.n:], true
 }
 
-// parse_chain reads every Content-Encoding line, in order.
+// parse_chain reads every Content-Encoding line, in order, to the end: what decides is
+// the whole list, not its first MAX_CONTENT_CODINGS elements. A coding `accepted` lacks
+// refuses the chain wherever it stands, before an unknown element or after it
+// (insecure-br-then-unknown, insecure-unknown-then-br); an unknown element otherwise
+// leaves the body as sent at any length (stack-17-then-unknown); only a chain of known,
+// accepted codings is held to the cap (stack-11).
 @(private = "file")
-parse_chain :: proc(headers: []Header) -> (chain: Chain, kind: Chain_Kind) {
-	seen := false
+parse_chain :: proc(headers: []Header, accepted: Codings) -> (chain: Chain, kind: Chain_Kind) {
+	known_count := 0
+	unknown := false
 	for &h in headers {
 		if !ascii_equal_fold(h.name, "Content-Encoding") {
 			continue
 		}
 
-		seen = true
 		rest := h.value
 		for {
 			comma := strings.index_byte(rest, ',')
@@ -250,15 +247,16 @@ parse_chain :: proc(headers: []Header) -> (chain: Chain, kind: Chain_Kind) {
 			coding, known := parse_coding(element)
 
 			if !known {
-				return {}, .Identity
-			}
+				unknown = true
+			} else if coding not_in accepted {
+				return {}, .Refused
+			} else {
+				if known_count < MAX_CONTENT_CODINGS {
+					chain.codings[known_count] = coding
+				}
 
-			if chain.n == MAX_CONTENT_CODINGS {
-				return {}, .Too_Long
+				known_count += 1
 			}
-
-			chain.codings[chain.n] = coding
-			chain.n += 1
 
 			if comma < 0 {
 				break
@@ -268,7 +266,15 @@ parse_chain :: proc(headers: []Header) -> (chain: Chain, kind: Chain_Kind) {
 		}
 	}
 
-	return chain, .Decode if seen else .Identity
+	switch {
+	case unknown, known_count == 0:
+		return {}, .Identity
+	case known_count > MAX_CONTENT_CODINGS:
+		return {}, .Refused
+	}
+
+	chain.n = known_count
+	return chain, .Decode
 }
 
 @(private = "file")

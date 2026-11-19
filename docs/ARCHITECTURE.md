@@ -382,9 +382,9 @@ a TLS error.
 
 A body is decoded per its Content-Encoding once it has arrived whole: gzip and deflate
 through the system zlib, br and zstd through libbrotlidec and libzstd, a chain of up to
-16 codings undone last to first. What is offered and how each format ends — a cut-short
-stream keeps what it decoded, an unknown coding leaves the body as sent, br and zstd
-only to https:// and localhost — follow Chrome, recorded byte for byte in
+10 codings (Chrome's limit) undone last to first. What is offered and how each format
+ends — a cut-short stream keeps what it decoded, an unknown coding leaves the body as
+sent, br and zstd only to https:// and localhost — follow Chrome, recorded byte for byte in
 `pkg/http/testdata/content-coding` (`make test-http-odin`). The decoded size counts
 against the same body limit.
 

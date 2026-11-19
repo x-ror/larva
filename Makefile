@@ -142,6 +142,11 @@ check-runtime:
 	# Windows/macOS build. `odin check` doesn't link, so it can't fully prove symbol elision.
 	$(ODIN) check pkg/runtime -no-entry-point -collection:lava=. -target:windows_amd64
 	$(ODIN) check pkg/runtime -no-entry-point -collection:lava=. -target:darwin_arm64
+	# pkg/http is not reached from pkg/runtime, so its !linux stubs (transfer_other.odin,
+	# content_coding_other.odin) get their own front-end check on every target.
+	$(ODIN) check pkg/http -no-entry-point -collection:lava=.
+	$(ODIN) check pkg/http -no-entry-point -collection:lava=. -target:windows_amd64
+	$(ODIN) check pkg/http -no-entry-point -collection:lava=. -target:darwin_arm64
 
 # Compile vendored C deps (picohttpparser) Odin links into the runtime. Idempotent;
 # `odin check` does not need it, but every link of cmd/lava (build, test-odin) does.
@@ -229,7 +234,7 @@ check-native:
 	$(RUNSCRIPT) ./scripts/check-native-deps.sh
 
 ifeq ($(OS),Windows_NT)
-test: test-odin test-eventloop-odin test-sqlite-odin test-http-odin
+test: test-odin test-eventloop-odin test-sqlite-odin
 else
 test: test-all
 endif
@@ -290,7 +295,8 @@ test-html-odin: native-deps
 	$(ODIN) test pkg/html
 
 # Links system zlib, brotlidec and zstd; the expectations are recorded Chrome output
-# (pkg/http/testdata/content-coding). Linux only, as the transport is. A leak fails the
+# (pkg/http/testdata/content-coding). Linux only, as the transport is, and run by `make
+# test` through scripts/run-tests.sh with the same flags. A leak fails the
 # run: core/testing only reports one unless FAIL_ON_BAD_MEMORY is set (a #config, so
 # -define, not an environment variable), and a decode step that keeps its input buffer
 # survived the leak report alone.

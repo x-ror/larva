@@ -4,6 +4,10 @@ bytes fetch() returned, <name>.err marks a network error. Secure cases are fetch
 page on https://127.0.0.1 (a secure context, so Chrome offers br and zstd); the others
 by a page on http://plain.test, mapped to 127.0.0.1 so it is not one.
 
+Each case gets its own page and profile. With every case fetched in turn from one page,
+a fetch after a failed one could fail too: after stack-11 failed, every raw-* case and
+empty-body recorded a network error, where each decodes when fetched alone.
+
     python3 pkg/http/testdata/content-coding/record-chrome.py [chrome-binary]
 
 Needs openssl (a throwaway certificate) and Chrome; writes the Chrome version to
@@ -28,7 +32,7 @@ BY_NAME = {c["name"]: c for c in CASES}
 
 PAGE = """<!doctype html><pre id=out></pre><script>
 (async () => {
-  const names = %s, result = {};
+  const names = [%s], result = {};
   for (const name of names) {
     try {
       const bytes = new Uint8Array(await (await fetch('/f/' + name)).arrayBuffer());
@@ -49,10 +53,9 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
-        if self.path.startswith("/run?secure="):
-            secure = self.path.endswith("=1")
-            names = [c["name"] for c in CASES if c["secure"] == secure]
-            self.reply(200, [("Content-Type", "text/html")], (PAGE % json.dumps(names)).encode())
+        if self.path.startswith("/run?case=") and self.path[10:] in BY_NAME:
+            page = PAGE % json.dumps(self.path[10:])
+            self.reply(200, [("Content-Type", "text/html")], page.encode())
         elif self.path.startswith("/f/") and self.path[3:] in BY_NAME:
             case = BY_NAME[self.path[3:]]
             body = open(os.path.join(DIR, case["name"] + ".in"), "rb").read()
@@ -98,8 +101,11 @@ def main():
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(cert, key)
         servers = [serve(18443, context), serve(18080)]
-        result = run_page("https://127.0.0.1:18443/run?secure=1", os.path.join(tmp, "p1"))
-        result.update(run_page("http://plain.test:18080/run?secure=0", os.path.join(tmp, "p2")))
+        result = {}
+        for i, case in enumerate(CASES):
+            origin = "https://127.0.0.1:18443" if case["secure"] else "http://plain.test:18080"
+            url = origin + "/run?case=" + case["name"]
+            result.update(run_page(url, os.path.join(tmp, "p%d" % i)))
         for server in servers:
             server.shutdown()
     finally:

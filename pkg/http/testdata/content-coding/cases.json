@@ -217,6 +217,27 @@
 		"secure": true
 	},
 	{
+		"name": "zstd-legacy-v07",
+		"encoding": [
+			"zstd"
+		],
+		"secure": true
+	},
+	{
+		"name": "zstd-then-legacy-v07",
+		"encoding": [
+			"zstd"
+		],
+		"secure": true
+	},
+	{
+		"name": "zstd-skippable-then-frame",
+		"encoding": [
+			"zstd"
+		],
+		"secure": true
+	},
+	{
 		"name": "stack-gzip-zstd",
 		"encoding": [
 			"gzip, zstd"
@@ -235,6 +256,27 @@
 		"name": "stack-deflate-gzip",
 		"encoding": [
 			"deflate, gzip"
+		],
+		"secure": true
+	},
+	{
+		"name": "stack-10",
+		"encoding": [
+			"gzip, gzip, gzip, gzip, gzip, gzip, gzip, gzip, gzip, gzip"
+		],
+		"secure": true
+	},
+	{
+		"name": "stack-11",
+		"encoding": [
+			"gzip, gzip, gzip, gzip, gzip, gzip, gzip, gzip, gzip, gzip, gzip"
+		],
+		"secure": true
+	},
+	{
+		"name": "stack-17-then-unknown",
+		"encoding": [
+			"gzip, gzip, gzip, gzip, gzip, gzip, gzip, gzip, gzip, gzip, gzip, gzip, gzip, gzip, gzip, gzip, gzip, foo"
 		],
 		"secure": true
 	},
@@ -312,6 +354,35 @@
 		"name": "insecure-zstd",
 		"encoding": [
 			"zstd"
+		],
+		"secure": false
+	},
+	{
+		"name": "insecure-br-then-unknown",
+		"encoding": [
+			"br, foo"
+		],
+		"secure": false
+	},
+	{
+		"name": "insecure-unknown-then-br",
+		"encoding": [
+			"foo, br"
+		],
+		"secure": false
+	},
+	{
+		"name": "insecure-zstd-identity",
+		"encoding": [
+			"zstd, identity"
+		],
+		"secure": false
+	},
+	{
+		"name": "insecure-br-line-unknown-line",
+		"encoding": [
+			"br",
+			"foo"
 		],
 		"secure": false
 	}

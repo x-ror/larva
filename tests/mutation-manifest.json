@@ -3714,22 +3714,22 @@
       "expect_detail": "outer_html returned"
     },
     {
-      "name": "decodes_as_chrome_does dies when decode_content stops refusing a coding the URL was not offered",
+      "name": "decodes_as_chrome_does dies when parse_chain stops refusing a coding the URL was not offered",
       "why": "Chrome fails a br or zstd body from a host it offered only gzip and deflate; decoding it anyway answers where Chrome shows an error page.",
       "source": "pkg/http/content_coding.odin",
-      "find": "\t\tif coding not_in accepted {",
-      "replace": "\t\tif false && coding not_in accepted {",
+      "find": "\t\t\t} else if coding not_in accepted {",
+      "replace": "\t\t\t} else if false && coding not_in accepted {",
       "gate": "make:test-http-odin",
       "expect_detail": "insecure-br: Chrome failed it, got None"
     },
     {
       "name": "decodes_as_chrome_does dies when parse_chain stops leaving the body as sent on an unknown coding",
-      "why": "One unknown element (identity and an empty element included) makes Chrome pass the whole body through; decoding the rest of the chain fails pages Chrome renders.",
+      "why": "One unknown element (identity and an empty element included) makes Chrome pass the whole body through, however long the list; decoding the rest of the chain, or refusing it as too long, fails pages Chrome renders.",
       "source": "pkg/http/content_coding.odin",
-      "find": "\t\t\tif !known {\n\t\t\t\treturn {}, .Identity",
-      "replace": "\t\t\tif false {\n\t\t\t\treturn {}, .Identity",
+      "find": "\tcase unknown, known_count == 0:",
+      "replace": "\tcase known_count == 0:",
       "gate": "make:test-http-odin",
-      "expect_detail": "raw-unknown: want the body Chrome decoded, got Decoding"
+      "expect_detail": "stack-17-then-unknown: want the body Chrome decoded, got Decoding"
     },
     {
       "name": "decodes_as_chrome_does dies when gzip_header stops skipping FNAME",
@@ -3786,13 +3786,77 @@
       "expect_detail": "max 19: want Body_Too_Large, got None"
     },
     {
-      "name": "chain_longer_than_the_cap_is_refused dies when a too-long chain is let through",
-      "why": "Each coding can cost a pass over max_body bytes; without the cap one response can pin a CPU through thousands of stacked codings.",
+      "name": "decodes_as_chrome_does dies when a chain longer than Chrome's limit is let through",
+      "why": "Chrome 158 decodes ten stacked codings and fails eleven; each coding can cost a pass over max_body bytes, so without the cap one response can also pin a CPU through thousands of them.",
       "source": "pkg/http/content_coding.odin",
-      "find": "\tcase .Too_Long:\n\t\treturn .Decoding",
-      "replace": "\tcase .Too_Long:\n\t\treturn .None",
+      "find": "\tcase known_count > MAX_CONTENT_CODINGS:",
+      "replace": "\tcase false:",
       "gate": "make:test-http-odin",
-      "expect_detail": "17 codings: want Decoding, got None"
+      "expect_detail": "stack-11: Chrome failed it, got None"
+    },
+    {
+      "name": "decodes_as_chrome_does dies when the coding cap is not Chrome's ten",
+      "why": "The cap is parity, not a guess: Chrome 158 fails an eleventh coding, so a larger cap decodes what Chrome rejects.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "MAX_CONTENT_CODINGS :: 10",
+      "replace": "MAX_CONTENT_CODINGS :: 11",
+      "gate": "make:test-http-odin",
+      "expect_detail": "stack-11: Chrome failed it, got None"
+    },
+    {
+      "name": "decodes_as_chrome_does dies when an unknown coding ends the scan before an unaccepted one",
+      "why": "Chrome checks every element against what it offered before it lets an unknown one pass the body through; stopping at the unknown one decodes a br body sent to a host offered only gzip and deflate.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\t\t\t\tunknown = true",
+      "replace": "\t\t\t\treturn {}, .Identity",
+      "gate": "make:test-http-odin",
+      "expect_detail": "insecure-unknown-then-br: Chrome failed it, got None"
+    },
+    {
+      "name": "decodes_as_chrome_does dies when zstd_decode lets a legacy frame through",
+      "why": "The v0.5-v0.7 decoders a legacy-enabled libzstd carries ignore ZSTD_d_windowLogMax and size their window from the frame header; Chrome has no legacy support and fails the body.",
+      "source": "pkg/http/content_coding_linux.odin",
+      "find": "\t\tif frame_start && !zstd_frame_is_current(input[in_buf.pos:]) {",
+      "replace": "\t\tif false {",
+      "gate": "make:test-http-odin",
+      "expect_detail": "zstd-legacy-v07: Chrome failed it, got None"
+    },
+    {
+      "name": "decodes_as_chrome_does dies when zstd_decode checks only the first frame's magic",
+      "why": "A legacy frame after a current one reaches the same legacy decoder; the magic must be checked at every frame boundary.",
+      "source": "pkg/http/content_coding_linux.odin",
+      "find": "\t\tframe_start = ret == 0",
+      "replace": "\t\tframe_start = false",
+      "gate": "make:test-http-odin",
+      "expect_detail": "zstd-then-legacy-v07: Chrome failed it, got None"
+    },
+    {
+      "name": "decodes_as_chrome_does dies when zstd_decode refuses a skippable frame",
+      "why": "RFC 8878 §3.1.2 skippable frames carry no content and Chrome skips them; refusing one fails a valid body.",
+      "source": "pkg/http/content_coding_linux.odin",
+      "find": " || magic & ~u32(0xF) == ZSTD_SKIPPABLE_MAGIC",
+      "replace": "",
+      "gate": "make:test-http-odin",
+      "expect_detail": "zstd-skippable-then-frame: want the body Chrome decoded, got Decoding"
+    },
+    {
+      "name": "fetch_decodes_the_response_body dies when finish stops decoding the response body",
+      "why": "The decoder is reached only through finish(); without the call every fetch() hands the caller the encoded bytes and no unit test of decode_content notices.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "\t\terr = decode_content(&t.resp.body, t.resp.headers[:], t.url, t.max_body)\n",
+      "replace": "\n",
+      "gate": "make:test-http-odin",
+      "expect_detail": "fetch gzip: want"
+    },
+    {
+      "name": "decoded_output_past_max_body_is_refused dies when sink_room stops refusing a full sink",
+      "why": "A codec handed a buffer with no room makes no progress: without the refusal a body that decodes past max_body spins a CPU forever, which is the observable effect and so the recorded reason.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\t\tif s.n >= s.limit {",
+      "replace": "\t\tif false {",
+      "gate": "make:test-http-odin",
+      "expect_detail": "timed out",
+      "timeout_ms": 30000
     },
     {
       "name": "accept_encoding_follows_the_secure_context dies when is_secure_host stops recognising 127.0.0.0/8",
@@ -3829,6 +3893,24 @@
       "replace": "(out_buf.pos < out_buf.size)",
       "gate": "make:test-http-odin",
       "expect_detail": "output grew to 32768 bytes"
+    },
+    {
+      "name": "make check-runtime dies when pkg/http's !linux stub stops compiling",
+      "why": "pkg/http is not reached from pkg/runtime, so without its own cross-target check a broken windows/darwin stub reaches a non-Linux build unseen.",
+      "source": "pkg/http/content_coding_other.odin",
+      "find": "DECODABLE :: Codings{.Gzip, .Deflate}",
+      "replace": "DECODABLE_GONE :: Codings{.Gzip, .Deflate}",
+      "gate": "make:check-runtime",
+      "expect_detail": "Undeclared name: DECODABLE"
+    },
+    {
+      "name": "route-gates.test.mjs dies when pkg/http stops routing test-http-odin",
+      "why": "make check type-checks pkg/http but runs none of its tests; an unrouted change to the decoder skips the Chrome recordings and the leak check.",
+      "source": "runtime/gates/route-gates.mjs",
+      "find": "    re: globToRe('pkg/http/**'),",
+      "replace": "    re: globToRe('pkg/http/none/**'),",
+      "gate": "node-test:runtime/gates/route-gates.test.mjs",
+      "expect_detail": "pkg/http/content_coding.odin"
     }
   ]
 }

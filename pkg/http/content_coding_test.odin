@@ -3,9 +3,12 @@ package larva_http
 
 import "core:bytes"
 import "core:encoding/json"
+import "core:fmt"
+import "core:net"
 import "core:strings"
 import "core:testing"
-import zlib "vendor:zlib"
+import "core:thread"
+import eventloop "lava:pkg/runtime/eventloop"
 
 // The Content-Encoding fixtures and what Chrome decoded from each: gen.mjs writes
 // <name>.in, record-chrome.py records <name>.out (the bytes fetch() returned) or
@@ -161,39 +164,161 @@ zstd_that_fills_the_buffer_does_not_grow_it :: proc(t: ^testing.T) {
 	testing.expectf(t, cap(body) == 16 * 1024, "output grew to %d bytes for a 16384-byte body", cap(body))
 }
 
-// Deviates from Chrome, which sets no limit: see decode_content.
+// A body that decodes to more than max_body fails as too large, whether the first output
+// buffer already overruns it or the decode takes several growths to get there. Without
+// the bound a codec handed a full buffer makes no progress and never returns. Larva's
+// own limit: Chrome has none, so there is no recording.
 @(test)
-chain_longer_than_the_cap_is_refused :: proc(t: ^testing.T) {
-	for n in ([]int{MAX_CONTENT_CODINGS, MAX_CONTENT_CODINGS + 1}) {
-		body := make([dynamic]byte, context.temp_allocator)
-		append(&body, "<p>deep</p>")
-		for _ in 0 ..< n {
-			body = zlib_wrap(t, body[:])
-		}
+decoded_output_past_max_body_is_refused :: proc(t: ^testing.T) {
+	BIG :: 64 * 1024
+	cases := [?]struct {
+		name:     string,
+		encoding: string,
+		max_body: int,
+		want:     Error,
+		want_len: int,
+	} {
+		{"gzip", "gzip", 5, .Body_Too_Large, 0},
+		{"deflate-zlib", "deflate", 5, .Body_Too_Large, 0},
+		{"br", "br", 5, .Body_Too_Large, 0},
+		{"zstd", "zstd", 5, .Body_Too_Large, 0},
+		// The first buffer is 16 KiB: 40000 is reached only after it has grown twice.
+		{"limit-gzip", "gzip", 40_000, .Body_Too_Large, 0},
+		{"limit-deflate", "deflate", 40_000, .Body_Too_Large, 0},
+		{"limit-br", "br", 40_000, .Body_Too_Large, 0},
+		{"limit-zstd", "zstd", 40_000, .Body_Too_Large, 0},
+		// The same bodies decode whole under the default bound, so the refusals above
+		// are the bound's and not a broken fixture's.
+		{"limit-gzip", "gzip", DEFAULT_MAX_BODY_BYTES, .None, BIG},
+		{"limit-deflate", "deflate", DEFAULT_MAX_BODY_BYTES, .None, BIG},
+		{"limit-br", "br", DEFAULT_MAX_BODY_BYTES, .None, BIG},
+		{"limit-zstd", "zstd", DEFAULT_MAX_BODY_BYTES, .None, BIG},
+	}
 
-		headers := make([]Header, n, context.temp_allocator)
-		for &h in headers {
-			h = {"Content-Encoding", "deflate"}
-		}
+	for c in cases {
+		headers := [?]Header{{"Content-Encoding", c.encoding}}
+		body := make([dynamic]byte)
+		defer delete(body)
+		append(&body, ..fixture(t, strings.concatenate({c.name, ".in"}, context.temp_allocator)))
+		got := decode_content(&body, headers[:], SECURE_URL, c.max_body)
+		testing.expectf(t, got == c.want, "%s, max %d: want %v, got %v", c.name, c.max_body, c.want, got)
 
-		got := decode_content(&body, headers, SECURE_URL, DEFAULT_MAX_BODY_BYTES)
-
-		if n == MAX_CONTENT_CODINGS {
-			testing.expectf(t, got == .None && string(body[:]) == "<p>deep</p>", "%d codings: %v %q", n, got, body[:])
-		} else {
-			testing.expectf(t, got == .Decoding, "%d codings: want Decoding, got %v", n, got)
+		if c.want == .None {
+			testing.expectf(t, len(body) == c.want_len, "%s: want %d bytes, got %d", c.name, c.want_len, len(body))
 		}
 	}
 }
 
+// fetch() decodes the final response's body: a real request to a loopback server sending
+// the recorded fixtures with their Content-Encoding comes back with the bytes Chrome
+// decoded, or fails where Chrome failed. 127.0.0.1 is a secure context, so br is offered
+// and accepted.
+@(test)
+fetch_decodes_the_response_body :: proc(t: ^testing.T) {
+	listener, listen_err := net.listen_tcp({net.IP4_Loopback, 0})
+
+	if !testing.expectf(t, listen_err == nil, "listen: %v", listen_err) {
+		return
+	}
+
+	defer net.close(listener)
+	endpoint, _ := net.bound_endpoint(listener)
+	server := thread.create_and_start_with_poly_data(listener, serve_fixtures)
+	defer {
+		// Wakes the accept the server thread is blocked in.
+		net.shutdown(listener, .Both)
+		thread.join(server)
+		thread.destroy(server)
+	}
+
+	cases := [?]struct {
+		name:     string,
+		encoding: string,
+	}{{"gzip", "gzip"}, {"br", "br"}, {"gzip-corrupt", "gzip"}}
+
+	for c in cases {
+		on_done :: proc(resp: Response, user_data: rawptr) {
+			(cast(^Response)user_data)^ = resp
+		}
+
+		resp: Response
+		loop := eventloop.init(real_time = true)
+		url := fmt.tprintf("http://127.0.0.1:%d/%s/%s", endpoint.port, c.encoding, c.name)
+		err := fetch(&loop, {url = url}, on_done, &resp)
+		testing.expectf(t, err == .None, "%s: fetch: %v", c.name, err)
+		eventloop.run(&loop)
+		eventloop.destroy(&loop)
+		defer response_destroy(&resp)
+
+		if want, ok := find_fixture(strings.concatenate({c.name, ".out"}, context.temp_allocator)); ok {
+			testing.expectf(t, resp.error == .None, "fetch %s: want the body Chrome decoded, got %v", c.name, resp.error)
+			testing.expectf(
+				t,
+				bytes.equal(resp.body[:], want),
+				"fetch %s: want %q, got %d bytes %q",
+				c.name,
+				clip(want),
+				len(resp.body),
+				clip(resp.body[:]),
+			)
+		} else {
+			testing.expectf(t, resp.error == .Decoding, "fetch %s: Chrome failed it, got %v", c.name, resp.error)
+		}
+	}
+}
+
+// serve_fixtures answers each connection on `listener` with the fixture its request
+// target names, /<content-encoding>/<fixture>, until the listener is shut down.
 @(private = "file")
-zlib_wrap :: proc(t: ^testing.T, data: []byte) -> [dynamic]byte {
-	size := zlib.uLongf(zlib.compressBound(zlib.uLong(len(data))))
-	out := make([dynamic]byte, int(size), context.temp_allocator)
-	rc := zlib.compress(raw_data(out), &size, raw_data(data), zlib.uLong(len(data)))
-	testing.expectf(t, rc == zlib.OK, "compress: %d", rc)
-	resize(&out, int(size))
-	return out
+serve_fixtures :: proc(listener: net.TCP_Socket) {
+	for {
+		client, _, err := net.accept_tcp(listener)
+
+		if err != nil {
+			return
+		}
+
+		serve_one(client)
+		net.close(client)
+	}
+}
+
+@(private = "file")
+serve_one :: proc(client: net.TCP_Socket) {
+	request: [4096]byte
+	n := 0
+	for !strings.contains(string(request[:n]), "\r\n\r\n") {
+		got, err := net.recv_tcp(client, request[n:])
+
+		if err != nil || got == 0 || n + got == len(request) {
+			return
+		}
+
+		n += got
+	}
+
+	// "GET /<encoding>/<name> HTTP/1.1"
+	line := strings.truncate_to_byte(string(request[:n]), '\r')
+	_, _, after_method := strings.partition(line, " /")
+	target, _, _ := strings.partition(after_method, " ")
+	encoding, _, name := strings.partition(target, "/")
+	// No allocation: this thread runs in the default context, outside the test's tracking.
+	body: []byte
+	for f in fixtures {
+		if strings.has_prefix(f.name, name) && f.name[len(name):] == ".in" {
+			body = f.data
+		}
+	}
+
+	head: [256]byte
+	response := fmt.bprintf(
+		head[:],
+		"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Encoding: %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n",
+		encoding,
+		len(body),
+	)
+	net.send_tcp(client, transmute([]byte)response)
+	net.send_tcp(client, body)
 }
 
 @(private = "file")

@@ -2,6 +2,7 @@
 package larva_http
 
 import "core:c"
+import "core:encoding/endian"
 
 // libbrotlidec (MIT) and libzstd (BSD-3-Clause), the system's: the codecs Chrome itself
 // bundles, so a truncated or trailing stream ends where Chrome's does. Neither has an
@@ -17,6 +18,17 @@ DECODABLE :: Codings{.Gzip, .Deflate, .Brotli, .Zstd}
 // own buffer, which the library would otherwise let grow to 128 MiB.
 @(private = "file")
 ZSTD_WINDOW_LOG_MAX :: 23
+
+// The frames zstd_decode hands the library, by the little-endian u32 that opens one
+// (RFC 8878 §3.1.1, §3.1.2): a zstd frame, or a skippable frame whose magic's low four
+// bits are free. A libzstd built with legacy support, as Debian's and Ubuntu's are, also
+// decodes the v0.5-v0.7 formats (0xFD2FB525..0xFD2FB527), and those decoders ignore
+// ZSTD_d_windowLogMax, sizing their window from the frame header up to 128 MiB. Chrome's
+// bundled zstd has no legacy support and fails such a body (zstd-legacy-v07).
+@(private = "file")
+ZSTD_MAGIC :: 0xFD2FB528
+@(private = "file")
+ZSTD_SKIPPABLE_MAGIC :: 0x184D2A50
 
 @(private = "file")
 Brotli_State :: distinct rawptr
@@ -104,9 +116,10 @@ brotli_decode :: proc(input: []byte, out: ^Sink) -> Error {
 	}
 }
 
-// zstd_decode undoes `zstd`: every frame in turn, as RFC 8878 §3.1 allows several. Bytes
-// that do not start a frame fail it (zstd-trailing-junk); a frame cut short keeps what
-// it decoded.
+// zstd_decode undoes `zstd`: every frame in turn, as RFC 8878 §3.1 allows several, a
+// skippable one included (zstd-skippable-then-frame). Bytes that do not start a frame
+// fail it (zstd-trailing-junk), as does a legacy frame (zstd-legacy-v07); a frame cut
+// short keeps what it decoded.
 @(private)
 zstd_decode :: proc(input: []byte, out: ^Sink) -> Error {
 	dctx := ZSTD_createDCtx()
@@ -122,7 +135,14 @@ zstd_decode :: proc(input: []byte, out: ^Sink) -> Error {
 	}
 
 	in_buf := Zstd_In_Buffer{raw_data(input), c.size_t(len(input)), 0}
+	// The library stops at the end of each frame and returns 0 there, so the next call
+	// starts the next frame: that is where its magic is checked.
+	frame_start := true
 	for {
+		if frame_start && !zstd_frame_is_current(input[in_buf.pos:]) {
+			return .Decoding
+		}
+
 		room, ok := sink_room(out, len(input))
 
 		if !ok {
@@ -143,5 +163,16 @@ zstd_decode :: proc(input: []byte, out: ^Sink) -> Error {
 		if in_buf.pos == in_buf.size && (ret == 0 || out_buf.pos < out_buf.size) {
 			return .None
 		}
+
+		frame_start = ret == 0
 	}
+}
+
+// zstd_frame_is_current says whether `rest` opens a zstd or a skippable frame. Fewer than
+// four bytes are left to the library, which itself refuses a prefix of any other magic,
+// a legacy one included (libzstd 1.5.7, probed with 2 and 3 trailing bytes).
+@(private = "file")
+zstd_frame_is_current :: proc(rest: []byte) -> bool {
+	magic, ok := endian.get_u32(rest, .Little)
+	return !ok || magic == ZSTD_MAGIC || magic & ~u32(0xF) == ZSTD_SKIPPABLE_MAGIC
 }
