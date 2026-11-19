@@ -3756,7 +3756,7 @@
       "find": "\terr := inflate(input, ZLIB_DEFLATE, out)",
       "replace": "\terr := inflate(input, RAW_DEFLATE, out)",
       "gate": "make:test-http-odin",
-      "expect_detail": "deflate-zlib: want the body Chrome decoded, got Decoding"
+      "expect_detail": "deflate/deflate-zlib, pool busy true: want None, got Decoding"
     },
     {
       "name": "decodes_as_chrome_does dies when zstd_decode accepts a window over 8 MiB",
@@ -4004,21 +4004,21 @@
     },
     {
       "name": "fetch_times_out_while_the_body_decodes dies when finish decodes on the loop thread",
-      "why": "Decoding inline blocks the loop: the timeout cannot fire and every other transfer waits.",
+      "why": "Decoding every body inline blocks the loop: the timeout cannot fire and every other transfer waits (small_gzip_body_decodes_on_the_loop_thread's br case fails beside it).",
       "source": "pkg/http/transfer_linux.odin",
-      "find": "\t\t\tt.decode = decode_start(t.loop, &t.resp.body, chain, t.max_body, on_decoded, t)",
-      "replace": "\t\t\tt.decode = nil",
+      "find": "\t\t\tif !decoded {",
+      "replace": "\t\t\tif false {",
       "gate": "make:test-http-odin",
-      "expect_detail": "want Timeout while the body decodes, got None"
+      "expect_detail": "larva_http.fetch_times_out_while_the_body_decodes"
     },
     {
-      "name": "fetch_times_out_while_the_body_decodes dies when an abandoned decode keeps its body",
+      "name": "small_single_coding_bodies_decode_on_the_loop_thread dies when an abandoned decode keeps its body",
       "why": "A decode the timeout overtook owns the body; not freeing it when it returns leaks one body per timed-out response.",
       "source": "pkg/http/decode_linux.odin",
       "find": "\tif requester == nil {\n\t\tdelete(body)\n",
       "replace": "\tif requester == nil {\n",
       "gate": "make:test-http-odin",
-      "expect_detail": "leak"
+      "expect_detail": "Memory failure in `larva_http.small_single_coding_bodies_decode_on_the_loop_thread`"
     },
     {
       "name": "fetch_decodes_the_response_body dies when a failed fetch keeps what it received",
@@ -4037,6 +4037,159 @@
       "replace": "\tif false {",
       "gate": "make:test-http-odin",
       "expect_detail": "fetch br/br: want 1 redirect, got 0"
+    },
+    {
+      "name": "small_single_coding_bodies_decode_on_the_loop_thread dies when every body goes to the pool",
+      "why": "A small body pays the pool's round trip (8-10 us, measured) for a decode of a few microseconds, and starts the pool's threads on a loop that never needed them.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "\treturn n < INLINE_DECODE_MAX && chain.n == 1 && chain.codings[0] in Codings{.Gzip, .Deflate, .Zstd}",
+      "replace": "\treturn false",
+      "gate": "make:test-http-odin",
+      "expect_detail": "gzip/gzip, pool busy true: want None, got Timeout"
+    },
+    {
+      "name": "small_single_coding_bodies_decode_on_the_loop_thread dies when br is decoded on the loop thread",
+      "why": "br has no bound on its expansion: a few bytes can describe max_body, which would block the loop.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": " && chain.codings[0] in Codings{.Gzip, .Deflate, .Zstd}",
+      "replace": "",
+      "gate": "make:test-http-odin",
+      "expect_detail": "br/br, pool busy true: want Timeout, got None"
+    },
+    {
+      "name": "small_single_coding_bodies_decode_on_the_loop_thread dies when the inline input bound goes",
+      "why": "The output cap counts output only; without the input bound a large body with little or no output would be read whole on the loop thread.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "INLINE_DECODE_MAX :: 2 * 1024",
+      "replace": "INLINE_DECODE_MAX :: 4 * 1024",
+      "gate": "make:test-http-odin",
+      "expect_detail": "gzip/inline-input-over, pool busy true: want Timeout, got None"
+    },
+    {
+      "name": "destroying_the_loop_cancels_a_fetch_in_flight dies when the loop's teardown no longer finishes the transfer",
+      "why": "Destroying a loop under a fetch leaked the Transfer and never ran on_done; the caller waiting on it never hears back. Every teardown test fails; the runner shows fetch_from_an_on_done_run_by_destroy_is_refused's line, where on_done never ran.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "\tfinish(t, .Cancelled)",
+      "replace": "",
+      "gate": "make:test-http-odin",
+      "expect_detail": "on_done: 0 calls, None"
+    },
+    {
+      "name": "destroying_the_loop_cancels_a_fetch_in_flight dies when the timer has no dispose",
+      "why": "The timer's dispose is the only way a destroyed loop reaches its transfers. Every teardown test fails; the runner shows fetch_from_an_on_done_run_by_destroy_is_refused's line, where on_done never ran.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "t, on_loop_closed)",
+      "replace": "t)",
+      "gate": "make:test-http-odin",
+      "expect_detail": "on_done: 0 calls, None"
+    },
+    {
+      "name": "destroying_the_loop_cancels_a_fetch_in_flight dies when decode_dispose keeps the body",
+      "why": "A decode still queued when the loop is destroyed is dropped by dispose; not freeing its body leaks it.",
+      "source": "pkg/http/decode_linux.odin",
+      "find": "\tallocator := job.body.allocator\n\tdelete(job.body)\n",
+      "replace": "\tallocator := job.body.allocator\n",
+      "gate": "make:test-http-odin",
+      "expect_detail": "destroying_the_loop_cancels_a_fetch_in_flight` with 1 leak"
+    },
+    {
+      "name": "decodes_as_chrome_does dies when inflate fails on bytes after a zlib stream",
+      "why": "Chrome ignores bytes after a complete zlib stream (deflate-zlib-trailing-junk); failing them loses pages Chrome renders. Scoped to the zlib window, since a gzip member's trailer rides the same branch.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\t\tcase zlib.STREAM_END:\n\t\t\treturn .None",
+      "replace": "\t\tcase zlib.STREAM_END:\n\t\t\tif window == ZLIB_DEFLATE && (strm.avail_in > 0 || len(rest) > 0) {\n\t\t\t\treturn .Decoding\n\t\t\t}\n\t\t\treturn .None",
+      "gate": "make:test-http-odin",
+      "expect_detail": "deflate-zlib-trailing-junk: want the body Chrome decoded, got Decoding"
+    },
+    {
+      "name": "small_single_coding_bodies_decode_on_the_loop_thread dies when a chain is decoded on the loop thread",
+      "why": "Every step of a chain is a pass and a codec of its own, and a chain may have ten; capped or not, it stays off the loop.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "\treturn n < INLINE_DECODE_MAX && chain.n == 1 &&",
+      "replace": "\treturn n < INLINE_DECODE_MAX &&",
+      "gate": "make:test-http-odin",
+      "expect_detail": "deflate,gzip/stack-deflate-gzip, pool busy true: want Timeout, got None"
+    },
+    {
+      "name": "small_single_coding_bodies_decode_on_the_loop_thread dies when zstd is kept off the loop thread",
+      "why": "A small zstd body capped at 16 KiB costs at most 11-13 us inline (measured), under the pool's round trip.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "chain.codings[0] in Codings{.Gzip, .Deflate, .Zstd}",
+      "replace": "chain.codings[0] in Codings{.Gzip, .Deflate}",
+      "gate": "make:test-http-odin",
+      "expect_detail": "zstd/zstd, pool busy true: want None, got Timeout"
+    },
+    {
+      "name": "small_single_coding_bodies_decode_on_the_loop_thread dies when the inline decode has no output cap",
+      "why": "Without the cap, 2 KiB of encoded zeros block the loop for 1.2-29 ms; with it, reaching the cap takes at most about 30 us.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "\t\t\t\tcap := min(INLINE_OUTPUT_MAX, t.max_body)",
+      "replace": "\t\t\t\tcap := t.max_body",
+      "gate": "make:test-http-odin",
+      "expect_detail": "gzip/limit-gzip, pool busy true: want Timeout, got None"
+    },
+    {
+      "name": "small_single_coding_bodies_decode_on_the_loop_thread dies when a body over the inline cap is not handed to the pool",
+      "why": "The cap is the loop's, not the body's: a body that reaches it must still decode whole, on a worker.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "\t\t\t\tdecoded = err != .Body_Too_Large || cap == t.max_body",
+      "replace": "\t\t\t\tdecoded = true",
+      "gate": "make:test-http-odin",
+      "expect_detail": "gzip/limit-gzip, pool busy true: want Timeout, got Body_Too_Large"
+    },
+    {
+      "name": "fetch_from_an_on_done_run_by_destroy_is_refused dies when transfer_start ignores a refused timer",
+      "why": "A fetch started on a loop being destroyed would never run and never be released.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "\tif t.timer == 0 {\n\t\tdelete(t.resp.headers)",
+      "replace": "\tif false {\n\t\tdelete(t.resp.headers)",
+      "gate": "make:test-http-odin",
+      "expect_detail": "a fetch from inside destroy: want Cancelled, got None"
+    },
+    {
+      "name": "small_single_coding_bodies_decode_on_the_loop_thread dies when the inline output cap is above 16 KiB",
+      "why": "Reaching a 63 KiB cap costs a bomb about 100 us on the loop thread, three times the budget the comment sets.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "INLINE_OUTPUT_MAX :: 16 * 1024",
+      "replace": "INLINE_OUTPUT_MAX :: 63 * 1024",
+      "gate": "make:test-http-odin",
+      "expect_detail": "gzip/inline-output-over, pool busy true: want Timeout, got None"
+    },
+    {
+      "name": "small_single_coding_bodies_decode_on_the_loop_thread dies when the inline output cap is far below 16 KiB",
+      "why": "A tiny cap sends every small page to the pool after a wasted inline attempt.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "INLINE_OUTPUT_MAX :: 16 * 1024",
+      "replace": "INLINE_OUTPUT_MAX :: 64",
+      "gate": "make:test-http-odin",
+      "expect_detail": "gzip/inline-input-under, pool busy true: want None, got Timeout"
+    },
+    {
+      "name": "small_single_coding_bodies_decode_on_the_loop_thread dies when the inline input bound is far below 2 KiB",
+      "why": "A small bound sends bodies the measurement shows are cheaper inline to the pool's round trip.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "INLINE_DECODE_MAX :: 2 * 1024",
+      "replace": "INLINE_DECODE_MAX :: 256",
+      "gate": "make:test-http-odin",
+      "expect_detail": "gzip/inline-input-under, pool busy true: want None, got Timeout"
+    },
+    {
+      "name": "dispose_reentering_the_loop_during_destroy_runs_each_dispose_once dies when a destroyed loop accepts handles",
+      "why": "A dispose that arms a timer during destroy would push into the heap close_begin is walking (one dispose twice, another never) or into a queue nothing will release.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tif !loop.destroyed {\n\t\treturn false\n\t}\n\n\trun_dispose(dispose, user_data)",
+      "replace": "\tif true {\n\t\treturn false\n\t}\n\n\trun_dispose(dispose, user_data)",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.dispose_reentering_the_loop_during_destroy_runs_each_dispose_once",
+      "expect_detail": "handles armed during destroy: 0 disposes"
+    },
+    {
+      "name": "dispose_reentering_the_loop_during_destroy_runs_each_dispose_once dies when clear_timeout works on a destroyed loop",
+      "why": "close_begin has already disposed the immediates; clearing one from a later dispose would run its dispose a second time.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tif id == 0 || loop.destroyed {",
+      "replace": "\tif id == 0 {",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.dispose_reentering_the_loop_during_destroy_runs_each_dispose_once",
+      "expect_detail": "immediate: dispose ran 2 times"
     },
     {
       "name": "route-gates.test.mjs dies when pkg/http stops routing test-http-odin",

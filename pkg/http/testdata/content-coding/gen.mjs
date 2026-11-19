@@ -110,6 +110,9 @@ const cases = [
   ['deflate-bad-fcheck', ['deflate'], true, Buffer.concat([Buffer.from([0x78, 0x9d]), z.subarray(2)])],
   ['deflate-window-8', ['deflate'], true, Buffer.concat([Buffer.from([0x88, 0x1c]), z.subarray(2)])],
   ['deflate-raw-trailing-junk', ['deflate'], true, Buffer.concat([raw(text), Buffer.from('JUNKJUNK')])],
+  // Fewer than four bytes after a raw stream are an adler32 cut short, not a wrong one.
+  ['deflate-raw-trailing-3', ['deflate'], true, Buffer.concat([raw(text), Buffer.from('JUN')])],
+  ['deflate-zlib-trailing-junk', ['deflate'], true, Buffer.concat([z, Buffer.from('JUNKJUNK')])],
   ['br', ['br'], true, b],
   ['br-two-streams', ['br'], true, Buffer.concat([b, br(second)])],
   ['br-trailing-junk', ['br'], true, Buffer.concat([b, Buffer.from('JUNK')])],
@@ -176,6 +179,13 @@ const limitOnly = [
   ['limit-br', br(sixtyFour)],
   ['limit-zstd', zstd(sixtyFour)],
   ['gzip-incompressible', gzip(noise)],
+  // Either side of the inline bounds in transfer_linux.odin: INLINE_DECODE_MAX, 2048 bytes
+  // in (noise, whose output stays far under the cap), and INLINE_OUTPUT_MAX, 16384 bytes
+  // out (markup, whose input stays far under the bound).
+  ['inline-input-under', gzip(noise.subarray(0, 2000))],
+  ['inline-input-over', gzip(noise.subarray(0, 2040))],
+  ['inline-output-under', gzip(Buffer.alloc(16000, '<p>abcdefghij</p>'))],
+  ['inline-output-over', gzip(Buffer.alloc(16896, '<p>abcdefghij</p>'))],
 ];
 
 for (const [name, , , body] of cases) {

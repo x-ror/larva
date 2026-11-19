@@ -6,7 +6,6 @@ import "core:c"
 import "core:net"
 import "core:slice"
 import "core:strings"
-import "core:sync"
 import "core:sys/linux"
 import eventloop "lava:pkg/runtime/eventloop"
 import pico "lava:pkg/runtime/picohttpparser"
@@ -26,6 +25,38 @@ READ_CHUNK :: 16 * 1024
 // The most of a Content-Length body reserved before its bytes arrive.
 @(private = "file")
 INITIAL_BODY_RESERVE :: 64 * 1024
+// A body under INLINE_DECODE_MAX bytes, encoded with one gzip, deflate or zstd, is decoded
+// on the loop thread first, its output capped at INLINE_OUTPUT_MAX: the pool's round trip
+// costs more than such a decode. A body that reaches the cap goes to the pool after all,
+// from its original bytes. The stall budget the two bounds keep is about 30 us per body on
+// the loop thread, three round trips, against 8-10 us saved on every small body.
+//
+// Measured on one machine (Linux x86-64, -o:speed); node's gzip/deflate level 6, brotli
+// default, zstd -3; medians of 15 interleaved batches of 20, then the median of 5
+// launches (3 for the long-window zstd). The round trip (decode_start to on_done, pool
+// warm) cost 8-10 us more than inline at every size. HTML-like text of about 1 KiB in
+// decodes to about 10 KiB: inline 4.2 us gzip, 6.3 deflate, 5.0 zstd, 5.2 br, against
+// 13.7-15.0 pooled. That corpus is about 10:1 and fits the cap; at the 2 KiB input bound
+// the cap holds only up to about 8:1. Markup more repetitive than that pays the capped
+// attempt and then the pool: repetitive table markup at 12.9:1, 2047 bytes in, took 24.0 us
+// against 17.8 us sent to the pool directly (perf review of these follow-ups, same method).
+//
+// The worst cases are bombs, zeros encoded small: gzip 1051 bytes in, deflate 1039, zstd
+// 1067 (1042 with an 8 MiB window), br 1681. Uncapped they block for 1.2 ms (gzip, 1 MiB
+// out), 1.4 ms (deflate, 1 MiB; slower than gzip on the same output), 16-29 ms (zstd,
+// 32 MiB) and 116 ms (br, up to max_body). Capped at 16 KiB, reaching the cap took 25 us
+// gzip, 29 us deflate and 11-13 us zstd; at 64 KiB, 87, 102 and 11 us, which is why the cap
+// is 16 KiB. At the 2047-byte edge of the input bound the perf review measured 25 us gzip
+// and 33 us deflate (42 us its slowest round): deflate sits at the budget and over it. br stays off the loop: a stream
+// that declares a large window cost 4.7 ms before its first byte out, capped or not. A
+// chain stays off too: every step is a pass and a codec of its own (two gzip steps took
+// 29 us capped) and a chain may have ten. The input bound stays beside the cap because the
+// cap counts output only: a body of empty deflate blocks produces nothing for its whole
+// length, so without a bound on the input the loop thread would read all of it.
+@(private = "file")
+INLINE_DECODE_MAX :: 2 * 1024
+@(private = "file")
+INLINE_OUTPUT_MAX :: 16 * 1024
 
 @(private = "file")
 State :: enum {
@@ -125,7 +156,21 @@ transfer_start :: proc(
 	}
 
 	timeout := req.timeout_ms if req.timeout_ms > 0 else DEFAULT_TIMEOUT_MS
-	t.timer = eventloop.set_timeout(loop, on_timeout, u64(timeout), t)
+	// The timer is armed for the transfer's whole life, so its dispose is how a loop
+	// destroyed under the transfer reaches it: on_loop_closed.
+	t.timer = eventloop.set_timeout(loop, on_timeout, u64(timeout), t, on_loop_closed)
+
+	// 0 only from a loop being destroyed: a fetch started from an on_done that destroy
+	// runs. The loop has already run the dispose (finding no timer, it did nothing), so
+	// the transfer is undone here and on_done will not run.
+	if t.timer == 0 {
+		delete(t.resp.headers)
+		delete(t.resp.body)
+		delete(t.url_text)
+		transfer_free(t)
+		return .Cancelled
+	}
+
 	// Timers run before immediates in a tick, so finish cancels this if the timeout
 	// comes first.
 	t.start_id = eventloop.set_immediate(loop, on_start, t)
@@ -152,9 +197,8 @@ begin :: proc(t: ^Transfer) {
 	}
 
 	t.state = .Resolving
-	t.dns = dns_lookup(t.loop, t.url.host, on_resolved, t)
 
-	if t.dns == nil {
+	if !dns_lookup(t.loop, t.url.host, on_resolved, t, &t.dns) {
 		finish(t, .DNS)
 	}
 }
@@ -837,6 +881,34 @@ on_timeout :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 	finish(t, .Timeout)
 }
 
+// decodes_inline says whether a body of `n` encoded bytes is first decoded on the loop
+// thread: see INLINE_DECODE_MAX.
+@(private = "file")
+decodes_inline :: proc(chain: Chain, n: int) -> bool {
+	return n < INLINE_DECODE_MAX && chain.n == 1 && chain.codings[0] in Codings{.Gzip, .Deflate, .Zstd}
+}
+
+// on_loop_closed finishes a transfer whose loop is being destroyed under it, with
+// .Cancelled: it is the dispose of the transfer's timer, which eventloop.close_begin runs
+// for a timer still armed. No more ticks will come, so the immediate that would start the
+// transfer is gone with them. A pool job the transfer was waiting for has already been
+// settled by then (pool_stop runs first), and its cancel or dispose cleared t.dns or
+// t.decode, so finish does not reach into freed memory.
+//
+// A zero t.timer means finish itself is clearing the timer: nothing to do.
+@(private = "file")
+on_loop_closed :: proc(user_data: rawptr) {
+	t := cast(^Transfer)user_data
+
+	if t.timer == 0 {
+		return
+	}
+
+	t.timer = 0
+	t.start_id = 0
+	finish(t, .Cancelled)
+}
+
 // on_decoded takes the decoded body back from the pool and finishes the transfer with it.
 @(private = "file")
 on_decoded :: proc(user_data: rawptr, body: [dynamic]byte, err: Error) {
@@ -865,36 +937,48 @@ finish :: proc(t: ^Transfer, err: Error) {
 		chain, err = plan_decoding(t.resp.headers[:], t.url)
 
 		if err == .None && chain.n > 0 && len(t.resp.body) > 0 {
-			t.decode = decode_start(t.loop, &t.resp.body, chain, t.max_body, on_decoded, t)
+			decoded := false
 
-			if t.decode != nil {
-				t.state = .Decoding
-				return
+			if decodes_inline(chain, len(t.resp.body)) {
+				// A single step that fails leaves the body as it was, so one that hits
+				// the cap hands the pool the original bytes.
+				cap := min(INLINE_OUTPUT_MAX, t.max_body)
+				err = run_decoding(&t.resp.body, chain, cap)
+				decoded = err != .Body_Too_Large || cap == t.max_body
 			}
 
-			// No worker could be started: decoding here only delays the loop.
-			err = run_decoding(&t.resp.body, chain, t.max_body)
+			if !decoded {
+				if decode_start(t.loop, &t.resp.body, chain, t.max_body, on_decoded, t, &t.decode) {
+					t.state = .Decoding
+					return
+				}
+
+				// No worker could be started: decoding here only delays the loop.
+				err = run_decoding(&t.resp.body, chain, t.max_body)
+			}
 		}
 	}
 
-	if t.timer != 0 {
-		eventloop.clear_timeout(t.loop, t.timer)
+	// Zeroed before the clear: clear_timeout runs the dispose, on_loop_closed, which
+	// reads a zero timer as "the transfer is already finishing".
+	if timer := t.timer; timer != 0 {
+		t.timer = 0
+		eventloop.clear_timeout(t.loop, timer)
 	}
 
 	if t.start_id != 0 {
 		eventloop.clear_immediate(t.loop, t.start_id)
 	}
 
+	// The lookup or decode may still run on a worker; the job frees itself when it comes
+	// back, or when the loop drops it.
 	if t.dns != nil {
-		// The lookup may still run on a worker; the job frees itself when it comes back.
-		t.dns.user_data = nil
-		sync.atomic_store(&t.dns.cancelled, true)
+		dns_detach(t.dns)
+		t.dns = nil
 	}
 
 	if t.decode != nil {
-		// As for the lookup: a decode the timeout overtook frees the body when it returns.
-		t.decode.user_data = nil
-		sync.atomic_store(&t.decode.cancelled, true)
+		decode_detach(t.decode)
 		t.decode = nil
 	}
 
@@ -906,7 +990,14 @@ finish :: proc(t: ^Transfer, err: Error) {
 	resp.error = err
 	resp.url = t.url_text
 	on_done, user_data := t.on_done, t.user_data
+	transfer_free(t)
+	on_done(resp, user_data)
+}
 
+// transfer_free frees what the transfer holds beyond the response, and the transfer.
+@(private = "file")
+transfer_free :: proc(t: ^Transfer) {
+	context.allocator = t.allocator
 	delete(t.method)
 	for &h in t.headers {
 		delete(h.name)
@@ -919,6 +1010,4 @@ finish :: proc(t: ^Transfer, err: Error) {
 	delete(t.out)
 	delete(t.head)
 	free(t)
-
-	on_done(resp, user_data)
 }

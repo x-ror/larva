@@ -297,11 +297,23 @@ close_begin :: proc(loop: ^Loop) -> (workers_busy: bool) {
 	// empties it before returning); async_queue is not — a worker still running may
 	// post into it — so it waits for close_finish, after the join.
 	dispose_pending_tasks(&loop.async_scratch)
-	for &timer in loop.timers {
+	// The heap is taken out of the loop before the walk. A dispose may run an embedder's
+	// callback (pkg/http finishes a transfer from its timer's dispose) that calls back
+	// into the loop; walked in place, a timer armed or cleared there reorders the heap
+	// under the index, so one dispose runs twice and another never. Calls that arrive now
+	// are refused (refuse_destroyed), so the taken array is the whole set. With those
+	// refusals and clear_timeout's guard the take-out is redundant, and so unpinned: no
+	// test fails without it while they stand. It stays so the walk does not depend on
+	// every entry point remembering its check.
+	timers := loop.timers
+	loop.timers = nil
+	clear(&loop.timer_index)
+	for &timer in timers {
 		if !timer.cancelled {
 			run_dispose(timer.dispose, timer.user_data)
 		}
 	}
+	delete(timers)
 	platform_close_backend(loop)
 	return
 }
@@ -554,8 +566,23 @@ has_pending_work :: proc(loop: ^Loop) -> bool {
 
 // --- Scheduling APIs ---
 
+// refuse_destroyed turns away a handle offered to a loop that close_begin has torn down:
+// it would never run, and no later teardown would release it. Its dispose runs at once
+// instead, as for any handle the loop drops without running it, and the caller gets 0
+// for an id. Reached from a dispose that calls back into the loop during destroy; the
+// loop thread is the only writer of `destroyed`, so reading it here needs no lock.
+@(private = "file")
+refuse_destroyed :: proc(loop: ^Loop, user_data: rawptr, dispose: Dispose) -> bool {
+	if !loop.destroyed {
+		return false
+	}
+
+	run_dispose(dispose, user_data)
+	return true
+}
+
 queue_next_tick :: proc(loop: ^Loop, callback: Callback, user_data: rawptr = nil) {
-	if callback == nil {
+	if callback == nil || refuse_destroyed(loop, user_data, nil) {
 		return
 	}
 
@@ -563,7 +590,7 @@ queue_next_tick :: proc(loop: ^Loop, callback: Callback, user_data: rawptr = nil
 }
 
 queue_microtask :: proc(loop: ^Loop, callback: Callback, user_data: rawptr = nil) {
-	if callback == nil {
+	if callback == nil || refuse_destroyed(loop, user_data, nil) {
 		return
 	}
 
@@ -591,7 +618,7 @@ set_interval :: proc(
 }
 
 set_immediate :: proc(loop: ^Loop, callback: Callback, user_data: rawptr = nil, dispose: Dispose = nil) -> Timer_ID {
-	if callback == nil {
+	if callback == nil || refuse_destroyed(loop, user_data, dispose) {
 		return 0
 	}
 
@@ -612,7 +639,7 @@ queue_io_callback :: proc(
 	user_data: rawptr = nil,
 	dispose: Dispose = nil,
 ) -> Timer_ID {
-	if callback == nil {
+	if callback == nil || refuse_destroyed(loop, user_data, dispose) {
 		return 0
 	}
 
@@ -627,7 +654,7 @@ queue_io_callback :: proc(
 // queue_close_callback registers a close-phase callback (e.g. socket.on('close',...)).
 // These run at the end of each loop iteration, after check phase.
 queue_close_callback :: proc(loop: ^Loop, callback: Callback, user_data: rawptr = nil) {
-	if callback == nil {
+	if callback == nil || refuse_destroyed(loop, user_data, nil) {
 		return
 	}
 
@@ -639,6 +666,10 @@ queue_close_callback :: proc(loop: ^Loop, callback: Callback, user_data: rawptr 
 // timer_index; only heap-resident timers are ref-adjustable (a running handle is not in
 // the heap), matching the prior scan's reachability.
 timer_ref :: proc(loop: ^Loop, id: Timer_ID) {
+	if loop.destroyed {
+		return
+	}
+
 	if idx, ok := loop.timer_index[id]; ok {
 		if loop.timers[idx].unreffed && !loop.timers[idx].cancelled {
 			loop.reffed_timer_count += 1
@@ -650,6 +681,10 @@ timer_ref :: proc(loop: ^Loop, id: Timer_ID) {
 
 // timer_unref marks a timer so it no longer keeps the loop alive (Node's timer.unref()).
 timer_unref :: proc(loop: ^Loop, id: Timer_ID) {
+	if loop.destroyed {
+		return
+	}
+
 	if idx, ok := loop.timer_index[id]; ok {
 		if !loop.timers[idx].unreffed && !loop.timers[idx].cancelled {
 			loop.reffed_timer_count -= 1
@@ -667,7 +702,7 @@ set_timer :: proc(
 	user_data: rawptr = nil,
 	dispose: Dispose = nil,
 ) -> Timer_ID {
-	if callback == nil {
+	if callback == nil || refuse_destroyed(loop, user_data, dispose) {
 		return 0
 	}
 
@@ -693,7 +728,8 @@ set_timer :: proc(
 }
 
 clear_timeout :: proc(loop: ^Loop, id: Timer_ID) -> bool {
-	if id == 0 {
+	// On a destroyed loop every handle has been, or is being, disposed by close_begin.
+	if id == 0 || loop.destroyed {
 		return false
 	}
 

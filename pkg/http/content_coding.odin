@@ -393,11 +393,17 @@ gzip_decode :: proc(input: []byte, out: ^Sink) -> Error {
 // one asking for a preset dictionary, still decodes (deflate-raw-zlib-lookalike,
 // deflate-raw-fdict-lookalike). The raw retry runs behind a stand-in zlib header, as
 // Chrome's does, so four or more bytes after the raw stream are checked as its adler32
-// and fail it (deflate-raw-trailing-junk).
+// and fail it (deflate-raw-trailing-junk); fewer are an adler32 cut short, and pass
+// (deflate-raw-trailing-3).
 //
-// Chrome sniffs over its first network reads, which depend on how the body arrived;
-// "before the first output byte" is the deterministic reading of it that every recorded
-// case agrees with.
+// Chrome sniffs over its first network reads, so its answer depends on how the body
+// arrived: once 1000 bytes have come in earlier reads without zlib producing a byte, it
+// commits to zlib and fails where a single read would have replayed raw (measured in the
+// review of the follow-ups to #80 on a 1080-byte stream zlib refuses only at byte 1040:
+// split at 1010 or 1030 it failed, whole or split at 990 or 1070 it decoded). This client
+// holds the whole body before decoding, so it always gives Chrome's single-read answer.
+// No server meets that edge by accident: it takes a stream built to look like zlib for
+// over a kilobyte.
 @(private = "file")
 deflate_decode :: proc(input: []byte, out: ^Sink) -> Error {
 	err := inflate(input, ZLIB_DEFLATE, out)
