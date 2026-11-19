@@ -3789,8 +3789,8 @@
       "name": "decodes_as_chrome_does dies when a chain longer than Chrome's limit is let through",
       "why": "Chrome 158 decodes ten stacked codings and fails eleven; each coding can cost a pass over max_body bytes, so without the cap one response can also pin a CPU through thousands of them.",
       "source": "pkg/http/content_coding.odin",
-      "find": "\tcase known_count > MAX_CONTENT_CODINGS:",
-      "replace": "\tcase false:",
+      "find": "\tcase known_count > MAX_CONTENT_CODINGS:\n\t\treturn {}, .Refused",
+      "replace": "\tcase known_count > MAX_CONTENT_CODINGS:\n\t\treturn {}, .Identity",
       "gate": "make:test-http-odin",
       "expect_detail": "stack-11: Chrome failed it, got None"
     },
@@ -3860,12 +3860,12 @@
     },
     {
       "name": "accept_encoding_follows_the_secure_context dies when is_secure_host stops recognising 127.0.0.0/8",
-      "why": "Chrome offers br and zstd to loopback over http; not offering them changes what a local server sends.",
+      "why": "Chrome offers br and zstd to loopback over http; not offering them changes what a local server sends. fetch_decodes_the_response_body fails beside it (its br case is served from 127.0.0.1), so the detail names the test rather than its first message.",
       "source": "pkg/http/content_coding.odin",
       "find": "\t\treturn ip4[0] == 127",
       "replace": "\t\treturn false",
       "gate": "make:test-http-odin",
-      "expect_detail": "https=false 127.0.0.1"
+      "expect_detail": "larva_http.accept_encoding_follows_the_secure_context"
     },
     {
       "name": "request_offers_what_it_decodes dies when build_request sends the placeholder Accept-Encoding",
