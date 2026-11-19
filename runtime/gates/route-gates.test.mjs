@@ -80,3 +80,13 @@ test('internal/http/** routes like node/http.js (the split must not drop the htt
     assert.ok(r.targets.includes('make bench-http') || r.nonCi.includes('make bench-http'), f);
   }
 });
+
+test('pkg/http routes its own Odin tests (make check alone never runs them)', () => {
+  for (const p of [
+    'pkg/http/content_coding.odin',
+    'pkg/http/transfer_linux.odin',
+    'pkg/http/testdata/content-coding/gen.mjs',
+  ]) {
+    assert.ok(routePaths([p]).targets.includes('make test-http-odin'), p);
+  }
+});

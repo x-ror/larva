@@ -29,9 +29,12 @@ printf '%s\n' '== Odin tests =='
 "$ODIN" test "$ROOT_DIR/pkg/runtime/eventloop" -define:ODIN_TEST_THREADS=1
 # pkg/runtime unit tests (links JSC like cmd/lava): the LAVA_WORKERS parser + the startup barrier.
 "$ODIN" test "$ROOT_DIR/pkg/runtime" -collection:lava="$ROOT_DIR"
-# pkg/html links lexbor, which is built for Linux only (pkg/html/lexbor.odin).
+# pkg/html links lexbor, which is built for Linux only (pkg/html/lexbor.odin). pkg/http's
+# tests are Linux only, as its transport is; the flags match `make test-http-odin`, so a
+# leak fails here as it does there.
 if [ "$(uname -s)" = Linux ]; then
 	"$ODIN" test "$ROOT_DIR/pkg/html"
+	"$ODIN" test "$ROOT_DIR/pkg/http" -collection:lava="$ROOT_DIR" -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true
 fi
 
 if [ "$is_windows" = 1 ] && [ ! -f "$ROOT_DIR/build/sqlite3.lib" ]; then

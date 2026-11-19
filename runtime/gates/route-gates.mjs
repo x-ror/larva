@@ -272,6 +272,11 @@ const ROUTES = [
     targets: ['make test-odin', 'make test-compat-lava'],
   },
   {
+    // Linux only, as the transport is; make check type-checks pkg/http but runs nothing.
+    re: globToRe('pkg/http/**'),
+    targets: ['make test-http-odin'],
+  },
+  {
     re: globToRe('pkg/std/sqlite/**'),
     targets: ['make test-sqlite-odin', 'make test-sqlite-lava'],
   },

@@ -1,0 +1,61 @@
+{
+	"chrome": "Google Chrome 158.0.8127.36",
+	"cases": [
+		{
+			"url": "https://example.com:18443/",
+			"accept_encoding": "gzip, deflate, br, zstd"
+		},
+		{
+			"url": "https://127.0.0.1:18443/",
+			"accept_encoding": "gzip, deflate, br, zstd"
+		},
+		{
+			"url": "http://127.0.0.1:18080/",
+			"accept_encoding": "gzip, deflate, br, zstd"
+		},
+		{
+			"url": "http://127.200.1.9:18080/",
+			"accept_encoding": "gzip, deflate, br, zstd"
+		},
+		{
+			"url": "http://[::1]:18080/",
+			"accept_encoding": "gzip, deflate, br, zstd"
+		},
+		{
+			"url": "http://localhost:18080/",
+			"accept_encoding": "gzip, deflate, br, zstd"
+		},
+		{
+			"url": "http://LocalHost:18080/",
+			"accept_encoding": "gzip, deflate, br, zstd"
+		},
+		{
+			"url": "http://app.localhost:18080/",
+			"accept_encoding": "gzip, deflate, br, zstd"
+		},
+		{
+			"url": "http://localhost.:18080/",
+			"accept_encoding": "gzip, deflate, br, zstd"
+		},
+		{
+			"url": "http://x.localhost.:18080/",
+			"accept_encoding": "gzip, deflate, br, zstd"
+		},
+		{
+			"url": "http://plain.test:18080/",
+			"accept_encoding": "gzip, deflate"
+		},
+		{
+			"url": "http://example.com:18080/",
+			"accept_encoding": "gzip, deflate"
+		},
+		{
+			"url": "http://localhost.example:18080/",
+			"accept_encoding": "gzip, deflate"
+		},
+		{
+			"url": "http://notlocalhost:18080/",
+			"accept_encoding": "gzip, deflate"
+		}
+	]
+}

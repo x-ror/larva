@@ -25,7 +25,7 @@ endif
 SOURCE ?= console.log('hello from Lava')
 FILE ?=
 
-.PHONY: gates test-stdio help bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-html-odin test-sqlite-odin test-sqlite-node test-sqlite-lava test-fs-node test-fs-lava test-eventloop-node test-eventloop-lava test-fetch-smoke test-net-smoke test-http-smoke test-https-smoke test-multicore-smoke test-zerocopy-smoke bench bench-gate bench-http fmt clean test-bench-pages-smoke bench-pages
+.PHONY: gates test-stdio help bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-html-odin test-http-odin test-sqlite-odin test-sqlite-node test-sqlite-lava test-fs-node test-fs-lava test-eventloop-node test-eventloop-lava test-fetch-smoke test-net-smoke test-http-smoke test-https-smoke test-multicore-smoke test-zerocopy-smoke bench bench-gate bench-http fmt clean test-bench-pages-smoke bench-pages
 
 help:
 	@printf '%s\n' 'Lava commands'
@@ -63,6 +63,7 @@ help:
 	@printf '%s\n' '  make test-eventloop-odin Odin event-loop unit tests (serial)'
 	@printf '%s\n' '  make test-runtime-odin  Odin tests for pkg/runtime'
 	@printf '%s\n' '  make test-html-odin     Odin tests for pkg/html (lexbor + shim)'
+	@printf '%s\n' '  make test-http-odin     Odin tests for pkg/http (content decoding against recorded Chrome)'
 	@printf '%s\n' '  make test-sqlite-odin   Odin tests for pkg/std/sqlite'
 	@printf '%s\n' '  make test-compat        Node-only node-compat cases (+ */ported)'
 	@printf '%s\n' '  make test-compat-lava   node-compat node-vs-Lava (skips known-lava-gaps)'
@@ -141,6 +142,11 @@ check-runtime:
 	# Windows/macOS build. `odin check` doesn't link, so it can't fully prove symbol elision.
 	$(ODIN) check pkg/runtime -no-entry-point -collection:lava=. -target:windows_amd64
 	$(ODIN) check pkg/runtime -no-entry-point -collection:lava=. -target:darwin_arm64
+	# pkg/http is not reached from pkg/runtime, so its !linux stubs (transfer_other.odin,
+	# content_coding_other.odin) get their own front-end check on every target.
+	$(ODIN) check pkg/http -no-entry-point -collection:lava=.
+	$(ODIN) check pkg/http -no-entry-point -collection:lava=. -target:windows_amd64
+	$(ODIN) check pkg/http -no-entry-point -collection:lava=. -target:darwin_arm64
 
 # Compile vendored C deps (picohttpparser) Odin links into the runtime. Idempotent;
 # `odin check` does not need it, but every link of cmd/lava (build, test-odin) does.
@@ -287,6 +293,15 @@ test-runtime-odin:
 # pkg/html/shim/larva_html.c is newer than the archive. Linux only, as the package is.
 test-html-odin: native-deps
 	$(ODIN) test pkg/html
+
+# Links system zlib, brotlidec and zstd; the expectations are recorded Chrome output
+# (pkg/http/testdata/content-coding). Linux only, as the transport is, and run by `make
+# test` through scripts/run-tests.sh with the same flags. A leak fails the
+# run: core/testing only reports one unless FAIL_ON_BAD_MEMORY is set (a #config, so
+# -define, not an environment variable), and a decode step that keeps its input buffer
+# survived the leak report alone.
+test-http-odin:
+	$(ODIN) test pkg/http -collection:lava=. -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true
 
 ifeq ($(OS),Windows_NT)
 test-sqlite-odin:

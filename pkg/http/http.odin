@@ -44,7 +44,8 @@ Error :: enum {
 	Read, // the connection closed before a response, or before the body was complete
 	Malformed_Response,
 	Head_Too_Large,
-	Body_Too_Large,
+	Body_Too_Large, // as received, or as decoded from its Content-Encoding
+	Decoding, // the body does not decode per its Content-Encoding (Chrome's ERR_CONTENT_DECODING_FAILED)
 	Too_Many_Redirects,
 	Timeout,
 	No_Transport, // no transport on this target
@@ -70,6 +71,14 @@ Done_Proc :: #type proc(response: Response, user_data: rawptr)
 
 // fetch starts `req` on `loop` and returns at once; `on_done` reports the outcome.
 // Everything in `req` is copied, so it need not outlive the call.
+//
+// Params:
+//   allocator  Owns the Response and everything the transfer holds. A body with a
+//              Content-Encoding is decoded on the loop's worker pool, through this
+//              allocator, so it must be safe to use from another thread (the heap, a
+//              mem.Tracking_Allocator; not context.temp_allocator or an unguarded
+//              arena), and it must outlive the loop's run: a decode the timeout
+//              overtook frees through it when it returns, after on_done.
 //
 // Returns:
 //   .None once `on_done` is guaranteed to run; any other error means the request did

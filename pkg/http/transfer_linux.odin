@@ -36,6 +36,7 @@ State :: enum {
 	Writing,
 	Reading_Head,
 	Reading_Body,
+	Decoding, // the body is a pool worker's until on_decoded
 }
 
 @(private = "file")
@@ -73,6 +74,7 @@ Transfer :: struct {
 	addr_count:  int,
 	addr_index:  int,
 	dns:         ^DNS_Job,
+	decode:      ^Decode_Job,
 	fd:          linux.Fd,
 	watcher:     eventloop.IO_Watcher,
 	ssl:         openssl.SSL,
@@ -241,7 +243,7 @@ watch :: proc(t: ^Transfer, mode: eventloop.Poll_Mode) -> bool {
 on_io :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 	t := cast(^Transfer)user_data
 	switch t.state {
-	case .Starting, .Resolving:
+	case .Starting, .Resolving, .Decoding:
 	case .Connecting:
 		so_error: i32
 		_, opt_err := linux.getsockopt_base(t.fd, cast(int)linux.SOL_SOCKET, linux.Socket_Option.ERROR, &so_error)
@@ -835,12 +837,45 @@ on_timeout :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 	finish(t, .Timeout)
 }
 
-// finish hands the response to the caller and frees the transfer. Callers return right
-// after it. On an error the response keeps only the error and the URL.
+// on_decoded takes the decoded body back from the pool and finishes the transfer with it.
+@(private = "file")
+on_decoded :: proc(user_data: rawptr, body: [dynamic]byte, err: Error) {
+	t := cast(^Transfer)user_data
+	t.decode = nil
+	delete(t.resp.body)
+	t.resp.body = body
+	finish(t, err)
+}
+
+// finish hands the response to the caller and frees the transfer, or first hands a body
+// that needs decoding to the pool, after which on_decoded calls it again. Either way
+// callers return right after it. On an error the response keeps only the error and the
+// URL.
 @(private = "file")
 finish :: proc(t: ^Transfer, err: Error) {
 	context.allocator = t.allocator
+	err := err
 	close_conn(t)
+
+	// Only a final response gets here with a body: a redirect's is dropped unread. What
+	// needs no decoding, or fails on its headers alone, is settled here; the rest goes to
+	// the pool with the timer still armed, and comes back through on_decoded.
+	if err == .None && t.state != .Decoding {
+		chain: Chain
+		chain, err = plan_decoding(t.resp.headers[:], t.url)
+
+		if err == .None && chain.n > 0 && len(t.resp.body) > 0 {
+			t.decode = decode_start(t.loop, &t.resp.body, chain, t.max_body, on_decoded, t)
+
+			if t.decode != nil {
+				t.state = .Decoding
+				return
+			}
+
+			// No worker could be started: decoding here only delays the loop.
+			err = run_decoding(&t.resp.body, chain, t.max_body)
+		}
+	}
 
 	if t.timer != 0 {
 		eventloop.clear_timeout(t.loop, t.timer)
@@ -854,6 +889,13 @@ finish :: proc(t: ^Transfer, err: Error) {
 		// The lookup may still run on a worker; the job frees itself when it comes back.
 		t.dns.user_data = nil
 		sync.atomic_store(&t.dns.cancelled, true)
+	}
+
+	if t.decode != nil {
+		// As for the lookup: a decode the timeout overtook frees the body when it returns.
+		t.decode.user_data = nil
+		sync.atomic_store(&t.decode.cancelled, true)
+		t.decode = nil
 	}
 
 	if err != .None {

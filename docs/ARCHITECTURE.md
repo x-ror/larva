@@ -380,6 +380,15 @@ link cannot add a header. Over TLS, only a peer closing TCP without close_notify
 as the end of a body framed by the connection; a reset or an unauthenticated record is
 a TLS error.
 
+A body is decoded per its Content-Encoding once it has arrived whole, on the loop's
+worker pool with the transfer's timeout still running: gzip and deflate through the
+system zlib, br and zstd through libbrotlidec and libzstd, a chain of up to 10 codings
+(Chrome's limit) undone last to first. What is offered and how each format ends — a
+cut-short stream keeps what it decoded, an unknown coding leaves the body as sent, br
+and zstd only to https:// and localhost — follow Chrome, recorded byte for byte in
+`pkg/http/testdata/content-coding` (`make test-http-odin`). The decoded size counts
+against the same body limit.
+
 The runtime's `fetch()` still has its own transport and chunked decoder, bound to JS
 callbacks; moving it onto `pkg/http` is stage-2 work.
 
@@ -388,8 +397,8 @@ the client and the runtime's `fetch()` and `node:https` share one set without th
 client importing the runtime.
 
 What it does not do yet, all stage 2 (docs/LARVA.md decision 3): connection reuse,
-HTTP/2, content decoding (it asks for `identity`), cookies, proxies and client
-profiles. Linux only; elsewhere `fetch` returns `.Unsupported`.
+HTTP/2, cookies, proxies and client profiles. Linux only; elsewhere `fetch` returns
+`.No_Transport`.
 
 ---
 

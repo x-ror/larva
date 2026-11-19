@@ -23,8 +23,6 @@ DEFAULT_HEAD_BYTES :: 256
 DEFAULT_HEADERS := [?]Header {
 	{"User-Agent", DEFAULT_USER_AGENT},
 	{"Accept", "*/*"},
-	// Decoding gzip/br/zstd comes with the stage-2 network stack (#9).
-	{"Accept-Encoding", "identity"},
 	{"Connection", "close"},
 }
 
@@ -83,6 +81,11 @@ build_request :: proc(out: ^[dynamic]byte, method: string, url: Url, headers: []
 		if !has_header(headers, d.name) {
 			write_header(&sb, d)
 		}
+	}
+
+	// Not among the defaults: what is offered depends on the URL.
+	if !has_header(headers, "Accept-Encoding") {
+		write_header(&sb, {"Accept-Encoding", accept_encoding(url)})
 	}
 
 	if (len(body) > 0 || method_has_body(method)) && !has_header(headers, "Content-Length") {
