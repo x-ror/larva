@@ -158,8 +158,11 @@ refused_write_leaves_nothing_behind :: proc(t: ^testing.T) {
 	testing.expect(t, write(&p, "abcd"), "a write that fits was refused")
 	before := len(p.written.buf)
 	big := strings.repeat("Z", 500, context.temp_allocator)
-	testing.expect(t, !write(&p, big), "a write the allocator refused reported success")
+	refused := !write(&p, big)
+	// The bytes first: this is the assertion the test is named for, and the runner's
+	// summary line carries only the first failure.
 	testing.expectf(t, len(p.written.buf) == before, "refused write left %d bytes behind", len(p.written.buf) - before)
+	testing.expect(t, refused, "a write the allocator refused reported success")
 	testing.expectf(t, p.ins == before, "refused write moved the insertion point to %d", p.ins)
 }
 
@@ -226,9 +229,20 @@ outer_html_reports_a_refused_allocation :: proc(t: ^testing.T) {
 		limit   = 2048,
 	}
 	markup, ok := outer_html(body, capped(&cap))
-	testing.expectf(t, !ok && markup == "", "outer_html returned %d bytes, ok=%v, from an allocator capped at 2048", len(markup), ok)
+	testing.expectf(
+		t,
+		!ok && markup == "",
+		"outer_html returned %d bytes, ok=%v, from an allocator capped at 2048",
+		len(markup),
+		ok,
+	)
 
 	whole, whole_ok := outer_html(body)
 	defer delete(whole)
-	testing.expectf(t, whole_ok && len(whole) == 500 * len("<p>x</p>") + len("<body></body>"), "uncapped outer_html: %d bytes", len(whole))
+	testing.expectf(
+		t,
+		whole_ok && len(whole) == 500 * len("<p>x</p>") + len("<body></body>"),
+		"uncapped outer_html: %d bytes",
+		len(whole),
+	)
 }
