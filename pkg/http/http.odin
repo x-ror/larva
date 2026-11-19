@@ -49,8 +49,10 @@ Error :: enum {
 	Too_Many_Redirects,
 	Timeout,
 	No_Transport, // no transport on this target
-	// The loop was destroyed before the response was complete. No Chrome counterpart: a
-	// torn-down engine shows no response at all, so this is the client's own report.
+	// The loop was destroyed before the response was complete; also what fetch returns
+	// when called on a loop being destroyed.
+	// Deviates: no Chrome counterpart (a torn-down engine shows no response at all), so
+	// this is the client's own report. Pinned by destroying_the_loop_cancels_a_fetch_in_flight.
 	Cancelled,
 }
 
@@ -89,7 +91,8 @@ Done_Proc :: #type proc(response: Response, user_data: rawptr)
 //
 // Returns:
 //   .None once `on_done` is guaranteed to run; any other error means the request did
-//   not start and `on_done` will not run.
+//   not start and `on_done` will not run: .Cancelled when `loop` is being destroyed (a
+//   fetch from an on_done that destroy runs).
 fetch :: proc(
 	loop: ^eventloop.Loop,
 	req: Request,

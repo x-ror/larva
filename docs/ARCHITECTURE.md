@@ -380,10 +380,10 @@ link cannot add a header. Over TLS, only a peer closing TCP without close_notify
 as the end of a body framed by the connection; a reset or an unauthenticated record is
 a TLS error.
 
-A body is decoded per its Content-Encoding once it has arrived whole: a single gzip or
-deflate under 2 KiB on the loop thread, where the pool's round trip would cost more than
-the decode, anything else on the loop's worker pool with the transfer's timeout still
-running. gzip and deflate go through the system zlib, br and zstd through libbrotlidec
+A body is decoded per its Content-Encoding once it has arrived whole: one gzip, deflate
+or zstd coding under 2 KiB on the loop thread, its output capped at 16 KiB, where the
+pool's round trip would cost more than the decode; anything else, or a body that reaches
+the cap, on the loop's worker pool with the transfer's timeout still running. gzip and deflate go through the system zlib, br and zstd through libbrotlidec
 and libzstd, a chain of up to 10 codings (Chrome's limit) undone last to first. What is
 offered and how each format ends — a cut-short stream keeps what it decoded, an unknown
 coding leaves the body as sent, br and zstd only to https:// and localhost — follow

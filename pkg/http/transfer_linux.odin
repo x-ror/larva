@@ -6,7 +6,6 @@ import "core:c"
 import "core:net"
 import "core:slice"
 import "core:strings"
-import "core:sync"
 import "core:sys/linux"
 import eventloop "lava:pkg/runtime/eventloop"
 import pico "lava:pkg/runtime/picohttpparser"
@@ -26,22 +25,32 @@ READ_CHUNK :: 16 * 1024
 // The most of a Content-Length body reserved before its bytes arrive.
 @(private = "file")
 INITIAL_BODY_RESERVE :: 64 * 1024
-// A body encoded with a single gzip or deflate under this many bytes is decoded on the loop
-// thread: the pool's round trip costs more than the decode. Measured on one machine
-// (Linux x86-64, -o:speed), python gzip level 6, medians of 15 interleaved batches of 40
-// decodes, then the median of 5 launches: the round trip (decode_start to on_done, pool
-// warm) cost 8-10 us more than inline at every size. Inline, HTML-like text took 3.3 us at
-// 947 bytes in (4 KiB out), 5.1 us at 1720 (8 KiB) and 8.4 us at 3036 (16 KiB), so 2 KiB in
-// is about 10 KiB of HTML at about 6 us, under the round trip; random bytes, at about
-// their own size out, took 0.3-0.4 us at 1-4 KiB.
+// A body under INLINE_DECODE_MAX bytes, encoded with one gzip, deflate or zstd, is decoded
+// on the loop thread first, its output capped at INLINE_OUTPUT_MAX: the pool's round trip
+// costs more than such a decode. A body that reaches the cap goes to the pool after all,
+// from its original bytes. The stall budget the two bounds keep is about 30 us per body on
+// the loop thread, three round trips, against 8-10 us saved on every small body.
 //
-// The bound is on the input, the only size known up front, so it must also bound the
-// worst: deflate expands at most about 1032:1 (a 258-byte match per two-bit code), and
-// 2067 bytes of gzip that decode to 2 MiB of zeros took 2.5 ms inline (same method). br
-// and zstd have no such bound (a few bytes can describe max_body), nor does a chain of
-// codings, so those always go to the pool.
+// Measured on one machine (Linux x86-64, -o:speed); node's gzip/deflate level 6, brotli
+// default, zstd -3; medians of 15 interleaved batches of 20, then the median of 5
+// launches (3 for the long-window zstd). The round trip (decode_start to on_done, pool
+// warm) cost 8-10 us more than inline at every size. HTML-like text under 2 KiB in
+// decodes to about 10 KiB: inline 4.2 us gzip, 6.3 deflate, 5.0 zstd, 5.2 br, against
+// 13.7-15.0 pooled; it fits the cap, so the cap costs it nothing.
+//
+// The worst cases are bombs, the input bound's whole range: zeros encoded under 2 KiB.
+// Uncapped they block for 1.2 ms (gzip, 1 MiB out), 1.4 ms (deflate, 1 MiB; slower than
+// gzip on the same output), 16-29 ms (zstd, 32 MiB, window up to 8 MiB) and 116 ms (br,
+// up to max_body). Capped at 16 KiB, reaching the cap took 25 us gzip, 29 us deflate and
+// 11-13 us zstd; at 64 KiB, 87, 102 and 11 us, which is why the cap is 16 KiB: the HTML a
+// 2 KiB body carries fits under it, and the budget holds. br stays off the loop: a stream
+// that declares a large window cost 4.7 ms before its first byte out, capped or not. A
+// chain stays off too: every step is a pass and a codec of its own (two gzip steps took
+// 29 us capped) and a chain may have ten.
 @(private = "file")
 INLINE_DECODE_MAX :: 2 * 1024
+@(private = "file")
+INLINE_OUTPUT_MAX :: 16 * 1024
 
 @(private = "file")
 State :: enum {
@@ -144,6 +153,18 @@ transfer_start :: proc(
 	// The timer is armed for the transfer's whole life, so its dispose is how a loop
 	// destroyed under the transfer reaches it: on_loop_closed.
 	t.timer = eventloop.set_timeout(loop, on_timeout, u64(timeout), t, on_loop_closed)
+
+	// 0 only from a loop being destroyed: a fetch started from an on_done that destroy
+	// runs. The loop has already run the dispose (finding no timer, it did nothing), so
+	// the transfer is undone here and on_done will not run.
+	if t.timer == 0 {
+		delete(t.resp.headers)
+		delete(t.resp.body)
+		delete(t.url_text)
+		transfer_free(t)
+		return .Cancelled
+	}
+
 	// Timers run before immediates in a tick, so finish cancels this if the timeout
 	// comes first.
 	t.start_id = eventloop.set_immediate(loop, on_start, t)
@@ -854,11 +875,11 @@ on_timeout :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 	finish(t, .Timeout)
 }
 
-// decodes_inline says whether a body of `n` encoded bytes is decoded on the loop thread:
-// see INLINE_DECODE_MAX.
+// decodes_inline says whether a body of `n` encoded bytes is first decoded on the loop
+// thread: see INLINE_DECODE_MAX.
 @(private = "file")
 decodes_inline :: proc(chain: Chain, n: int) -> bool {
-	return n < INLINE_DECODE_MAX && chain.n == 1 && chain.codings[0] in Codings{.Gzip, .Deflate}
+	return n < INLINE_DECODE_MAX && chain.n == 1 && chain.codings[0] in Codings{.Gzip, .Deflate, .Zstd}
 }
 
 // on_loop_closed finishes a transfer whose loop is being destroyed under it, with
@@ -910,15 +931,25 @@ finish :: proc(t: ^Transfer, err: Error) {
 		chain, err = plan_decoding(t.resp.headers[:], t.url)
 
 		if err == .None && chain.n > 0 && len(t.resp.body) > 0 {
-			if !decodes_inline(chain, len(t.resp.body)) &&
-			   decode_start(t.loop, &t.resp.body, chain, t.max_body, on_decoded, t, &t.decode) {
-				t.state = .Decoding
-				return
+			decoded := false
+
+			if decodes_inline(chain, len(t.resp.body)) {
+				// A single step that fails leaves the body as it was, so one that hits
+				// the cap hands the pool the original bytes.
+				cap := min(INLINE_OUTPUT_MAX, t.max_body)
+				err = run_decoding(&t.resp.body, chain, cap)
+				decoded = err != .Body_Too_Large || cap == t.max_body
 			}
 
-			// Cheaper here than the pool's round trip, or no worker could be started:
-			// decoding here then only delays the loop.
-			err = run_decoding(&t.resp.body, chain, t.max_body)
+			if !decoded {
+				if decode_start(t.loop, &t.resp.body, chain, t.max_body, on_decoded, t, &t.decode) {
+					t.state = .Decoding
+					return
+				}
+
+				// No worker could be started: decoding here only delays the loop.
+				err = run_decoding(&t.resp.body, chain, t.max_body)
+			}
 		}
 	}
 
@@ -953,7 +984,14 @@ finish :: proc(t: ^Transfer, err: Error) {
 	resp.error = err
 	resp.url = t.url_text
 	on_done, user_data := t.on_done, t.user_data
+	transfer_free(t)
+	on_done(resp, user_data)
+}
 
+// transfer_free frees what the transfer holds beyond the response, and the transfer.
+@(private = "file")
+transfer_free :: proc(t: ^Transfer) {
+	context.allocator = t.allocator
 	delete(t.method)
 	for &h in t.headers {
 		delete(h.name)
@@ -966,6 +1004,4 @@ finish :: proc(t: ^Transfer, err: Error) {
 	delete(t.out)
 	delete(t.head)
 	free(t)
-
-	on_done(resp, user_data)
 }
