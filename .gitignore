@@ -26,6 +26,7 @@ reports/
 
 # Odin test binaries emitted at the repo root by make test-* targets.
 /eventloop
+/html
 /lava
 
 # graphify knowledge-graph build output — regenerate with `graphify update`

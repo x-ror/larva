@@ -106,7 +106,7 @@ destroy :: proc(p: ^Parser) {
 	p^ = {}
 }
 
-// feed appends network bytes. They are parsed by pump.
+// feed appends network bytes; nothing is parsed until pump.
 feed :: proc(p: ^Parser, data: []byte) {
 	append(&p.input.buf, ..data)
 }
@@ -118,17 +118,39 @@ finish :: proc(p: ^Parser) {
 }
 
 // write inserts `text` at the insertion point: right after the script pump last
-// returned, after any text earlier writes put there, before the rest of the input —
-// as document.write does. Scripts in `text` pause in turn.
+// returned, after any text earlier writes put there, before the rest of the input.
+// Scripts in `text` pause in turn.
 //
 // Returns:
-//   false, and nothing is inserted, once the document is done or the parser failed.
+//   false, and nothing is inserted, once the document is done, the parser failed, or
+//   the text could not be stored.
+// Chrome:
+//   document.write is the model; unverified — no recording exists yet (#2).
 write :: proc(p: ^Parser, text: string) -> bool {
 	if p.ended || p.err != "" {
 		return false
 	}
 
-	inject_at(&p.written.buf, p.ins, ..transmute([]byte)text)
+	if len(text) == 0 {
+		return true
+	}
+
+	// Reserve first, so a refused write leaves nothing behind: append stores as much as
+	// fits before it reports the failure, and that prefix would be parsed. The growth is
+	// geometric because inject_at resizes to the exact length — a script calling
+	// document.write in a loop would otherwise reallocate on every call.
+	need := len(p.written.buf) + len(text)
+
+	if need > cap(p.written.buf) && non_zero_reserve(&p.written.buf, max(2 * cap(p.written.buf), need)) != nil {
+		return false
+	}
+
+	if p.ins == len(p.written.buf) {
+		non_zero_append(&p.written.buf, text)
+	} else {
+		inject_at(&p.written.buf, p.ins, text)
+	}
+
 	p.ins += len(text)
 	return true
 }
@@ -245,20 +267,18 @@ error_message :: proc(p: ^Parser) -> string {
 }
 
 // serialize returns the document's markup — the doctype, then the html element.
-// Comparing it with Chrome's is the oracle's job (#2), not done yet.
+//
+// Returns:
+//   ok false when init failed or the markup cannot be allocated — never a truncated
+//   string.
+// Chrome:
+//   the page's serialized DOM is the model; unverified — no recording exists yet (#2).
 serialize :: proc(p: ^Parser, allocator := context.allocator) -> (markup: string, ok: bool) {
 	if p.doc == nil {
 		return "", false
 	}
 
-	b := strings.builder_make(allocator)
-
-	if lxb_html_serialize_deep_cb(larva_html_document_node(p.doc), collect_markup, &b) != LXB_STATUS_OK {
-		strings.builder_destroy(&b)
-		return "", false
-	}
-
-	return strings.to_string(b), true
+	return serialize_with(larva_html_document_node(p.doc), true, 0, allocator)
 }
 
 @(private = "file")
@@ -267,10 +287,60 @@ fail :: proc(p: ^Parser, why: string) -> Pump_Status {
 	return .Failed
 }
 
-// collect_markup appends what a lexbor serializer emits to the strings.Builder in ctx.
+// serialize_with serializes `node` — its children only when `deep`, the node itself too
+// otherwise. `reserve` > 0 is the builder's first capacity.
+//
+// The builder is bound to `allocator` by builder_make, so growing it inside the C
+// callback (which runs under the default context) still goes to `allocator`. An
+// allocation failure stops the serializer instead of returning truncated markup.
+//
+// The callback appends with the zeroing `append` on purpose, and the whole document is
+// not pre-reserved. Both were measured on a 1.2 MB page (-o:speed, medians of 7
+// interleaved launches, 25 parse+serialize rounds each): reserving the input size and
+// appending without zeroing took serialize from 3.37 to 2.89 ms but the next parse in
+// the same process from 6.91 to 7.87 ms — the memory the builder no longer touches is
+// what lexbor then faults in — 10.76 ms a round against 10.28.
 @(private)
-collect_markup :: proc "c" (data: [^]u8, len: c.size_t, ctx: rawptr) -> lxb_status_t {
+serialize_with :: proc(
+	node: Node,
+	deep: bool,
+	reserve: int,
+	allocator := context.allocator,
+) -> (
+	markup: string,
+	ok: bool,
+) {
+	b := strings.builder_make(allocator)
+
+	if reserve > 0 && strings.builder_grow(&b, reserve) != nil {
+		return "", false
+	}
+
+	status :=
+		lxb_html_serialize_deep_cb(node, collect_markup, &b) if deep else lxb_html_serialize_tree_cb(node, collect_markup, &b)
+
+	if status != LXB_STATUS_OK {
+		strings.builder_destroy(&b)
+		return "", false
+	}
+
+	return strings.to_string(b), true
+}
+
+// A non-OK status is the only thing that stops a lexbor serializer, so a failed append
+// has to become one.
+@(private = "file")
+collect_markup :: proc "c" (data: [^]u8, n: c.size_t, raw: rawptr) -> lxb_status_t {
+	if n == 0 {
+		return LXB_STATUS_OK
+	}
+
+	// Only for append itself: the builder grows through its own allocator.
 	context = runtime.default_context()
-	strings.write_bytes(cast(^strings.Builder)ctx, data[:len])
+
+	if _, err := strings.write_bytes(cast(^strings.Builder)raw, data[:n]); err != nil {
+		return LXB_STATUS_ERROR_MEMORY_ALLOCATION
+	}
+
 	return LXB_STATUS_OK
 }

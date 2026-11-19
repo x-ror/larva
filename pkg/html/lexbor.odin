@@ -21,9 +21,11 @@ import "core:c"
 // it references lexbor, and a static link resolves left to right.
 foreign import lexbor {"../../.deps/lexbor/lib/liblarva_html_shim.a", "../../.deps/lexbor/lib/liblexbor_static.a"}
 
-// lexbor/core/base.h: `typedef unsigned int lxb_status_t`, LXB_STATUS_OK = 0x0000.
+// lexbor/core/base.h: `typedef unsigned int lxb_status_t`; LXB_STATUS_OK = 0x0000 and
+// LXB_STATUS_ERROR_MEMORY_ALLOCATION is the enumerator after LXB_STATUS_ERROR = 0x0001.
 lxb_status_t :: c.uint
 LXB_STATUS_OK :: lxb_status_t(0)
+LXB_STATUS_ERROR_MEMORY_ALLOCATION :: lxb_status_t(2)
 
 lxb_document :: distinct rawptr // lxb_html_document_t *
 larva_hook :: distinct rawptr // larva_html_hook * (shim)
@@ -41,19 +43,19 @@ foreign lexbor {
 	lxb_html_document_parse_chunk :: proc(doc: lxb_document, data: [^]u8, len: c.size_t) -> lxb_status_t ---
 	lxb_html_document_parse_chunk_end :: proc(doc: lxb_document) -> lxb_status_t ---
 	lxb_html_serialize_deep_cb :: proc(node: Node, cb: lxb_serialize_cb, ctx: rawptr) -> lxb_status_t ---
+	lxb_html_serialize_tree_cb :: proc(node: Node, cb: lxb_serialize_cb, ctx: rawptr) -> lxb_status_t ---
+	lxb_dom_node_text_content :: proc(node: Node, len: ^c.size_t) -> [^]u8 ---
+	lxb_css_selector_list_destroy_memory :: proc(list: css_list) ---
 
 	larva_html_begin :: proc(doc: lxb_document) -> larva_hook ---
 	larva_html_take_script :: proc(h: larva_hook, closed: ^c.size_t) -> Node ---
 	larva_html_hook_free :: proc(h: larva_hook) ---
 	larva_html_document_node :: proc(doc: lxb_document) -> Node ---
-	larva_html_text :: proc(node: Node, len: ^c.size_t) -> [^]u8 ---
 	larva_html_text_free :: proc(node: Node, text: [^]u8) ---
 	larva_html_attr :: proc(node: Node, name: [^]u8, name_len: c.size_t, len: ^c.size_t) -> [^]u8 ---
-	larva_html_serialize_node :: proc(node: Node, cb: lxb_serialize_cb, ctx: rawptr) -> lxb_status_t ---
 
 	larva_css_create :: proc() -> css_engine ---
 	larva_css_destroy :: proc(e: css_engine) ---
 	larva_css_compile :: proc(e: css_engine, css: [^]u8, len: c.size_t) -> css_list ---
-	larva_css_free :: proc(list: css_list) ---
 	larva_css_find :: proc(e: css_engine, root: Node, list: css_list, found: css_found_cb, ctx: rawptr) -> bool ---
 }

@@ -3658,6 +3658,60 @@
       "replace": "\tsurface: Global_Surface = .Web,\n\tlimits: Page_Limits = {},\n) -> Result {",
       "gate": "odin:cmd/lava:main.global_surface_alternates_on_one_thread",
       "expect_detail": "node before web: status=Execution_Error"
+    },
+    {
+      "name": "attr_without_a_value_is_present dies when the shim returns lexbor's NULL for a valueless attribute",
+      "why": "lxb_dom_attr_value answers NULL when attr->value is NULL, which is every `<script src>` / `<script async>`; passed through, a present attribute reads as absent and an external script is taken for an inline one.",
+      "source": "pkg/html/shim/larva_html.c",
+      "find": "\treturn v != NULL ? v : &empty;",
+      "replace": "\treturn v;",
+      "gate": "make:test-html-odin",
+      "expect_detail": "valueless src: want (\"\", true) got (\"\", false)"
+    },
+    {
+      "name": "refused_write_leaves_nothing_behind dies when write appends before it has reserved",
+      "why": "append stores what fits in the spare capacity and only then reports the failed grow; without the reserve that prefix stays in `written` and is parsed, though write is documented to insert nothing when it returns false.",
+      "source": "pkg/html/parser.odin",
+      "find": "\tif need > cap(p.written.buf) && non_zero_reserve(",
+      "replace": "\tif false && need > cap(p.written.buf) && non_zero_reserve(",
+      "gate": "make:test-html-odin",
+      "expect_detail": "refused write left 4 bytes behind"
+    },
+    {
+      "name": "write_from_a_written_script_goes_before_the_rest dies when pump leaves the insertion point at the end of the written text",
+      "why": "The insertion point after a script is where that script ended, not the end of everything written so far; otherwise a script that arrived through document.write writes after its siblings instead of right after itself.",
+      "source": "pkg/html/parser.odin",
+      "find": "\t\t\tp.ins = p.written.off\n",
+      "replace": "\t\t\tp.ins = len(p.written.buf)\n",
+      "gate": "make:test-html-odin",
+      "expect_detail": "<script>inner</script><b>4</b><b>2</b><b>3</b>"
+    },
+    {
+      "name": "query_all_grows_out_in_the_callers_allocator dies when query_all stops binding a zero-value out",
+      "why": "The first append runs in lexbor's callback under runtime.default_context(), so an unbound array adopts the default heap allocator rather than the caller's (CLAUDE.md §4, bind backing explicitly).",
+      "source": "pkg/html/select.odin",
+      "find": "\tif out.allocator.procedure == nil {\n\t\tout.allocator = context.allocator",
+      "replace": "\tif false {\n\t\tout.allocator = context.allocator",
+      "gate": "make:test-html-odin",
+      "expect_detail": "out is not bound to the caller's allocator"
+    },
+    {
+      "name": "query_all_reports_a_refused_allocation dies when query_all ignores the callback's allocation error",
+      "why": "The callback stops the search by returning true, which larva_css_find reports as success; only the error slot tells a short list from a complete one.",
+      "source": "pkg/html/select.odin",
+      "find": "found, &fc) && fc.err == nil",
+      "replace": "found, &fc)",
+      "gate": "make:test-html-odin",
+      "expect_detail": "query_all reported success with 32 of 500 matches"
+    },
+    {
+      "name": "outer_html_reports_a_refused_allocation dies when collect_markup swallows the allocation error",
+      "why": "lexbor stops serializing only on a non-OK status from the callback; returning OK after a failed append yields truncated markup with ok true.",
+      "source": "pkg/html/parser.odin",
+      "find": "\t\treturn LXB_STATUS_ERROR_MEMORY_ALLOCATION\n",
+      "replace": "\t\treturn LXB_STATUS_OK\n",
+      "gate": "make:test-html-odin",
+      "expect_detail": "outer_html returned"
     }
   ]
 }

@@ -19,8 +19,10 @@ Selector :: struct {
 	list: css_list,
 }
 
-// selectors_init creates the engine. false off Linux (no lexbor build) or when lexbor
-// could not allocate.
+// selectors_init creates the engine.
+//
+// Returns:
+//   false off Linux (no lexbor build) or when lexbor could not allocate.
 selectors_init :: proc(s: ^Selectors) -> bool {
 	s.engine = larva_css_create()
 	return s.engine != nil
@@ -35,36 +37,83 @@ selectors_destroy :: proc(s: ^Selectors) {
 //
 // Returns:
 //   ok false when `css` is not a valid selector list (querySelector would throw a
-//   SyntaxError).
+//   SyntaxError), or the engine was never initialized.
 compile :: proc(s: ^Selectors, css: string) -> (sel: Selector, ok: bool) {
+	if s == nil || s.engine == nil {
+		return {}, false
+	}
+
 	list := larva_css_compile(s.engine, raw_data(css), c.size_t(len(css)))
 	return Selector{list}, list != nil
 }
 
 selector_destroy :: proc(sel: ^Selector) {
-	larva_css_free(sel.list)
+	lxb_css_selector_list_destroy_memory(sel.list)
 	sel^ = {}
 }
 
 // query_all appends to `out` every descendant of `root` that `sel` matches, in tree
-// order, as querySelectorAll. `root` is a document or element node.
+// order. `root` is a document or element node.
+//
+// Returns:
+//   false on a bad argument, a failed search, or when `out` could not grow; `out` then
+//   holds the matches found so far.
+// Chrome:
+//   querySelectorAll is the model; unverified — no recording exists yet (#2).
 query_all :: proc(s: ^Selectors, root: Node, sel: Selector, out: ^[dynamic]Node) -> bool {
-	found :: proc "c" (node: Node, ctx: rawptr) -> bool {
-		// `out` grows through its own allocator; the context is only for append itself.
-		context = runtime.default_context()
-		append(cast(^[dynamic]Node)ctx, node)
+	if s == nil || s.engine == nil || root == nil || sel.list == nil || out == nil {
 		return false
 	}
-	return larva_css_find(s.engine, root, sel.list, found, out)
+
+	// A zero-value array binds its allocator on its first append, and that append runs
+	// inside the C callback, under the default context: left alone, `out` would land in
+	// the default heap allocator instead of the caller's. Bind it here.
+	if out.allocator.procedure == nil {
+		out.allocator = context.allocator
+	}
+
+	Find_Ctx :: struct {
+		out: ^[dynamic]Node,
+		err: runtime.Allocator_Error,
+	}
+
+	found :: proc "c" (node: Node, raw: rawptr) -> bool {
+		// Only for append itself: `out` grows through its own allocator.
+		context = runtime.default_context()
+		fc := cast(^Find_Ctx)raw
+
+		if _, err := append(fc.out, node); err != nil {
+			fc.err = err
+			return true
+		}
+
+		return false
+	}
+
+	fc := Find_Ctx {
+		out = out,
+	}
+	return larva_css_find(s.engine, root, sel.list, found, &fc) && fc.err == nil
 }
 
 // query_first returns the first descendant of `root`, in tree order, that `sel`
-// matches, as querySelector; nil when none does.
+// matches.
+//
+// Returns:
+//   ok false on a bad argument or a failed search. Nothing matching is ok true with a
+//   nil node.
+// Chrome:
+//   querySelector is the model; unverified — no recording exists yet (#2).
 query_first :: proc(s: ^Selectors, root: Node, sel: Selector) -> (node: Node, ok: bool) {
+	if s == nil || s.engine == nil || root == nil || sel.list == nil {
+		return nil, false
+	}
+
 	found :: proc "c" (n: Node, ctx: rawptr) -> bool {
 		(cast(^Node)ctx)^ = n
 		return true
 	}
+
 	ok = larva_css_find(s.engine, root, sel.list, found, &node)
 	return
 }

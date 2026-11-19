@@ -29,6 +29,10 @@ printf '%s\n' '== Odin tests =='
 "$ODIN" test "$ROOT_DIR/pkg/runtime/eventloop" -define:ODIN_TEST_THREADS=1
 # pkg/runtime unit tests (links JSC like cmd/lava): the LAVA_WORKERS parser + the startup barrier.
 "$ODIN" test "$ROOT_DIR/pkg/runtime" -collection:lava="$ROOT_DIR"
+# pkg/html links lexbor, which is built for Linux only (pkg/html/lexbor.odin).
+if [ "$(uname -s)" = Linux ]; then
+	"$ODIN" test "$ROOT_DIR/pkg/html"
+fi
 
 if [ "$is_windows" = 1 ] && [ ! -f "$ROOT_DIR/build/sqlite3.lib" ]; then
 	printf '%s\n' 'skip pkg/std/sqlite Odin link test (missing build/sqlite3.lib)'

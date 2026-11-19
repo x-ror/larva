@@ -25,7 +25,7 @@ endif
 SOURCE ?= console.log('hello from Lava')
 FILE ?=
 
-.PHONY: gates test-stdio help bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-sqlite-odin test-sqlite-node test-sqlite-lava test-fs-node test-fs-lava test-eventloop-node test-eventloop-lava test-fetch-smoke test-net-smoke test-http-smoke test-https-smoke test-multicore-smoke test-zerocopy-smoke bench bench-gate bench-http fmt clean test-bench-pages-smoke bench-pages
+.PHONY: gates test-stdio help bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-html-odin test-sqlite-odin test-sqlite-node test-sqlite-lava test-fs-node test-fs-lava test-eventloop-node test-eventloop-lava test-fetch-smoke test-net-smoke test-http-smoke test-https-smoke test-multicore-smoke test-zerocopy-smoke bench bench-gate bench-http fmt clean test-bench-pages-smoke bench-pages
 
 help:
 	@printf '%s\n' 'Lava commands'
@@ -62,6 +62,7 @@ help:
 	@printf '%s\n' '  make test-odin-serial   cmd/lava Odin tests on ONE runner thread'
 	@printf '%s\n' '  make test-eventloop-odin Odin event-loop unit tests (serial)'
 	@printf '%s\n' '  make test-runtime-odin  Odin tests for pkg/runtime'
+	@printf '%s\n' '  make test-html-odin     Odin tests for pkg/html (lexbor + shim)'
 	@printf '%s\n' '  make test-sqlite-odin   Odin tests for pkg/std/sqlite'
 	@printf '%s\n' '  make test-compat        Node-only node-compat cases (+ */ported)'
 	@printf '%s\n' '  make test-compat-lava   node-compat node-vs-Lava (skips known-lava-gaps)'
@@ -281,6 +282,11 @@ test-eventloop-odin:
 
 test-runtime-odin:
 	$(ODIN) test pkg/runtime -collection:lava=.
+
+# native-deps first: the tests link the C shim, and build-lexbor.sh rebuilds it when
+# pkg/html/shim/larva_html.c is newer than the archive. Linux only, as the package is.
+test-html-odin: native-deps
+	$(ODIN) test pkg/html
 
 ifeq ($(OS),Windows_NT)
 test-sqlite-odin:
