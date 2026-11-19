@@ -16,49 +16,10 @@ Capped :: struct {
 	limit:   int,
 }
 
+// Nested counts the scripts write_from_a_written_script_goes_before_the_rest has seen.
 @(private = "file")
-capped :: proc(c: ^Capped) -> runtime.Allocator {
-	return {capped_proc, c}
-}
-
-@(private = "file")
-capped_proc :: proc(
-	data: rawptr,
-	mode: runtime.Allocator_Mode,
-	size, alignment: int,
-	old_memory: rawptr,
-	old_size: int,
-	loc := #caller_location,
-) -> (
-	[]byte,
-	runtime.Allocator_Error,
-) {
-	c := cast(^Capped)data
-
-	#partial switch mode {
-	case .Alloc, .Alloc_Non_Zeroed, .Resize, .Resize_Non_Zeroed:
-		if size > c.limit {
-			return nil, .Out_Of_Memory
-		}
-	}
-
-	return c.backing.procedure(c.backing.data, mode, size, alignment, old_memory, old_size, loc)
-}
-
-@(private = "file")
-parse :: proc(t: ^testing.T, p: ^Parser, src: string, on_script: Script_Proc = nil, user: rawptr = nil) {
-	ok := init(p) && parse_all(p, transmute([]byte)src, on_script, user)
-	testing.expectf(t, ok, "parse failed: %s", error_message(p))
-}
-
-@(private = "file")
-first :: proc(t: ^testing.T, s: ^Selectors, p: ^Parser, css: string) -> Node {
-	sel, ok := compile(s, css)
-	testing.expectf(t, ok, "selector %q did not compile", css)
-	defer selector_destroy(&sel)
-	node, _ := query_first(s, document(p), sel)
-	testing.expectf(t, node != nil, "nothing matches %q", css)
-	return node
+Nested :: struct {
+	seen: int,
 }
 
 // `<script src>` has a src attribute: a browser treats the script as external (and
@@ -106,11 +67,6 @@ attr_on_a_non_element_is_absent :: proc(t: ^testing.T) {
 	testing.expect(t, !ok, "outer_html(nil) succeeded")
 }
 
-@(private = "file")
-Nested :: struct {
-	seen: int,
-}
-
 // The second script arrives through write, so its own writes land in the middle of
 // what the first one wrote — before `<b>4</b>`, which was written earlier.
 @(test)
@@ -142,12 +98,12 @@ write_from_a_written_script_goes_before_the_rest :: proc(t: ^testing.T) {
 // let that prefix through, or the parser sees text the caller was told was refused.
 @(test)
 refused_write_leaves_nothing_behind :: proc(t: ^testing.T) {
-	cap := Capped {
+	lim := Capped {
 		backing = context.allocator,
 		limit   = 64,
 	}
 	p: Parser
-	testing.expect(t, init(&p, capped(&cap)), "init failed")
+	testing.expect(t, init(&p, capped(&lim)), "init failed")
 	defer destroy(&p)
 	feed(&p, transmute([]byte)string("<body><script>s</script><p>tail</p>"))
 	finish(&p)
@@ -180,16 +136,16 @@ query_all_grows_out_in_the_callers_allocator :: proc(t: ^testing.T) {
 	sel, _ := compile(&s, "p")
 	defer selector_destroy(&sel)
 
-	cap := Capped {
+	lim := Capped {
 		backing = context.allocator,
 		limit   = 1 << 20,
 	}
-	context.allocator = capped(&cap)
+	context.allocator = capped(&lim)
 	out: [dynamic]Node
 	defer delete(out)
 	testing.expect(t, query_all(&s, document(&p), sel, &out), "query_all failed")
 	testing.expectf(t, len(out) == 3, "want 3 matches got %d", len(out))
-	testing.expect(t, out.allocator.data == rawptr(&cap), "out is not bound to the caller's allocator")
+	testing.expect(t, out.allocator.data == rawptr(&lim), "out is not bound to the caller's allocator")
 }
 
 @(test)
@@ -203,11 +159,11 @@ query_all_reports_a_refused_allocation :: proc(t: ^testing.T) {
 	sel, _ := compile(&s, "p")
 	defer selector_destroy(&sel)
 
-	cap := Capped {
+	lim := Capped {
 		backing = context.allocator,
 		limit   = 256, // 32 nodes
 	}
-	out := make([dynamic]Node, capped(&cap))
+	out := make([dynamic]Node, capped(&lim))
 	defer delete(out)
 	ok := query_all(&s, document(&p), sel, &out)
 	testing.expectf(t, !ok, "query_all reported success with %d of 500 matches", len(out))
@@ -224,11 +180,11 @@ outer_html_reports_a_refused_allocation :: proc(t: ^testing.T) {
 	defer selectors_destroy(&s)
 	body := first(t, &s, &p, "body")
 
-	cap := Capped {
+	lim := Capped {
 		backing = context.allocator,
 		limit   = 2048,
 	}
-	markup, ok := outer_html(body, capped(&cap))
+	markup, ok := outer_html(body, capped(&lim))
 	testing.expectf(
 		t,
 		!ok && markup == "",
@@ -245,4 +201,49 @@ outer_html_reports_a_refused_allocation :: proc(t: ^testing.T) {
 		"uncapped outer_html: %d bytes",
 		len(whole),
 	)
+}
+
+@(private = "file")
+capped :: proc(c: ^Capped) -> runtime.Allocator {
+	return {capped_proc, c}
+}
+
+@(private = "file")
+capped_proc :: proc(
+	data: rawptr,
+	mode: runtime.Allocator_Mode,
+	size, alignment: int,
+	old_memory: rawptr,
+	old_size: int,
+	loc := #caller_location,
+) -> (
+	[]byte,
+	runtime.Allocator_Error,
+) {
+	c := cast(^Capped)data
+
+	#partial switch mode {
+	case .Alloc, .Alloc_Non_Zeroed, .Resize, .Resize_Non_Zeroed:
+		if size > c.limit {
+			return nil, .Out_Of_Memory
+		}
+	}
+
+	return c.backing.procedure(c.backing.data, mode, size, alignment, old_memory, old_size, loc)
+}
+
+@(private = "file")
+parse :: proc(t: ^testing.T, p: ^Parser, src: string, on_script: Script_Proc = nil, user: rawptr = nil) {
+	ok := init(p) && parse_all(p, transmute([]byte)src, on_script, user)
+	testing.expectf(t, ok, "parse failed: %s", error_message(p))
+}
+
+@(private = "file")
+first :: proc(t: ^testing.T, s: ^Selectors, p: ^Parser, css: string) -> Node {
+	sel, ok := compile(s, css)
+	testing.expectf(t, ok, "selector %q did not compile", css)
+	defer selector_destroy(&sel)
+	node, _ := query_first(s, document(p), sel)
+	testing.expectf(t, node != nil, "nothing matches %q", css)
+	return node
 }

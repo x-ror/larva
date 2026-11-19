@@ -24,7 +24,6 @@ foreign import lexbor {"../../.deps/lexbor/lib/liblarva_html_shim.a", "../../.de
 // lexbor/core/base.h: `typedef unsigned int lxb_status_t`, LXB_STATUS_OK = 0x0000.
 lxb_status_t :: c.uint
 LXB_STATUS_OK :: lxb_status_t(0)
-LXB_STATUS_ERROR :: lxb_status_t(1)
 LXB_STATUS_ERROR_MEMORY_ALLOCATION :: lxb_status_t(2)
 
 lxb_document :: distinct rawptr // lxb_html_document_t *

@@ -3,16 +3,16 @@ package larva_html
 import "core:c"
 import "core:strings"
 
-// Node is a DOM node owned by its Parser's document. It stays valid until destroy:
-// lexbor detaches nodes from the tree but frees them only with the document.
-Node :: distinct rawptr
-
 // OUTER_HTML_RESERVE is the first capacity outer_html gives its builder, so a typical
 // element is one allocation instead of the 8 -> 24 -> 56 -> 120 growth of an empty one.
 // Measured 0.65x: 2.17 -> 1.41 ms for outer_html over 18000 nodes (12000 `<li>` and
 // 6000 `<a href>`) of a 1.2 MB page, -o:speed, medians of 7 interleaved launches.
 @(private = "file")
 OUTER_HTML_RESERVE :: 128
+
+// Node is a DOM node owned by its Parser's document. It stays valid until destroy:
+// lexbor detaches nodes from the tree but frees them only with the document.
+Node :: distinct rawptr
 
 // text returns `node`'s textContent, copied into `allocator`; "" for none.
 text :: proc(node: Node, allocator := context.allocator) -> string {
