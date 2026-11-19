@@ -4006,8 +4006,8 @@
       "name": "fetch_times_out_while_the_body_decodes dies when finish decodes on the loop thread",
       "why": "Decoding inline blocks the loop: the timeout cannot fire and every other transfer waits.",
       "source": "pkg/http/transfer_linux.odin",
-      "find": "\t\t\tt.decode = decode_start(t.loop, &t.resp.body, chain, t.max_body, on_decoded, t)",
-      "replace": "\t\t\tt.decode = nil",
+      "find": "\t\t\tif !decodes_inline(chain, len(t.resp.body)) &&",
+      "replace": "\t\t\tif false &&",
       "gate": "make:test-http-odin",
       "expect_detail": "want Timeout while the body decodes, got None"
     },
@@ -4037,6 +4037,69 @@
       "replace": "\tif false {",
       "gate": "make:test-http-odin",
       "expect_detail": "fetch br/br: want 1 redirect, got 0"
+    },
+    {
+      "name": "small_gzip_body_decodes_on_the_loop_thread dies when every body goes to the pool",
+      "why": "A small body pays the pool's round trip (8-10 us, measured) for a decode of a few microseconds, and starts the pool's threads on a loop that never needed them.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "\treturn n < INLINE_DECODE_MAX && chain.n == 1 && chain.codings[0] in Codings{.Gzip, .Deflate}",
+      "replace": "\treturn false",
+      "gate": "make:test-http-odin",
+      "expect_detail": "gzip/gzip: want None with the pool busy, got Timeout"
+    },
+    {
+      "name": "small_gzip_body_decodes_on_the_loop_thread dies when br is decoded on the loop thread",
+      "why": "br has no bound on its expansion: a few bytes can describe max_body, which would block the loop.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": " && chain.codings[0] in Codings{.Gzip, .Deflate}",
+      "replace": "",
+      "gate": "make:test-http-odin",
+      "expect_detail": "br/br: want Timeout with the pool busy, got None"
+    },
+    {
+      "name": "fetch_times_out_while_the_body_decodes dies when the inline bound covers large bodies",
+      "why": "The bound is what keeps a large decode off the loop thread.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "INLINE_DECODE_MAX :: 2 * 1024",
+      "replace": "INLINE_DECODE_MAX :: 1024 * 1024",
+      "gate": "make:test-http-odin",
+      "expect_detail": "want Timeout while the body decodes, got None"
+    },
+    {
+      "name": "destroying_the_loop_cancels_a_fetch_in_flight dies when the loop's teardown no longer finishes the transfer",
+      "why": "Destroying a loop under a fetch leaked the Transfer and never ran on_done; the caller waiting on it never hears back.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "\tfinish(t, .Cancelled)",
+      "replace": "",
+      "gate": "make:test-http-odin",
+      "expect_detail": "want Cancelled from destroy"
+    },
+    {
+      "name": "destroying_the_loop_cancels_a_fetch_in_flight dies when the timer has no dispose",
+      "why": "The timer's dispose is the only way a destroyed loop reaches its transfers.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "t, on_loop_closed)",
+      "replace": "t)",
+      "gate": "make:test-http-odin",
+      "expect_detail": "want Cancelled from destroy"
+    },
+    {
+      "name": "destroying_the_loop_cancels_a_fetch_in_flight dies when decode_dispose keeps the body",
+      "why": "A decode still queued when the loop is destroyed is dropped by dispose; not freeing its body leaks it.",
+      "source": "pkg/http/decode_linux.odin",
+      "find": "\tallocator := job.body.allocator\n\tdelete(job.body)\n",
+      "replace": "\tallocator := job.body.allocator\n",
+      "gate": "make:test-http-odin",
+      "expect_detail": "leak"
+    },
+    {
+      "name": "decodes_as_chrome_does dies when inflate fails on bytes after the end of the stream",
+      "why": "Chrome ignores bytes after a complete gzip member or zlib stream (gzip-trailing-junk, deflate-zlib-trailing-junk).",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\t\tcase zlib.STREAM_END:\n\t\t\treturn .None",
+      "replace": "\t\tcase zlib.STREAM_END:\n\t\t\treturn .Decoding if strm.avail_in > 0 || len(rest) > 0 else .None",
+      "gate": "make:test-http-odin",
+      "expect_detail": "trailing-junk: want the body Chrome decoded, got Decoding"
     },
     {
       "name": "route-gates.test.mjs dies when pkg/http stops routing test-http-odin",

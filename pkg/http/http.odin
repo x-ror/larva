@@ -49,6 +49,9 @@ Error :: enum {
 	Too_Many_Redirects,
 	Timeout,
 	No_Transport, // no transport on this target
+	// The loop was destroyed before the response was complete. No Chrome counterpart: a
+	// torn-down engine shows no response at all, so this is the client's own report.
+	Cancelled,
 }
 
 // Response owns every string and buffer in it, in the allocator the request ran with.
@@ -66,7 +69,9 @@ Response :: struct {
 }
 
 // Done_Proc runs once per fetch, on the loop thread, never from inside fetch itself.
-// The response is the callee's: release it with response_destroy.
+// The response is the callee's: release it with response_destroy. When the loop is
+// destroyed with the fetch in flight, it runs from inside eventloop.destroy (close_begin)
+// with .Cancelled; the loop is gone by then, so it must not call into it.
 Done_Proc :: #type proc(response: Response, user_data: rawptr)
 
 // fetch starts `req` on `loop` and returns at once; `on_done` reports the outcome.
@@ -77,8 +82,10 @@ Done_Proc :: #type proc(response: Response, user_data: rawptr)
 //              Content-Encoding is decoded on the loop's worker pool, through this
 //              allocator, so it must be safe to use from another thread (the heap, a
 //              mem.Tracking_Allocator; not context.temp_allocator or an unguarded
-//              arena), and it must outlive the loop's run: a decode the timeout
-//              overtook frees through it when it returns, after on_done.
+//              arena). It must outlive eventloop.destroy, not only the loop's run:
+//              a decode the timeout overtook frees through it when it returns, after
+//              on_done, and a decode a worker was running when the loop closed is freed
+//              in close_finish, or by the last worker of a detached loop.
 //
 // Returns:
 //   .None once `on_done` is guaranteed to run; any other error means the request did

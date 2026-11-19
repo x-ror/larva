@@ -241,21 +241,13 @@ decoded_body_keeps_little_spare_capacity :: proc(t: ^testing.T) {
 // and accepted.
 @(test)
 fetch_decodes_the_response_body :: proc(t: ^testing.T) {
-	listener, listen_err := net.listen_tcp({net.IP4_Loopback, 0})
+	server, ok := fixture_server_start(t)
 
-	if !testing.expectf(t, listen_err == nil, "listen: %v", listen_err) {
+	if !ok {
 		return
 	}
 
-	defer net.close(listener)
-	endpoint, _ := net.bound_endpoint(listener)
-	server := thread.create_and_start_with_poly_data(listener, serve_fixtures)
-	defer {
-		// Wakes the accept the server thread is blocked in.
-		net.shutdown(listener, .Both)
-		thread.join(server)
-		thread.destroy(server)
-	}
+	defer fixture_server_stop(&server)
 
 	// `redirect` answers 302 to /br/br, its own body gzip-encoded as servers that compress
 	// every text/html response send it: the coding is the redirect's, not the final one's.
@@ -265,14 +257,10 @@ fetch_decodes_the_response_body :: proc(t: ^testing.T) {
 	}{{"gzip", "gzip"}, {"br", "br"}, {"gzip-corrupt", "gzip"}, {"br/br", "redirect"}}
 
 	for c in cases {
-		on_done :: proc(resp: Response, user_data: rawptr) {
-			(cast(^Response)user_data)^ = resp
-		}
-
 		resp: Response
 		loop := eventloop.init(real_time = true)
-		url := fmt.tprintf("http://127.0.0.1:%d/%s/%s", endpoint.port, c.encoding, c.name)
-		err := fetch(&loop, {url = url}, on_done, &resp)
+		url := fmt.tprintf("http://127.0.0.1:%d/%s/%s", server.port, c.encoding, c.name)
+		err := fetch(&loop, {url = url}, keep_response, &resp)
 		testing.expectf(t, err == .None, "%s: fetch: %v", c.name, err)
 		eventloop.run(&loop)
 		eventloop.destroy(&loop)
@@ -320,24 +308,13 @@ fetch_times_out_while_the_body_decodes :: proc(t: ^testing.T) {
 	TIMEOUT_MS :: 200
 	BUSY :: 600 * time.Millisecond
 
-	listener, listen_err := net.listen_tcp({net.IP4_Loopback, 0})
+	server, ok := fixture_server_start(t)
 
-	if !testing.expectf(t, listen_err == nil, "listen: %v", listen_err) {
+	if !ok {
 		return
 	}
 
-	defer net.close(listener)
-	endpoint, _ := net.bound_endpoint(listener)
-	server := thread.create_and_start_with_poly_data(listener, serve_fixtures)
-	defer {
-		net.shutdown(listener, .Both)
-		thread.join(server)
-		thread.destroy(server)
-	}
-
-	on_done :: proc(resp: Response, user_data: rawptr) {
-		(cast(^Response)user_data)^ = resp
-	}
+	defer fixture_server_stop(&server)
 
 	busy :: proc(_: rawptr) {
 		time.sleep(BUSY)
@@ -349,14 +326,165 @@ fetch_times_out_while_the_body_decodes :: proc(t: ^testing.T) {
 		testing.expect(t, eventloop.pool_submit(&loop, busy, nil), "pool_submit")
 	}
 
-	url := fmt.tprintf("http://127.0.0.1:%d/gzip/gzip", endpoint.port)
-	err := fetch(&loop, {url = url, timeout_ms = TIMEOUT_MS}, on_done, &resp)
+	// Above INLINE_DECODE_MAX, so it is the pool's to decode.
+	url := fmt.tprintf("http://127.0.0.1:%d/gzip/gzip-incompressible", server.port)
+	err := fetch(&loop, {url = url, timeout_ms = TIMEOUT_MS}, keep_response, &resp)
 	testing.expectf(t, err == .None, "fetch: %v", err)
 	eventloop.run(&loop)
 	eventloop.destroy(&loop)
 	defer response_destroy(&resp)
 	testing.expectf(t, resp.error == .Timeout, "want Timeout while the body decodes, got %v", resp.error)
 	testing.expectf(t, len(resp.body) == 0, "a timed-out fetch kept %d body bytes", len(resp.body))
+}
+
+// A small gzip body is decoded on the loop thread: the pool's round trip costs more than
+// the decode (INLINE_DECODE_MAX). With every worker kept busy past the timeout, a body
+// sent to the pool would time out; decoded inline it is ready at once. A br body of the
+// same size still goes to the pool, since br has no bound on its expansion.
+@(test)
+small_gzip_body_decodes_on_the_loop_thread :: proc(t: ^testing.T) {
+	TIMEOUT_MS :: 200
+	BUSY :: 600 * time.Millisecond
+
+	server, ok := fixture_server_start(t)
+
+	if !ok {
+		return
+	}
+
+	defer fixture_server_stop(&server)
+
+	busy :: proc(_: rawptr) {
+		time.sleep(BUSY)
+	}
+
+	cases := [?]struct {
+		target: string,
+		want:   Error,
+	}{{"gzip/gzip", .None}, {"br/br", .Timeout}}
+
+	for c in cases {
+		resp: Response
+		loop := eventloop.init(real_time = true)
+		for _ in 0 ..< eventloop.THREADPOOL_SIZE {
+			testing.expect(t, eventloop.pool_submit(&loop, busy, nil), "pool_submit")
+		}
+
+		url := fmt.tprintf("http://127.0.0.1:%d/%s", server.port, c.target)
+		err := fetch(&loop, {url = url, timeout_ms = TIMEOUT_MS}, keep_response, &resp)
+		testing.expectf(t, err == .None, "%s: fetch: %v", c.target, err)
+		eventloop.run(&loop)
+		eventloop.destroy(&loop)
+		testing.expectf(t, resp.error == c.want, "%s: want %v with the pool busy, got %v", c.target, c.want, resp.error)
+
+		if c.want == .None {
+			testing.expectf(t, string(resp.body[:]) == "<p>hello decoded</p>", "%s: got %q", c.target, resp.body[:])
+		}
+
+		response_destroy(&resp)
+	}
+}
+
+// Destroying the loop with a fetch in flight finishes it: on_done runs, inside destroy,
+// with .Cancelled, and nothing the transfer held is left behind (the runner fails the test
+// on a leak). There is no Chrome counterpart: a torn-down engine shows no response at all.
+// Each case stops the loop at a different point: before it ran, while the request waits
+// on a server that never answers, while the lookup is queued behind busy workers, and
+// while the decode is.
+@(test)
+destroying_the_loop_cancels_a_fetch_in_flight :: proc(t: ^testing.T) {
+	BUSY :: 600 * time.Millisecond
+
+	server, ok := fixture_server_start(t)
+
+	if !ok {
+		return
+	}
+
+	defer fixture_server_stop(&server)
+
+	busy :: proc(_: rawptr) {
+		time.sleep(BUSY)
+	}
+
+	stop :: proc(loop: ^eventloop.Loop, _: rawptr) {
+		eventloop.begin_force_exit(loop)
+	}
+
+	Case :: struct {
+		name:      string,
+		target:    string,
+		busy_pool: bool,
+		run:       bool,
+	}
+	cases := [?]Case {
+		{"not started", "127.0.0.1:%d/gzip/gzip", false, false},
+		{"awaiting the response", "127.0.0.1:%d/stall/none", false, true},
+		{"resolving", "localhost:%d/gzip/gzip", true, true},
+		{"decoding", "127.0.0.1:%d/gzip/gzip-incompressible", true, true},
+	}
+
+	for c in cases {
+		resp := Response {
+			error = .None,
+			status = -1,
+		}
+		loop := eventloop.init(real_time = true)
+
+		if c.busy_pool {
+			for _ in 0 ..< eventloop.THREADPOOL_SIZE {
+				testing.expect(t, eventloop.pool_submit(&loop, busy, nil), "pool_submit")
+			}
+		}
+
+		url := fmt.tprintf(strings.concatenate({"http://", c.target}, context.temp_allocator), server.port)
+		err := fetch(&loop, {url = url}, keep_response, &resp)
+		testing.expectf(t, err == .None, "%s: fetch: %v", c.name, err)
+
+		if c.run {
+			eventloop.set_timeout(&loop, stop, 150)
+			eventloop.run(&loop)
+		}
+
+		testing.expectf(t, resp.status == -1, "%s: the fetch finished before the loop was destroyed", c.name)
+		eventloop.destroy(&loop)
+		testing.expectf(t, resp.error == .Cancelled, "%s: want Cancelled from destroy, got %v", c.name, resp.error)
+		testing.expectf(t, resp.status == 0, "%s: on_done did not run", c.name)
+		response_destroy(&resp)
+	}
+}
+
+@(private = "file")
+keep_response :: proc(resp: Response, user_data: rawptr) {
+	(cast(^Response)user_data)^ = resp
+}
+
+@(private = "file")
+Fixture_Server :: struct {
+	listener: net.TCP_Socket,
+	port:     int,
+	thread:   ^thread.Thread,
+}
+
+@(private = "file")
+fixture_server_start :: proc(t: ^testing.T) -> (s: Fixture_Server, ok: bool) {
+	listener, err := net.listen_tcp({net.IP4_Loopback, 0})
+
+	if !testing.expectf(t, err == nil, "listen: %v", err) {
+		return {}, false
+	}
+
+	endpoint, _ := net.bound_endpoint(listener)
+	return {listener, endpoint.port, thread.create_and_start_with_poly_data(listener, serve_fixtures)}, true
+}
+
+@(private = "file")
+fixture_server_stop :: proc(s: ^Fixture_Server) {
+	// Wakes the accept the server thread is blocked in.
+	net.shutdown(s.listener, .Both)
+	thread.join(s.thread)
+	thread.destroy(s.thread)
+	net.close(s.listener)
 }
 
 // serve_fixtures answers each connection on `listener` with the fixture its request
@@ -395,6 +523,19 @@ serve_one :: proc(client: net.TCP_Socket) {
 	target, _, _ := strings.partition(after_method, " ")
 	encoding, _, name := strings.partition(target, "/")
 	head: [256]byte
+
+	if encoding == "stall" {
+		// Never answer: hold the connection until the client closes it, or for 2 s, so a
+		// client that never closes fails its test rather than hanging the server's join.
+		net.set_option(client, .Receive_Timeout, 2 * time.Second)
+		for {
+			got, err := net.recv_tcp(client, request[:])
+
+			if err != nil || got == 0 {
+				return
+			}
+		}
+	}
 
 	if encoding == "redirect" {
 		body := find_in("gzip")

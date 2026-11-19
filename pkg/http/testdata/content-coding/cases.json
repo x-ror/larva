@@ -161,6 +161,20 @@
 		"secure": true
 	},
 	{
+		"name": "deflate-raw-trailing-3",
+		"encoding": [
+			"deflate"
+		],
+		"secure": true
+	},
+	{
+		"name": "deflate-zlib-trailing-junk",
+		"encoding": [
+			"deflate"
+		],
+		"secure": true
+	},
+	{
 		"name": "br",
 		"encoding": [
 			"br"

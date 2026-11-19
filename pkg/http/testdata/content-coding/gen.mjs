@@ -110,6 +110,9 @@ const cases = [
   ['deflate-bad-fcheck', ['deflate'], true, Buffer.concat([Buffer.from([0x78, 0x9d]), z.subarray(2)])],
   ['deflate-window-8', ['deflate'], true, Buffer.concat([Buffer.from([0x88, 0x1c]), z.subarray(2)])],
   ['deflate-raw-trailing-junk', ['deflate'], true, Buffer.concat([raw(text), Buffer.from('JUNKJUNK')])],
+  // Fewer than four bytes after a raw stream are an adler32 cut short, not a wrong one.
+  ['deflate-raw-trailing-3', ['deflate'], true, Buffer.concat([raw(text), Buffer.from('JUN')])],
+  ['deflate-zlib-trailing-junk', ['deflate'], true, Buffer.concat([z, Buffer.from('JUNKJUNK')])],
   ['br', ['br'], true, b],
   ['br-two-streams', ['br'], true, Buffer.concat([b, br(second)])],
   ['br-trailing-junk', ['br'], true, Buffer.concat([b, Buffer.from('JUNK')])],
