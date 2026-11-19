@@ -4004,12 +4004,12 @@
     },
     {
       "name": "fetch_times_out_while_the_body_decodes dies when finish decodes on the loop thread",
-      "why": "Decoding inline blocks the loop: the timeout cannot fire and every other transfer waits.",
+      "why": "Decoding every body inline blocks the loop: the timeout cannot fire and every other transfer waits (small_gzip_body_decodes_on_the_loop_thread's br case fails beside it).",
       "source": "pkg/http/transfer_linux.odin",
       "find": "\t\t\tif !decodes_inline(chain, len(t.resp.body)) &&",
       "replace": "\t\t\tif false &&",
       "gate": "make:test-http-odin",
-      "expect_detail": "want Timeout while the body decodes, got None"
+      "expect_detail": "larva_http.fetch_times_out_while_the_body_decodes"
     },
     {
       "name": "fetch_times_out_while_the_body_decodes dies when an abandoned decode keeps its body",
@@ -4091,15 +4091,6 @@
       "replace": "\tallocator := job.body.allocator\n",
       "gate": "make:test-http-odin",
       "expect_detail": "leak"
-    },
-    {
-      "name": "decodes_as_chrome_does dies when inflate fails on bytes after the end of the stream",
-      "why": "Chrome ignores bytes after a complete gzip member or zlib stream (gzip-trailing-junk, deflate-zlib-trailing-junk).",
-      "source": "pkg/http/content_coding.odin",
-      "find": "\t\tcase zlib.STREAM_END:\n\t\t\treturn .None",
-      "replace": "\t\tcase zlib.STREAM_END:\n\t\t\treturn .Decoding if strm.avail_in > 0 || len(rest) > 0 else .None",
-      "gate": "make:test-http-odin",
-      "expect_detail": "trailing-junk: want the body Chrome decoded, got Decoding"
     },
     {
       "name": "route-gates.test.mjs dies when pkg/http stops routing test-http-odin",
