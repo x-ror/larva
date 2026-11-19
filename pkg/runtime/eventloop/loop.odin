@@ -301,7 +301,10 @@ close_begin :: proc(loop: ^Loop) -> (workers_busy: bool) {
 	// callback (pkg/http finishes a transfer from its timer's dispose) that calls back
 	// into the loop; walked in place, a timer armed or cleared there reorders the heap
 	// under the index, so one dispose runs twice and another never. Calls that arrive now
-	// are refused (refuse_destroyed), so the taken array is the whole set.
+	// are refused (refuse_destroyed), so the taken array is the whole set. With those
+	// refusals and clear_timeout's guard the take-out is redundant, and so unpinned: no
+	// test fails without it while they stand. It stays so the walk does not depend on
+	// every entry point remembering its check.
 	timers := loop.timers
 	loop.timers = nil
 	clear(&loop.timer_index)

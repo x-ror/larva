@@ -179,8 +179,13 @@ const limitOnly = [
   ['limit-br', br(sixtyFour)],
   ['limit-zstd', zstd(sixtyFour)],
   ['gzip-incompressible', gzip(noise)],
-  // Over the inline input bound, under the inline output cap: it must still go to the pool.
-  ['gzip-incompressible-4k', gzip(noise.subarray(0, 4096))],
+  // Either side of the inline bounds in transfer_linux.odin: INLINE_DECODE_MAX, 2048 bytes
+  // in (noise, whose output stays far under the cap), and INLINE_OUTPUT_MAX, 16384 bytes
+  // out (markup, whose input stays far under the bound).
+  ['inline-input-under', gzip(noise.subarray(0, 2000))],
+  ['inline-input-over', gzip(noise.subarray(0, 2040))],
+  ['inline-output-under', gzip(Buffer.alloc(16000, '<p>abcdefghij</p>'))],
+  ['inline-output-over', gzip(Buffer.alloc(16896, '<p>abcdefghij</p>'))],
 ];
 
 for (const [name, , , body] of cases) {

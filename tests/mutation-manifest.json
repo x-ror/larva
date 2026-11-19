@@ -3756,7 +3756,7 @@
       "find": "\terr := inflate(input, ZLIB_DEFLATE, out)",
       "replace": "\terr := inflate(input, RAW_DEFLATE, out)",
       "gate": "make:test-http-odin",
-      "expect_detail": "larva_http.decodes_as_chrome_does"
+      "expect_detail": "deflate/deflate-zlib, pool busy true: want None, got Decoding"
     },
     {
       "name": "decodes_as_chrome_does dies when zstd_decode accepts a window over 8 MiB",
@@ -4061,27 +4061,27 @@
       "why": "The output cap counts output only; without the input bound a large body with little or no output would be read whole on the loop thread.",
       "source": "pkg/http/transfer_linux.odin",
       "find": "INLINE_DECODE_MAX :: 2 * 1024",
-      "replace": "INLINE_DECODE_MAX :: 1024 * 1024",
+      "replace": "INLINE_DECODE_MAX :: 4 * 1024",
       "gate": "make:test-http-odin",
-      "expect_detail": "gzip/gzip-incompressible-4k, pool busy true: want Timeout, got None"
+      "expect_detail": "gzip/inline-input-over, pool busy true: want Timeout, got None"
     },
     {
       "name": "destroying_the_loop_cancels_a_fetch_in_flight dies when the loop's teardown no longer finishes the transfer",
-      "why": "Destroying a loop under a fetch leaked the Transfer and never ran on_done; the caller waiting on it never hears back.",
+      "why": "Destroying a loop under a fetch leaked the Transfer and never ran on_done; the caller waiting on it never hears back. Every teardown test fails; the runner shows fetch_from_an_on_done_run_by_destroy_is_refused's line, where on_done never ran.",
       "source": "pkg/http/transfer_linux.odin",
       "find": "\tfinish(t, .Cancelled)",
       "replace": "",
       "gate": "make:test-http-odin",
-      "expect_detail": "larva_http.destroying_the_loop_cancels_a_fetch_in_flight"
+      "expect_detail": "on_done: 0 calls, None"
     },
     {
       "name": "destroying_the_loop_cancels_a_fetch_in_flight dies when the timer has no dispose",
-      "why": "The timer's dispose is the only way a destroyed loop reaches its transfers.",
+      "why": "The timer's dispose is the only way a destroyed loop reaches its transfers. Every teardown test fails; the runner shows fetch_from_an_on_done_run_by_destroy_is_refused's line, where on_done never ran.",
       "source": "pkg/http/transfer_linux.odin",
       "find": "t, on_loop_closed)",
       "replace": "t)",
       "gate": "make:test-http-odin",
-      "expect_detail": "larva_http.destroying_the_loop_cancels_a_fetch_in_flight"
+      "expect_detail": "on_done: 0 calls, None"
     },
     {
       "name": "destroying_the_loop_cancels_a_fetch_in_flight dies when decode_dispose keeps the body",
@@ -4138,15 +4138,6 @@
       "expect_detail": "gzip/limit-gzip, pool busy true: want Timeout, got Body_Too_Large"
     },
     {
-      "name": "destroying_the_loop_cancels_a_decode_a_worker_holds dies when decode_dispose keeps the body",
-      "why": "A decode a worker had taken when the loop closed is disposed in close_finish, after the worker lets go; not freeing its body leaks it.",
-      "source": "pkg/http/decode_linux.odin",
-      "find": "\tallocator := job.body.allocator\n\tdelete(job.body)\n",
-      "replace": "\tallocator := job.body.allocator\n",
-      "gate": "make:test-http-odin",
-      "expect_detail": "larva_http.destroying_the_loop_cancels_a_decode_a_worker_holds"
-    },
-    {
       "name": "fetch_from_an_on_done_run_by_destroy_is_refused dies when transfer_start ignores a refused timer",
       "why": "A fetch started on a loop being destroyed would never run and never be released.",
       "source": "pkg/http/transfer_linux.odin",
@@ -4154,6 +4145,33 @@
       "replace": "\tif false {\n\t\tdelete(t.resp.headers)",
       "gate": "make:test-http-odin",
       "expect_detail": "a fetch from inside destroy: want Cancelled, got None"
+    },
+    {
+      "name": "small_single_coding_bodies_decode_on_the_loop_thread dies when the inline output cap is above 16 KiB",
+      "why": "Reaching a 63 KiB cap costs a bomb about 100 us on the loop thread, three times the budget the comment sets.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "INLINE_OUTPUT_MAX :: 16 * 1024",
+      "replace": "INLINE_OUTPUT_MAX :: 63 * 1024",
+      "gate": "make:test-http-odin",
+      "expect_detail": "gzip/inline-output-over, pool busy true: want Timeout, got None"
+    },
+    {
+      "name": "small_single_coding_bodies_decode_on_the_loop_thread dies when the inline output cap is far below 16 KiB",
+      "why": "A tiny cap sends every small page to the pool after a wasted inline attempt.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "INLINE_OUTPUT_MAX :: 16 * 1024",
+      "replace": "INLINE_OUTPUT_MAX :: 64",
+      "gate": "make:test-http-odin",
+      "expect_detail": "gzip/inline-input-under, pool busy true: want None, got Timeout"
+    },
+    {
+      "name": "small_single_coding_bodies_decode_on_the_loop_thread dies when the inline input bound is far below 2 KiB",
+      "why": "A small bound sends bodies the measurement shows are cheaper inline to the pool's round trip.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "INLINE_DECODE_MAX :: 2 * 1024",
+      "replace": "INLINE_DECODE_MAX :: 256",
+      "gate": "make:test-http-odin",
+      "expect_detail": "gzip/inline-input-under, pool busy true: want None, got Timeout"
     },
     {
       "name": "dispose_reentering_the_loop_during_destroy_runs_each_dispose_once dies when a destroyed loop accepts handles",

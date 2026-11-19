@@ -124,7 +124,8 @@ fetch_times_out_while_the_body_decodes :: proc(t: ^testing.T) {
 // one decoded inline is ready at once: the timeout tells the two apart. br and a chain
 // stay off the loop whatever their size, as does a body over the input bound even when its
 // output would fit the cap; a small body whose output passes the cap is handed to the
-// pool, which, once free, still decodes it whole from its original bytes.
+// pool, which, once free, still decodes it whole from its original bytes. Bodies just
+// either side of each bound pin the values themselves.
 @(test)
 small_single_coding_bodies_decode_on_the_loop_thread :: proc(t: ^testing.T) {
 	TIMEOUT_MS :: 200
@@ -154,7 +155,12 @@ small_single_coding_bodies_decode_on_the_loop_thread :: proc(t: ^testing.T) {
 		{"br/br", true, .Timeout, 0},
 		{"deflate,gzip/stack-deflate-gzip", true, .Timeout, 0},
 		{"gzip/limit-gzip", true, .Timeout, 0},
-		{"gzip/gzip-incompressible-4k", true, .Timeout, 0},
+		// Either side of each inline bound (gen.mjs): 2023 and 2063 bytes in, 16000 and
+		// 16896 bytes out.
+		{"gzip/inline-input-under", true, .None, 2000},
+		{"gzip/inline-input-over", true, .Timeout, 0},
+		{"gzip/inline-output-under", true, .None, 16000},
+		{"gzip/inline-output-over", true, .Timeout, 0},
 		{"gzip/limit-gzip", false, .None, 64 * 1024},
 	}
 
@@ -261,7 +267,10 @@ destroying_the_loop_cancels_a_fetch_in_flight :: proc(t: ^testing.T) {
 // .Cancelled, and the body must be freed once the worker lets go. The worker is held
 // deterministically, not by timing: the fetch runs with an allocator that parks the first
 // large allocation made off the test's thread (the decode's output buffer) until the test
-// releases it, and the loop is torn down in its two halves around that release.
+// releases it, and the loop is torn down in its two halves around that release. The loop
+// thread never waits for the worker: a 1 ms timer polls the allocator's flag and re-arms
+// itself, so the loop keeps reading the body and submitting the decode however slowly the
+// machine schedules either thread.
 @(test)
 destroying_the_loop_cancels_a_decode_a_worker_holds :: proc(t: ^testing.T) {
 	server, ok := fixture_server_start(t)
@@ -275,16 +284,22 @@ destroying_the_loop_cancels_a_decode_a_worker_holds :: proc(t: ^testing.T) {
 	gate := Parking_Allocator {
 		backing     = context.allocator,
 		test_thread = sync.current_thread_id(),
+		deadline    = time.time_add(time.now(), 10 * time.Second),
 	}
 	allocator := runtime.Allocator{parking_allocator_proc, &gate}
 
-	// Stops the loop once the worker is parked inside the decode.
-	// (A bound on the wait, so a fetch that never reaches its decode fails the test below
-	// instead of hanging it.)
+	// Stops the loop once the worker is parked inside the decode, or at a deadline, so a
+	// fetch that never reaches its decode fails the test below instead of hanging it.
 	stop :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 		gate := cast(^Parking_Allocator)user_data
-		gate.reached = sync.sema_wait_with_timeout(&gate.parked, 5 * time.Second)
-		eventloop.begin_force_exit(loop)
+		gate.reached = sync.atomic_load(&gate.parked)
+
+		if gate.reached || time.since(gate.deadline) > 0 {
+			eventloop.begin_force_exit(loop)
+			return
+		}
+
+		eventloop.set_timeout(loop, stop, 1, gate)
 	}
 
 	resp := Response {
@@ -459,12 +474,13 @@ find_in :: proc(name: string) -> []byte {
 }
 
 // Parking_Allocator forwards to `backing`, except that the first allocation of at least
-// 16 KiB made on a thread other than `test_thread` posts `parked` and waits on `release`.
+// 16 KiB made on a thread other than `test_thread` sets `parked` and waits on `release`.
 @(private = "file")
 Parking_Allocator :: struct {
 	backing:     runtime.Allocator,
 	test_thread: int,
-	parked:      sync.Sema,
+	deadline:    time.Time, // when the test's poll gives up on the worker
+	parked:      bool, // atomic: a worker is waiting on `release`
 	release:     sync.Sema,
 	used:        bool,
 	reached:     bool,
@@ -487,7 +503,7 @@ parking_allocator_proc :: proc(
 
 	if grows && size >= 16 * 1024 && sync.current_thread_id() != gate.test_thread {
 		if !sync.atomic_exchange(&gate.used, true) {
-			sync.sema_post(&gate.parked)
+			sync.atomic_store(&gate.parked, true)
 			sync.sema_wait(&gate.release)
 		}
 	}

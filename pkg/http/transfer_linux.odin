@@ -34,16 +34,20 @@ INITIAL_BODY_RESERVE :: 64 * 1024
 // Measured on one machine (Linux x86-64, -o:speed); node's gzip/deflate level 6, brotli
 // default, zstd -3; medians of 15 interleaved batches of 20, then the median of 5
 // launches (3 for the long-window zstd). The round trip (decode_start to on_done, pool
-// warm) cost 8-10 us more than inline at every size. HTML-like text under 2 KiB in
+// warm) cost 8-10 us more than inline at every size. HTML-like text of about 1 KiB in
 // decodes to about 10 KiB: inline 4.2 us gzip, 6.3 deflate, 5.0 zstd, 5.2 br, against
-// 13.7-15.0 pooled; it fits the cap, so the cap costs it nothing.
+// 13.7-15.0 pooled. That corpus is about 10:1 and fits the cap; at the 2 KiB input bound
+// the cap holds only up to about 8:1. Markup more repetitive than that pays the capped
+// attempt and then the pool: repetitive table markup at 12.9:1, 2047 bytes in, took 24.0 us
+// against 17.8 us sent to the pool directly (perf review of these follow-ups, same method).
 //
-// The worst cases are bombs, the input bound's whole range: zeros encoded under 2 KiB.
-// Uncapped they block for 1.2 ms (gzip, 1 MiB out), 1.4 ms (deflate, 1 MiB; slower than
-// gzip on the same output), 16-29 ms (zstd, 32 MiB, window up to 8 MiB) and 116 ms (br,
-// up to max_body). Capped at 16 KiB, reaching the cap took 25 us gzip, 29 us deflate and
-// 11-13 us zstd; at 64 KiB, 87, 102 and 11 us, which is why the cap is 16 KiB: the HTML a
-// 2 KiB body carries fits under it, and the budget holds. br stays off the loop: a stream
+// The worst cases are bombs, zeros encoded small: gzip 1051 bytes in, deflate 1039, zstd
+// 1067 (1042 with an 8 MiB window), br 1681. Uncapped they block for 1.2 ms (gzip, 1 MiB
+// out), 1.4 ms (deflate, 1 MiB; slower than gzip on the same output), 16-29 ms (zstd,
+// 32 MiB) and 116 ms (br, up to max_body). Capped at 16 KiB, reaching the cap took 25 us
+// gzip, 29 us deflate and 11-13 us zstd; at 64 KiB, 87, 102 and 11 us, which is why the cap
+// is 16 KiB. At the 2047-byte edge of the input bound the perf review measured 25 us gzip
+// and 33 us deflate (42 us its slowest round): deflate sits at the budget and over it. br stays off the loop: a stream
 // that declares a large window cost 4.7 ms before its first byte out, capped or not. A
 // chain stays off too: every step is a pass and a codec of its own (two gzip steps took
 // 29 us capped) and a chain may have ten. The input bound stays beside the cap because the
