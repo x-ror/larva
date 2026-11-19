@@ -19,7 +19,15 @@ DECODABLE :: Codings{.Gzip, .Deflate, .Brotli, .Zstd}
 ZSTD_WINDOW_LOG_MAX :: 23
 
 @(private = "file")
-ZSTD_D_WINDOW_LOG_MAX :: 100 // ZSTD_d_windowLogMax
+Brotli_State :: distinct rawptr
+
+@(private = "file")
+Zstd_DCtx :: distinct rawptr
+
+@(private = "file")
+Zstd_D_Parameter :: enum c.int {
+	Window_Log_Max = 100, // ZSTD_d_windowLogMax
+}
 
 @(private = "file")
 Brotli_Result :: enum c.int {
@@ -31,31 +39,31 @@ Brotli_Result :: enum c.int {
 
 @(private = "file")
 Zstd_In_Buffer :: struct {
-	src:  rawptr,
+	src:  [^]byte,
 	size: c.size_t,
 	pos:  c.size_t,
 }
 
 @(private = "file")
 Zstd_Out_Buffer :: struct {
-	dst:  rawptr,
+	dst:  [^]byte,
 	size: c.size_t,
 	pos:  c.size_t,
 }
 
 @(default_calling_convention = "c", private = "file")
 foreign brotlidec {
-	BrotliDecoderCreateInstance :: proc(alloc_func, free_func, opaque: rawptr) -> rawptr ---
-	BrotliDecoderDestroyInstance :: proc(state: rawptr) ---
-	BrotliDecoderDecompressStream :: proc(state: rawptr, available_in: ^c.size_t, next_in: ^[^]byte, available_out: ^c.size_t, next_out: ^[^]byte, total_out: ^c.size_t) -> Brotli_Result ---
+	BrotliDecoderCreateInstance :: proc(alloc_func, free_func, opaque: rawptr) -> Brotli_State ---
+	BrotliDecoderDestroyInstance :: proc(state: Brotli_State) ---
+	BrotliDecoderDecompressStream :: proc(state: Brotli_State, available_in: ^c.size_t, next_in: ^[^]byte, available_out: ^c.size_t, next_out: ^[^]byte, total_out: ^c.size_t) -> Brotli_Result ---
 }
 
 @(default_calling_convention = "c", private = "file")
 foreign zstd {
-	ZSTD_createDCtx :: proc() -> rawptr ---
-	ZSTD_freeDCtx :: proc(dctx: rawptr) -> c.size_t ---
-	ZSTD_DCtx_setParameter :: proc(dctx: rawptr, param: c.int, value: c.int) -> c.size_t ---
-	ZSTD_decompressStream :: proc(dctx: rawptr, output: ^Zstd_Out_Buffer, input: ^Zstd_In_Buffer) -> c.size_t ---
+	ZSTD_createDCtx :: proc() -> Zstd_DCtx ---
+	ZSTD_freeDCtx :: proc(dctx: Zstd_DCtx) -> c.size_t ---
+	ZSTD_DCtx_setParameter :: proc(dctx: Zstd_DCtx, param: Zstd_D_Parameter, value: c.int) -> c.size_t ---
+	ZSTD_decompressStream :: proc(dctx: Zstd_DCtx, output: ^Zstd_Out_Buffer, input: ^Zstd_In_Buffer) -> c.size_t ---
 	ZSTD_isError :: proc(code: c.size_t) -> c.uint ---
 }
 
@@ -109,7 +117,7 @@ zstd_decode :: proc(input: []byte, out: ^Sink) -> Error {
 
 	defer ZSTD_freeDCtx(dctx)
 
-	if ZSTD_isError(ZSTD_DCtx_setParameter(dctx, ZSTD_D_WINDOW_LOG_MAX, ZSTD_WINDOW_LOG_MAX)) != 0 {
+	if ZSTD_isError(ZSTD_DCtx_setParameter(dctx, .Window_Log_Max, ZSTD_WINDOW_LOG_MAX)) != 0 {
 		return .Decoding
 	}
 
@@ -129,8 +137,10 @@ zstd_decode :: proc(input: []byte, out: ^Sink) -> Error {
 			return .Decoding
 		}
 
-		// Input used up and room to spare: the decoder has flushed all it can.
-		if in_buf.pos == in_buf.size && out_buf.pos < out_buf.size {
+		// Input used up, and either the last frame is complete and flushed (0, zstd.h's
+		// contract) or there is room to spare, so the decoder has flushed all it can.
+		// Testing only the room would grow a buffer the frame ended exactly in.
+		if in_buf.pos == in_buf.size && (ret == 0 || out_buf.pos < out_buf.size) {
 			return .None
 		}
 	}

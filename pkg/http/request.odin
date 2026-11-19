@@ -78,7 +78,7 @@ build_request :: proc(out: ^[dynamic]byte, method: string, url: Url, headers: []
 		strings.write_string(&sb, "\r\n")
 	}
 
-	for d in DEFAULT_HEADERS {
+	for &d in DEFAULT_HEADERS {
 		if !has_header(headers, d.name) {
 			value := accept_encoding(url) if d.name == "Accept-Encoding" else d.value
 			write_header(&sb, {d.name, value})

@@ -203,6 +203,13 @@
 		"secure": true
 	},
 	{
+		"name": "zstd-fills-first-buffer",
+		"encoding": [
+			"zstd"
+		],
+		"secure": true
+	},
+	{
 		"name": "zstd-window-16m",
 		"encoding": [
 			"zstd"

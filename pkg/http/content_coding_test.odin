@@ -1,6 +1,7 @@
 #+build linux
 package larva_http
 
+import "core:bytes"
 import "core:encoding/json"
 import "core:strings"
 import "core:testing"
@@ -59,7 +60,7 @@ decodes_as_chrome_does :: proc(t: ^testing.T) {
 			testing.expectf(t, got == .None, "%s: want the body Chrome decoded, got %v", c.name, got)
 			testing.expectf(
 				t,
-				string(body[:]) == string(want),
+				bytes.equal(body[:], want),
 				"%s: want %d bytes %q, got %d bytes %q",
 				c.name,
 				len(want),
@@ -127,7 +128,8 @@ request_offers_what_it_decodes :: proc(t: ^testing.T) {
 	testing.expectf(t, strings.contains(string(out[:]), "\r\naccept-encoding: identity\r\n"), "%s", out[:])
 }
 
-// max_body bounds the decoded size: exactly max_body decodes, one byte more does not.
+// max_body bounds the decoded size: exactly max_body decodes, one byte more does not,
+// and the largest int a caller may pass does not wrap the bound negative.
 @(test)
 decoded_size_is_capped :: proc(t: ^testing.T) {
 	for name in ([]string{"gzip", "deflate-zlib", "br", "zstd"}) {
@@ -135,14 +137,28 @@ decoded_size_is_capped :: proc(t: ^testing.T) {
 		headers := [?]Header{{"Content-Encoding", encoding}}
 		decoded := len("<p>hello decoded</p>")
 
-		for max_body in ([]int{decoded, decoded - 1}) {
+		for max_body in ([]int{decoded, decoded - 1, max(int)}) {
 			body := make([dynamic]byte, context.temp_allocator)
 			append(&body, ..fixture(t, strings.concatenate({name, ".in"}, context.temp_allocator)))
 			got := decode_content(&body, headers[:], SECURE_URL, max_body)
-			want := Error.None if max_body == decoded else Error.Body_Too_Large
+			want := Error.Body_Too_Large if max_body == decoded - 1 else Error.None
 			testing.expectf(t, got == want, "%s, max %d: want %v, got %v", name, max_body, want, got)
 		}
 	}
+}
+
+// A frame that ends exactly as it fills the output buffer is complete: ZSTD_decompressStream
+// says so by returning 0. Treating the full buffer as "maybe more" doubles it, copying
+// the whole body, to learn there is nothing left.
+@(test)
+zstd_that_fills_the_buffer_does_not_grow_it :: proc(t: ^testing.T) {
+	headers := [?]Header{{"Content-Encoding", "zstd"}}
+	body := make([dynamic]byte)
+	defer delete(body)
+	append(&body, ..fixture(t, "zstd-fills-first-buffer.in"))
+	got := decode_content(&body, headers[:], SECURE_URL, DEFAULT_MAX_BODY_BYTES)
+	testing.expectf(t, got == .None && len(body) == 16 * 1024, "decode: %v, %d bytes", got, len(body))
+	testing.expectf(t, cap(body) == 16 * 1024, "output grew to %d bytes for a 16384-byte body", cap(body))
 }
 
 // Deviates from Chrome, which sets no limit: see decode_content.

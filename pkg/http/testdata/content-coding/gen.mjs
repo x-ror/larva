@@ -17,6 +17,8 @@ const text = Buffer.from('<p>hello decoded</p>');
 const second = Buffer.from('<p>second</p>');
 // Large enough that a truncated stream has decoded a good part of itself.
 const big = Buffer.alloc(40_000, '<p>abcdefghij</p>');
+// Exactly the decoder's first output buffer (INITIAL_OUTPUT in content_coding.odin).
+const first = Buffer.alloc(16 * 1024, '<p>x</p>');
 
 const gzip = (b) => zlib.gzipSync(b, { level: 9 });
 const raw = (b) => zlib.deflateRawSync(b);
@@ -87,6 +89,7 @@ const cases = [
   ['zstd-trailing-junk', ['zstd'], true, Buffer.concat([zs, Buffer.from('JUNK')])],
   ['zstd-truncated-big', ['zstd'], true, half(zstd(big))],
   ['zstd-window-8m', ['zstd'], true, zstd(text, '--long=23', '--no-content-size')],
+  ['zstd-fills-first-buffer', ['zstd'], true, zstd(first)],
   ['zstd-window-16m', ['zstd'], true, zstd(text, '--long=24', '--no-content-size')],
   ['stack-gzip-zstd', ['gzip, zstd'], true, zstd(g)],
   ['stack-two-lines', ['gzip', 'br'], true, br(g)],

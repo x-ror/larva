@@ -1,7 +1,10 @@
 package larva_http
 
+import "core:bytes"
 import "core:c"
+import "core:encoding/endian"
 import "core:net"
+import "core:strings"
 import zlib "vendor:zlib"
 
 // The most codings one response may stack. Real servers send one.
@@ -25,15 +28,6 @@ INSECURE_CODINGS :: Codings{.Gzip, .Deflate}
 @(private = "file")
 INITIAL_OUTPUT :: 16 * 1024
 
-// Gzip header flags (RFC 1952 §2.3.1).
-@(private = "file")
-GZIP_FHCRC :: 0x02
-@(private = "file")
-GZIP_FEXTRA :: 0x04
-@(private = "file")
-GZIP_FNAME :: 0x08
-@(private = "file")
-GZIP_FCOMMENT :: 0x10
 
 // zlib's windowBits for a raw deflate stream and for a zlib-wrapped one.
 @(private = "file")
@@ -53,6 +47,19 @@ Chain_Kind :: enum {
 	Decode,
 	Too_Long,
 }
+
+// The gzip FLG byte (RFC 1952 §2.3.1); the reserved bits 5-7 are ignored, as Chrome does.
+@(private = "file")
+Gzip_Flag :: enum u8 {
+	Text,
+	Hcrc,
+	Extra,
+	Name,
+	Comment,
+}
+
+@(private = "file")
+Gzip_Flags :: bit_set[Gzip_Flag;u8]
 
 @(private = "file")
 Gzip_Header :: enum {
@@ -156,17 +163,19 @@ decode_content :: proc(body: ^[dynamic]byte, headers: []Header, url: Url, max_bo
 	}
 
 	allocator := body.allocator
-	for i := chain.n - 1; i >= 0; i -= 1 {
+	// One byte past max_body, saturated: max(int) is a valid max_body_bytes.
+	limit := max_body + 1 if max_body < max(int) else max_body
+	#reverse for coding in chain.codings[:chain.n] {
 		if len(body) == 0 {
 			return .None
 		}
 
 		out := Sink {
 			buf   = make([dynamic]byte, allocator),
-			limit = max_body + 1,
+			limit = limit,
 		}
 		err: Error
-		switch chain.codings[i] {
+		switch coding {
 		case .Gzip:
 			err = gzip_decode(body[:], &out)
 		case .Deflate:
@@ -206,8 +215,15 @@ sink_room :: proc(s: ^Sink, input_len: int) -> ([]byte, bool) {
 			return nil, false
 		}
 
-		// Doubling, from a guess at the input's expansion: amortized O(1) per byte.
-		size := min(s.limit, max(2 * s.n, 4 * input_len, INITIAL_OUTPUT))
+		// Doubling, from a guess at the input's expansion: amortized O(1) per byte. Written
+		// so nothing overflows: s.n < limit, and 2*s.n is s.n plus at most limit - s.n.
+		size := max(INITIAL_OUTPUT, s.n + min(s.n, s.limit - s.n))
+
+		if input_len < max(int) / 4 {
+			size = max(size, 4 * input_len)
+		}
+
+		size = min(size, s.limit)
 
 		if non_zero_resize(&s.buf, size) != nil {
 			return nil, false
@@ -229,7 +245,7 @@ parse_chain :: proc(headers: []Header) -> (chain: Chain, kind: Chain_Kind) {
 		seen = true
 		rest := h.value
 		for {
-			comma := index_byte_set(rest, {','})
+			comma := strings.index_byte(rest, ',')
 			element := trim_ows(rest if comma < 0 else rest[:comma])
 			coding, known := parse_coding(element)
 
@@ -321,7 +337,7 @@ deflate_decode :: proc(input: []byte, out: ^Sink) -> Error {
 	window := c.int(RAW_DEFLATE)
 
 	// RFC 1950 §2.2: method 8, window at most 32 KiB, and CMF*256+FLG a multiple of 31.
-	if len(input) >= 2 && input[0] & 0x0F == 8 && input[0] >> 4 <= 7 && (u16(input[0]) << 8 | u16(input[1])) % 31 == 0 {
+	if len(input) >= 2 && input[0] & 0x0F == zlib.DEFLATED && input[0] >> 4 <= 7 && (u16(input[0]) << 8 | u16(input[1])) % 31 == 0 {
 		window = ZLIB_DEFLATE
 	}
 
@@ -334,10 +350,10 @@ gzip_header :: proc(input: []byte) -> (offset: int, result: Gzip_Header) {
 	MAGIC :: [3]byte{0x1F, 0x8B, 8} // ID1, ID2, CM = deflate
 
 	magic := MAGIC
-	for i in 0 ..< min(len(input), len(magic)) {
-		if input[i] != magic[i] {
-			return 0, .Invalid
-		}
+	n := min(len(input), len(magic))
+
+	if !bytes.equal(input[:n], magic[:n]) {
+		return 0, .Invalid
 	}
 
 	// ID1 ID2 CM FLG MTIME(4) XFL OS
@@ -347,25 +363,27 @@ gzip_header :: proc(input: []byte) -> (offset: int, result: Gzip_Header) {
 		return 0, .Short
 	}
 
-	flags := input[3]
+	flags := transmute(Gzip_Flags)input[3]
 
-	if flags & GZIP_FEXTRA != 0 {
-		if len(input) < offset + 2 {
+	if .Extra in flags {
+		xlen, ok := endian.get_u16(input[offset:], .Little)
+
+		if !ok {
 			return 0, .Short
 		}
 
-		offset += 2 + (int(input[offset]) | int(input[offset + 1]) << 8)
+		offset += 2 + int(xlen)
 	}
 
-	if flags & GZIP_FNAME != 0 {
+	if .Name in flags {
 		offset = skip_zero_terminated(input, offset)
 	}
 
-	if flags & GZIP_FCOMMENT != 0 {
+	if .Comment in flags {
 		offset = skip_zero_terminated(input, offset)
 	}
 
-	if flags & GZIP_FHCRC != 0 {
+	if .Hcrc in flags {
 		offset += 2
 	}
 
@@ -380,13 +398,13 @@ gzip_header :: proc(input: []byte) -> (offset: int, result: Gzip_Header) {
 // one past the end of `input` when there is none.
 @(private = "file")
 skip_zero_terminated :: proc(input: []byte, from: int) -> int {
-	for i in from ..< len(input) {
-		if input[i] == 0 {
-			return i + 1
-		}
+	// A truncated FEXTRA can already have put `from` past the end.
+	if from >= len(input) {
+		return len(input) + 1
 	}
 
-	return len(input) + 1
+	nul := bytes.index_byte(input[from:], 0)
+	return len(input) + 1 if nul < 0 else from + nul + 1
 }
 
 // inflate runs zlib over the whole of `input`. Running out of input is not an error: the
@@ -396,7 +414,11 @@ skip_zero_terminated :: proc(input: []byte, from: int) -> int {
 inflate :: proc(input: []byte, window: c.int, out: ^Sink) -> Error {
 	strm: zlib.z_stream
 
-	if zlib.inflateInit2(&strm, window) != zlib.OK {
+	switch zlib.inflateInit2(&strm, window) {
+	case zlib.OK:
+	case zlib.MEM_ERROR:
+		return .Body_Too_Large
+	case:
 		return .Decoding
 	}
 
@@ -429,8 +451,11 @@ inflate :: proc(input: []byte, window: c.int, out: ^Sink) -> Error {
 			if strm.avail_in == 0 && len(rest) == 0 && strm.avail_out > 0 {
 				return .None
 			}
+		case zlib.MEM_ERROR:
+			// Refused memory reads as too large, as in brotli_decode and zstd_decode.
+			return .Body_Too_Large
 		case:
-			// DATA_ERROR (corrupt data, a bad adler32), NEED_DICT, MEM_ERROR.
+			// DATA_ERROR (corrupt data, a bad adler32), NEED_DICT.
 			return .Decoding
 		}
 	}

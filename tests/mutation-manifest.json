@@ -3735,7 +3735,7 @@
       "name": "decodes_as_chrome_does dies when gzip_header stops skipping FNAME",
       "why": "A gzip member that names its file (what `gzip file` writes) would be inflated from inside its header.",
       "source": "pkg/http/content_coding.odin",
-      "find": "\tif flags & GZIP_FNAME != 0 {",
+      "find": "\tif .Name in flags {",
       "replace": "\tif false {",
       "gate": "make:test-http-odin",
       "expect_detail": "gzip-all-header-fields"
@@ -3811,6 +3811,24 @@
       "replace": "\t\t\tvalue := d.value",
       "gate": "make:test-http-odin",
       "expect_detail": "larva_http.request_offers_what_it_decodes"
+    },
+    {
+      "name": "decoded_size_is_capped dies when decode_content lets max_body + 1 wrap",
+      "why": "max(int) is a valid max_body_bytes; unsaturated, the bound wraps negative and every encoded body fails as too large.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\tlimit := max_body + 1 if max_body < max(int) else max_body",
+      "replace": "\tlimit := max_body + 1",
+      "gate": "make:test-http-odin",
+      "expect_detail": "max 9223372036854775807: want None, got Body_Too_Large"
+    },
+    {
+      "name": "zstd_that_fills_the_buffer_does_not_grow_it dies when zstd_decode ignores a 0 return",
+      "why": "A frame that ends exactly as it fills the buffer is complete; testing only for spare room doubles and copies the whole body to learn nothing is left.",
+      "source": "pkg/http/content_coding_linux.odin",
+      "find": "(ret == 0 || out_buf.pos < out_buf.size)",
+      "replace": "(out_buf.pos < out_buf.size)",
+      "gate": "make:test-http-odin",
+      "expect_detail": "output grew to 32768 bytes"
     }
   ]
 }
