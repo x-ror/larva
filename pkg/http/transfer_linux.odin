@@ -46,7 +46,9 @@ INITIAL_BODY_RESERVE :: 64 * 1024
 // 2 KiB body carries fits under it, and the budget holds. br stays off the loop: a stream
 // that declares a large window cost 4.7 ms before its first byte out, capped or not. A
 // chain stays off too: every step is a pass and a codec of its own (two gzip steps took
-// 29 us capped) and a chain may have ten.
+// 29 us capped) and a chain may have ten. The input bound stays beside the cap because the
+// cap counts output only: a body of empty deflate blocks produces nothing for its whole
+// length, so without a bound on the input the loop thread would read all of it.
 @(private = "file")
 INLINE_DECODE_MAX :: 2 * 1024
 @(private = "file")

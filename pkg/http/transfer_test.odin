@@ -122,8 +122,9 @@ fetch_times_out_while_the_body_decodes :: proc(t: ^testing.T) {
 // output capped (INLINE_DECODE_MAX, INLINE_OUTPUT_MAX); everything else goes to the pool.
 // With every worker kept busy past the timeout, a body sent to the pool times out, and
 // one decoded inline is ready at once: the timeout tells the two apart. br and a chain
-// stay off the loop whatever their size, and a small body whose output passes the cap is
-// handed to the pool, which, once free, still decodes it whole from its original bytes.
+// stay off the loop whatever their size, as does a body over the input bound even when its
+// output would fit the cap; a small body whose output passes the cap is handed to the
+// pool, which, once free, still decodes it whole from its original bytes.
 @(test)
 small_single_coding_bodies_decode_on_the_loop_thread :: proc(t: ^testing.T) {
 	TIMEOUT_MS :: 200
@@ -153,6 +154,7 @@ small_single_coding_bodies_decode_on_the_loop_thread :: proc(t: ^testing.T) {
 		{"br/br", true, .Timeout, 0},
 		{"deflate,gzip/stack-deflate-gzip", true, .Timeout, 0},
 		{"gzip/limit-gzip", true, .Timeout, 0},
+		{"gzip/gzip-incompressible-4k", true, .Timeout, 0},
 		{"gzip/limit-gzip", false, .None, 64 * 1024},
 	}
 

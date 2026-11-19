@@ -4012,13 +4012,13 @@
       "expect_detail": "larva_http.fetch_times_out_while_the_body_decodes"
     },
     {
-      "name": "fetch_times_out_while_the_body_decodes dies when an abandoned decode keeps its body",
+      "name": "small_single_coding_bodies_decode_on_the_loop_thread dies when an abandoned decode keeps its body",
       "why": "A decode the timeout overtook owns the body; not freeing it when it returns leaks one body per timed-out response.",
       "source": "pkg/http/decode_linux.odin",
       "find": "\tif requester == nil {\n\t\tdelete(body)\n",
       "replace": "\tif requester == nil {\n",
       "gate": "make:test-http-odin",
-      "expect_detail": "with 1 leak"
+      "expect_detail": "Memory failure in `larva_http.small_single_coding_bodies_decode_on_the_loop_thread`"
     },
     {
       "name": "fetch_decodes_the_response_body dies when a failed fetch keeps what it received",
@@ -4057,13 +4057,13 @@
       "expect_detail": "br/br, pool busy true: want Timeout, got None"
     },
     {
-      "name": "fetch_times_out_while_the_body_decodes dies when the inline bound covers large bodies",
-      "why": "The bound is what keeps a large decode off the loop thread.",
+      "name": "small_single_coding_bodies_decode_on_the_loop_thread dies when the inline input bound goes",
+      "why": "The output cap counts output only; without the input bound a large body with little or no output would be read whole on the loop thread.",
       "source": "pkg/http/transfer_linux.odin",
       "find": "INLINE_DECODE_MAX :: 2 * 1024",
       "replace": "INLINE_DECODE_MAX :: 1024 * 1024",
       "gate": "make:test-http-odin",
-      "expect_detail": "want Timeout while the body decodes, got None"
+      "expect_detail": "gzip/gzip-incompressible-4k, pool busy true: want Timeout, got None"
     },
     {
       "name": "destroying_the_loop_cancels_a_fetch_in_flight dies when the loop's teardown no longer finishes the transfer",
@@ -4072,7 +4072,7 @@
       "find": "\tfinish(t, .Cancelled)",
       "replace": "",
       "gate": "make:test-http-odin",
-      "expect_detail": "want Cancelled from destroy"
+      "expect_detail": "larva_http.destroying_the_loop_cancels_a_fetch_in_flight"
     },
     {
       "name": "destroying_the_loop_cancels_a_fetch_in_flight dies when the timer has no dispose",
@@ -4081,7 +4081,7 @@
       "find": "t, on_loop_closed)",
       "replace": "t)",
       "gate": "make:test-http-odin",
-      "expect_detail": "want Cancelled from destroy"
+      "expect_detail": "larva_http.destroying_the_loop_cancels_a_fetch_in_flight"
     },
     {
       "name": "destroying_the_loop_cancels_a_fetch_in_flight dies when decode_dispose keeps the body",
@@ -4135,7 +4135,7 @@
       "find": "\t\t\t\tdecoded = err != .Body_Too_Large || cap == t.max_body",
       "replace": "\t\t\t\tdecoded = true",
       "gate": "make:test-http-odin",
-      "expect_detail": "gzip/limit-gzip, pool busy false: want None, got Body_Too_Large"
+      "expect_detail": "gzip/limit-gzip, pool busy true: want Timeout, got Body_Too_Large"
     },
     {
       "name": "destroying_the_loop_cancels_a_decode_a_worker_holds dies when decode_dispose keeps the body",
@@ -4144,7 +4144,7 @@
       "find": "\tallocator := job.body.allocator\n\tdelete(job.body)\n",
       "replace": "\tallocator := job.body.allocator\n",
       "gate": "make:test-http-odin",
-      "expect_detail": "destroying_the_loop_cancels_a_decode_a_worker_holds` with 1 leak"
+      "expect_detail": "larva_http.destroying_the_loop_cancels_a_decode_a_worker_holds"
     },
     {
       "name": "fetch_from_an_on_done_run_by_destroy_is_refused dies when transfer_start ignores a refused timer",

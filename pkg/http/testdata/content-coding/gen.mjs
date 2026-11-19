@@ -179,6 +179,8 @@ const limitOnly = [
   ['limit-br', br(sixtyFour)],
   ['limit-zstd', zstd(sixtyFour)],
   ['gzip-incompressible', gzip(noise)],
+  // Over the inline input bound, under the inline output cap: it must still go to the pool.
+  ['gzip-incompressible-4k', gzip(noise.subarray(0, 4096))],
 ];
 
 for (const [name, , , body] of cases) {
