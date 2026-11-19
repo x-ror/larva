@@ -31,7 +31,8 @@ for how the runtime pieces fit together.
 
 On Linux, the JSC package is exposed through `pkg-config` as `javascriptcoregtk-6.0`,
 SQLite as `sqlite3`, and OpenSSL as `openssl`
-(e.g. `apt-get install libjavascriptcoregtk-6.0-dev libsqlite3-dev libssl-dev`).
+(e.g. `apt-get install libjavascriptcoregtk-6.0-dev libsqlite3-dev libssl-dev libbrotli-dev
+libzstd-dev zlib1g-dev`).
 
 On macOS, JSC is provided by the `JavaScriptCore` framework and SQLite by the
 system `libsqlite3`; OpenSSL comes from Homebrew (`brew install openssl@3`) and

@@ -840,6 +840,7 @@ on_timeout :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 @(private = "file")
 finish :: proc(t: ^Transfer, err: Error) {
 	context.allocator = t.allocator
+	err := err
 	close_conn(t)
 
 	if t.timer != 0 {
@@ -854,6 +855,11 @@ finish :: proc(t: ^Transfer, err: Error) {
 		// The lookup may still run on a worker; the job frees itself when it comes back.
 		t.dns.user_data = nil
 		sync.atomic_store(&t.dns.cancelled, true)
+	}
+
+	// Only a final response gets here with a body: a redirect's is dropped unread.
+	if err == .None {
+		err = decode_content(&t.resp.body, t.resp.headers[:], t.url, t.max_body)
 	}
 
 	if err != .None {

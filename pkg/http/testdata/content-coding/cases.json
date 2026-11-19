@@ -1,0 +1,311 @@
+[
+	{
+		"name": "gzip",
+		"encoding": [
+			"gzip"
+		],
+		"secure": true
+	},
+	{
+		"name": "x-gzip",
+		"encoding": [
+			"x-gzip"
+		],
+		"secure": true
+	},
+	{
+		"name": "gzip-case-and-space",
+		"encoding": [
+			"  GZIP  "
+		],
+		"secure": true
+	},
+	{
+		"name": "gzip-all-header-fields",
+		"encoding": [
+			"gzip"
+		],
+		"secure": true
+	},
+	{
+		"name": "gzip-two-members",
+		"encoding": [
+			"gzip"
+		],
+		"secure": true
+	},
+	{
+		"name": "gzip-trailing-junk",
+		"encoding": [
+			"gzip"
+		],
+		"secure": true
+	},
+	{
+		"name": "gzip-no-trailer",
+		"encoding": [
+			"gzip"
+		],
+		"secure": true
+	},
+	{
+		"name": "gzip-bad-crc",
+		"encoding": [
+			"gzip"
+		],
+		"secure": true
+	},
+	{
+		"name": "gzip-truncated",
+		"encoding": [
+			"gzip"
+		],
+		"secure": true
+	},
+	{
+		"name": "gzip-truncated-big",
+		"encoding": [
+			"gzip"
+		],
+		"secure": true
+	},
+	{
+		"name": "gzip-header-only",
+		"encoding": [
+			"gzip"
+		],
+		"secure": true
+	},
+	{
+		"name": "gzip-bad-magic",
+		"encoding": [
+			"gzip"
+		],
+		"secure": true
+	},
+	{
+		"name": "gzip-corrupt",
+		"encoding": [
+			"gzip"
+		],
+		"secure": true
+	},
+	{
+		"name": "deflate-zlib",
+		"encoding": [
+			"deflate"
+		],
+		"secure": true
+	},
+	{
+		"name": "deflate-raw",
+		"encoding": [
+			"deflate"
+		],
+		"secure": true
+	},
+	{
+		"name": "deflate-bad-adler",
+		"encoding": [
+			"deflate"
+		],
+		"secure": true
+	},
+	{
+		"name": "deflate-truncated-big",
+		"encoding": [
+			"deflate"
+		],
+		"secure": true
+	},
+	{
+		"name": "deflate-corrupt",
+		"encoding": [
+			"deflate"
+		],
+		"secure": true
+	},
+	{
+		"name": "br",
+		"encoding": [
+			"br"
+		],
+		"secure": true
+	},
+	{
+		"name": "br-two-streams",
+		"encoding": [
+			"br"
+		],
+		"secure": true
+	},
+	{
+		"name": "br-trailing-junk",
+		"encoding": [
+			"br"
+		],
+		"secure": true
+	},
+	{
+		"name": "br-truncated",
+		"encoding": [
+			"br"
+		],
+		"secure": true
+	},
+	{
+		"name": "br-truncated-big",
+		"encoding": [
+			"br"
+		],
+		"secure": true
+	},
+	{
+		"name": "br-corrupt",
+		"encoding": [
+			"br"
+		],
+		"secure": true
+	},
+	{
+		"name": "zstd",
+		"encoding": [
+			"zstd"
+		],
+		"secure": true
+	},
+	{
+		"name": "zstd-two-frames",
+		"encoding": [
+			"zstd"
+		],
+		"secure": true
+	},
+	{
+		"name": "zstd-trailing-junk",
+		"encoding": [
+			"zstd"
+		],
+		"secure": true
+	},
+	{
+		"name": "zstd-truncated-big",
+		"encoding": [
+			"zstd"
+		],
+		"secure": true
+	},
+	{
+		"name": "zstd-window-8m",
+		"encoding": [
+			"zstd"
+		],
+		"secure": true
+	},
+	{
+		"name": "zstd-window-16m",
+		"encoding": [
+			"zstd"
+		],
+		"secure": true
+	},
+	{
+		"name": "stack-gzip-zstd",
+		"encoding": [
+			"gzip, zstd"
+		],
+		"secure": true
+	},
+	{
+		"name": "stack-two-lines",
+		"encoding": [
+			"gzip",
+			"br"
+		],
+		"secure": true
+	},
+	{
+		"name": "stack-deflate-gzip",
+		"encoding": [
+			"deflate, gzip"
+		],
+		"secure": true
+	},
+	{
+		"name": "raw-unknown",
+		"encoding": [
+			"foo"
+		],
+		"secure": true
+	},
+	{
+		"name": "raw-identity",
+		"encoding": [
+			"identity"
+		],
+		"secure": true
+	},
+	{
+		"name": "raw-identity-in-chain",
+		"encoding": [
+			"identity, gzip"
+		],
+		"secure": true
+	},
+	{
+		"name": "raw-unknown-in-chain",
+		"encoding": [
+			"gzip, foo"
+		],
+		"secure": true
+	},
+	{
+		"name": "raw-empty-element",
+		"encoding": [
+			"gzip,,zstd"
+		],
+		"secure": true
+	},
+	{
+		"name": "raw-empty-value",
+		"encoding": [
+			""
+		],
+		"secure": true
+	},
+	{
+		"name": "empty-body",
+		"encoding": [
+			"gzip"
+		],
+		"secure": true
+	},
+	{
+		"name": "insecure-gzip",
+		"encoding": [
+			"gzip"
+		],
+		"secure": false
+	},
+	{
+		"name": "insecure-deflate",
+		"encoding": [
+			"deflate"
+		],
+		"secure": false
+	},
+	{
+		"name": "insecure-br",
+		"encoding": [
+			"br"
+		],
+		"secure": false
+	},
+	{
+		"name": "insecure-zstd",
+		"encoding": [
+			"zstd"
+		],
+		"secure": false
+	}
+]

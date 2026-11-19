@@ -44,7 +44,8 @@ Error :: enum {
 	Read, // the connection closed before a response, or before the body was complete
 	Malformed_Response,
 	Head_Too_Large,
-	Body_Too_Large,
+	Body_Too_Large, // as received, or as decoded from its Content-Encoding
+	Decoding, // the body does not decode per its Content-Encoding (Chrome's ERR_CONTENT_DECODING_FAILED)
 	Too_Many_Redirects,
 	Timeout,
 	No_Transport, // no transport on this target

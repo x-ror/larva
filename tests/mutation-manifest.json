@@ -3712,6 +3712,105 @@
       "replace": "\t\treturn LXB_STATUS_OK\n",
       "gate": "make:test-html-odin",
       "expect_detail": "outer_html returned"
+    },
+    {
+      "name": "decodes_as_chrome_does dies when decode_content stops refusing a coding the URL was not offered",
+      "why": "Chrome fails a br or zstd body from a host it offered only gzip and deflate; decoding it anyway answers where Chrome shows an error page.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\t\tif coding not_in accepted {",
+      "replace": "\t\tif false && coding not_in accepted {",
+      "gate": "make:test-http-odin",
+      "expect_detail": "insecure-br: Chrome failed it, got None"
+    },
+    {
+      "name": "decodes_as_chrome_does dies when parse_chain stops leaving the body as sent on an unknown coding",
+      "why": "One unknown element (identity and an empty element included) makes Chrome pass the whole body through; decoding the rest of the chain fails pages Chrome renders.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\t\t\tif !known {\n\t\t\t\treturn {}, .Identity",
+      "replace": "\t\t\tif false {\n\t\t\t\treturn {}, .Identity",
+      "gate": "make:test-http-odin",
+      "expect_detail": "raw-unknown: want the body Chrome decoded, got Decoding"
+    },
+    {
+      "name": "decodes_as_chrome_does dies when gzip_header stops skipping FNAME",
+      "why": "A gzip member that names its file (what `gzip file` writes) would be inflated from inside its header.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\tif flags & GZIP_FNAME != 0 {",
+      "replace": "\tif false {",
+      "gate": "make:test-http-odin",
+      "expect_detail": "gzip-all-header-fields"
+    },
+    {
+      "name": "decodes_as_chrome_does dies when inflate treats running out of input as an error",
+      "why": "Chrome renders what a cut-short gzip or deflate stream decoded; failing it loses pages whose server dropped the connection's last bytes.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\t\t\tif strm.avail_in == 0 && len(rest) == 0 && strm.avail_out > 0 {\n\t\t\t\treturn .None",
+      "replace": "\t\t\tif strm.avail_in == 0 && len(rest) == 0 && strm.avail_out > 0 {\n\t\t\t\treturn .Decoding",
+      "gate": "make:test-http-odin",
+      "expect_detail": "gzip-truncated: want the body Chrome decoded, got Decoding"
+    },
+    {
+      "name": "decodes_as_chrome_does dies when deflate_decode stops honouring a zlib header",
+      "why": "RFC 9110 deflate is zlib-wrapped; inflating it raw fails the common case to serve the rare one.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\t\twindow = ZLIB_DEFLATE",
+      "replace": "\t\twindow = RAW_DEFLATE",
+      "gate": "make:test-http-odin",
+      "expect_detail": "deflate-zlib: want the body Chrome decoded, got Decoding"
+    },
+    {
+      "name": "decodes_as_chrome_does dies when zstd_decode accepts a window over 8 MiB",
+      "why": "Chrome refuses zstd windows over 8 MiB (RFC 8878 allows it); the library default of 128 MiB also lets a server size the decoder's buffer.",
+      "source": "pkg/http/content_coding_linux.odin",
+      "find": "ZSTD_WINDOW_LOG_MAX :: 23",
+      "replace": "ZSTD_WINDOW_LOG_MAX :: 27",
+      "gate": "make:test-http-odin",
+      "expect_detail": "zstd-window-16m: Chrome failed it, got None"
+    },
+    {
+      "name": "decodes_as_chrome_does dies when decode_content keeps a step's input buffer",
+      "why": "Every step but the last owns a buffer; one not freed leaks a decoded body per stacked coding on every response.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\t\tdelete(body^)\n",
+      "replace": "\n",
+      "gate": "make:test-http-odin",
+      "expect_detail": "leak"
+    },
+    {
+      "name": "decoded_size_is_capped dies when decode_content trusts a stream that ends as it fills the sink",
+      "why": "The sink holds one byte past max_body; a stream that ends exactly there has produced too much and would be accepted.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\t\tif err == .None && out.n > max_body {",
+      "replace": "\t\tif false {",
+      "gate": "make:test-http-odin",
+      "expect_detail": "max 19: want Body_Too_Large, got None"
+    },
+    {
+      "name": "chain_longer_than_the_cap_is_refused dies when a too-long chain is let through",
+      "why": "Each coding can cost a pass over max_body bytes; without the cap one response can pin a CPU through thousands of stacked codings.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\tcase .Too_Long:\n\t\treturn .Decoding",
+      "replace": "\tcase .Too_Long:\n\t\treturn .None",
+      "gate": "make:test-http-odin",
+      "expect_detail": "17 codings: want Decoding, got None"
+    },
+    {
+      "name": "accept_encoding_follows_the_secure_context dies when is_secure_host stops recognising 127.0.0.0/8",
+      "why": "Chrome offers br and zstd to loopback over http; not offering them changes what a local server sends.",
+      "source": "pkg/http/content_coding.odin",
+      "find": "\t\treturn ip4[0] == 127",
+      "replace": "\t\treturn false",
+      "gate": "make:test-http-odin",
+      "expect_detail": "https=false 127.0.0.1"
+    },
+    {
+      "name": "request_offers_what_it_decodes dies when build_request sends the placeholder Accept-Encoding",
+      "why": "An empty Accept-Encoding asks for identity (RFC 9110 §12.5.3), so every server would stop compressing.",
+      "source": "pkg/http/request.odin",
+      "find": "\t\t\tvalue := accept_encoding(url) if d.name == \"Accept-Encoding\" else d.value",
+      "replace": "\t\t\tvalue := d.value",
+      "gate": "make:test-http-odin",
+      "expect_detail": "larva_http.request_offers_what_it_decodes"
     }
   ]
 }
