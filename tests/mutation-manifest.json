@@ -4479,6 +4479,51 @@
       "replace": "{",
       "gate": "odin:cmd/lava:main.page_run_script_runs_once",
       "expect_detail": "a second page_run_script was accepted"
+    },
+    {
+      "name": "js_clear_globals_cannot_cancel_native_handles dies when clear_timer_cb cancels any id",
+      "why": "Page JS clearing ids 1..n disposes runtime-internal handles sharing the loop's id counter: a pkg/http transfer finishes .Cancelled, a TLS handshake loses its timeout (#92).",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\teventloop.clear_timeout_owned(loop, u64(n), js_callback_dispose)\n",
+      "replace": "\teventloop.clear_timeout(loop, u64(n))\n",
+      "gate": "odin:cmd/lava:main.js_clear_globals_cannot_cancel_native_handles",
+      "expect_detail": "native timeout"
+    },
+    {
+      "name": "clear_owned_heap_timer_respects_owner dies when the heap-timer owner check is dropped",
+      "why": "A foreign id reaches clear_timeout for a pending heap timer and runs its dispose (#92).",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\treturn loop.timers[idx].dispose == owner && clear_timeout(loop, id)\n",
+      "replace": "\t\treturn clear_timeout(loop, id)\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.clear_owned_heap_timer_respects_owner",
+      "expect_detail": "foreign owner must not cancel a heap timer"
+    },
+    {
+      "name": "clear_owned_immediate_respects_owner dies when the immediate owner check is dropped",
+      "why": "A foreign id cancels a queued internal immediate (pkg/http's transfer start) and runs its dispose (#92).",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\t\treturn loop.immediates[i].dispose == owner && clear_timeout(loop, id)\n",
+      "replace": "\t\t\treturn clear_timeout(loop, id)\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.clear_owned_immediate_respects_owner",
+      "expect_detail": "foreign owner must not cancel an immediate"
+    },
+    {
+      "name": "clear_owned_running_timer_respects_owner dies when the running-handle owner check is dropped",
+      "why": "A foreign id cancels the handle whose callback is running, so an internal interval is not re-armed (#92).",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\treturn loop.running_dispose == owner && clear_timeout(loop, id)\n",
+      "replace": "\t\treturn clear_timeout(loop, id)\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.clear_owned_running_timer_respects_owner",
+      "expect_detail": "expected p.fires to be 3"
+    },
+    {
+      "name": "clear_owned_running_timer_respects_owner dies when a running timer's dispose is not recorded",
+      "why": "Without running_dispose the owner can never cancel its own running handle: clearInterval(self) from JS would stop working.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\tloop.running_id, loop.running_dispose = timer.id, timer.dispose\n",
+      "replace": "\t\tloop.running_id, loop.running_dispose = timer.id, nil\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.clear_owned_running_timer_respects_owner",
+      "expect_detail": "expected q.fires to be 1"
     }
   ]
 }

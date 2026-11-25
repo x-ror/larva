@@ -731,6 +731,20 @@ set_immediate_cb :: proc "c" (
 	return jsc.JSValueMakeNumber(ctx, f64(id))
 }
 
+// clear_timer_cb is clearTimeout, clearInterval and clearImmediate: it cancels the
+// timer or immediate `id` if, and only if, the JS timer globals created it.
+//
+// Node:
+//   Returns undefined; an id naming no live user timer (NaN, negative, above 2^53,
+//   already fired, never issued) is a silent no-op. Only timers user code created are
+//   reachable by id: clearing every id from 1 to 100 past a fresh timer's cancels that
+//   timer and nothing of node's own (probed on the local node, v24.22.3).
+// Deviates:
+//   None observable. Lava's ids are shared with runtime-internal handles (net's
+//   TLS-handshake and drain timers, pkg/http's transfer deadline), so ownership is
+//   checked rather than structural: eventloop.clear_timeout_owned cancels only handles
+//   armed with js_callback_dispose, which every JS-created one is and no internal one
+//   is. Pinned by cmd/lava/js_clear_timer_owner_test.odin (#92).
 clear_timer_cb :: proc "c" (
 	ctx: jsc.JSContextRef,
 	function: jsc.JSObjectRef,
@@ -757,7 +771,9 @@ clear_timer_cb :: proc "c" (
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
-	eventloop.clear_timeout(loop, u64(n))
+	// Owner-checked: a plain clear_timeout would run an internal handle's dispose for
+	// any id the script guessed (#92).
+	eventloop.clear_timeout_owned(loop, u64(n), js_callback_dispose)
 	return jsc.JSValueMakeUndefined(ctx)
 }
 
