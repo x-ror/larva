@@ -4199,6 +4199,76 @@
       "replace": "    re: globToRe('pkg/http/none/**'),",
       "gate": "node-test:runtime/gates/route-gates.test.mjs",
       "expect_detail": "pkg/http/content_coding.odin"
+    },
+    {
+      "name": "sdk-diff.test.mjs dies when matchesPin stops comparing the compiler commit with the pin",
+      "why": "CI's `odin-env --check` would pass any compiler whose tag matches, so a drifted toolchain could build CI while the pin says otherwise.",
+      "source": "scripts/lib/odin-pin.mjs",
+      "find": "  if (version.commit !== null) return sameCommit(version.commit, pin.commit);",
+      "replace": "  if (version.commit !== null) return true;",
+      "gate": "node-test:scripts/sdk-diff.test.mjs",
+      "test": "matchesPin: a git build by commit, a hashless release only by the pinned release tag",
+      "expect_detail": "the commit wins over the tag"
+    },
+    {
+      "name": "sdk-diff.test.mjs dies when an @(private) foreign block's bindings are indexed as public",
+      "why": "Private SDK bindings (core:net's getifaddrs) would be reported as reuse candidates the scout cannot import.",
+      "source": "scripts/lib/odin-sdk-index.mjs",
+      "find": "        blockPrivate = transparent && wasPrivate;",
+      "replace": "        blockPrivate = false;",
+      "gate": "node-test:scripts/sdk-diff.test.mjs",
+      "test": "@(private) on a foreign block hides every binding in it",
+      "expect_detail": "getifaddrs"
+    },
+    {
+      "name": "sdk-diff.test.mjs dies when foreignHits ignores the SDK symbol's OS",
+      "why": "A POSIX-only SDK proc would be proposed as the replacement for a binding hand-declared in a Windows file.",
+      "source": "scripts/sdk-diff.mjs",
+      "find": "      if (!foreign.get(n).some((f) => osCompatible(osOf(f), e.targets))) continue;\n",
+      "replace": "",
+      "gate": "node-test:scripts/sdk-diff.test.mjs",
+      "test": "foreignHits finds hand-declared bindings the SDK exports for that OS, new ones first",
+      "expect_detail": "inet_ntop"
+    },
+    {
+      "name": "odin-env.test.mjs dies when --check stops failing on a compiler that is not the pin",
+      "why": "setup-odin's \"Verify the compiler is the pin\" step runs `odin-env --check`; without the exit a drifted toolchain builds CI green.",
+      "source": "scripts/odin-env.mjs",
+      "find": "  if (check && !r.ok) {",
+      "replace": "  if (false) {",
+      "gate": "node-test:scripts/odin-env.test.mjs",
+      "test": "--check exits 1 for a git build of another commit, even under the pinned tag",
+      "expect_detail": "a drifted compiler passed --check"
+    },
+    {
+      "name": "sdk-diff.test.mjs dies when filesAtRev mis-frames git cat-file --batch output",
+      "why": "Each object is followed by a newline; skipping it shifts every later header, so all files after the first are misread or dropped and the SDK diff is fiction.",
+      "source": "scripts/lib/odin-sdk-index.mjs",
+      "find": "    off += size + 1;",
+      "replace": "    off += size;",
+      "gate": "node-test:scripts/sdk-diff.test.mjs",
+      "test": "filesAtRev returns every public-package .odin file at each revision, byte-exact",
+      "expect_detail": "mis-framed"
+    },
+    {
+      "name": "sdk-diff.test.mjs dies when larvaSurface counts non-proc or non-foreign declarations as bindings",
+      "why": "Every local proc and foreign constant would be offered as a hand-declared binding the SDK could replace, burying the real leads.",
+      "source": "scripts/sdk-diff.mjs",
+      "find": "      if (!d.foreign || d.kind !== 'proc') continue;",
+      "replace": "      if (!d.foreign) continue;",
+      "gate": "node-test:scripts/sdk-diff.test.mjs",
+      "test": "larvaSurface collects SDK imports and hand-declared foreign procs only",
+      "expect_detail": "larvaSurface listed a non-proc or non-foreign declaration"
+    },
+    {
+      "name": "sdk-diff.test.mjs dies when --max-chars no longer trims the report",
+      "why": "The weekly sdk-news job passes the issue-body limit; an untrimmed report past 65536 characters fails to post.",
+      "source": "scripts/sdk-diff.mjs",
+      "find": "    md = render({ ...parts, brief: true });",
+      "replace": "    md = render(parts);",
+      "gate": "node-test:scripts/sdk-diff.test.mjs",
+      "test": "the sdk-diff CLI reports candidates and imported-package breaks, and --max-chars trims",
+      "expect_detail": "--max-chars was ignored"
     }
   ]
 }

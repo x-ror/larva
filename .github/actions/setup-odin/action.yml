@@ -1,0 +1,70 @@
+name: Setup Odin (pinned)
+description: >-
+  Installs the Odin toolchain pinned in .odin-version and fails unless `odin version`
+  names that commit. A pin with `release=` downloads that prebuilt release; one
+  without builds the commit from source, cached by commit and LLVM major.
+  Needs node on PATH (the verify step runs scripts/odin-env.mjs).
+
+inputs:
+  token:
+    description: GitHub token, for downloading a release.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Read .odin-version
+      id: pin
+      shell: bash
+      run: |
+        set -euo pipefail
+        get() { sed -n "s/^$1=\([^ #]*\).*/\1/p" .odin-version; }
+        commit=$(get commit); release=$(get release); llvm=$(get llvm)
+        [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::.odin-version: commit must be a full SHA"; exit 1; }
+        [[ "$llvm" =~ ^[0-9]+$ ]] || { echo "::error::.odin-version: llvm must be a major number"; exit 1; }
+        { echo "commit=$commit"; echo "release=$release"; echo "llvm=$llvm"; } >> "$GITHUB_OUTPUT"
+
+    - name: Install the pinned release
+      if: steps.pin.outputs.release != ''
+      uses: laytan/setup-odin@v2
+      with:
+        token: ${{ inputs.token }}
+        llvm-version: ${{ steps.pin.outputs.llvm }}
+        release: ${{ steps.pin.outputs.release }}
+
+    # From source: laytan/setup-odin's `branch` takes tags and branch names but not a
+    # commit, and the pin is a commit so that a daily-master SDK can be pinned exactly.
+    - name: Install LLVM for a source build
+      if: steps.pin.outputs.release == ''
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y "llvm-${{ steps.pin.outputs.llvm }}-dev" "clang-${{ steps.pin.outputs.llvm }}"
+
+    - name: Cache the source-built compiler
+      if: steps.pin.outputs.release == ''
+      id: cache
+      uses: actions/cache@v6
+      with:
+        path: ~/odin-pinned
+        key: odin-${{ runner.os }}-${{ steps.pin.outputs.commit }}-llvm${{ steps.pin.outputs.llvm }}
+
+    - name: Build the pinned commit
+      if: steps.pin.outputs.release == '' && steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        dir="$HOME/odin-pinned"
+        git init -q "$dir"
+        git -C "$dir" fetch -q --depth 1 https://github.com/odin-lang/Odin.git "${{ steps.pin.outputs.commit }}"
+        git -C "$dir" checkout -q FETCH_HEAD
+        cd "$dir" && LLVM_CONFIG="llvm-config-${{ steps.pin.outputs.llvm }}" ./build_odin.sh release
+
+    - name: Put the source-built compiler on PATH
+      if: steps.pin.outputs.release == ''
+      shell: bash
+      run: echo "$HOME/odin-pinned" >> "$GITHUB_PATH"
+
+    - name: Verify the compiler is the pin
+      shell: bash
+      run: node scripts/odin-env.mjs --check
