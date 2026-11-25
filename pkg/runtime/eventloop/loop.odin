@@ -974,6 +974,22 @@ run_once :: proc(loop: ^Loop) -> bool {
 			loop.reffed_timer_count -= 1
 		}
 
+		// An interval re-arms from a fresh clock read taken just BEFORE its callback:
+		// neither the turn's `now` (a slow timer ahead of it in this turn would pull its
+		// next fire early) nor the clock after the callback (a slow callback would push
+		// every later fire back by its own run time). Node 26.13.0's listOnTimeout does
+		// `start = binding.getLibuvNow()` before `_onTimeout()` and re-inserts with that
+		// start (read via --expose-internals); getLibuvNow updates libuv's clock, which
+		// sync_real_clock mirrors. Measured: a 100 ms timer spinning 40 ms ahead of a
+		// 100 ms interval whose first fire spins 30 ms — node prints I1 at 143, I2 at 243.
+		// Pinned by eventloop.interval_rearms_from_clock_before_its_callback.
+		rearm_start: u64
+
+		if timer.repeating {
+			sync_real_clock(loop)
+			rearm_start = loop.now_ms
+		}
+
 		loop.running_id, loop.running_dispose = timer.id, timer.dispose
 		timer.callback(loop, timer.user_data)
 		// Drain microtasks while running_id still names this timer: a task the
@@ -985,7 +1001,7 @@ run_once :: proc(loop: ^Loop) -> bool {
 
 		if timer.repeating && !is_cancel_requested(loop, timer.id) {
 			// Re-armed: stays active, so reffed_timer_count is unchanged.
-			timer.due_ms = loop.now_ms + timer.repeat_ms
+			timer.due_ms = rearm_start + timer.repeat_ms
 			timer.seq = next_sequence(loop)
 			timer_heap_push(loop, timer)
 		} else if timer.repeating {

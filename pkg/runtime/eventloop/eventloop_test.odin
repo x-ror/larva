@@ -423,6 +423,50 @@ timer_due_during_timers_phase_waits_for_next_turn :: proc(t: ^testing.T) {
 	testing.expect_value(t, pending_count(&loop), 0)
 }
 
+// record_and_spin_3 stands in for a timer callback that burns 3 ms of wall clock; on the
+// virtual clock the spin is advance_time.
+record_and_spin_3 :: proc(loop: ^Loop, user_data: rawptr) {
+	rec := cast(^Recorder)user_data
+	append(&rec.events, 1)
+	advance_time(loop, 3)
+}
+
+// record_fire_time_and_spin_4 is an interval callback that records the clock it fired
+// at, then burns 4 ms; it clears itself on its second fire.
+record_fire_time_and_spin_4 :: proc(loop: ^Loop, user_data: rawptr) {
+	rec := cast(^Recorder)user_data
+	append(&rec.events, int(now(loop)))
+	advance_time(loop, 4)
+
+	if len(rec.events) == 3 {
+		clear_interval(loop, rec.interval_id)
+	}
+}
+
+// An interval re-arms from the clock read just BEFORE its callback, so neither a slow
+// callback nor a slow timer ahead of it in the same turn drags its schedule. Node 26.13.0's
+// listOnTimeout takes `start = binding.getLibuvNow()` before the callback and re-inserts
+// with it (read via --expose-internals); measured: a 100 ms timer that spins 40 ms ahead
+// of a 100 ms interval whose first fire spins 30 ms prints I1 at 143 and I2 at 243.
+// Here A (due 10) spins 3, the interval (due 10) fires at 13 and spins 4: node's rule
+// fires it again at 13+10=23. The turn's `now` would give 20, the clock after the
+// callback 27.
+@(test)
+interval_rearms_from_clock_before_its_callback :: proc(t: ^testing.T) {
+	loop := init()
+	defer destroy(&loop)
+
+	rec := Recorder{}
+	defer delete(rec.events)
+
+	set_timeout(&loop, record_and_spin_3, 10, &rec)
+	rec.interval_id = set_interval(&loop, record_fire_time_and_spin_4, 10, &rec)
+
+	testing.expect(t, run_until_idle(&loop))
+	expect_events(t, rec.events[:], []int{1, 13, 23})
+	testing.expect_value(t, pending_count(&loop), 0)
+}
+
 @(test)
 close_callbacks_run_after_immediates :: proc(t: ^testing.T) {
 	loop := init()
