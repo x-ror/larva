@@ -1232,7 +1232,7 @@ fetch_untrack_active :: proc(state: ^Runtime_State, req: ^Fetch_Request) {
 // callbacks. It is used while the JS context is still alive but eval is already
 // returning (for example after a top-level throw). DNS lookups run on the loop's
 // generic worker pool now (fetch_dns.odin), so quiescing the resolver is no longer
-// this function's job: the loop's teardown (close_begin / close_finish) stops the pool
+// this function's job: the loop's teardown (close_begin / close_finish) closes its pool client
 // and runs dns_resolve_dispose for any job whose completion will not fire, the same as
 // fs and node:dns. We only settle the requests here.
 //

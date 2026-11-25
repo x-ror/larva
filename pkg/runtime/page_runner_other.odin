@@ -40,9 +40,7 @@ page_runner_live :: proc(runner: ^Page_Runner) -> int {return 0}
 
 page_runner_run :: proc(runner: ^Page_Runner) {}
 
-page_runner_reaping :: proc(runner: ^Page_Runner) -> int {return 0}
-
-page_runner_reap :: proc(runner: ^Page_Runner) -> int {return 0}
+page_runner_orphans :: proc(runner: ^Page_Runner) -> int {return 0}
 
 // No runner, so nothing to watch: refused, like page_runner_init.
 page_runner_watch_fd :: proc(runner: ^Page_Runner, fd: i32) -> bool {return false}

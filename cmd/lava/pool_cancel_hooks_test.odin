@@ -18,9 +18,9 @@ import eventloop "lava:pkg/runtime/eventloop"
 // Pins the Pool_Cancel hooks fs.readFile, fs.writeFile and dns.lookup register with the
 // loop's pool (#34, ported from larva#49). eventloop.close_begin must release the JS
 // callback of a job a worker is still running — on the loop thread, while the context
-// lives — rather than leave it to the job's dispose, which runs only once the worker
-// exits: in close_finish, or on the last worker of a detached loop, possibly after the
-// context and its VM are gone.
+// lives — rather than leave it to the job's dispose, which runs on the worker once its
+// `work` returns: within close_finish for eval's private pool, or any time later for a
+// page runner's shared one, possibly after the context and its VM are gone (#36).
 //
 // LAVA-ONLY and not oracle-able: eval runs both halves of the teardown back to back
 // with its context alive, so in Lava the cancel only moves the unprotect earlier — no
@@ -52,17 +52,18 @@ Watch :: struct {
 @(private = "file")
 watch_pre_run :: proc(user_data: rawptr) -> bool {
 	w := cast(^Watch)user_data
-	pool := &w.loop.pool
+	client := w.loop.pool_client
 
-	if len(pool.outstanding) != 1 {
+	if client == nil || len(client.outstanding) != 1 {
 		return false
 	}
 
-	job := pool.outstanding[0]
+	pool := client.pool
+	job := client.outstanding[0]
 	deadline := time.tick_add(time.tick_now(), 2 * time.Second)
 	for {
 		sync.lock(&pool.mutex)
-		running := job.running
+		running := job.state == .Running
 		sync.unlock(&pool.mutex)
 
 		if running {

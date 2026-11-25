@@ -118,10 +118,13 @@ Loop :: struct {
 	async_scratch:      [dynamic]Task, // swapped with async_queue under the lock to drain
 	async_mutex:        sync.Mutex,
 	active_async:       int,
-	// Per-loop worker pool for off-loop blocking/CPU-bound work (threadpool.odin).
-	// Zero-valued until first use (lazily started); stopped by close_begin, joined
-	// and freed by close_finish (or by its own last worker after close_detach).
-	pool:               Thread_Pool,
+	// The worker pool for off-loop blocking/CPU-bound work (threadpool.odin): the
+	// page runner's shared one (pool_attach), or a private one made on the first
+	// pool_submit (owns_pool). pool_client is this loop's membership in it, closed by
+	// close_begin; a private pool is waited out and freed by close_finish.
+	pool:               ^Worker_Pool,
+	pool_client:        ^Pool_Client,
+	owns_pool:          bool,
 	// Graceful-shutdown state machine (Slice 3a): Running (stop_requested false) -> Draining
 	// (stop_requested true: stop accepting + let in-flight work finish) -> Forced (force_exit true:
 	// run() returns and the deferred hard teardown reclaims the rest).
@@ -206,9 +209,6 @@ init :: proc(allocator := context.allocator, real_time := false) -> Loop {
 	loop.timer_index = make(map[Timer_ID]int, 64, allocator)
 	loop.async_queue = make([dynamic]Task, allocator)
 	loop.async_scratch = make([dynamic]Task, allocator)
-	// Bind the worker pool's containers to the loop allocator too (zero capacity —
-	// no backing or threads until the first pool_submit). See threadpool.odin.
-	pool_init(&loop.pool, allocator)
 
 	if real_time {
 		loop.start_tick = time.tick_now()
@@ -248,31 +248,29 @@ sync_real_clock :: proc(loop: ^Loop) {
 // clear_timeout, and a fired one-shot freed its own binding, so neither is
 // double-released here.
 //
-// destroy is close_begin followed by close_finish, so it waits for blocking pool work
-// still in flight: a DNS lookup until the resolver times out, a read on a pipe without
-// bound. A driver that must not wait — one that shares its thread with other work, such
-// as Larva's page runner — calls the two halves itself and finishes the loop later
-// (x-ror/larva#34).
+// destroy is close_begin followed by close_finish. A loop with a private pool waits
+// there for blocking pool work still in flight: a DNS lookup until the resolver times
+// out, a read on a pipe without bound — the loop owns its thread, as `lava run` does.
+// A loop attached to a shared pool (Larva's page runner) waits for nothing: its jobs
+// still running are left to their workers (threadpool.odin, #34 and #36).
 destroy :: proc(loop: ^Loop) {
 	close_begin(loop)
 	close_finish(loop)
 }
 
 // close_begin is the first half of destroy: everything that needs the loop thread or
-// the caller's JS context, and nothing that waits on a worker. It marks the loop
-// destroyed, stops its pool without joining it, settles every pool job (see Pool_Job:
-// `dispose` for one no worker took, `cancel` for one a worker did), disposes every
+// the caller's JS context. It marks the loop destroyed, closes its pool client — from
+// then on no worker posts to the loop — settles every pool job (see Pool_Job: `dispose`
+// for one no worker holds, `cancel` for one a worker is running), disposes every
 // pending task and timer, and closes the backend (ring or epoll, with the in-flight
-// ops' dispose hooks). What survives it is exactly what a worker can still touch: the
-// pool, the async_queue a worker posts into, and the wakeup pipe it writes.
+// ops' dispose hooks).
 //
 // Returns:
-//   workers_busy  true when a pool worker had taken a job (it may be blocked inside
-//                 `work` without bound: a read on a FIFO, a DNS lookup until the
-//                 resolver times out). The caller then owns finishing the loop —
-//                 close_finish once close_ready says it will not wait, or
-//                 close_detach — and must not free it before. false: close_finish
-//                 returns at once (idle workers exit on the stop broadcast).
+//   workers_busy  true when the loop owns its pool and a worker is still inside one of
+//                 its jobs (it may be blocked in `work` without bound: a read on a
+//                 FIFO, a DNS lookup until the resolver times out): close_finish will
+//                 wait for it. Always false for a client of a shared pool — the job is
+//                 an orphan its worker finishes on its own.
 // Node:
 //   No observable change: a callback whose page is closing never ran before either.
 //
@@ -287,9 +285,9 @@ close_begin :: proc(loop: ^Loop) -> (workers_busy: bool) {
 	loop.destroyed = true
 	sync.unlock(&loop.shutdown_mutex)
 
-	// Stop the pool first, so no worker takes another job, then settle the ones taken.
-	// A no-op when the pool was never started.
-	workers_busy = pool_stop(loop)
+	// Close the pool client first, so no worker posts here again and none takes another
+	// of this loop's jobs, then settle the ones taken. A no-op when nothing was submitted.
+	workers_busy = pool_close_client(loop)
 	dispose_pending_tasks(&loop.next_ticks)
 	dispose_pending_tasks(&loop.next_ticks_scratch)
 	dispose_pending_tasks(&loop.microtasks)
@@ -297,9 +295,6 @@ close_begin :: proc(loop: ^Loop) -> (workers_busy: bool) {
 	dispose_pending_tasks(&loop.immediates)
 	dispose_pending_tasks(&loop.io_callbacks)
 	dispose_pending_tasks(&loop.close_callbacks)
-	// async_scratch is loop-thread only (drain_async swaps it in under the lock and
-	// empties it before returning); async_queue is not — a worker still running may
-	// post into it — so it waits for close_finish, after the join.
 	dispose_pending_tasks(&loop.async_scratch)
 	// The heap is taken out of the loop before the walk. A dispose may run an embedder's
 	// callback (pkg/http finishes a transfer from its timer's dispose) that calls back
@@ -322,78 +317,30 @@ close_begin :: proc(loop: ^Loop) -> (workers_busy: bool) {
 	return
 }
 
-// close_finish is the second half of destroy: it joins the pool's workers, disposes
-// the jobs they had taken (memory only — close_begin already released their engine
-// half), closes the wakeup pipe — after the join, never before, so no worker writes a
-// closed descriptor whose number a sibling loop may already hold — and frees the
-// loop's containers. It never runs a `done`, and does not free the Loop struct itself.
+// close_finish is the second half of destroy: it waits out and frees a private pool —
+// its workers exit once every job they hold returns, disposing those jobs' memory on
+// the way (close_begin already released their engine half) — then closes the wakeup
+// pipe and frees the loop's containers. It never runs a `done`, and does not free the
+// Loop struct itself.
 //
-// Blocks while a worker is still inside `work`; close_ready says when it will not.
-// Needs neither the loop thread's JS context nor the loop thread itself: after
-// close_begin nothing here touches anything but the loop's own memory.
+// Blocks while a private pool's worker is still inside `work` (close_begin said so);
+// never for a shared pool's client. Needs neither the loop thread's JS context nor the
+// loop thread itself: after close_begin nothing here touches anything but the loop's
+// own memory and its pool.
 close_finish :: proc(loop: ^Loop) {
-	pool_join(loop)
+	pool_close_private(loop)
 	close_release(loop)
 }
 
-// close_ready reports whether close_finish would return without waiting: every pool
-// worker has left its job loop (pool.exited). A worker counts itself out, then writes
-// the wakeup pipe (wakeup_fd), so a driver waiting on the pipe wakes after the count
-// has moved. The join in close_finish still waits for the worker's thread to end, but
-// past that point it runs no blocking call — only Odin's thread epilogue.
-close_ready :: proc(loop: ^Loop) -> bool {
-	pool := &loop.pool
-	return !pool.started || sync.atomic_load(&pool.exited) == len(pool.threads)
-}
-
-// close_detach finishes a loop after close_begin without waiting for its workers: if
-// they have all exited it calls close_finish, and otherwise leaves the loop to them —
-// the last worker to exit joins the others, disposes the outstanding jobs, closes the
-// wakeup pipe and frees the loop.
-//
-// Returns:
-//   detached  true when the workers now own the loop: the caller must not touch it
-//             again. false when close_finish already ran and the caller still frees
-//             the Loop struct.
-//
-// PRECONDITION: the Loop struct was allocated with `new(Loop, loop.allocator)` and that
-// allocator is thread-safe and outlives the workers (the heap, which Larva's page
-// runner uses for its loops), since the last worker frees the struct through it from its own
-// thread. The worker's own Thread struct is freed by core:thread once it has returned
-// (Self_Cleanup), so a detached loop leaks nothing — thread.destroy is unusable on the
-// calling thread itself, since Odin sets `Done` after the thread proc returns.
-close_detach :: proc(loop: ^Loop) -> (detached: bool) {
-	pool := &loop.pool
-
-	if pool.started {
-		sync.lock(&pool.mutex)
-
-		if pool.exited < len(pool.threads) {
-			pool.detached = true
-			detached = true
-		}
-
-		// From the unlock on, the last worker may free the loop at any moment.
-		sync.unlock(&pool.mutex)
-	}
-
-	if !detached {
-		close_finish(loop)
-	}
-
-	return
-}
-
-// close_release frees what close_begin left: the jobs still outstanding, the posted
-// completions, the wakeup pipe and every container. Runs once every worker has
-// exited — from close_finish on the caller's thread after the join, or from the last
-// worker of a detached loop.
+// close_release frees what close_begin left: the posted completions, the wakeup pipe
+// and every container. No worker can post here any more (close_begin closed the
+// client), so nothing waits for one.
 @(private)
 close_release :: proc(loop: ^Loop) {
-	pool_dispose_outstanding(loop)
 	// The completions workers posted are never invoked (`done` never runs after
-	// close_begin); post_async gives them no dispose, so this releases nothing today
-	// and keeps the "every pending task is disposed" rule uniform.
+	// close_begin, which disposed their jobs); post_async gives them no dispose, so
+	// this releases nothing today and keeps the "every pending task is disposed" rule
+	// uniform.
 	dispose_pending_tasks(&loop.async_queue)
 	platform_close_wakeup(loop)
 	delete(loop.next_ticks)
@@ -408,14 +355,11 @@ close_release :: proc(loop: ^Loop) {
 	delete(loop.cancelled_ids)
 	delete(loop.async_queue)
 	delete(loop.async_scratch)
-	pool_destroy(&loop.pool, loop.allocator) // frees the pool backings (workers already gone)
 	// NOT `loop^ = Loop{}`: that bulk-zero would race a cross-thread request_shutdown (the worker
 	// supervisor) on the shutdown_mutex/destroyed/wakeup_pipe words. `destroyed` was set true under the
 	// mutex in close_begin and must STAY true so a late request_shutdown sees it and no-ops; the
 	// explicit deletes above already released every owned allocation, so the remaining stale scalar
-	// fields are harmless (the loop is on the owner's stack / the process is exiting). A detached
-	// loop's struct is freed right after this by its last worker; request_shutdown is the supervisor's,
-	// for eval loops, and never reaches a runner page's loop — the only kind that is detached.
+	// fields are harmless (the loop is on the owner's stack / the process is exiting).
 }
 
 // dispose_pending_tasks releases the user_data of every not-yet-fired, not-cancelled

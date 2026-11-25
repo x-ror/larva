@@ -6,11 +6,12 @@ import "core:testing"
 import "core:time"
 
 // close_begin must leave a job a worker has taken to that worker: cancel it, report the
-// pool busy, and dispose it only once the worker has exited (close_finish). Lava-only
+// pool busy, and leave its dispose to the worker, once `work` returns (close_finish
+// waits for that on a private pool). Lava-only
 // companion to eventloop_close_test.odin's close_begin_cancels_a_running_job_without_
 // waiting_for_it (byte-identical to Larva's), for the one property that test cannot
 // pin deterministically: when close_begin disposes the running job, that test goes on
-// to release the worker, which then reads job.loop out of the freed Pool_Job to post
+// to release the worker, which then reads job.client out of the freed Pool_Job to post
 // its completion — a use-after-free. Locally it faults in post_async's mutex lock on
 // a pointer made of reused bytes; on CI (ubuntu, 4 cores) the same mutant hung until
 // the 120 s gate timeout instead, the garbage evidently landing on mapped memory. Its
@@ -87,10 +88,6 @@ close_begin_never_disposes_a_job_its_worker_is_running :: proc(t: ^testing.T) {
 	testing.expect_value(t, sync.atomic_load(&job.cancel), 1)
 
 	sync.sema_post(&job.gate)
-	deadline = time.tick_add(time.tick_now(), 3 * time.Second)
-	for !close_ready(loop) && time.tick_diff(time.tick_now(), deadline) > 0 {
-		time.sleep(time.Millisecond)
-	}
 	close_finish(loop)
 	free(loop, heap)
 	testing.expect_value(t, sync.atomic_load(&job.dispose), 1)

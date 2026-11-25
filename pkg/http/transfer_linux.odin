@@ -892,7 +892,7 @@ decodes_inline :: proc(chain: Chain, n: int) -> bool {
 // .Cancelled: it is the dispose of the transfer's timer, which eventloop.close_begin runs
 // for a timer still armed. No more ticks will come, so the immediate that would start the
 // transfer is gone with them. A pool job the transfer was waiting for has already been
-// settled by then (pool_stop runs first), and its cancel or dispose cleared t.dns or
+// settled by then (close_begin closes the pool client first), and its cancel or dispose cleared t.dns or
 // t.decode, so finish does not reach into freed memory.
 //
 // A zero t.timer means finish itself is clearing the timer: nothing to do.

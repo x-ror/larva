@@ -87,7 +87,8 @@ Done_Proc :: #type proc(response: Response, user_data: rawptr)
 //              arena). It must outlive eventloop.destroy, not only the loop's run:
 //              a decode the timeout overtook frees through it when it returns, after
 //              on_done, and a decode a worker was running when the loop closed is freed
-//              in close_finish, or by the last worker of a detached loop.
+//              by that worker once the decode returns — within close_finish for a
+//              loop's private pool, any time later for a shared one.
 //
 // Returns:
 //   .None once `on_done` is guaranteed to run; any other error means the request did

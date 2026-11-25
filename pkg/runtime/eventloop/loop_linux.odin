@@ -193,7 +193,7 @@ platform_init :: proc(loop: ^Loop) -> bool {
 // pipe: the ring or epoll instance, and with the ring every in-flight op, whose
 // Op_Dispose hooks run here. Those hooks reach the net layer's Runtime_State and JS
 // context (net_maybe_free), so this runs in close_begin, while both are alive. The
-// pipe is left to platform_close_wakeup: a pool worker may still write it.
+// pipe is left to platform_close_wakeup, in close_finish.
 platform_close_backend :: proc(loop: ^Loop) {
 	if loop.platform.use_uring {
 		// Tear the ring down FIRST: closing the io_uring fd cancels every in-flight op in the
@@ -238,9 +238,10 @@ platform_close_backend :: proc(loop: ^Loop) {
 }
 
 // platform_close_wakeup closes the wakeup pipe — only once no thread can write it any
-// more (close_finish: every pool worker joined, or exited for a detached loop). In a
-// page runner fd numbers are reused at once, so a pipe closed under a live worker
-// would hand its late wakeup byte to whichever sibling got the number (#34).
+// more: close_finish, after close_begin closed the loop's pool client, past which no
+// worker posts to the loop (threadpool.odin). In a page runner fd numbers are reused at
+// once, so a pipe closed under a worker that could still post would hand its late
+// wakeup byte to whichever sibling got the number (#34, #36).
 platform_close_wakeup :: proc(loop: ^Loop) {
 	if loop.platform.wakeup_pipe[0] >= 0 {
 		linux.close(loop.platform.wakeup_pipe[0])
@@ -267,17 +268,6 @@ platform_wakeup :: proc(loop: ^Loop) {
 
 	b := [1]u8{1}
 	linux.write(loop.platform.wakeup_pipe[1], b[:])
-}
-
-// wakeup_fd returns the wakeup pipe's read end, for a driver that has to wait on a
-// loop it no longer ticks while its pool workers exit (Larva's page runner keeps such
-// loops on a reaping list). Every worker writes the pipe as it exits (and
-// on every completion it posts), so the read end becomes readable each time the loop
-// may have become ready to finish. A plain pipe fd under both backends, unlike
-// the ring or epoll instance, which close_begin has already closed. false once
-// the pipe is gone (a failed platform_init, or after close_finish).
-wakeup_fd :: proc(loop: ^Loop) -> (fd: linux.Fd, ok: bool) {
-	return loop.platform.wakeup_pipe[0], loop.platform.wakeup_pipe[0] >= 0
 }
 
 // drain_wakeup empties the wakeup pipe's read end so it is not perpetually

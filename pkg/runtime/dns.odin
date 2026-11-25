@@ -48,8 +48,8 @@ Dns_Lookup_Request :: struct {
 	// from dns_request_free under the loop/teardown context. Routing alloc+free through
 	// this stored allocator keeps the pair matched. Not the Runtime_State's allocator
 	// (in Larva, a page runner's): a pool worker writes into this struct and may still
-	// be resolving after a detached loop's owner has freed that allocator
-	// (x-ror/larva#34). (results carries its own bound allocator — the
+	// be resolving after its page closed and the runner that owned that allocator
+	// was destroyed (x-ror/larva#34, #36). (results carries its own bound allocator — the
 	// worker's, the heap — so plain delete() frees it correctly.)
 	allocator: runtime.Allocator,
 	hostname:  string, // owned clone (the worker reads it off-loop)
@@ -342,7 +342,7 @@ dns_lookup_complete_cb :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 // callback (WITHOUT invoking it) if it is still held. It runs from the completion
 // (dns_lookup_complete_cb, after the callback has fired) or from dns_dispose (pool
 // teardown, before it fires). It never races a worker: the pool disposes a job a
-// worker took only once that worker has exited.
+// worker took only once that worker's `work` has returned.
 dns_request_free :: proc(req: ^Dns_Lookup_Request) {
 	if req == nil {
 		return
@@ -362,7 +362,7 @@ dns_request_free :: proc(req: ^Dns_Lookup_Request) {
 // never run because the loop was torn down (see threadpool.odin). Exactly one of
 // {dns_lookup_complete_cb, dns_dispose} runs per request. For a lookup no worker took
 // it runs in close_begin, with the context alive, and unprotects the callback; for one
-// a worker took, dns_cancel already did, and this runs once the worker has exited —
+// a worker took, dns_cancel already did, and this runs once its `work` returns —
 // maybe after the context is gone, maybe on that worker's thread — freeing heap
 // memory only.
 dns_dispose :: proc(user_data: rawptr) {

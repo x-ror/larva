@@ -27,16 +27,18 @@ import eventloop "lava:pkg/runtime/eventloop"
 // destroys the loop and cancels all of it. With a shared loop every handle would need
 // a page owner tag, and one missed tag would fire a closed page's timer into the next
 // page that reuses the VM (docs/GLOBAL-STATE.md, "The event loop"). The price is the
-// loop's descriptors (epoll or io_uring, plus the wakeup pipe), closed with the page —
-// the pipe later, if a pool worker is still blocked (page_close).
+// loop's descriptors (epoll or io_uring, plus the wakeup pipe), closed with the page.
+// Pool jobs are the one thing a page's loop does not own outright: the page runner's
+// pages share its worker pool, and a job that is still running when its page closes
+// finishes without it (eventloop threadpool.odin, #36).
 Page :: struct {
 	vm:           ^VM,
 	ctx:          jsc.JSGlobalContextRef,
 	global_class: jsc.JSClassRef,
 	state:        ^Runtime_State,
 	// The page's loop; nil for a loop-less eval. Owned (closed by page_close, or
-	// handed back by it with a busy worker) from the moment it is handed to
-	// page_open, on every path.
+	// handed back by it with a private pool's worker busy) from the moment it is
+	// handed to page_open, on every path.
 	loop:         ^eventloop.Loop,
 	// The top-level completion value, kept for `lava eval`'s echo and GC-protected
 	// until page_close, since the loop runs (and can collect) in between.
@@ -614,14 +616,15 @@ page_tick :: proc(page: ^Page) -> (alive: bool, did_work: bool) {
 //   report_data        Passed to `report`.
 // Returns:
 //   result     The page's Result.
-//   busy_loop  nil once the page's loop is fully closed, or when it had none. The loop
-//              itself when one of its pool workers was still inside a job — a read on
-//              a FIFO, a DNS lookup the resolver has not answered — so that closing it
-//              would wait for as long as the job blocks (#34). Its JS side is gone and
-//              every callback released; what is left is the loop's pool, its async
-//              queue and its wakeup pipe, which the caller owns finishing:
-//              eventloop.close_finish (eval, which waits), or the page runner's
-//              reaping list.
+//   busy_loop  nil once the page's loop is fully closed, or when it had none — always
+//              for a loop attached to a shared pool (the page runner's): a job still
+//              running there is an orphan its worker finishes alone. The loop itself
+//              when it owns a private pool (eval) and one of its workers was still
+//              inside a job — a read on a FIFO, a DNS lookup the resolver has not
+//              answered — so that closing it would wait for as long as the job blocks
+//              (#34). Its JS side is gone and every callback released; what is left is
+//              the loop's pool, its async queue and its wakeup pipe, which the caller
+//              owns finishing with eventloop.close_finish, which waits.
 // Node:
 //   No observable change: a closing page's callbacks never ran after close before
 //   either; only when the thread gets back moves.
@@ -631,8 +634,8 @@ page_tick :: proc(page: ^Page) -> (alive: bool, did_work: bool) {
 //      dispose and cancel hooks unprotect callbacks, so the context must be alive.
 //      close_begin settles every pool job (fs, node:dns and fetch's DNS lookups all run
 //      on the loop's pool) without waiting for one a worker is still running: that
-//      job's JS half is released by its cancel hook here, and its memory goes when the
-//      worker exits;
+//      job's JS half is released by its cancel hook here, and its memory goes when its
+//      `work` returns;
 //   2. destroy_runtime_state — JSValueUnprotect on cached modules needs the context;
 //   3. release the context;
 //   4. return the VM to its pool, only after its context is gone: a pooled VM never
@@ -643,9 +646,9 @@ page_tick :: proc(page: ^Page) -> (alive: bool, did_work: bool) {
 //      (pinned by vm_watchdog_cut_job_chain_does_not_outlive_the_next_api_exits and
 //      runner_second_page_in_a_reused_vm_sees_nothing_of_a_killed_first);
 //   5. release the global class;
-//   6. eventloop.close_finish, when no worker was busy: idle workers exit on
-//      close_begin's broadcast, so this returns at once, and closes the loop's last
-//      descriptor, its wakeup pipe.
+//   6. eventloop.close_finish, when no worker was busy: it returns at once (a private
+//      pool's idle workers exit on its release; a shared pool is not waited on at all)
+//      and closes the loop's last descriptor, its wakeup pipe.
 page_close :: proc(
 	page: ^Page,
 	heap_sample_every := 0,

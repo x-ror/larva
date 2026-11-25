@@ -74,42 +74,6 @@
       "expect_detail": "run_until_idle_waits_out_a_stale_wakeup"
     },
     {
-      "name": "timer_due_during_timers_phase_waits_for_next_turn dies when the timers phase reads the live clock again",
-      "why": "set_timer re-syncs now_ms, so a callback that spins and then calls setTimeout pulls a timer that fell due mid-phase into this turn, ahead of this turn's setImmediate (node prints A,imm,B).",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\tif root.due_ms > timer_phase_now {",
-      "replace": "\t\tif root.due_ms > loop.now_ms {",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.timer_due_during_timers_phase_waits_for_next_turn",
-      "expect_detail": "expected len(actual) to be 2, got 3"
-    },
-    {
-      "name": "interval_rearms_from_clock_before_its_callback dies when an interval re-arms from the clock after its callback again",
-      "why": "node's listOnTimeout re-inserts an interval with the start it read before _onTimeout(), so a slow callback does not push every later fire back by its own run time.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\t\ttimer.due_ms = rearm_start + timer.repeat_ms",
-      "replace": "\t\t\ttimer.due_ms = loop.now_ms + timer.repeat_ms",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.interval_rearms_from_clock_before_its_callback",
-      "expect_detail": "expected value to be 23, got 27"
-    },
-    {
-      "name": "interval_rearms_from_clock_before_its_callback dies when an interval re-arms from the turn's now",
-      "why": "node reads a fresh getLibuvNow() per interval fire, not the processTimers `now`, so a slow timer ahead of the interval in the same turn does not pull its next fire early.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\t\trearm_start = loop.now_ms",
-      "replace": "\t\t\trearm_start = timer_phase_now",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.interval_rearms_from_clock_before_its_callback",
-      "expect_detail": "expected value to be 23, got 20"
-    },
-    {
-      "name": "eventloop case 13 dies when the interval's pre-callback start skips the real clock",
-      "why": "In real_time mode now_ms only moves on a sync, so without one before the callback the re-arm start is the turn's now (or whatever a prior callback's setTimeout left), firing the interval early; the virtual-clock test cannot see this.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\tif timer.repeating {\n\t\t\tsync_real_clock(loop)\n",
-      "replace": "\t\tif timer.repeating {\n",
-      "gate": "compat:tests/runtime/eventloop/cases/13-interval-rearms-from-callback-start.js",
-      "expect_detail": "'interval2', 'early'"
-    },
-    {
       "name": "the detector's fixtures die when isWrite swallows read-modify-write again",
       "why": "Compound, logical and update assignments all run GetValue before PutValue, so exempting them lets the ratchet pay out for rewriting a counted read as `??=`.",
       "source": "scripts/lib/primordials-detect.mjs",
@@ -1379,6 +1343,24 @@
       "expect_detail": "a cleared budget still terminated the next page"
     },
     {
+      "name": "vm_entry_limit_terminates_runaway_script dies when vm_release keeps the armed watchdog",
+      "why": "An entry-limit kill latches the watchdog at its 1 ms floor; left armed, it terminates the next page on the reused VM after 1 ms of CPU.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tif vm.armed_limit > 0 {\n\t\tjsc.JSContextGroupClearExecutionTimeLimit(vm.group)\n\t}\n\n\tvm.entry_limit = 0\n",
+      "replace": "\tvm.entry_limit = 0\n",
+      "gate": "odin:cmd/lava:main.vm_entry_limit_terminates_runaway_script",
+      "expect_detail": "limit leaked past vm_release"
+    },
+    {
+      "name": "eval_after_a_killed_page_runs_unlimited dies when vm_release keeps the armed watchdog",
+      "why": "The next lava.eval on the thread's pool reuses the killed page's VM; a watchdog left at the kill floor cuts it as an entry-limit kill.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tif vm.armed_limit > 0 {\n\t\tjsc.JSContextGroupClearExecutionTimeLimit(vm.group)\n\t}\n\n\tvm.entry_limit = 0\n",
+      "replace": "\tvm.entry_limit = 0\n",
+      "gate": "odin:cmd/lava:main.eval_after_a_killed_page_runs_unlimited",
+      "expect_detail": "expected result.kill to be None, got Entry_Limit"
+    },
+    {
       "name": "runner_busy_page_is_not_held_up_by_a_waiting_sibling dies when a page loop may block in its own poll",
       "why": "A page loop that blocks on its own timer stalls every other page on the thread, so ten 300 ms pages run one after another.",
       "source": "pkg/runtime/page_runner.odin",
@@ -1407,121 +1389,44 @@
       "timeout_ms": 600000
     },
     {
-      "name": "runner_fd_count_stays_flat_over_10k_pages dies when the reaper drops a reaping loop without finishing it",
-      "why": "A loop that went through the reaping list still holds its wakeup pipe; reaping it without close_finish leaks two fds per page that closed with a blocked worker (#34).",
-      "source": "pkg/runtime/page_runner.odin",
-      "find": "\t\teventloop.close_finish(e.loop)\n\t\tfree(e.loop, runtime.heap_allocator())\n",
-      "replace": "\t\tfree(e.loop, runtime.heap_allocator())\n",
-      "gate": "odin:cmd/lava:main.runner_fd_count_stays_flat_over_10k_pages",
-      "expect_detail": "fd count grew",
-      "timeout_ms": 600000
-    },
-    {
       "name": "close_begin_cancels_a_running_job_without_waiting_for_it dies when close_begin skips the cancel hook of a running job",
       "why": "Without the cancel, a job's protected JS callback is unprotected only by its late dispose, after the page's context — or the runner's VM — is gone.",
       "source": "pkg/runtime/eventloop/threadpool.odin",
-      "find": "\t\t\tif job.cancel != nil {\n\t\t\t\tjob.cancel(job.user_data)\n\t\t\t}\n\n\t\t\tbusy = true",
-      "replace": "\t\t\tbusy = true",
+      "find": "\tfor job in c.outstanding[:orphans] {\n\t\tif job.cancel != nil {\n\t\t\tjob.cancel(job.user_data)\n\t\t}\n\t}\n",
+      "replace": "",
       "gate": "odin:pkg/runtime/eventloop:eventloop.close_begin_cancels_a_running_job_without_waiting_for_it",
       "expect_detail": "job.cancel) to be 1"
     },
     {
-      "name": "close_detach_leaves_the_loop_to_its_last_worker dies when the last worker of a detached loop does not release it",
-      "why": "A detached loop has no other owner: if its last worker just exits, its jobs, its wakeup pipe and its memory leak forever.",
+      "name": "runner_close_does_not_wait_for_a_worker_blocked_on_a_fifo dies when close_begin reports a shared-pool loop busy",
+      "why": "A page loop handed back busy would have to be finished by joining its worker, blocked in open() on the FIFO — the whole runner thread with it (#34); a shared pool's client never waits (#36).",
       "source": "pkg/runtime/eventloop/threadpool.odin",
-      "find": "\t\t\tif last_of_detached {\n",
-      "replace": "\t\t\tif false {\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.close_detach_leaves_the_loop_to_its_last_worker",
-      "expect_detail": "job.dispose) to be 1"
-    },
-    {
-      "name": "runner_close_does_not_wait_for_a_worker_blocked_on_a_fifo dies when page_close finishes a busy loop itself",
-      "why": "Finishing the loop joins the worker blocked in open() on the FIFO, and the whole runner thread with it (#34).",
-      "source": "pkg/runtime/page.odin",
-      "find": "\t\tif eventloop.close_begin(page.loop) {\n\t\t\tbusy_loop = page.loop\n\t\t}\n",
-      "replace": "\t\teventloop.close_begin(page.loop)\n",
+      "find": "\treturn loop.owns_pool && orphans > parked\n",
+      "replace": "\treturn orphans > parked\n",
       "gate": "odin:cmd/lava:main.runner_close_does_not_wait_for_a_worker_blocked_on_a_fifo",
-      "expect_detail": "page_close waited on a worker blocked in open() on a FIFO"
+      "expect_detail": "handed back busy"
     },
     {
-      "name": "runner_close_does_not_wait_for_a_hanging_dns_lookup dies when close_begin does not report a running job as busy",
-      "why": "A lookup the resolver has not answered then reads as idle, page_close joins it, and the runner thread waits out the resolver's timeouts (#34).",
-      "source": "pkg/runtime/eventloop/threadpool.odin",
-      "find": "\t\t\tbusy = true\n",
-      "replace": "",
-      "gate": "odin:cmd/lava:main.runner_close_does_not_wait_for_a_hanging_dns_lookup",
-      "expect_detail": "page_close waited for a DNS lookup",
-      "timeout_ms": 60000
-    },
-    {
-      "name": "runner_reaping_loop_keeps_its_pipe_until_its_worker_exits dies when close_begin closes the wakeup pipe",
-      "why": "A worker still blocked will write its late wakeup into that descriptor number, which the runner has already handed to a sibling's loop (#34).",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\tplatform_close_backend(loop)\n\treturn\n",
-      "replace": "\tplatform_close_backend(loop)\n\tplatform_close_wakeup(loop)\n\treturn\n",
-      "gate": "odin:cmd/lava:main.runner_reaping_loop_keeps_its_pipe_until_its_worker_exits",
-      "expect_detail": "not the loop's wakeup pipe"
-    },
-    {
-      "name": "runner_second_page_in_a_reused_vm_gets_no_callback_from_the_first_pages_job dies when close_begin disposes a job a worker is running",
-      "why": "Disposing a running job frees what its worker is still using and leaves the page close to join that worker; the next page on the VM waits behind it.",
-      "source": "pkg/runtime/eventloop/threadpool.odin",
-      "find": "\t\tif job.running {\n",
-      "replace": "\t\tif false {\n",
-      "gate": "odin:cmd/lava:main.runner_second_page_in_a_reused_vm_gets_no_callback_from_the_first_pages_job",
-      "expect_detail": "the first page's close waited on its worker"
-    },
-    {
-      "name": "runner_refuses_pages_while_its_reaping_list_is_full dies when page_runner_open ignores the reaping bound",
-      "why": "Pages that read FIFOs never release their reaping entries; without the bound they pile up threads and fds until the process runs out (#34).",
+      "name": "runner_refuses_pages_at_its_orphan_bound dies when page_runner_open ignores the orphan bound",
+      "why": "Pages that read FIFOs never release their orphaned workers; without the bound they pile up threads until the process runs out (#34, #36).",
       "source": "pkg/runtime/page_runner.odin",
-      "find": "\tif runner_reap(runner) >= runner.reap_limit {\n",
-      "replace": "\tif runner_reap(runner) >= runner.reap_limit + 1000 {\n",
-      "gate": "odin:cmd/lava:main.runner_refuses_pages_while_its_reaping_list_is_full",
+      "find": "\tif page_runner_orphans(runner) >= runner.orphan_limit {\n",
+      "replace": "\tif page_runner_orphans(runner) >= runner.orphan_limit + 1000 {\n",
+      "gate": "odin:cmd/lava:main.runner_refuses_pages_at_its_orphan_bound",
       "expect_detail": "page_runner_live(&runner) to be 0"
     },
     {
-      "name": "runner_destroy_detaches_loops_whose_workers_are_blocked dies when page_runner_destroy joins a reaping loop",
-      "why": "Joining moves the hang from page_close to destroy: the runner thread waits for as long as the blocked read does (#34).",
-      "source": "pkg/runtime/page_runner.odin",
-      "find": "\t\tif !eventloop.close_detach(e.loop) {\n\t\t\tfree(e.loop, runtime.heap_allocator())\n\t\t}\n",
-      "replace": "\t\teventloop.close_finish(e.loop)\n\t\tfree(e.loop, runtime.heap_allocator())\n",
-      "gate": "odin:cmd/lava:main.runner_destroy_detaches_loops_whose_workers_are_blocked",
-      "expect_detail": "page_runner_destroy took"
-    },
-    {
-      "name": "runner_destroy_detaches_loops_whose_workers_are_blocked dies when a page loop is allocated from the runner allocator",
-      "why": "A detached loop outlives the runner; on the runner allocator, its workers write into memory the embedder freed after destroy (CLAUDE.md §4). The fault lands on whichever thread touches the unmapped arena first: the test thread (the runner's 'Signal caught: Segmentation_Fault') or a pool worker, whose signal makes Odin's runner abort the process ('odin test exited', core/testing/signal_handler_libc.odin:53-63) — the same death; CI (ubuntu-26.04) saw the latter.",
-      "source": "pkg/runtime/page_runner.odin",
-      "find": "\trp.loop = new(eventloop.Loop, runtime.heap_allocator())\n\trp.loop^ = eventloop.init(runtime.heap_allocator(), real_time = true)\n",
-      "replace": "\trp.loop = new(eventloop.Loop, runner.allocator)\n\trp.loop^ = eventloop.init(runner.allocator, real_time = true)\n",
-      "gate": "odin:cmd/lava:main.runner_destroy_detaches_loops_whose_workers_are_blocked",
-      "expect_detail": [
-        "Segmentation_Fault",
-        "odin test exited"
-      ]
-    },
-    {
-      "name": "runner_destroy_detaches_loops_whose_workers_are_blocked dies when fs.readFile registers no cancel hook",
+      "name": "runner_destroy_does_not_wait_for_blocked_workers dies when fs.readFile registers no cancel hook",
       "why": "Without fs_read_cancel the callback stays protected until the late dispose, which then calls into a VM the runner already destroyed, from a worker thread. Locally (ubuntu-24.04) that late call faults on the worker ('odin test exited'); on CI's ubuntu-26.04 build (run 43699940285) no fault reached the process within the wait, and the detached loop's last worker never finished its teardown, so the test's own check that the pipe closes fails — both are that late call into the destroyed VM; the unmutated test closes the pipe within milliseconds of the release.",
       "source": "pkg/runtime/fs.odin",
       "find": "fs_read_dispose, fs_read_cancel) {",
       "replace": "fs_read_dispose) {",
-      "gate": "odin:cmd/lava:main.runner_destroy_detaches_loops_whose_workers_are_blocked",
+      "gate": "odin:cmd/lava:main.runner_destroy_does_not_wait_for_blocked_workers",
       "expect_detail": [
         "odin test exited",
         "Segmentation_Fault",
-        "was never closed after its worker exited"
+        "the blocked jobs never finished after destroy"
       ]
-    },
-    {
-      "name": "runner_reaping_frees_through_matching_allocators dies when the reaper frees a heap loop through the runner allocator",
-      "why": "The loop came from the heap; freeing it through the runner allocator is an alloc/free mismatch (CLAUDE.md §4).",
-      "source": "pkg/runtime/page_runner.odin",
-      "find": "\t\tfree(e.loop, runtime.heap_allocator())\n\t\tunordered_remove(&runner.reaping, i)\n",
-      "replace": "\t\tfree(e.loop, runner.allocator)\n\t\tunordered_remove(&runner.reaping, i)\n",
-      "gate": "odin:cmd/lava:main.runner_reaping_frees_through_matching_allocators",
-      "expect_detail": "never allocated"
     },
     {
       "name": "runner_close_does_not_wait_for_a_hanging_dns_lookup dies when a node:dns request is allocated from the runner allocator",
@@ -1533,7 +1438,7 @@
       "expect_detail": [
         "Segmentation_Fault",
         "odin test exited",
-        "was never closed after the resolver timed out"
+        "still running 15 s after the runner was destroyed"
       ],
       "timeout_ms": 60000
     },
@@ -1547,7 +1452,7 @@
       "expect_detail": [
         "Segmentation_Fault",
         "odin test exited",
-        "was never closed after the resolver timed out"
+        "still running 15 s after the runner was destroyed"
       ],
       "timeout_ms": 60000
     },
@@ -1561,32 +1466,9 @@
       "expect_detail": [
         "Segmentation_Fault",
         "odin test exited",
-        "was never closed after the resolver timed out"
+        "still running 15 s after the runner was destroyed"
       ],
       "timeout_ms": 60000
-    },
-    {
-      "name": "runner_reaps_a_loop_as_soon_as_its_worker_exits dies when the reaping pipe is registered without EPOLLIN",
-      "why": "The runner then sleeps through a worker's exit wakeup and reaps the loop only when something else wakes it, holding its threads and fds meanwhile.",
-      "source": "pkg/runtime/page_runner.odin",
-      "find": "\t\t\tevents = {.IN, .ET},\n\t\t}\n\n\t\tif linux.epoll_ctl(runner.epfd, .ADD, fd, &ev) == .NONE {\n\t\t\te.fd = fd\n\t\t}\n",
-      "replace": "\t\t\tevents = {.ET},\n\t\t}\n\n\t\tif linux.epoll_ctl(runner.epfd, .ADD, fd, &ev) == .NONE {\n\t\t\te.fd = fd\n\t\t}\n",
-      "gate": "odin:cmd/lava:main.runner_reaps_a_loop_as_soon_as_its_worker_exits",
-      "expect_detail": "the runner slept through its wakeup pipe"
-    },
-    {
-      "name": "runner_fd_count_stays_flat_over_10k_pages dies when a busy loop is freed instead of reaped",
-      "why": "The blocked worker still holds the freed Loop: once a later page's allocation reuses it, the worker's late post_async and wakeup write into live memory (seen as a fault within ~2 s, 3/3 runs); were it not reused, the skipped close_finish leaks the wakeup pipe per busy page.",
-      "source": "pkg/runtime/page_runner.odin",
-      "find": "\t\trunner_reap_add(runner, busy_loop)\n",
-      "replace": "\t\tfree(rp.loop, runtime.heap_allocator())\n",
-      "gate": "odin:cmd/lava:main.runner_fd_count_stays_flat_over_10k_pages",
-      "expect_detail": [
-        "Segmentation_Fault",
-        "odin test exited",
-        "fd count grew"
-      ],
-      "timeout_ms": 600000
     },
     {
       "name": "runner_destroy_reports_live_pages_cancelled dies when destroy reports a cut-off page as finished",
@@ -2206,39 +2088,93 @@
     },
     {
       "name": "close_begin_cancels_a_running_job_without_waiting_for_it dies when close_begin does not report a running job as busy",
-      "why": "The caller then reads a loop whose worker is blocked as idle and calls close_finish, joining that worker for as long as its job blocks (#34) — Lava's port of larva#49's runner_close_does_not_wait_for_a_hanging_dns_lookup entry, which a page runner gates.",
+      "why": "eval then reads a loop whose private pool's worker is blocked as idle, and cannot tell that close_finish will wait for as long as the job blocks (#34).",
       "source": "pkg/runtime/eventloop/threadpool.odin",
-      "find": "\t\t\tbusy = true\n",
-      "replace": "",
+      "find": "\treturn loop.owns_pool && orphans > parked\n",
+      "replace": "\treturn false\n",
       "gate": "odin:pkg/runtime/eventloop:eventloop.close_begin_cancels_a_running_job_without_waiting_for_it",
       "expect_detail": "close_begin did not report the blocked worker"
     },
     {
       "name": "close_begin_never_disposes_a_job_its_worker_is_running dies when close_begin disposes a job a worker is running",
-      "why": "Disposing a running job frees the Pool_Job its worker reads job.loop from to post its completion, and the user_data it is still inside `work` on — Lava's port of larva#49's runner_second_page_in_a_reused_vm_gets_no_callback_from_the_first_pages_job entry, which a page runner gates. The gate test fails before it releases the worker. Gated by close_begin_cancels_a_running_job_without_waiting_for_it, which releases it, the worker's use-after-free faulted locally but hung CI (ubuntu, 4 cores) until the 120 s gate timeout (PR #388, shard 3/3).",
+      "why": "Disposing a running job frees the Pool_Job its worker reads job.client from to post its completion, and the user_data it is still inside `work` on — Lava's port of larva#49's runner_second_page_in_a_reused_vm_gets_no_callback_from_the_first_pages_job entry, which a page runner gates. The gate test fails before it releases the worker. Gated by close_begin_cancels_a_running_job_without_waiting_for_it, which releases it, the worker's use-after-free faulted locally but hung CI (ubuntu, 4 cores) until the 120 s gate timeout (PR #388, shard 3/3).",
       "source": "pkg/runtime/eventloop/threadpool.odin",
-      "find": "\t\tif job.running {\n",
+      "find": "\t\tif job.state == .Running {\n",
       "replace": "\t\tif false {\n",
       "gate": "odin:pkg/runtime/eventloop:eventloop.close_begin_never_disposes_a_job_its_worker_is_running",
       "expect_detail": "close_begin disposed a job its worker is still running"
     },
     {
-      "name": "close_detach_leaves_the_loop_to_its_last_worker dies when close_begin closes the wakeup pipe",
-      "why": "A worker still blocked will write its late wakeup into that descriptor number, which by then may belong to another loop or file (#34) — Lava's port of larva#49's runner_reaping_loop_keeps_its_pipe_until_its_worker_exits entry, which a page runner gates.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\tplatform_close_backend(loop)\n\treturn\n",
-      "replace": "\tplatform_close_backend(loop)\n\tplatform_close_wakeup(loop)\n\treturn\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.close_detach_leaves_the_loop_to_its_last_worker",
-      "expect_detail": "while its worker was blocked"
+      "name": "shared_pool_completion_never_reaches_a_closed_client dies when a worker posts to a closed client",
+      "why": "A late completion of a closed page's job lands in the closed loop's queue — or, once its address is reused, in the next page's loop, whose callback then runs the previous page's `done` (#36).",
+      "source": "pkg/runtime/eventloop/threadpool.odin",
+      "find": "\t\tif !c.closed {\n",
+      "replace": "\t\tif true {\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.shared_pool_completion_never_reaches_a_closed_client",
+      "expect_detail": "expected async_queued(a) to be 0, got 1"
     },
     {
-      "name": "close_ready_is_announced_on_the_wakeup_pipe dies when an exiting pool worker does not write the wakeup pipe",
-      "why": "A driver waiting on wakeup_fd for a closed loop's workers then sleeps through their exit and finishes the loop only when something else wakes it, holding its threads and fds meanwhile (#34).",
+      "name": "shared_pool_page_with_four_stalled_jobs_does_not_starve_a_sibling dies when pool_tick never starts an overflow worker",
+      "why": "A page whose lookups hang holds every core worker of its runner's pool, and every sibling's lookup and file read waits behind it for as long as they block (#36, breakage 1).",
       "source": "pkg/runtime/eventloop/threadpool.odin",
-      "find": "\t\t\twakeup(loop)\n\t\t\treturn\n",
-      "replace": "\t\t\treturn\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.close_ready_is_announced_on_the_wakeup_pipe",
-      "expect_detail": "the wakeup pipe was not written as the workers exited"
+      "find": "starving && age >= POOL_STALL_MS * time.Millisecond {",
+      "replace": "starving && false {",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.shared_pool_page_with_four_stalled_jobs_does_not_starve_a_sibling",
+      "expect_detail": "the sibling's job waited"
+    },
+    {
+      "name": "shared_pool_orphan_does_not_count_toward_core dies when orphans count toward the core size",
+      "why": "Four jobs of closed pages that never return (FIFO reads nobody answers) then take the pool's whole core for good, and no page on the runner thread gets a worker again (#36, breakage 5).",
+      "source": "pkg/runtime/eventloop/threadpool.odin",
+      "find": "pool.queued + 1 > pool.idle && pool.live - pool.orphans < THREADPOOL_SIZE",
+      "replace": "pool.queued + 1 > pool.idle && pool.live < THREADPOOL_SIZE",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.shared_pool_orphan_does_not_count_toward_core",
+      "expect_detail": "a new client's job never ran while four orphans held the old workers"
+    },
+    {
+      "name": "pool_submit_refuses_a_loop_that_is_closing dies when pool_submit accepts work on a destroyed loop",
+      "why": "A teardown hook's submit starts a fresh private pool on a closing runner loop: close_finish then waits for that job on the runner thread (#34) and aborts on the stray client.",
+      "source": "pkg/runtime/eventloop/threadpool.odin",
+      "find": "if loop == nil || work == nil || loop.destroyed {",
+      "replace": "if loop == nil || work == nil {",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.pool_submit_refuses_a_loop_that_is_closing",
+      "expect_detail": "a teardown hook's pool_submit was accepted"
+    },
+    {
+      "name": "shared_pool_orphans_never_take_the_threads_of_live_clients dies when orphan-held workers count against the cap",
+      "why": "Enough jobs of closed pages that never return (FIFO reads) fill the hard cap, and every live page's lookups and reads wait for one of them for good.",
+      "source": "pkg/runtime/eventloop/threadpool.odin",
+      "find": "\t// Orphan-held workers do not count: see POOL_MAX_WORKERS.\n\tif pool.live - pool.orphans >= POOL_MAX_WORKERS {",
+      "replace": "\tif pool.live >= POOL_MAX_WORKERS {",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.shared_pool_orphans_never_take_the_threads_of_live_clients",
+      "expect_detail": "a live client's job never ran while"
+    },
+    {
+      "name": "shared_pool_close_replaces_every_orphan_a_sibling_waits_for dies when the core is refilled one worker at a time",
+      "why": "After a page with every core worker closes, a sibling's queued jobs run one at a time behind a single replacement until its next submit.",
+      "source": "pkg/runtime/eventloop/threadpool.odin",
+      "find": "\tfor pool_core_short(pool) {",
+      "replace": "\tif pool_core_short(pool) {",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.shared_pool_close_replaces_every_orphan_a_sibling_waits_for",
+      "expect_detail": "of the sibling's 4 queued jobs started"
+    },
+    {
+      "name": "shared_pool_last_worker_frees_the_pool dies when the last worker does not free the released pool",
+      "why": "After page_runner_destroy the last worker is the only one left to free the pool; without it every runner leaks its pool, silently, since no other test owns that memory.",
+      "source": "pkg/runtime/eventloop/threadpool.odin",
+      "find": "\t// Nothing of the pool is touched after the unlock unless this worker frees it.\n\tif last {",
+      "replace": "\tif false {",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.shared_pool_last_worker_frees_the_pool",
+      "expect_detail": "bytes of the pool were never freed"
+    },
+    {
+      "name": "runner_page_with_stalled_lookups_does_not_starve_a_sibling dies when runner_round does not tick the worker pool",
+      "why": "Nothing else starts an overflow worker: a sibling's lookup waits behind a page whose lookups hang until one of them returns or that page closes (#36).",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\teventloop.pool_tick(runner.workers)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.runner_page_with_stalled_lookups_does_not_starve_a_sibling",
+      "expect_detail": "behind a page holding every core worker"
     },
     {
       "name": "fs_read_file_cancel_releases_the_callback_of_a_blocked_read dies when fs.readFile registers no cancel hook",
@@ -4316,15 +4252,6 @@
       "expect_detail": "failed to initialize internal:loader: TypeError: Attempting to change the setter of an unconfigurable property"
     },
     {
-      "name": "runner_churn_of_mixed_fates_frees_everything_it_allocates dies when destroy_runtime_state keeps the Runtime_State",
-      "why": "Every page's Runtime_State is new'd through the runner allocator; without the free each closed page leaks it, whatever its fate.",
-      "source": "pkg/runtime/globals.odin",
-      "find": "\tjsc.JSObjectSetPrivate(jsc.JSContextGetGlobalObject(ctx), nil)\n\tfree(state)\n",
-      "replace": "\tjsc.JSObjectSetPrivate(jsc.JSContextGetGlobalObject(ctx), nil)\n",
-      "gate": "odin:cmd/lava:main.runner_churn_of_mixed_fates_frees_everything_it_allocates",
-      "expect_detail": "runner allocator leaked"
-    },
-    {
       "name": "runner_churn_of_mixed_fates_frees_everything_it_allocates dies when runner_finish keeps the Runner_Page",
       "why": "Every closed page would leak its Runner_Page on the runner allocator, whatever its fate.",
       "source": "pkg/runtime/page_runner.odin",
@@ -4344,10 +4271,10 @@
     },
     {
       "name": "runner_churn_of_mixed_fates_frees_everything_it_allocates dies when a page loop is freed through the runner allocator",
-      "why": "Page loops are heap memory (workers may outlive the page); freeing one through the runner allocator hands the embedder memory it never allocated.",
+      "why": "Page loops are heap memory (a worker grows the loop's async_queue from its own thread, so loop.allocator must be thread-safe); freeing one through the runner allocator hands the embedder memory it never allocated.",
       "source": "pkg/runtime/page_runner.odin",
-      "find": "\t\tfree(rp.loop, runtime.heap_allocator())\n",
-      "replace": "\t\tfree(rp.loop)\n",
+      "find": "\tfree(rp.loop, runtime.heap_allocator())\n",
+      "replace": "\tfree(rp.loop)\n",
       "gate": "odin:cmd/lava:main.runner_churn_of_mixed_fates_frees_everything_it_allocates",
       "expect_detail": "free(s) through the runner allocator of memory it never allocated"
     },
@@ -4379,6 +4306,132 @@
       "expect_detail": "left the VM's protect count"
     },
     {
+      "name": "page_eval_protects_one_value_at_a_time dies when page_eval does not release the previous value",
+      "why": "Every page_eval would root its value until page_close, so a caller polling a page in a loop grows the VM's protected set without bound.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\tjsc.JSValueUnprotect(ctx, page.eval_value)\n\t\tpage.eval_value = nil\n",
+      "replace": "\t\tpage.eval_value = nil\n",
+      "gate": "odin:cmd/lava:main.page_eval_protects_one_value_at_a_time",
+      "expect_detail": "the slot holds one value"
+    },
+    {
+      "name": "page_eval_protects_one_value_at_a_time dies when page_eval does not protect its value",
+      "why": "The returned value is unrooted while the caller holds it, and the next tick's GC can collect it under the caller.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\tjsc.JSValueProtect(ctx, result)\n\t\tpage.eval_value = result\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.page_eval_protects_one_value_at_a_time",
+      "expect_detail": "the slot holds one value"
+    },
+    {
+      "name": "page_eval_throw_leaves_the_page_usable dies when a page_eval throw finishes the page",
+      "why": "A caller's probe script that throws would end the page it was only inspecting, with the probe's error as the page's Result.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\tif alloc_failure != \"\" || exception != nil {\n\t\treturn nil, false\n\t}\n",
+      "replace": "\tif alloc_failure != \"\" || exception != nil {\n\t\treturn nil, page_fail(page, Result{status = .Execution_Error, exit_code = 1})\n\t}\n",
+      "gate": "odin:cmd/lava:main.page_eval_throw_leaves_the_page_usable",
+      "expect_detail": "a throwing page_eval finished the page"
+    },
+    {
+      "name": "page_eval_cpu_budget_kill_finishes_the_page dies when page_eval ignores a limit kill",
+      "why": "A killed page would read as live, so later page_evals and ticks would run on a VM the watchdog has already cut.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\tpage_fail(page, end)\n",
+      "replace": "\t\t_ = end\n",
+      "gate": "odin:cmd/lava:main.page_eval_cpu_budget_kill_finishes_the_page",
+      "expect_detail": "left the page running"
+    },
+    {
+      "name": "page_run_until_met_after_a_timer dies when page_run_until leaves its deadline timer on the loop",
+      "why": "A wake-up timer left armed outlives the call: a stale wake-up for every later tick, and one more heap entry per run_until.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\teventloop.clear_timeout(loop, wake)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.page_run_until_met_after_a_timer",
+      "expect_detail": "the deadline timer is cleared"
+    },
+    {
+      "name": "page_run_until_idle_returns_before_the_deadline dies when the deadline timer is reffed",
+      "why": "A reffed deadline keeps an otherwise idle loop alive, so every run waits out its whole deadline and reports Deadline instead of Idle.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\t\t\teventloop.timer_unref(loop, wake)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.page_run_until_idle_returns_before_the_deadline",
+      "expect_detail": "expected stop to be Idle, got Deadline"
+    },
+    {
+      "name": "page_run_until_returns_at_the_deadline dies when no deadline timer is armed",
+      "why": "A tick blocked in its poll on a far timer or a silent socket sleeps through the deadline instead of returning at it.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\t\t\twake = eventloop.set_timeout(loop, page_deadline_wake, deadline_at > now ? deadline_at - now : 0)\n",
+      "replace": "\t\t\t\t_ = now\n",
+      "gate": "odin:cmd/lava:main.page_run_until_returns_at_the_deadline",
+      "expect_detail": "Deadline after"
+    },
+    {
+      "name": "page_run_until_met_before_any_tick dies when the condition is first checked after a tick",
+      "why": "A caller whose condition already holds would run page callbacks it did not ask for before getting its answer.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\tif cond(page, user_data) {\n\t\treturn page_run_over(page) ? .Finished : .Met\n\t}\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.page_run_until_met_before_any_tick",
+      "expect_detail": "before Met"
+    },
+    {
+      "name": "page_run_until_finished_by_a_kill dies when page_run_until does not see the page has ended",
+      "why": "A caller would take a killed page for a quiet one and go on evaluating it instead of closing it with its kill Result.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\treturn page.finished || (page.loop != nil && (page.loop.backend_error || page.loop.force_exit))\n",
+      "replace": "\treturn false\n",
+      "gate": "odin:cmd/lava:main.page_run_until_finished_by_a_kill",
+      "expect_detail": "expected stop to be Finished, got Idle"
+    },
+    {
+      "name": "page_create_then_run_script_ends_like_page_open dies when page_run_script skips the source pre-flight",
+      "why": "A .Web page created by an embedder would run an .mjs source through the ESM transform, which needs require, instead of being refused as page_open refuses it.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\tif refusal, refused := page_preflight(source, source_name, surface); refused {\n\t\treturn page_fail(page, refusal)\n\t}\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.page_create_then_run_script_ends_like_page_open",
+      "expect_detail": "create+run_script"
+    },
+    {
+      "name": "page_api_lifecycle_frees_everything_it_allocates dies when page_close keeps the Runtime_State",
+      "why": "Proves the tracking allocator sees the page's own allocations: a page that leaked its Runtime_State would otherwise pass unseen.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\tif page.state != nil {\n\t\tdestroy_runtime_state(ctx, page.state)\n\t}\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.page_api_lifecycle_frees_everything_it_allocates",
+      "expect_detail": "the page leaked"
+    },
+    {
+      "name": "page_run_until_deadline_survives_page_js_clearing_it dies when the deadline is read off the timer instead of the clock",
+      "why": "Page JS can clearTimeout the deadline timer by id, so a run that only ends when that timer fires never ends on such a page.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\tif deadline_ms > 0 && page_loop_now(loop) >= deadline_at {\n",
+      "replace": "\t\tif false {\n",
+      "gate": "odin:cmd/lava:main.page_run_until_deadline_survives_page_js_clearing_it",
+      "expect_detail": "want Deadline"
+    },
+    {
+      "name": "page_run_until_deadline_survives_page_js_clearing_it dies when a cleared wake-up timer is not re-armed",
+      "why": "Once page JS clears the wake-up, a tick blocked on a far timer sleeps through the deadline to it.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\t\tif _, live := loop.timer_index[wake]; !live {\n",
+      "replace": "\t\t\tif wake == 0 {\n",
+      "gate": "odin:cmd/lava:main.page_run_until_deadline_survives_page_js_clearing_it",
+      "expect_detail": "far timer: Deadline after"
+    },
+    {
+      "name": "page_run_script_runs_once dies when a second top-level script is accepted",
+      "why": "A second run_script protects a second completion over the first, which is never unprotected, and runs a second entry on the page.",
+      "source": "pkg/runtime/page.odin",
+      "find": "|| page.script_ran {",
+      "replace": "{",
+      "gate": "odin:cmd/lava:main.page_run_script_runs_once",
+      "expect_detail": "a second page_run_script was accepted"
+    },
+    {
       "name": "js_clear_globals_cannot_cancel_native_handles dies when clear_timer_cb cancels any id",
       "why": "Page JS clearing ids 1..n disposes runtime-internal handles sharing the loop's id counter: a pkg/http transfer finishes .Cancelled, a TLS handshake loses its timeout (#92).",
       "source": "pkg/runtime/globals.odin",
@@ -4386,6 +4439,87 @@
       "replace": "\t\teventloop.clear_timeout(loop, id)\n",
       "gate": "odin:cmd/lava:main.js_clear_globals_cannot_cancel_native_handles",
       "expect_detail": "native timeout"
+    },
+    {
+      "name": "clear_owned_heap_timer_respects_owner dies when the heap-timer owner check is dropped",
+      "why": "A foreign id reaches clear_timeout for a pending heap timer and runs its dispose (#92).",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\treturn loop.timers[idx].dispose == owner && clear_timeout(loop, id)\n",
+      "replace": "\t\treturn clear_timeout(loop, id)\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.clear_owned_heap_timer_respects_owner",
+      "expect_detail": "foreign owner must not cancel a heap timer"
+    },
+    {
+      "name": "clear_owned_immediate_respects_owner dies when the immediate owner check is dropped",
+      "why": "A foreign id cancels a queued internal immediate (pkg/http's transfer start) and runs its dispose (#92).",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\t\treturn loop.immediates[i].dispose == owner && clear_timeout(loop, id)\n",
+      "replace": "\t\t\treturn clear_timeout(loop, id)\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.clear_owned_immediate_respects_owner",
+      "expect_detail": "foreign owner must not cancel an immediate"
+    },
+    {
+      "name": "clear_owned_running_timer_respects_owner dies when the running-handle owner check is dropped",
+      "why": "A foreign id cancels the handle whose callback is running, so an internal interval is not re-armed (#92).",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\treturn loop.running_dispose == owner && clear_timeout(loop, id)\n",
+      "replace": "\t\treturn clear_timeout(loop, id)\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.clear_owned_running_timer_respects_owner",
+      "expect_detail": "expected p.fires to be 3"
+    },
+    {
+      "name": "clear_owned_running_timer_respects_owner dies when a running timer's dispose is not recorded",
+      "why": "Without running_dispose the owner can never cancel its own running handle: clearInterval(self) from JS would stop working.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\tloop.running_id, loop.running_dispose = timer.id, timer.dispose\n",
+      "replace": "\t\tloop.running_id, loop.running_dispose = timer.id, nil\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.clear_owned_running_timer_respects_owner",
+      "expect_detail": "expected q.fires to be 1"
+    },
+    {
+      "name": "timer_due_during_timers_phase_waits_for_next_turn dies when the timers phase reads the live clock again",
+      "why": "set_timer re-syncs now_ms, so a callback that spins and then calls setTimeout pulls a timer that fell due mid-phase into this turn, ahead of this turn's setImmediate (node prints A,imm,B).",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\tif root.due_ms > timer_phase_now {",
+      "replace": "\t\tif root.due_ms > loop.now_ms {",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.timer_due_during_timers_phase_waits_for_next_turn",
+      "expect_detail": "expected len(actual) to be 2, got 3"
+    },
+    {
+      "name": "interval_rearms_from_clock_before_its_callback dies when an interval re-arms from the clock after its callback again",
+      "why": "node's listOnTimeout re-inserts an interval with the start it read before _onTimeout(), so a slow callback does not push every later fire back by its own run time.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\t\ttimer.due_ms = rearm_start + timer.repeat_ms",
+      "replace": "\t\t\ttimer.due_ms = loop.now_ms + timer.repeat_ms",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.interval_rearms_from_clock_before_its_callback",
+      "expect_detail": "expected value to be 23, got 27"
+    },
+    {
+      "name": "interval_rearms_from_clock_before_its_callback dies when an interval re-arms from the turn's now",
+      "why": "node reads a fresh getLibuvNow() per interval fire, not the processTimers `now`, so a slow timer ahead of the interval in the same turn does not pull its next fire early.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\t\trearm_start = loop.now_ms",
+      "replace": "\t\t\trearm_start = timer_phase_now",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.interval_rearms_from_clock_before_its_callback",
+      "expect_detail": "expected value to be 23, got 20"
+    },
+    {
+      "name": "eventloop case 13 dies when the interval's pre-callback start skips the real clock",
+      "why": "In real_time mode now_ms only moves on a sync, so without one before the callback the re-arm start is the turn's now (or whatever a prior callback's setTimeout left), firing the interval early; the virtual-clock test cannot see this.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\tif timer.repeating {\n\t\t\tsync_real_clock(loop)\n",
+      "replace": "\t\tif timer.repeating {\n",
+      "gate": "compat:tests/runtime/eventloop/cases/13-interval-rearms-from-callback-start.js",
+      "expect_detail": "'interval2', 'early'"
+    },
+    {
+      "name": "runner_churn_of_mixed_fates_frees_everything_it_allocates dies when destroy_runtime_state keeps the Runtime_State",
+      "why": "Every page's Runtime_State is new'd through the runner allocator; without the free each closed page leaks it, whatever its fate.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tjsc.JSObjectSetPrivate(jsc.JSContextGetGlobalObject(ctx), nil)\n\tfree(state)\n",
+      "replace": "\tjsc.JSObjectSetPrivate(jsc.JSContextGetGlobalObject(ctx), nil)\n",
+      "gate": "odin:cmd/lava:main.runner_churn_of_mixed_fates_frees_everything_it_allocates",
+      "expect_detail": "runner allocator leaked"
     },
     {
       "name": "js_clear_globals_read_an_id_like_node dies when clear_timer_cb truncates a fractional id",
@@ -4505,60 +4639,6 @@
       "expect_detail": "got true:cancelled"
     },
     {
-      "name": "clear_owned_heap_timer_respects_owner dies when the heap-timer owner check is dropped",
-      "why": "A foreign id reaches clear_timeout for a pending heap timer and runs its dispose (#92).",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\treturn loop.timers[idx].dispose == owner && clear_timeout(loop, id)\n",
-      "replace": "\t\treturn clear_timeout(loop, id)\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.clear_owned_heap_timer_respects_owner",
-      "expect_detail": "foreign owner must not cancel a heap timer"
-    },
-    {
-      "name": "clear_owned_immediate_respects_owner dies when the immediate owner check is dropped",
-      "why": "A foreign id cancels a queued internal immediate (pkg/http's transfer start) and runs its dispose (#92).",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\t\treturn loop.immediates[i].dispose == owner && clear_timeout(loop, id)\n",
-      "replace": "\t\t\treturn clear_timeout(loop, id)\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.clear_owned_immediate_respects_owner",
-      "expect_detail": "foreign owner must not cancel an immediate"
-    },
-    {
-      "name": "clear_owned_running_timer_respects_owner dies when the running-handle owner check is dropped",
-      "why": "A foreign id cancels the handle whose callback is running, so an internal interval is not re-armed (#92).",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\treturn loop.running_dispose == owner && clear_timeout(loop, id)\n",
-      "replace": "\t\treturn clear_timeout(loop, id)\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.clear_owned_running_timer_respects_owner",
-      "expect_detail": "expected p.fires to be 3"
-    },
-    {
-      "name": "clear_owned_running_timer_respects_owner dies when a running timer's dispose is not recorded",
-      "why": "Without running_dispose the owner can never cancel its own running handle: clearInterval(self) from JS would stop working.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\tloop.running_id, loop.running_dispose = timer.id, timer.dispose\n",
-      "replace": "\t\tloop.running_id, loop.running_dispose = timer.id, nil\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.clear_owned_running_timer_respects_owner",
-      "expect_detail": "expected q.fires to be 1"
-    },
-    {
-      "name": "page_eval_protects_one_value_at_a_time dies when page_eval does not release the previous value",
-      "why": "Every page_eval would root its value until page_close, so a caller polling a page in a loop grows the VM's protected set without bound.",
-      "source": "pkg/runtime/page.odin",
-      "find": "\t\tjsc.JSValueUnprotect(ctx, page.eval_value)\n\t\tpage.eval_value = nil\n",
-      "replace": "\t\tpage.eval_value = nil\n",
-      "gate": "odin:cmd/lava:main.page_eval_protects_one_value_at_a_time",
-      "expect_detail": "the slot holds one value"
-    },
-    {
-      "name": "page_eval_protects_one_value_at_a_time dies when page_eval does not protect its value",
-      "why": "The returned value is unrooted while the caller holds it, and the next tick's GC can collect it under the caller.",
-      "source": "pkg/runtime/page.odin",
-      "find": "\t\tjsc.JSValueProtect(ctx, result)\n\t\tpage.eval_value = result\n",
-      "replace": "",
-      "gate": "odin:cmd/lava:main.page_eval_protects_one_value_at_a_time",
-      "expect_detail": "the slot holds one value"
-    },
-    {
       "name": "page_eval_leaves_the_temp_arena_empty dies when page_eval has no temp-arena choke point",
       "why": "page_eval's scratch waits for the next tick's reset, so a host evaluating between ticks, or on a page with no loop, grows the thread's temp arena by every source it runs.",
       "source": "pkg/runtime/page.odin",
@@ -4566,132 +4646,6 @@
       "replace": "\tctx := cast(jsc.JSContextRef)page.ctx\n",
       "gate": "odin:cmd/lava:main.page_eval_leaves_the_temp_arena_empty",
       "expect_detail": "in the temp arena"
-    },
-    {
-      "name": "page_eval_throw_leaves_the_page_usable dies when a page_eval throw finishes the page",
-      "why": "A caller's probe script that throws would end the page it was only inspecting, with the probe's error as the page's Result.",
-      "source": "pkg/runtime/page.odin",
-      "find": "\tif alloc_failure != \"\" || exception != nil {\n\t\treturn nil, false\n\t}\n",
-      "replace": "\tif alloc_failure != \"\" || exception != nil {\n\t\treturn nil, page_fail(page, Result{status = .Execution_Error, exit_code = 1})\n\t}\n",
-      "gate": "odin:cmd/lava:main.page_eval_throw_leaves_the_page_usable",
-      "expect_detail": "a throwing page_eval finished the page"
-    },
-    {
-      "name": "page_eval_cpu_budget_kill_finishes_the_page dies when page_eval ignores a limit kill",
-      "why": "A killed page would read as live, so later page_evals and ticks would run on a VM the watchdog has already cut.",
-      "source": "pkg/runtime/page.odin",
-      "find": "\t\tpage_fail(page, end)\n",
-      "replace": "\t\t_ = end\n",
-      "gate": "odin:cmd/lava:main.page_eval_cpu_budget_kill_finishes_the_page",
-      "expect_detail": "left the page running"
-    },
-    {
-      "name": "page_run_until_met_after_a_timer dies when page_run_until leaves its deadline timer on the loop",
-      "why": "A wake-up timer left armed outlives the call: a stale wake-up for every later tick, and one more heap entry per run_until.",
-      "source": "pkg/runtime/page.odin",
-      "find": "\t\teventloop.clear_timeout(loop, wake)\n",
-      "replace": "",
-      "gate": "odin:cmd/lava:main.page_run_until_met_after_a_timer",
-      "expect_detail": "the deadline timer is cleared"
-    },
-    {
-      "name": "page_run_until_idle_returns_before_the_deadline dies when the deadline timer is reffed",
-      "why": "A reffed deadline keeps an otherwise idle loop alive, so every run waits out its whole deadline and reports Deadline instead of Idle.",
-      "source": "pkg/runtime/page.odin",
-      "find": "\t\t\t\teventloop.timer_unref(loop, wake)\n",
-      "replace": "",
-      "gate": "odin:cmd/lava:main.page_run_until_idle_returns_before_the_deadline",
-      "expect_detail": "expected stop to be Idle, got Deadline"
-    },
-    {
-      "name": "page_run_until_returns_at_the_deadline dies when no deadline timer is armed",
-      "why": "A tick blocked in its poll on a far timer or a silent socket sleeps through the deadline instead of returning at it.",
-      "source": "pkg/runtime/page.odin",
-      "find": "\t\t\t\twake = eventloop.set_timeout(loop, page_deadline_wake, deadline_at > now ? deadline_at - now : 0)\n",
-      "replace": "\t\t\t\t_ = now\n",
-      "gate": "odin:cmd/lava:main.page_run_until_returns_at_the_deadline",
-      "expect_detail": "Deadline after"
-    },
-    {
-      "name": "page_run_until_met_before_any_tick dies when the condition is first checked after a tick",
-      "why": "A caller whose condition already holds would run page callbacks it did not ask for before getting its answer.",
-      "source": "pkg/runtime/page.odin",
-      "find": "\tif cond(page, user_data) {\n\t\treturn page_run_over(page) ? .Finished : .Met\n\t}\n",
-      "replace": "",
-      "gate": "odin:cmd/lava:main.page_run_until_met_before_any_tick",
-      "expect_detail": "before Met"
-    },
-    {
-      "name": "page_run_until_finished_by_a_kill dies when page_run_until does not see the page has ended",
-      "why": "A caller would take a killed page for a quiet one and go on evaluating it instead of closing it with its kill Result.",
-      "source": "pkg/runtime/page.odin",
-      "find": "\treturn page.finished || (page.loop != nil && (page.loop.backend_error || page.loop.force_exit))\n",
-      "replace": "\treturn false\n",
-      "gate": "odin:cmd/lava:main.page_run_until_finished_by_a_kill",
-      "expect_detail": "expected stop to be Finished, got Idle"
-    },
-    {
-      "name": "page_create_then_run_script_ends_like_page_open dies when page_run_script skips the source pre-flight",
-      "why": "A .Web page created by an embedder would run an .mjs source through the ESM transform, which needs require, instead of being refused as page_open refuses it.",
-      "source": "pkg/runtime/page.odin",
-      "find": "\tif refusal, refused := page_preflight(source, source_name, surface); refused {\n\t\treturn page_fail(page, refusal)\n\t}\n",
-      "replace": "",
-      "gate": "odin:cmd/lava:main.page_create_then_run_script_ends_like_page_open",
-      "expect_detail": "create+run_script"
-    },
-    {
-      "name": "page_api_lifecycle_frees_everything_it_allocates dies when page_close keeps the Runtime_State",
-      "why": "Proves the tracking allocator sees the page's own allocations: a page that leaked its Runtime_State would otherwise pass unseen.",
-      "source": "pkg/runtime/page.odin",
-      "find": "\tif page.state != nil {\n\t\tdestroy_runtime_state(ctx, page.state)\n\t}\n",
-      "replace": "",
-      "gate": "odin:cmd/lava:main.page_api_lifecycle_frees_everything_it_allocates",
-      "expect_detail": "the page leaked"
-    },
-    {
-      "name": "page_run_until_deadline_survives_page_js_clearing_it dies when the deadline is read off the timer instead of the clock",
-      "why": "Page JS can clearTimeout the deadline timer by id, so a run that only ends when that timer fires never ends on such a page.",
-      "source": "pkg/runtime/page.odin",
-      "find": "\t\tif deadline_ms > 0 && page_loop_now(loop) >= deadline_at {\n",
-      "replace": "\t\tif false {\n",
-      "gate": "odin:cmd/lava:main.page_run_until_deadline_survives_page_js_clearing_it",
-      "expect_detail": "want Deadline"
-    },
-    {
-      "name": "page_run_until_deadline_survives_page_js_clearing_it dies when a cleared wake-up timer is not re-armed",
-      "why": "Once page JS clears the wake-up, a tick blocked on a far timer sleeps through the deadline to it.",
-      "source": "pkg/runtime/page.odin",
-      "find": "\t\t\tif _, live := loop.timer_index[wake]; !live {\n",
-      "replace": "\t\t\tif wake == 0 {\n",
-      "gate": "odin:cmd/lava:main.page_run_until_deadline_survives_page_js_clearing_it",
-      "expect_detail": "far timer: Deadline after"
-    },
-    {
-      "name": "page_run_script_runs_once dies when a second top-level script is accepted",
-      "why": "A second run_script protects a second completion over the first, which is never unprotected, and runs a second entry on the page.",
-      "source": "pkg/runtime/page.odin",
-      "find": "|| page.script_ran {",
-      "replace": "{",
-      "gate": "odin:cmd/lava:main.page_run_script_runs_once",
-      "expect_detail": "a second page_run_script was accepted"
-    },
-    {
-      "name": "vm_entry_limit_terminates_runaway_script dies when vm_release keeps the armed watchdog",
-      "why": "An entry-limit kill latches the watchdog at its 1 ms floor; left armed, it terminates the next page on the reused VM after 1 ms of CPU.",
-      "source": "pkg/runtime/vm_pool.odin",
-      "find": "\tif vm.armed_limit > 0 {\n\t\tjsc.JSContextGroupClearExecutionTimeLimit(vm.group)\n\t}\n\n\tvm.entry_limit = 0\n",
-      "replace": "\tvm.entry_limit = 0\n",
-      "gate": "odin:cmd/lava:main.vm_entry_limit_terminates_runaway_script",
-      "expect_detail": "limit leaked past vm_release"
-    },
-    {
-      "name": "eval_after_a_killed_page_runs_unlimited dies when vm_release keeps the armed watchdog",
-      "why": "The next lava.eval on the thread's pool reuses the killed page's VM; a watchdog left at the kill floor cuts it as an entry-limit kill.",
-      "source": "pkg/runtime/vm_pool.odin",
-      "find": "\tif vm.armed_limit > 0 {\n\t\tjsc.JSContextGroupClearExecutionTimeLimit(vm.group)\n\t}\n\n\tvm.entry_limit = 0\n",
-      "replace": "\tvm.entry_limit = 0\n",
-      "gate": "odin:cmd/lava:main.eval_after_a_killed_page_runs_unlimited",
-      "expect_detail": "expected result.kill to be None, got Entry_Limit"
     }
   ]
 }

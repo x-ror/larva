@@ -102,8 +102,8 @@ dns_done :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 }
 
 // dns_cancel and dns_dispose run on the loop thread in eventloop.close_begin, before the
-// requester hears of the teardown (dispose of a taken job runs later, in close_finish,
-// after this cancel has released the slot).
+// requester hears of the teardown (dispose of a taken job runs later, on its worker once
+// the lookup returns, after this cancel has released the slot).
 @(private = "file")
 dns_cancel :: proc(user_data: rawptr) {
 	job := cast(^DNS_Job)user_data
