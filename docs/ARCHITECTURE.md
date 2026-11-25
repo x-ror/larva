@@ -320,11 +320,13 @@ three groups:
 values (Buffer-backed bytes, `ERR_*` codes), so `Buffer` stays reachable through a
 value's `.constructor`. Pinned by `cmd/lava/global_surface_test.odin`.
 
-### 3.5 I/O transports (`fetch_*`, `dns.odin`, `tls.odin`)
+### 3.5 I/O transports (`fetch_*`, `dns.odin`, `pkg/tls`)
 
 `fetch_transport.odin` is a platform-agnostic connect→[TLS]→write→read state
 machine; each platform supplies only narrow socket primitives, and TLS is a
-swappable backend (OpenSSL, or a rejecting stub). DNS — `fetch`'s and `node:dns`'s
+swappable backend (OpenSSL, or a rejecting stub). The OpenSSL bindings live in
+their own package, `pkg/tls`, with no runtime or JSC dependency, so a JS-free client
+can share them. DNS — `fetch`'s and `node:dns`'s
 — resolves off-loop on the loop's own 4-worker pool (`threadpool.odin`). Streaming request _and_ response bodies are real
 incremental `ReadableStream`s with backpressure. This is the second-strongest
 subsystem after the loop, and it validates the `post_async` design end to end.
