@@ -3645,7 +3645,7 @@
       "name": "global_surface_web_hides_node_names dies when eval appends the top-level drain on .Web",
       "why": "The appended `var __lava_tl_drain = ...` declares a __lava* global in the script's global scope once the entry body finishes; only the post-body typeof/in check sees it, because JSC keeps the program-level var out of getOwnPropertyNames.",
       "source": "pkg/runtime/page.odin",
-      "find": "\tif surface == .Node {\n\t\tif combined, concat_err := strings.concatenate(",
+      "find": "\tif page.surface == .Node {\n\t\tif combined, concat_err := strings.concatenate(",
       "replace": "\tif true {\n\t\tif combined, concat_err := strings.concatenate(",
       "gate": "odin:cmd/lava:main.global_surface_web_hides_node_names",
       "expect_detail": "want tl-drain-after=undefined,false got tl-drain-after=boolean,true"
@@ -4335,6 +4335,105 @@
       "replace": "",
       "gate": "odin:cmd/lava:main.runner_pages_leave_the_vm_protect_count_where_they_found_it",
       "expect_detail": "left the VM's protect count"
+    },
+    {
+      "name": "page_eval_protects_one_value_at_a_time dies when page_eval does not release the previous value",
+      "why": "Every page_eval would root its value until page_close, so a caller polling a page in a loop grows the VM's protected set without bound.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\tjsc.JSValueUnprotect(ctx, page.eval_value)\n\t\tpage.eval_value = nil\n",
+      "replace": "\t\tpage.eval_value = nil\n",
+      "gate": "odin:cmd/lava:main.page_eval_protects_one_value_at_a_time",
+      "expect_detail": "the slot holds one value"
+    },
+    {
+      "name": "page_eval_protects_one_value_at_a_time dies when page_eval does not protect its value",
+      "why": "The returned value is unrooted while the caller holds it, and the next tick's GC can collect it under the caller.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\tjsc.JSValueProtect(ctx, result)\n\t\tpage.eval_value = result\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.page_eval_protects_one_value_at_a_time",
+      "expect_detail": "the slot holds one value"
+    },
+    {
+      "name": "page_eval_throw_leaves_the_page_usable dies when a page_eval throw finishes the page",
+      "why": "A caller's probe script that throws would end the page it was only inspecting, with the probe's error as the page's Result.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\tif alloc_failure != \"\" || exception != nil {\n\t\treturn nil, false\n\t}\n",
+      "replace": "\tif alloc_failure != \"\" || exception != nil {\n\t\treturn nil, page_fail(page, Result{status = .Execution_Error, exit_code = 1})\n\t}\n",
+      "gate": "odin:cmd/lava:main.page_eval_throw_leaves_the_page_usable",
+      "expect_detail": "a throwing page_eval finished the page"
+    },
+    {
+      "name": "page_eval_cpu_budget_kill_finishes_the_page dies when page_eval ignores a limit kill",
+      "why": "A killed page would read as live, so later page_evals and ticks would run on a VM the watchdog has already cut.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\tpage_fail(page, end)\n",
+      "replace": "\t\t_ = end\n",
+      "gate": "odin:cmd/lava:main.page_eval_cpu_budget_kill_finishes_the_page",
+      "expect_detail": "left the page running"
+    },
+    {
+      "name": "page_run_until_met_after_a_timer dies when page_run_until leaves its deadline timer on the loop",
+      "why": "The timer's user_data is page_run_until's stack frame: left armed, it fires into a dead frame on a later tick.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\teventloop.clear_timeout(loop, deadline)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.page_run_until_met_after_a_timer",
+      "expect_detail": "the deadline timer is cleared"
+    },
+    {
+      "name": "page_run_until_idle_returns_before_the_deadline dies when the deadline timer is reffed",
+      "why": "A reffed deadline keeps an otherwise idle loop alive, so every run waits out its whole deadline and reports Deadline instead of Idle.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\teventloop.timer_unref(loop, deadline)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.page_run_until_idle_returns_before_the_deadline",
+      "expect_detail": "expected stop to be Idle, got Deadline"
+    },
+    {
+      "name": "page_run_until_returns_at_the_deadline dies when no deadline timer is armed",
+      "why": "A tick blocked in its poll on a far timer or a silent socket sleeps through the deadline instead of returning at it.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\tdeadline = eventloop.set_timeout(loop, page_deadline_expired, deadline_ms, rawptr(&expired))\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.page_run_until_returns_at_the_deadline",
+      "expect_detail": "want Deadline"
+    },
+    {
+      "name": "page_run_until_met_before_any_tick dies when the condition is first checked after a tick",
+      "why": "A caller whose condition already holds would run page callbacks it did not ask for before getting its answer.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\tif cond(page, user_data) {\n\t\treturn page_run_over(page) ? .Finished : .Met\n\t}\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.page_run_until_met_before_any_tick",
+      "expect_detail": "before Met"
+    },
+    {
+      "name": "page_run_until_finished_by_a_kill dies when page_run_until does not see the page has ended",
+      "why": "A caller would take a killed page for a quiet one and go on evaluating it instead of closing it with its kill Result.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\treturn page.finished || (page.loop != nil && (page.loop.backend_error || page.loop.force_exit))\n",
+      "replace": "\treturn false\n",
+      "gate": "odin:cmd/lava:main.page_run_until_finished_by_a_kill",
+      "expect_detail": "expected stop to be Finished, got Idle"
+    },
+    {
+      "name": "page_create_then_run_script_ends_like_page_open dies when page_run_script skips the source pre-flight",
+      "why": "A .Web page created by an embedder would run an .mjs source through the ESM transform, which needs require, instead of being refused as page_open refuses it.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\tif refusal, refused := page_preflight(source, source_name, surface); refused {\n\t\treturn page_fail(page, refusal)\n\t}\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.page_create_then_run_script_ends_like_page_open",
+      "expect_detail": "create+run_script"
+    },
+    {
+      "name": "page_api_lifecycle_frees_everything_it_allocates dies when page_close keeps the Runtime_State",
+      "why": "Proves the tracking allocator sees the page's own allocations: a page that leaked its Runtime_State would otherwise pass unseen.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\tif page.state != nil {\n\t\tdestroy_runtime_state(ctx, page.state)\n\t}\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.page_api_lifecycle_frees_everything_it_allocates",
+      "expect_detail": "the page leaked"
     }
   ]
 }
