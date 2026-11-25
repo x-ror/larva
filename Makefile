@@ -227,7 +227,7 @@ gates:
 #   MUTATION_TIMEOUT_MS=N             # default per-gate timeout ms (default 120000); hang pins use manifest timeout_ms
 #   make test-mutation SHARD=2/3      # one of N disjoint slices (CI runs three side by side)
 test-mutation: build
-	@node scripts/run-mutations.mjs $(if $(FILTER),--filter=$(FILTER),) $(if $(CHANGED),--changed,) $(if $(SHARD),--shard=$(SHARD),)
+	@node scripts/run-mutations.mjs $(if $(FILTER),'--filter=$(FILTER)',) $(if $(CHANGED),--changed,) $(if $(SHARD),--shard=$(SHARD),)
 
 # Differential PROPERTY tests: fast-check generates the inputs and both runtimes
 # answer, so a mismatch shrinks to a minimal reproducer instead of arriving as a

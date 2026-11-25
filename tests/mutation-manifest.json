@@ -1343,24 +1343,6 @@
       "expect_detail": "a cleared budget still terminated the next page"
     },
     {
-      "name": "vm_entry_limit_terminates_runaway_script dies when vm_release keeps the armed watchdog",
-      "why": "An entry-limit kill latches the watchdog at its 1 ms floor; left armed, it terminates the next page on the reused VM after 1 ms of CPU.",
-      "source": "pkg/runtime/vm_pool.odin",
-      "find": "\tif vm.armed_limit > 0 {\n\t\tjsc.JSContextGroupClearExecutionTimeLimit(vm.group)\n\t}\n\n\tvm.entry_limit = 0\n",
-      "replace": "\tvm.entry_limit = 0\n",
-      "gate": "odin:cmd/lava:main.vm_entry_limit_terminates_runaway_script",
-      "expect_detail": "limit leaked past vm_release"
-    },
-    {
-      "name": "eval_after_a_killed_page_runs_unlimited dies when vm_release keeps the armed watchdog",
-      "why": "The next lava.eval on the thread's pool reuses the killed page's VM; a watchdog left at the kill floor cuts it as an entry-limit kill.",
-      "source": "pkg/runtime/vm_pool.odin",
-      "find": "\tif vm.armed_limit > 0 {\n\t\tjsc.JSContextGroupClearExecutionTimeLimit(vm.group)\n\t}\n\n\tvm.entry_limit = 0\n",
-      "replace": "\tvm.entry_limit = 0\n",
-      "gate": "odin:cmd/lava:main.eval_after_a_killed_page_runs_unlimited",
-      "expect_detail": "expected result.kill to be None, got Entry_Limit"
-    },
-    {
       "name": "runner_busy_page_is_not_held_up_by_a_waiting_sibling dies when a page loop may block in its own poll",
       "why": "A page loop that blocks on its own timer stalls every other page on the thread, so ten 300 ms pages run one after another.",
       "source": "pkg/runtime/page_runner.odin",
@@ -4290,15 +4272,21 @@
     },
     {
       "name": "runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first dies when a VM keeps one global context across pages",
-      "why": "A context reused for the next page in a pooled VM carries the previous page's globals and every intrinsic it polluted (Object/Array.prototype, JSON.parse, Error.stackTraceLimit). The runner reports the first error line, which is the second page's loader failing on the first page's already-locked Function.prototype.call — the same reuse, seen one step earlier; the test's own assertion follows it.",
+      "why": "A context reused for the next page in a pooled VM carries the previous page's globals and every intrinsic it polluted (Object/Array.prototype, JSON.parse, Error.stackTraceLimit). The runner reports the first error line, which is the second page's loader failing on the first page's already-locked Function.prototype.call — the same reuse, seen one step earlier, so the second page's own probes never run under this mutation and their 'second page saw the first' message is not expected here.",
       "source": "pkg/runtime/vm_pool.odin",
       "find": "vm_create_context :: proc(vm: ^VM, global_class: jsc.JSClassRef) -> jsc.JSGlobalContextRef {\n\treturn jsc.JSGlobalContextCreateInGroup(vm.group, global_class)\n}",
       "replace": "foreign import mutant_jsc \"system:javascriptcoregtk-6.0\"\n@(default_calling_convention = \"c\")\nforeign mutant_jsc {\n\tJSGlobalContextRetain :: proc(ctx: jsc.JSGlobalContextRef) -> jsc.JSGlobalContextRef ---\n}\nvm_create_context :: proc(vm: ^VM, global_class: jsc.JSClassRef) -> jsc.JSGlobalContextRef {\n\t@(static) kept: jsc.JSGlobalContextRef\n\tif kept == nil {\n\t\tkept = jsc.JSGlobalContextCreateInGroup(vm.group, global_class)\n\t}\n\treturn JSGlobalContextRetain(kept)\n}",
       "gate": "odin:cmd/lava:main.runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first",
-      "expect_detail": [
-        "second page saw the first: leakA",
-        "failed to initialize internal:loader: TypeError: Attempting to change the setter of an unconfigurable property"
-      ]
+      "expect_detail": "failed to initialize internal:loader: TypeError: Attempting to change the setter of an unconfigurable property"
+    },
+    {
+      "name": "runner_churn_of_mixed_fates_frees_everything_it_allocates dies when destroy_runtime_state keeps the Runtime_State",
+      "why": "Every page's Runtime_State is new'd through the runner allocator; without the free each closed page leaks it, whatever its fate.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tjsc.JSObjectSetPrivate(jsc.JSContextGetGlobalObject(ctx), nil)\n\tfree(state)\n",
+      "replace": "\tjsc.JSObjectSetPrivate(jsc.JSContextGetGlobalObject(ctx), nil)\n",
+      "gate": "odin:cmd/lava:main.runner_churn_of_mixed_fates_frees_everything_it_allocates",
+      "expect_detail": "runner allocator leaked"
     },
     {
       "name": "runner_churn_of_mixed_fates_frees_everything_it_allocates dies when runner_finish keeps the Runner_Page",
@@ -4355,6 +4343,168 @@
       "expect_detail": "left the VM's protect count"
     },
     {
+      "name": "js_clear_globals_cannot_cancel_native_handles dies when clear_timer_cb cancels any id",
+      "why": "Page JS clearing ids 1..n disposes runtime-internal handles sharing the loop's id counter: a pkg/http transfer finishes .Cancelled, a TLS handshake loses its timeout (#92).",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\t\teventloop.clear_timeout_owned(loop, id, js_callback_dispose)\n",
+      "replace": "\t\teventloop.clear_timeout(loop, id)\n",
+      "gate": "odin:cmd/lava:main.js_clear_globals_cannot_cancel_native_handles",
+      "expect_detail": "native timeout"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_node dies when clear_timer_cb truncates a fractional id",
+      "why": "u64() truncates, so clearTimeout(id + 0.5) cancels timer id, which node 26 leaves running.",
+      "source": "pkg/runtime/globals.odin",
+      "find": " || n != math.trunc(n) {",
+      "replace": " {",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_node",
+      "expect_detail": "N+0.5:cancelled"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_node dies when clear_timer_cb coerces a non-number, non-string id",
+      "why": "Node never coerces the argument: an array, a String object or a BigInt names no timer, and coercing one runs user valueOf/toString inside clearTimeout.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tif jsc.JSValueIsNumber(ctx, v) {\n\t\tn := jsc.JSValueToNumber(ctx, v, nil)\n",
+      "replace": "\tif !jsc.JSValueIsString(ctx, v) {\n\t\tn := jsc.JSValueToNumber(ctx, v, nil)\n",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_node",
+      "expect_detail": "[N]:cancelled"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_node dies when a string id with a leading zero is accepted",
+      "why": "node keys its id table by the canonical decimal, so \"0N\" names no timer; accepting it cancels timer N.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tif chars[0] == '0' {\n",
+      "replace": "\tif false {\n",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_node",
+      "expect_detail": "\"0N\":cancelled"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_chrome dies when .Web reads the id the node way",
+      "why": "A page's clearTimeout(\"N.0\") or clearTimeout(id + 0.5) cancels timer N in Chrome (WebIDL long); the node reading leaves it running.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\t\tinject_native_function(ctx, global, \"clearTimeout\", clear_timeout_web_cb)\n",
+      "replace": "\t\tinject_native_function(ctx, global, \"clearTimeout\", clear_timer_cb)\n",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
+      "expect_detail": "\"N.0\":fired"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_chrome dies when the .Web id is not taken modulo 2^32",
+      "why": "WebIDL's long conversion is a true modulo, so Chrome's clearTimeout(id + 2^33) cancels timer id; the sign folds after it only undo a single wrap, so only a double one pins the modulo.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\t\tx := math.mod(math.trunc(n), 4294967296)\n",
+      "replace": "\t\tx := math.trunc(n)\n",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
+      "expect_detail": "N+2^33:fired"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_chrome dies when a BigInt id does not throw",
+      "why": "JSValueToNumber converts a BigInt where WebIDL's ToNumber throws a TypeError, so Chrome's clearTimeout(10n) throws and cancels nothing.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tif value_is_bigint(ctx, p) {\n",
+      "replace": "\tif false {\n",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
+      "expect_detail": "BigInt:cancelled"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_chrome dies when an error the argument throws is swallowed",
+      "why": "An error the page's own valueOf throws must reach the page, as in Chrome; dropped, clearTimeout returns quietly and the page's error handling never runs.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "web_rethrow :: proc(thrown: jsc.JSValueRef, exception: ^jsc.JSValueRef) -> bool {\n\tif exception != nil {\n",
+      "replace": "web_rethrow :: proc(thrown: jsc.JSValueRef, exception: ^jsc.JSValueRef) -> bool {\n\tif false {\n",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
+      "expect_detail": "throwing valueOf:fired no primitive"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_chrome dies when a Symbol id converts quietly",
+      "why": "WebIDL ToNumber throws a TypeError on a Symbol; JSValueToNumber with no exception slot turns it into NaN and the call returns quietly.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tif jsc.JSValueGetType(ctx, p) == .Symbol {\n",
+      "replace": "\tif false {\n",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
+      "expect_detail": "Symbol:fired throwing valueOf"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_chrome dies when an object id skips ToPrimitive",
+      "why": "JSValueToNumber converts the BigInt a wrapper's valueOf returns, so clearTimeout(Object(10n)) cancels timer 10 where Chrome throws a TypeError.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tif jsc.JSValueIsObject(ctx, v) {\n\t\tok: bool\n",
+      "replace": "\tif false {\n\t\tok: bool\n",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
+      "expect_detail": "BigInt obj:cancelled"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_chrome dies when the TypeError loses the binding prefix",
+      "why": "Chrome's binding prefixes every conversion TypeError with \"Failed to execute '<op>' on 'Window': \"; a page matching on the message sees a different text.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\t\tmessage := strings.concatenate({\"Failed to execute '\", op, \"' on 'Window': \", detail})\n",
+      "replace": "\t\tmessage := strings.concatenate({detail})\n",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
+      "expect_detail": "BigInt:fired (TypeError: Cannot convert a BigInt"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_chrome dies when clearInterval names itself clearTimeout",
+      "why": "The prefix names the method that was called; one shared op name would report clearInterval's failure as clearTimeout's.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\treturn clear_timer_web(ctx, argument_count, arguments, exception, \"clearInterval\")\n",
+      "replace": "\treturn clear_timer_web(ctx, argument_count, arguments, exception, \"clearTimeout\")\n",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
+      "expect_detail": "clearInterval(Symbol):TypeError: Failed to execute 'clearTimeout'"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_chrome dies when Symbol.toPrimitive is not captured",
+      "why": "Without the captured key ToPrimitive skips the exotic method, so a non-callable Symbol.toPrimitive converts quietly instead of throwing, and a callable one is never called.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tjsc.JSValueProtect(ctx, key)\n\tstate.symbol_to_primitive = key\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
+      "expect_detail": "bad toPrimitive:fired interval"
+    },
+    {
+      "name": "js_clear_globals_on_web_cannot_name_an_id_past_2_31 dies when the .Web id is not read as signed",
+      "why": "The declared .Web deviation: a long cannot name an id of 2^31 or more. Without the signed fold the WebIDL reading reaches it, and the test that pins the deviation no longer describes the code.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\t\tif x >= 2147483648 {\n\t\t\tx -= 4294967296\n\t\t}\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.js_clear_globals_on_web_cannot_name_an_id_past_2_31",
+      "expect_detail": "got true:cancelled"
+    },
+    {
+      "name": "clear_owned_heap_timer_respects_owner dies when the heap-timer owner check is dropped",
+      "why": "A foreign id reaches clear_timeout for a pending heap timer and runs its dispose (#92).",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\treturn loop.timers[idx].dispose == owner && clear_timeout(loop, id)\n",
+      "replace": "\t\treturn clear_timeout(loop, id)\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.clear_owned_heap_timer_respects_owner",
+      "expect_detail": "foreign owner must not cancel a heap timer"
+    },
+    {
+      "name": "clear_owned_immediate_respects_owner dies when the immediate owner check is dropped",
+      "why": "A foreign id cancels a queued internal immediate (pkg/http's transfer start) and runs its dispose (#92).",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\t\treturn loop.immediates[i].dispose == owner && clear_timeout(loop, id)\n",
+      "replace": "\t\t\treturn clear_timeout(loop, id)\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.clear_owned_immediate_respects_owner",
+      "expect_detail": "foreign owner must not cancel an immediate"
+    },
+    {
+      "name": "clear_owned_running_timer_respects_owner dies when the running-handle owner check is dropped",
+      "why": "A foreign id cancels the handle whose callback is running, so an internal interval is not re-armed (#92).",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\treturn loop.running_dispose == owner && clear_timeout(loop, id)\n",
+      "replace": "\t\treturn clear_timeout(loop, id)\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.clear_owned_running_timer_respects_owner",
+      "expect_detail": "expected p.fires to be 3"
+    },
+    {
+      "name": "clear_owned_running_timer_respects_owner dies when a running timer's dispose is not recorded",
+      "why": "Without running_dispose the owner can never cancel its own running handle: clearInterval(self) from JS would stop working.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\tloop.running_id, loop.running_dispose = timer.id, timer.dispose\n",
+      "replace": "\t\tloop.running_id, loop.running_dispose = timer.id, nil\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.clear_owned_running_timer_respects_owner",
+      "expect_detail": "expected q.fires to be 1"
+    },
+    {
       "name": "page_eval_protects_one_value_at_a_time dies when page_eval does not release the previous value",
       "why": "Every page_eval would root its value until page_close, so a caller polling a page in a loop grows the VM's protected set without bound.",
       "source": "pkg/runtime/page.odin",
@@ -4371,6 +4521,15 @@
       "replace": "",
       "gate": "odin:cmd/lava:main.page_eval_protects_one_value_at_a_time",
       "expect_detail": "the slot holds one value"
+    },
+    {
+      "name": "page_eval_leaves_the_temp_arena_empty dies when page_eval has no temp-arena choke point",
+      "why": "page_eval's scratch waits for the next tick's reset, so a host evaluating between ticks, or on a page with no loop, grows the thread's temp arena by every source it runs.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\tdefer free_all(context.temp_allocator)\n\n\tctx := cast(jsc.JSContextRef)page.ctx\n",
+      "replace": "\tctx := cast(jsc.JSContextRef)page.ctx\n",
+      "gate": "odin:cmd/lava:main.page_eval_leaves_the_temp_arena_empty",
+      "expect_detail": "in the temp arena"
     },
     {
       "name": "page_eval_throw_leaves_the_page_usable dies when a page_eval throw finishes the page",
@@ -4481,49 +4640,22 @@
       "expect_detail": "a second page_run_script was accepted"
     },
     {
-      "name": "js_clear_globals_cannot_cancel_native_handles dies when clear_timer_cb cancels any id",
-      "why": "Page JS clearing ids 1..n disposes runtime-internal handles sharing the loop's id counter: a pkg/http transfer finishes .Cancelled, a TLS handshake loses its timeout (#92).",
-      "source": "pkg/runtime/globals.odin",
-      "find": "\teventloop.clear_timeout_owned(loop, u64(n), js_callback_dispose)\n",
-      "replace": "\teventloop.clear_timeout(loop, u64(n))\n",
-      "gate": "odin:cmd/lava:main.js_clear_globals_cannot_cancel_native_handles",
-      "expect_detail": "native timeout"
+      "name": "vm_entry_limit_terminates_runaway_script dies when vm_release keeps the armed watchdog",
+      "why": "An entry-limit kill latches the watchdog at its 1 ms floor; left armed, it terminates the next page on the reused VM after 1 ms of CPU.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tif vm.armed_limit > 0 {\n\t\tjsc.JSContextGroupClearExecutionTimeLimit(vm.group)\n\t}\n\n\tvm.entry_limit = 0\n",
+      "replace": "\tvm.entry_limit = 0\n",
+      "gate": "odin:cmd/lava:main.vm_entry_limit_terminates_runaway_script",
+      "expect_detail": "limit leaked past vm_release"
     },
     {
-      "name": "clear_owned_heap_timer_respects_owner dies when the heap-timer owner check is dropped",
-      "why": "A foreign id reaches clear_timeout for a pending heap timer and runs its dispose (#92).",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\treturn loop.timers[idx].dispose == owner && clear_timeout(loop, id)\n",
-      "replace": "\t\treturn clear_timeout(loop, id)\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.clear_owned_heap_timer_respects_owner",
-      "expect_detail": "foreign owner must not cancel a heap timer"
-    },
-    {
-      "name": "clear_owned_immediate_respects_owner dies when the immediate owner check is dropped",
-      "why": "A foreign id cancels a queued internal immediate (pkg/http's transfer start) and runs its dispose (#92).",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\t\treturn loop.immediates[i].dispose == owner && clear_timeout(loop, id)\n",
-      "replace": "\t\t\treturn clear_timeout(loop, id)\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.clear_owned_immediate_respects_owner",
-      "expect_detail": "foreign owner must not cancel an immediate"
-    },
-    {
-      "name": "clear_owned_running_timer_respects_owner dies when the running-handle owner check is dropped",
-      "why": "A foreign id cancels the handle whose callback is running, so an internal interval is not re-armed (#92).",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\treturn loop.running_dispose == owner && clear_timeout(loop, id)\n",
-      "replace": "\t\treturn clear_timeout(loop, id)\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.clear_owned_running_timer_respects_owner",
-      "expect_detail": "expected p.fires to be 3"
-    },
-    {
-      "name": "clear_owned_running_timer_respects_owner dies when a running timer's dispose is not recorded",
-      "why": "Without running_dispose the owner can never cancel its own running handle: clearInterval(self) from JS would stop working.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\tloop.running_id, loop.running_dispose = timer.id, timer.dispose\n",
-      "replace": "\t\tloop.running_id, loop.running_dispose = timer.id, nil\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.clear_owned_running_timer_respects_owner",
-      "expect_detail": "expected q.fires to be 1"
+      "name": "eval_after_a_killed_page_runs_unlimited dies when vm_release keeps the armed watchdog",
+      "why": "The next lava.eval on the thread's pool reuses the killed page's VM; a watchdog left at the kill floor cuts it as an entry-limit kill.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tif vm.armed_limit > 0 {\n\t\tjsc.JSContextGroupClearExecutionTimeLimit(vm.group)\n\t}\n\n\tvm.entry_limit = 0\n",
+      "replace": "\tvm.entry_limit = 0\n",
+      "gate": "odin:cmd/lava:main.eval_after_a_killed_page_runs_unlimited",
+      "expect_detail": "expected result.kill to be None, got Entry_Limit"
     }
   ]
 }

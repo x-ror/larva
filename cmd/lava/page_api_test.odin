@@ -3,6 +3,7 @@
 #+build linux
 package main
 
+import "base:runtime"
 import "core:mem"
 import "core:testing"
 import "core:time"
@@ -192,6 +193,31 @@ page_eval_protects_one_value_at_a_time :: proc(t: ^testing.T) {
 	}
 	lava.page_eval(&page, `0`)
 	testing.expect_value(t, page_protected_count(t, &page), empty)
+}
+
+// page_eval is its own temp-arena choke point (CLAUDE.md §4), like eval and require:
+// the scratch it takes (the source name's cstring, and on `.Node` the source plus its
+// appended drain) is reclaimed when the call returns, not left for the next tick. A
+// host evaluating repeatedly between ticks, or on a page with no loop at all, would
+// otherwise grow the thread's temp arena by every source it ran. The test installs its
+// own arena as the temp allocator so the reading is this call's alone.
+@(test)
+page_eval_leaves_the_temp_arena_empty :: proc(t: ^testing.T) {
+	page: lava.Page
+	loop: eventloop.Loop
+	open_web_page(t, &page, &loop, `globalThis.n = 1;`)
+	defer close_page(&page)
+
+	arena: runtime.Arena
+	defer runtime.arena_destroy(&arena)
+	saved := context.temp_allocator
+	context.temp_allocator = runtime.arena_allocator(&arena)
+	_, ok := lava.page_eval(&page, `n + 1`, "<page-eval-temp>")
+	used := arena.total_used
+	context.temp_allocator = saved
+
+	testing.expect(t, ok, "page_eval failed")
+	testing.expectf(t, used == 0, "page_eval left %d bytes in the temp arena", used)
 }
 
 // Met: the condition turns true once a timer has fired, which takes ticks.
