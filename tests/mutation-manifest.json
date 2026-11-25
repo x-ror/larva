@@ -4199,6 +4199,36 @@
       "replace": "    re: globToRe('pkg/http/none/**'),",
       "gate": "node-test:runtime/gates/route-gates.test.mjs",
       "expect_detail": "pkg/http/content_coding.odin"
+    },
+    {
+      "name": "sdk-diff.test.mjs dies when matchesPin stops comparing the compiler commit with the pin",
+      "why": "CI's `odin-env --check` would pass any compiler whose tag matches, so a drifted toolchain could build CI while the pin says otherwise.",
+      "source": "scripts/lib/odin-pin.mjs",
+      "find": "  if (version.commit !== null) return sameCommit(version.commit, pin.commit);",
+      "replace": "  if (version.commit !== null) return true;",
+      "gate": "node-test:scripts/sdk-diff.test.mjs",
+      "test": "matchesPin: a git build by commit, a hashless release only by the pinned release tag",
+      "expect_detail": "the commit wins over the tag"
+    },
+    {
+      "name": "sdk-diff.test.mjs dies when an @(private) foreign block's bindings are indexed as public",
+      "why": "Private SDK bindings (core:net's getifaddrs) would be reported as reuse candidates the scout cannot import.",
+      "source": "scripts/lib/odin-sdk-index.mjs",
+      "find": "        blockPrivate = transparent && wasPrivate;",
+      "replace": "        blockPrivate = false;",
+      "gate": "node-test:scripts/sdk-diff.test.mjs",
+      "test": "@(private) on a foreign block hides every binding in it",
+      "expect_detail": "getifaddrs"
+    },
+    {
+      "name": "sdk-diff.test.mjs dies when foreignHits ignores the SDK symbol's OS",
+      "why": "A POSIX-only SDK proc would be proposed as the replacement for a binding hand-declared in a Windows file.",
+      "source": "scripts/sdk-diff.mjs",
+      "find": "      if (!foreign.get(n).some((f) => osCompatible(osOf(f), e.targets))) continue;\n",
+      "replace": "",
+      "gate": "node-test:scripts/sdk-diff.test.mjs",
+      "test": "foreignHits finds hand-declared bindings the SDK exports for that OS, new ones first",
+      "expect_detail": "inet_ntop"
     }
   ]
 }

@@ -18,8 +18,8 @@ concurrency:
 # Linux-first: the macOS and Windows jobs are intentionally DISABLED while development
 # focuses on Linux (darwin/windows native code is kept as stubs). Restore them from git
 # history (this file before the "Linux-first CI" change) when cross-platform CI is wanted
-# again. The Odin/LLVM version below (setup-odin inputs) may need bumping over time as the
-# project tracks newer Odin dev builds.
+# again. The Odin toolchain is pinned in .odin-version and installed by
+# .github/actions/setup-odin; bump it there, in its own PR with `make sdk-diff`.
 
 jobs:
   # Which step groups this run needs (scripts/ci-scope.mjs): `docs` runs only
@@ -76,11 +76,9 @@ jobs:
 
       - name: Setup Odin
         if: needs.scope.outputs.scope != 'docs'
-        uses: laytan/setup-odin@v2
+        uses: ./.github/actions/setup-odin
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          llvm-version: '18'
-          release: 'dev-2026-11a'
 
       - name: Type-check
         if: needs.scope.outputs.scope == 'code' || needs.scope.outputs.scope == 'full'
@@ -136,11 +134,9 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Setup Odin
-        uses: laytan/setup-odin@v2
+        uses: ./.github/actions/setup-odin
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          llvm-version: '18'
-          release: 'dev-2026-11a'
 
       - name: Build
         run: make build
@@ -276,11 +272,9 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Setup Odin
-        uses: laytan/setup-odin@v2
+        uses: ./.github/actions/setup-odin
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          llvm-version: '18'
-          release: 'dev-2026-11a'
 
       - name: Test (mutation gate)
         run: make test-mutation SHARD=${{ matrix.shard }}/3 ${{ needs.scope.outputs.scope != 'full' && 'CHANGED=1' || '' }}

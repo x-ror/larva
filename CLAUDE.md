@@ -85,11 +85,23 @@ because no Odin equivalent matches its throughput.
 
 Use the `odin-sdk-scout` agent for this search — it reads the real SDK source.
 
+**The SDK is pinned.** `.odin-version` names the exact odin-lang/Odin commit CI builds
+with; evidence for §2 comes from that tree, not from a local checkout that has moved
+on. Odin's master changes almost daily, so what it adds is tracked, not remembered:
+`make sdk-diff` lists what a revision adds against the pin and which of our C links
+or hand-declared bindings it could replace (watch list:
+`agents/prompts/odin-feature-reference/sdk-watch.json` — add an entry with any new
+C dependency or hand-rolled code), and the weekly "Odin SDK news" issue runs the
+same report on master. Adopting something newer than the pin is a pin-bump PR of
+its own, with the `make sdk-diff` report in its body.
+
 ---
 
 ## 3. Commands
 
 ```sh
+make env              # pinned Odin vs local compiler/SDK, C libs, node, cores — read first
+make sdk-diff         # SDK additions/breaks vs the pin (TO=<rev>, default the SDK checkout's HEAD)
 make check            # Odin type-check (incl. windows/darwin cross-target front-end)
 make check-js         # bun fmt --check + JS module graph + node:test over scripts/ + primordials ratchet
 make check-md         # bun fmt + markdownlint over the repo's docs (make fix-md auto-fixes)

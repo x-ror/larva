@@ -14,17 +14,25 @@ maintenance, and usually _slower_ than a tuned SDK routine. Your default answer 
 
 ## Locate the SDK first
 
+The SDK Larva builds against is the commit in `.odin-version`, not whatever the
+local checkout has moved to. `make env` (also printed at session start) says
+whether the local compiler and SDK source match it:
+
 ```sh
-# The SDK is the one the build uses: the `odin` on PATH. `odin root` prints its
-# root; ODIN_ROOT overrides it the same way it overrides the compiler.
+make env                         # pin, local compiler, SDK root, drift
 SDK="${ODIN_ROOT:-$(odin root)}"
-ls "$SDK/core" "$SDK/vendor"
-odin version   # report this with the verdict
+PIN=$(sed -n 's/^commit=//p' .odin-version)
+# SDK source at the pin — use this form whenever `make env` reports drift:
+git -C "$SDK" show "$PIN:core/crypto/hash/hash.odin"
+git -C "$SDK" grep -n 'proc' "$PIN" -- core/crypto/hash
 ```
 
-Read the actual `.odin` files under `$SDK/core/...`. Signatures, allocator
-parameters, error enums, and `when ODIN_OS` coverage all matter, and none of them
-can be guessed. Grep the SDK, then read the specific procedure.
+Cite evidence as `core:x/y.odin:NN @ <pin short sha>`. Code that exists only after
+the pin is not available to Larva until a pin bump: report it as
+`after-pin: <candidate>` with `make sdk-diff` as the evidence, not as `use`.
+Signatures, allocator parameters, error enums and `when ODIN_OS` coverage all
+matter, and none of them can be guessed. Grep the SDK, then read the specific
+procedure.
 
 ## Search order (stop at the first real fit)
 
@@ -33,7 +41,8 @@ can be guessed. Grep the SDK, then read the specific procedure.
    frequent defect here. Grep for the _concept_, not the name the diff chose
    (`ascii`, `utf8`, `alloc8`, `host_`, `probe`, `sweep`, `parse`).
 2. **`core:`** — see `agents/prompts/odin-feature-reference/odin-sdk-map.md` for the
-   index, then read the source.
+   index, then read the source. For "is there a proc named X anywhere", `make
+sdk-diff` already found every hand-declared `foreign` proc the SDK exports.
 3. **`vendor:`** — `$SDK/vendor/*`.
 4. **Already-linked C** — JavaScriptCore, OpenSSL (`libssl`/`libcrypto`), SQLite,
    libc/POSIX, `picohttpparser`. **Planned** links (`docs/LARVA.md`): BoringSSL
@@ -115,7 +124,7 @@ The conductor pays for every line you return and sees nothing else you did.
   instead.
 
 ```text
-sdk: <odin version>
+sdk: <pin short sha from .odin-version> (local: <odin version>)
 <need> → use|wrap|link|new-dep|hand-roll — <candidate> <source path:line> — why, in one line
 (one line per need)
 delete: <"drop N lines at path:line, call X" for anything the diff already hand-rolls | none>

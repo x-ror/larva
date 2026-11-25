@@ -25,10 +25,14 @@ endif
 SOURCE ?= console.log('hello from Lava')
 FILE ?=
 
-.PHONY: gates test-stdio help bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-html-odin test-http-odin test-sqlite-odin test-sqlite-node test-sqlite-lava test-fs-node test-fs-lava test-eventloop-node test-eventloop-lava test-fetch-smoke test-net-smoke test-http-smoke test-https-smoke test-multicore-smoke test-zerocopy-smoke bench bench-gate bench-http fmt clean test-bench-pages-smoke bench-pages
+.PHONY: gates test-stdio help env sdk-diff bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-html-odin test-http-odin test-sqlite-odin test-sqlite-node test-sqlite-lava test-fs-node test-fs-lava test-eventloop-node test-eventloop-lava test-fetch-smoke test-net-smoke test-http-smoke test-https-smoke test-multicore-smoke test-zerocopy-smoke bench bench-gate bench-http fmt clean test-bench-pages-smoke bench-pages
 
 help:
 	@printf '%s\n' 'Lava commands'
+	@printf '%s\n' ''
+	@printf '%s\n' 'Toolchain'
+	@printf '%s\n' '  make env                Pinned Odin vs the local compiler/SDK, C libs, node, cores'
+	@printf '%s\n' '  make sdk-diff [TO=rev]  What an Odin revision adds/changes vs .odin-version (default TO=HEAD of the SDK checkout)'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Build / run'
 	@printf '%s\n' '  make build              Build the lava CLI'
@@ -122,6 +126,17 @@ run: build
 
 eval: build
 	$(LAVA) eval "$(SOURCE)"
+
+# The toolchain report the SessionStart hook prints (.claude/settings.json). Never
+# fails: `node scripts/odin-env.mjs --check` is the strict form CI runs.
+env:
+	@ODIN=$(ODIN) node scripts/odin-env.mjs
+
+# SDK additions and breaking changes between the pin and TO, read for Larva
+# (CLAUDE.md §2). Needs the SDK as a git checkout; ODIN_ROOT selects another one.
+TO ?= HEAD
+sdk-diff:
+	@ODIN=$(ODIN) node scripts/sdk-diff.mjs --to $(TO)
 
 check: check-cli check-runtime
 	$(ODIN) check pkg/jsc -no-entry-point

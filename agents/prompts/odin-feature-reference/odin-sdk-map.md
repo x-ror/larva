@@ -4,14 +4,21 @@ An index for the reuse-first law (`CLAUDE.md` §2). It tells you **where to look
 it is not a spec. Always read the actual source before committing to a call —
 signatures, allocator parameters, error enums, and `when ODIN_OS` coverage change.
 
-```sh
-SDK="${ODIN_ROOT:-$(dirname "$(readlink -f "$(command -v odin)")")}"
-ls "$SDK/core" "$SDK/vendor"
-rg -n 'proc.*<name>' "$SDK/core/<pkg>"
-```
+The SDK that counts is the commit pinned in `.odin-version`. `make env` reports
+whether the local checkout matches it; read the pinned tree with
+`git -C "$(odin root)" show <pin>:core/<pkg>/<file>.odin` when it does not.
+This page is curated and goes stale; two generated sources do not:
 
-Verified against `odin version dev-2026-07`. Packages prefixed with `_`
-(`core:crypto/_aes`) are private SDK internals — not public API, do not import.
+- `make sdk-diff [TO=rev]` — packages and procs a revision adds against the pin, the
+  signatures it changes in packages Larva imports, and **candidates**: hand-declared
+  `foreign` procs the SDK exports, plus hits from
+  [sdk-watch.json](sdk-watch.json) (what we link or hand-roll and what would
+  replace it). Add an entry there when you add a C dependency or hand-roll.
+- The weekly **Odin SDK news** issue (`.github/workflows/sdk-news.yml`) — the same
+  report for Odin master, so a bump is proposed when it buys something.
+
+Packages prefixed with `_` (`core:crypto/_aes`) are private SDK internals — not
+public API, do not import.
 
 ## Bytes, strings, encodings
 

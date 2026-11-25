@@ -20,7 +20,8 @@ for how the runtime pieces fit together.
 
 ## Requirements
 
-- Odin (CI pins `dev-2026-11a` with LLVM 18)
+- Odin at the commit pinned in [`.odin-version`](.odin-version) (LLVM 18); `make env`
+  shows whether your compiler and SDK checkout match it
 - JavaScriptCore development headers and libraries
 - SQLite development headers and libraries (for `node:sqlite`)
 - OpenSSL development headers and libraries (for `fetch` HTTPS/TLS). The roadmap

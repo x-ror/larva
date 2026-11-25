@@ -1,0 +1,12 @@
+# The Odin toolchain Larva builds and is reviewed against — the one source of truth.
+# CI (.github/actions/setup-odin), `make env`, `make sdk-diff` and the reuse scout
+# all read this file. Bump it in its own PR, with `make sdk-diff TO=<new commit>` in
+# the body: that report lists the SDK additions the bump makes available and the
+# signature changes it may break.
+#
+# commit   exact odin-lang/Odin commit (40 hex); the SDK source agents read is this tree.
+# release  prebuilt GitHub release built from `commit`, or empty to build from source.
+# llvm     LLVM major the compiler is built/linked with.
+commit=9a6991685ddf663956d9836602eb421e141fc443
+release=dev-2026-11a
+llvm=18

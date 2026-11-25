@@ -1,0 +1,79 @@
+name: Odin SDK news
+
+# Odin's master moves almost daily (new core: packages, vendor bindings, signature
+# changes). Larva builds against the commit pinned in .odin-version, so nothing
+# reaches us until a bump — and nothing tells us a bump is worth doing. This job
+# diffs Odin master against the pin once a week with scripts/sdk-diff.mjs and keeps
+# ONE open issue current: its body is the latest report, and a comment marks each
+# week the report changed, so subscribers are notified. The report's "Candidates"
+# section is what the reuse law (CLAUDE.md §2) acts on; acting means a pin-bump PR.
+#
+# Read-only on the code: it never pushes or bumps the pin.
+
+on:
+  schedule:
+    - cron: '23 5 * * 1' # Mondays; minute 23 to stay off the top-of-hour rush
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: sdk-news
+  cancel-in-progress: true
+
+env:
+  ISSUE_TITLE: 'Odin SDK news: master vs the pinned toolchain'
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      # Blobless: full history (the report lists merges since the pin) without every
+      # blob ever committed. A sparse checkout of the two revisions then fetches only
+      # their *.odin blobs, in one batch each, so the indexer's cat-file finds them
+      # local. Both shortcuts matter: `git checkout REV -- core vendor` instead fetches
+      # blob by blob and drags in vendor/'s prebuilt .lib/.dll files — over 10 min
+      # against 6 s for this form (one local run each, git 2.53, 2026-11-25).
+      - name: Fetch Odin
+        run: |
+          set -euo pipefail
+          pin=$(sed -n 's/^commit=\([0-9a-f]*\).*/\1/p' .odin-version)
+          dir="$RUNNER_TEMP/odin"
+          git clone -q --filter=blob:none --no-checkout https://github.com/odin-lang/Odin.git "$dir"
+          git -C "$dir" sparse-checkout set --no-cone '/core/**/*.odin' '/vendor/**/*.odin' '/base/**/*.odin'
+          git -C "$dir" checkout -q "$pin"
+          git -C "$dir" checkout -q origin/master
+          echo "MASTER=$(git -C "$RUNNER_TEMP/odin" rev-parse origin/master)" >> "$GITHUB_ENV"
+
+      - name: Diff master against the pin
+        run: node scripts/sdk-diff.mjs --repo "$RUNNER_TEMP/odin" --to origin/master --max-chars 60000 > "$RUNNER_TEMP/report.md"
+
+      - name: Update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          body="$RUNNER_TEMP/report.md"
+          printf '\n\n<sub>Odin master %s · run %s · regenerate locally with `make sdk-diff TO=origin/master`</sub>\n' \
+            "$MASTER" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> "$body"
+          num=$(gh issue list --state open --search "\"$ISSUE_TITLE\" in:title" --json number,title \
+            --jq "map(select(.title == env.ISSUE_TITLE)) | .[0].number // empty")
+          if [ -z "$num" ]; then
+            gh issue create --title "$ISSUE_TITLE" --body-file "$body"
+            exit 0
+          fi
+          # Compare without the footer line, which changes every run.
+          old=$(gh issue view "$num" --json body --jq .body | sed '/^<sub>Odin master /,$d')
+          new=$(sed '/^<sub>Odin master /,$d' "$body")
+          gh issue edit "$num" --body-file "$body"
+          if [ "$(printf '%s' "$old" | tr -d '[:space:]')" != "$(printf '%s' "$new" | tr -d '[:space:]')" ]; then
+            gh issue comment "$num" --body "Report updated for Odin master \`${MASTER:0:9}\`: $(grep -m1 -E '^[0-9]+ new packages' "$body")"
+          fi
