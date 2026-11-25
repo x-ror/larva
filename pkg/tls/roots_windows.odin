@@ -13,35 +13,10 @@ import win "core:sys/windows"
 // (tls_client_ctx). Best-effort and additive — it never removes or weakens
 // verification; certs already provided via SSL_CERT_FILE remain in force.
 
-// Minimal CryptoAPI cert-store bindings (core:sys/windows has none). Layout per
-// <wincrypt.h>: only the fields we read are typed precisely.
-@(private = "file")
-HCERTSTORE :: distinct rawptr
-
-@(private = "file")
-CERT_CONTEXT :: struct {
-	dwCertEncodingType: win.DWORD,
-	pbCertEncoded:      [^]byte, // DER-encoded certificate
-	cbCertEncoded:      win.DWORD, // its length in bytes
-	pCertInfo:          rawptr,
-	hCertStore:         HCERTSTORE,
-}
-
-@(private = "file")
-PCCERT_CONTEXT :: ^CERT_CONTEXT
-
-foreign import crypt32 "system:Crypt32.lib"
-
-@(default_calling_convention = "system")
-foreign crypt32 {
-	// hProv is an unused legacy handle (pass nil); szSubsystemProtocol names the
-	// system store ("ROOT", "CA", ...).
-	CertOpenSystemStoreW :: proc(hProv: rawptr, szSubsystemProtocol: win.wstring) -> HCERTSTORE ---
-	// Returns the next cert in the store, freeing the one passed in; nil ends the
-	// walk (the final context is freed for us). Pass nil to start.
-	CertEnumCertificatesInStore :: proc(hCertStore: HCERTSTORE, pPrevCertContext: PCCERT_CONTEXT) -> PCCERT_CONTEXT ---
-	CertCloseStore :: proc(hCertStore: HCERTSTORE, dwFlags: win.DWORD) -> win.BOOL ---
-}
+// The CryptoAPI cert-store calls and CERT_CONTEXT come from core:sys/windows
+// (crypt32.odin): CertOpenSystemStoreW takes an unused legacy provider handle
+// (pass nil) and the store name ("ROOT", "CA", ...); CertEnumCertificatesInStore
+// returns the next cert and frees the one passed in, and nil ends the walk.
 
 tls_load_platform_roots :: proc(ctx: SSL_CTX) {
 	store := SSL_CTX_get_cert_store(ctx)
@@ -59,17 +34,17 @@ tls_load_platform_roots :: proc(ctx: SSL_CTX) {
 // duplicate add) are skipped, not fatal.
 @(private = "file")
 load_windows_store :: proc(store: X509_STORE, name: win.wstring) {
-	hstore := CertOpenSystemStoreW(nil, name)
+	hstore := win.CertOpenSystemStoreW(nil, name)
 
 	if hstore == nil {
 		return
 	}
 
-	defer CertCloseStore(hstore, 0)
+	defer win.CertCloseStore(hstore, 0)
 
-	cert: PCCERT_CONTEXT
+	cert: ^win.CERT_CONTEXT
 	for {
-		cert = CertEnumCertificatesInStore(hstore, cert)
+		cert = win.CertEnumCertificatesInStore(hstore, cert)
 
 		if cert == nil {
 			break
