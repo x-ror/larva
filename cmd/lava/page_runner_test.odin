@@ -165,8 +165,8 @@ Churn :: struct {
 	fds_after_warmup:         int,
 	outcome:                  Page_Outcome,
 	// Every fifo_every-th page closes with its pool worker blocked in open() on a
-	// FIFO, so its loop goes through the reaping list (#34); churn_done lets the
-	// worker through once the page is reported.
+	// FIFO, so its job is left an orphan of the runner's pool (#34, #36); churn_done
+	// lets the worker through once the page is reported.
 	fifo, fifo_src:           string,
 	fifo_every:               int,
 	fifo_pages, fifo_stuck:   int,
@@ -218,9 +218,9 @@ churn_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Re
 // (and so the permanent per-VM timerfd count) at its capacity. 8 pages in flight.
 // The full 10k runs only on one runner thread (`make test-odin-serial`), where the
 // census means something; otherwise a short run still exercises the churn path.
-// The count includes loops that closed with a blocked worker and went through the
-// reaping list (#34): one page in a hundred does (100 of the 10k), and the census
-// waits for the list to drain. A hundred, not ten: the warm-up census is taken with 8
+// The count includes pages that closed with a blocked worker, leaving their job an
+// orphan (#34, #36): one page in a hundred does (100 of the 10k), and the census waits
+// for the orphans to drain. A hundred, not ten: the warm-up census is taken with 8
 // pages in flight, and that slack (~24 fds) would hide ten leaked pipes.
 @(test)
 runner_fd_count_stays_flat_over_10k_pages :: proc(t: ^testing.T) {
@@ -244,7 +244,7 @@ runner_fd_count_stays_flat_over_10k_pages :: proc(t: ^testing.T) {
 		lava.page_runner_open(&runner, "let x = 0; setTimeout(() => { x++; }, 0);", "<churn>", LIMITS, &c)
 	}
 	lava.page_runner_run(&runner)
-	testing.expect(t, wait_reaped(&runner, 5 * time.Second), "reaping loops never drained")
+	testing.expect(t, wait_orphans(&runner, 5 * time.Second), "orphaned jobs never drained")
 	testing.expect_value(t, c.fifo_pages, c.total / c.fifo_every)
 	testing.expect_value(t, c.fifo_stuck, 0)
 	// The census first: a leak of three fds per page hits EMFILE in a 10k run, and the

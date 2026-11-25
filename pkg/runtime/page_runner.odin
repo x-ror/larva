@@ -16,14 +16,17 @@ import eventloop "lava:pkg/runtime/eventloop"
 //
 // What one page cannot do to the others on the thread: run past its CPU budget (a
 // kill ends that page only — its loop is force-exited and closed, the rest keep
-// ticking), leave its VM behind (closing a page returns it), or hold the thread on
-// blocking pool work. A page whose loop still has a pool worker inside a job when it
-// closes — an fs read on a FIFO, a DNS lookup the resolver has not answered — closes
-// at once all the same: page_close releases its JS side, and its loop goes to the
-// reaping list, where the runner waits for the worker through the loop's wakeup pipe
-// and finishes the loop once it exits (#34). The list is bounded (reap_limit): a page
-// can still pin a few threads and descriptors for as long as its job blocks, but not
-// the runner's thread, and not without bound.
+// ticking), leave its VM behind (closing a page returns it), hold the thread on
+// blocking pool work, or starve its siblings of pool workers. The runner's pages share
+// one worker pool (eventloop.Worker_Pool, #36): four core threads for the whole
+// runner, not four per page, served round-robin across pages, with an overflow worker
+// for a page left waiting behind jobs that stall (runner_round's pool_tick). A page
+// whose job is still running when it closes — an fs read on a FIFO, a DNS lookup the
+// resolver has not answered — closes at once all the same, loop included (#34): the
+// job becomes an orphan its worker finishes and disposes on its own, and no completion
+// can reach the closed loop. Orphans are bounded (orphan_limit): a page can still pin a
+// thread for as long as its job blocks, but not the runner's thread, and not without
+// bound.
 //
 // What it can do, all listed in docs/LARVA.md decision 2 as open work:
 //   - delay its siblings by up to its budget, not its entry limit: one page_tick
@@ -48,9 +51,10 @@ Done_Page :: struct {
 	result:    Result,
 }
 
-// A live page. Its loop is on the heap, not the runner allocator: workers hold a
-// pointer to it, so its address must not move, and if the page closes with a worker
-// still busy the loop outlives the page — and, after page_runner_destroy, the runner.
+// A live page. Its loop is on the heap, not the runner allocator: a pool worker grows
+// the loop's async_queue through loop.allocator when it posts a completion, from its
+// own thread, so that allocator must be thread-safe (eventloop.post_async), which the
+// runner's — an arena, say — need not be.
 @(private = "file")
 Runner_Page :: struct {
 	page:      Page,
@@ -59,35 +63,23 @@ Runner_Page :: struct {
 	fd:        linux.Fd,
 }
 
-// RUNNER_REAP_LIMIT is the default bound on a runner's reaping list (Page_Runner.
-// reap_limit). Each entry holds a loop's wakeup pipe (2 fds) and up to
-// THREADPOOL_SIZE threads, some of them blocked for as long as the work they were
-// given: a page reading a FIFO nobody writes never releases its entry. Unbounded,
-// the list would turn the thread hang it replaced into process-wide thread and fd
-// exhaustion; at the bound the runner refuses new pages instead (.Reaping_Full).
-// 8 is a chosen cap, not a measured one: at most 8 x THREADPOOL_SIZE = 32 threads and
-// 16 pipe fds pinned per runner.
-RUNNER_REAP_LIMIT :: 8
-
-// Reaping_Loop is a closed page's loop that close_begin left with a busy pool worker.
-// The page's JS side is gone; what remains is the loop's memory, its pool threads and
-// its wakeup pipe, all on the heap, never on the runner allocator, so that
-// page_runner_destroy can leave them to the workers.
-Reaping_Loop :: struct {
-	loop: ^eventloop.Loop,
-	// The loop's wakeup-pipe read end while it sits in the runner's epoll set, else
-	// -1 (then the runner polls the entry every millisecond instead of sleeping).
-	fd:   linux.Fd,
-}
+// RUNNER_ORPHAN_LIMIT is the default bound on a runner's orphans (Page_Runner.
+// orphan_limit): jobs still running for pages that have closed. Each holds a pool
+// worker for as long as the work it was given blocks — a page reading a FIFO nobody
+// writes never releases its thread. Unbounded, they would turn the thread hang #34
+// replaced into process-wide thread exhaustion; at the bound the runner refuses new
+// pages instead (.Reaping_Full). 32 is chosen, not measured: it keeps the threads one
+// runner can pin to what its reaping list allowed before #36 (8 loops x 4 workers).
+RUNNER_ORPHAN_LIMIT :: 32
 
 Page_Runner :: struct {
 	pages:             [dynamic]^Runner_Page,
-	// Closed pages' loops still waiting on a worker, reaped by the runner as their
-	// workers exit (runner_reap). Backed by the runner allocator, bound at init.
-	reaping:           [dynamic]Reaping_Loop,
-	// The bound on `reaping`; RUNNER_REAP_LIMIT unless the embedder lowers it after
-	// page_runner_init.
-	reap_limit:        int,
+	// The runner thread's one worker pool, every page loop its client. On the heap: it
+	// outlives the runner while orphans still run (page_runner_destroy).
+	workers:           ^eventloop.Worker_Pool,
+	// The bound on the pool's orphans; RUNNER_ORPHAN_LIMIT unless the embedder lowers
+	// it after page_runner_init.
+	orphan_limit:      int,
 	// The runner's own VMs, so the number of live VMs — and of timerfds, kept for the
 	// life of the runner's thread — is bounded by the runner's capacity, not by how
 	// many pages it ever ran.
@@ -103,7 +95,7 @@ Page_Runner :: struct {
 	// so page_runner_step can block on them while no page is live.
 	watched:           int,
 	// Sample every Nth page's JS heap per VM into Result.heap_bytes; 0 (the default)
-	// samples nothing. Set by the embedder after page_runner_init, like reap_limit.
+	// samples nothing. Set by the embedder after page_runner_init, like orphan_limit.
 	// Sampled pages pay the heap walk outside their CPU budget (page_close says why).
 	heap_sample_every: int,
 }
@@ -111,7 +103,8 @@ Page_Runner :: struct {
 // page_runner_init prepares a runner that can hold up to `capacity` live pages (one
 // VM each). `allocator` owns the runner's bookkeeping, every page's runtime state and
 // the Results handed to on_done; it must outlive the runner (CLAUDE.md §4). Page loops
-// are the exception: they are on the heap (Runner_Page says why).
+// and the worker pool are the exception: they are on the heap (Runner_Page and
+// Page_Runner.workers say why).
 // The runner's entry points install it as context.allocator themselves, so pages are
 // created and freed through it whatever context the caller runs them under.
 //
@@ -128,8 +121,8 @@ page_runner_init :: proc(
 	runner.on_done = on_done
 	runner.pages = make([dynamic]^Runner_Page, 0, max(capacity, 1), allocator)
 	runner.done = make([dynamic]Done_Page, allocator)
-	runner.reaping = make([dynamic]Reaping_Loop, allocator)
-	runner.reap_limit = RUNNER_REAP_LIMIT
+	runner.workers = eventloop.pool_create(runtime.heap_allocator())
+	runner.orphan_limit = RUNNER_ORPHAN_LIMIT
 	vm_pool_init(&runner.pool, capacity, allocator)
 	epfd, err := linux.epoll_create1({.FDCLOEXEC})
 
@@ -146,11 +139,11 @@ page_runner_init :: proc(
 // .Cancelled, along with any page on_done opens meanwhile — then destroys the
 // runner's VMs.
 //
-// It does not wait for blocking pool work: a reaping loop whose worker is still inside
-// its job is detached (eventloop.close_detach) and finished by that worker's own last
-// exit — its pool, its pipe and the loop itself are on the heap, so the runner
-// allocator may be freed the moment this returns. Pinned by
-// runner_destroy_detaches_loops_whose_workers_are_blocked.
+// It does not wait for blocking pool work: the worker pool is released
+// (eventloop.pool_release), its idle workers exit, and one still inside an orphan's job
+// exits when that job returns — the last of them frees the pool. The pool and every
+// orphan's job are on the heap, so the runner allocator may be freed the moment this
+// returns. Pinned by runner_destroy_does_not_wait_for_blocked_workers.
 page_runner_destroy :: proc(runner: ^Page_Runner) {
 	context.allocator = runner.allocator
 	runner.closing = true
@@ -161,17 +154,11 @@ page_runner_destroy :: proc(runner: ^Page_Runner) {
 		}
 		runner_report_done(runner)
 	}
-	runner_reap(runner)
-	for e in runner.reaping {
-		if e.fd >= 0 {
-			linux.epoll_ctl(runner.epfd, .DEL, e.fd, nil)
-		}
 
-		if !eventloop.close_detach(e.loop) {
-			free(e.loop, runtime.heap_allocator())
-		}
+	if runner.workers != nil {
+		eventloop.pool_release(runner.workers)
 	}
-	delete(runner.reaping)
+
 	delete(runner.pages)
 	delete(runner.done)
 	vm_pool_destroy(&runner.pool)
@@ -193,8 +180,8 @@ page_runner_destroy :: proc(runner: ^Page_Runner) {
 // not live in it.
 //
 // A page is refused with Kill_Reason.Reaping_Full (status .Execution_Error), before it
-// takes a loop or a VM, while the reaping list holds reap_limit loops after a reap
-// pass. Pinned by runner_refuses_pages_while_its_reaping_list_is_full.
+// takes a loop or a VM, while orphan_limit jobs of closed pages are still running.
+// Pinned by runner_refuses_pages_at_its_orphan_bound.
 //
 // Params:
 //   limits  Must carry a CPU budget (cpu_budget > 0); there is no default, so a
@@ -242,8 +229,7 @@ page_runner_open :: proc(
 		return
 	}
 
-	// Reap first, so the bound counts only loops whose workers are still busy.
-	if runner_reap(runner) >= runner.reap_limit {
+	if eventloop.pool_orphans(runner.workers) >= runner.orphan_limit {
 		append(&runner.done, Done_Page{user_data, page_killed_result(.Reaping_Full)})
 		return
 	}
@@ -254,6 +240,7 @@ page_runner_open :: proc(
 	rp.loop = new(eventloop.Loop, runtime.heap_allocator())
 	rp.loop^ = eventloop.init(runtime.heap_allocator(), real_time = true)
 	rp.loop.never_block = true
+	eventloop.pool_attach(rp.loop, runner.workers)
 	append(&runner.pages, rp)
 	index := len(runner.pages) - 1
 
@@ -290,18 +277,10 @@ page_runner_open :: proc(
 	// ability to wake a blocked runner, so runner_wait never blocks while one is live.
 }
 
-// page_runner_reaping is the number of closed pages whose loops still wait on a pool
-// worker (see Reaping_Loop). Never above reap_limit; does not reap.
-page_runner_reaping :: proc(runner: ^Page_Runner) -> int {
-	return len(runner.reaping)
-}
-
-// page_runner_reap finishes every reaping loop whose workers have exited, without
-// waiting on the others, and returns how many remain. Never blocks; runner thread only. page_runner_run and
-// page_runner_open reap on their own; this is for an embedder between runs.
-page_runner_reap :: proc(runner: ^Page_Runner) -> int {
-	context.allocator = runner.allocator
-	return runner_reap(runner)
+// page_runner_orphans is the number of jobs still running for pages that have closed
+// (eventloop.pool_orphans). Never blocks; at orphan_limit page_runner_open refuses.
+page_runner_orphans :: proc(runner: ^Page_Runner) -> int {
+	return eventloop.pool_orphans(runner.workers)
 }
 
 // page_runner_live is the number of pages still running.
@@ -334,7 +313,7 @@ page_runner_watch_fd :: proc(runner: ^Page_Runner, fd: i32) -> bool {
 // descriptor becomes readable. Unlike page_runner_run it blocks with no page live, so
 // a driver that feeds the runner from another thread (the dispatcher) sleeps on its
 // wake descriptor instead of spinning. It never blocks when there is nothing at all to
-// wait on (no page, no watched descriptor, nothing reaping).
+// wait on (no page, no watched descriptor).
 //
 // Returns:
 //   Whether the round ticked a page that did work or finished one.
@@ -344,10 +323,8 @@ page_runner_step :: proc(runner: ^Page_Runner) -> bool {
 }
 
 // page_runner_run ticks the live pages until none is left, including pages that
-// on_done opens along the way. Reaping loops are finished as their workers exit — a
-// worker's exit writes its loop's wakeup pipe, which wakes a blocked runner — but the
-// run does not wait for them: it returns once no page is live, whatever is still on
-// the reaping list (page_runner_reap, page_runner_destroy).
+// on_done opens along the way. It does not wait for orphans: it returns once no page
+// is live, whatever closed pages' jobs are still running (page_runner_orphans).
 page_runner_run :: proc(runner: ^Page_Runner) {
 	context.allocator = runner.allocator
 	for len(runner.pages) > 0 || len(runner.done) > 0 {
@@ -355,8 +332,10 @@ page_runner_run :: proc(runner: ^Page_Runner) {
 	}
 }
 
-// runner_round is one round of run and step: report queued Results, reap, tick every
-// live page once, and wait when no page progressed and one is live. `idle_wait` lets
+// runner_round is one round of run and step: report queued Results, tick every live
+// page once, let the worker pool start an overflow worker for a page starving behind
+// stalled jobs (pool_tick — after the ticks, which is where pages submit), and wait
+// when no page progressed and one is live. `idle_wait` lets
 // it wait with none live too — only for page_runner_step, whose driver has a watched
 // descriptor to be woken through; run's contract is to return once no page is left,
 // and a run that waited there would sleep on a descriptor it does not own (#28's
@@ -364,7 +343,6 @@ page_runner_run :: proc(runner: ^Page_Runner) {
 @(private = "file")
 runner_round :: proc(runner: ^Page_Runner, idle_wait: bool) -> bool {
 	runner_report_done(runner)
-	runner_reap(runner)
 	progressed := false
 	i := 0
 	for i < len(runner.pages) {
@@ -383,6 +361,7 @@ runner_round :: proc(runner: ^Page_Runner, idle_wait: bool) -> bool {
 
 		i += 1
 	}
+	eventloop.pool_tick(runner.workers)
 
 	if progressed {
 		return true
@@ -390,7 +369,7 @@ runner_round :: proc(runner: ^Page_Runner, idle_wait: bool) -> bool {
 
 	// Results delivered above are not progress: a run whose only page failed at open
 	// reaches here with nothing live, which is exactly where it must not wait.
-	if len(runner.pages) > 0 || (idle_wait && (runner.watched > 0 || len(runner.reaping) > 0)) {
+	if len(runner.pages) > 0 || (idle_wait && runner.watched > 0) {
 		runner_wait(runner)
 	}
 
@@ -398,16 +377,12 @@ runner_round :: proc(runner: ^Page_Runner, idle_wait: bool) -> bool {
 }
 
 // runner_wait blocks until some page can make progress: an fd of any page's loop
-// becomes ready, or the nearest timer across all pages comes due. A reaping loop's
-// wakeup pipe wakes it too, so a loop is reaped soon after its worker exits.
+// becomes ready, the nearest timer across all pages comes due, or a page starving for a
+// pool worker has waited long enough for pool_tick to start one (pool_wait_hint_ms) —
+// a stall wakes nothing by itself.
 @(private = "file")
 runner_wait :: proc(runner: ^Page_Runner) {
-	timeout := -1
-	for e in runner.reaping {
-		if e.fd < 0 {
-			timeout = 1
-		}
-	}
+	timeout := eventloop.pool_wait_hint_ms(runner.workers)
 	for rp in runner.pages {
 		// A page the runner cannot wait on is polled every millisecond instead: not
 		// slept through, and not spun on either, since every spin tick would be charged
@@ -433,9 +408,9 @@ runner_wait :: proc(runner: ^Page_Runner) {
 
 // runner_finish closes page `index`, removes it, and reports its Result — now, or,
 // with `deliver` false (inside page_runner_open), from the run loop. The page's loop
-// descriptor leaves the runner's epoll set before the loop closes it. A loop that
-// page_close hands back with a busy worker goes to the reaping list; any other is
-// closed by now, and only its struct is left to free.
+// descriptor leaves the runner's epoll set before the loop closes it. page_close
+// closes the loop whatever its pool jobs are doing — a client of the shared pool is
+// never handed back busy — so only its struct is left to free.
 @(private = "file")
 runner_finish :: proc(runner: ^Page_Runner, index: int, deliver := true) {
 	rp := runner.pages[index]
@@ -446,12 +421,8 @@ runner_finish :: proc(runner: ^Page_Runner, index: int, deliver := true) {
 	}
 
 	result, busy_loop := page_close(&rp.page, runner.heap_sample_every)
-
-	if busy_loop != nil {
-		runner_reap_add(runner, busy_loop)
-	} else {
-		free(rp.loop, runtime.heap_allocator())
-	}
+	assert(busy_loop == nil, "a page loop attached to the runner's pool was handed back busy")
+	free(rp.loop, runtime.heap_allocator())
 
 	user_data := rp.user_data
 	free(rp, runner.allocator)
@@ -462,61 +433,6 @@ runner_finish :: proc(runner: ^Page_Runner, index: int, deliver := true) {
 	}
 
 	runner_deliver(runner, user_data, result)
-}
-
-// runner_reap_add puts a closed page's loop on the reaping list, waiting on its wakeup
-// pipe's read end. Edge-triggered, like a live page's descriptor; runner_reap drains
-// the pipe before it checks the loop, so a wakeup written after the check raises a
-// new edge rather than being consumed unseen. A pipe the epoll set will not take
-// leaves the entry polled every millisecond (runner_wait), never stranded.
-@(private = "file")
-runner_reap_add :: proc(runner: ^Page_Runner, loop: ^eventloop.Loop) {
-	e := Reaping_Loop {
-		loop = loop,
-		fd   = -1,
-	}
-
-	if fd, ok := eventloop.wakeup_fd(loop); ok {
-		ev := linux.EPoll_Event {
-			events = {.IN, .ET},
-		}
-
-		if linux.epoll_ctl(runner.epfd, .ADD, fd, &ev) == .NONE {
-			e.fd = fd
-		}
-	}
-
-	append(&runner.reaping, e)
-}
-
-// runner_reap finishes every reaping loop whose workers have all exited and returns how
-// many are left. It never waits: close_finish runs only once close_ready, when the
-// join has nothing left to wait for but the threads' exit epilogues. The loop leaves
-// the epoll set before close_finish closes its pipe.
-@(private = "file")
-runner_reap :: proc(runner: ^Page_Runner) -> int {
-	i := 0
-	for i < len(runner.reaping) {
-		e := runner.reaping[i]
-
-		if e.fd >= 0 {
-			eventloop.drain_wakeup(e.loop)
-		}
-
-		if !eventloop.close_ready(e.loop) {
-			i += 1
-			continue
-		}
-
-		if e.fd >= 0 {
-			linux.epoll_ctl(runner.epfd, .DEL, e.fd, nil)
-		}
-
-		eventloop.close_finish(e.loop)
-		free(e.loop, runtime.heap_allocator())
-		unordered_remove(&runner.reaping, i)
-	}
-	return len(runner.reaping)
 }
 
 // runner_report_done hands every queued Result to on_done. on_done may queue more

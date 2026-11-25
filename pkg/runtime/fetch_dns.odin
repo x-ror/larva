@@ -9,10 +9,10 @@ import eventloop "lava:pkg/runtime/eventloop"
 
 // Hostname resolution for fetch (#77) runs OFF the loop (getaddrinfo blocks) on the loop's generic
 // worker pool (eventloop.pool_submit) — the same pool fs/crypto/node:dns use. It previously had its
-// own dedicated 4-thread process-global pool; Slice 3a folds it onto the per-loop generic pool so
-// multi-core doesn't multiply thread pools (one 4-thread pool per worker, not two), and the per-loop
-// pool's loop-thread-only ownership is preserved verbatim under N workers — the data race a shared
-// pool would have had on its lock-free queues across N loop threads simply cannot arise.
+// own dedicated 4-thread process-global pool; Slice 3a folded it onto the loop's generic pool so
+// multi-core doesn't multiply thread pools. That pool is the loop's own for `lava run`, and the
+// runner thread's one pool, shared by its pages, in Larva's page runner (#36); either way a job
+// reaches its loop only through the loop's pool client (eventloop threadpool.odin).
 //
 // Lifetime / safety (mirrors node:dns in dns.odin):
 //   - dns_resolve_work runs on a pool worker and touches ONLY its DNS_Job (an owned host copy +
@@ -21,9 +21,9 @@ import eventloop "lava:pkg/runtime/eventloop"
 //   - pool_submit does the async_begin that keeps the loop alive until the completion posts (and
 //     undoes it itself on a start failure); the caller (fetch_transport_start) pins the REQUEST via
 //     drive_pending so a cancel mid-lookup cannot free it before the completion runs.
-//   - At teardown the loop's close_begin stops the pool without waiting for a lookup in flight, and
-//     dns_resolve_dispose frees each job whose completion will not fire — once its worker has exited,
-//     which may be after the page and its Fetch_Request are gone (#34). dns_resolve_done never runs
+//   - At teardown the loop's close_begin closes its pool client without waiting for a lookup in
+//     flight, and dns_resolve_dispose frees each job whose completion will not fire — for one in
+//     flight once its lookup returns, which may be after the page and its Fetch_Request are gone (#34). dns_resolve_done never runs
 //     after close_begin, so a late lookup never reaches the freed request; the job holds no JS, so it
 //     needs no Pool_Cancel.
 
@@ -31,8 +31,8 @@ import eventloop "lava:pkg/runtime/eventloop"
 // IPv6 address, #145, tried in turn by the connect path). Allocated by fetch_dns_submit, freed by
 // dns_resolve_done (success) or dns_resolve_dispose (dropped at teardown) through its captured
 // allocator, so the alloc/free pair stays matched whichever path releases it. That allocator is the
-// heap, not req.allocator: the worker writes into the job and may still be resolving after a detached
-// loop's owner (Larva's page runner) has freed the request's allocator.
+// heap, not req.allocator: the worker writes into the job and may still be resolving after the page
+// closed and its owner (Larva's page runner) freed the request's allocator.
 DNS_Job :: struct {
 	host:       string,
 	allocator:  runtime.Allocator,
@@ -137,8 +137,7 @@ dns_resolve_done :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 // dns_resolve_dispose frees a job whose completion will not run (dropped at loop teardown). The owning
 // request is freed separately by fetch_destroy_pending, so only the job's own heap allocations are
 // released here, and job.req — possibly freed by now — is never read. Runs in close_begin for a queued
-// job, or once its worker has exited for one in flight (close_finish, or that worker's own thread for
-// a detached loop).
+// job, or on its worker's thread once the lookup returns for one in flight.
 @(private = "file")
 dns_resolve_dispose :: proc(user_data: rawptr) {
 	job := cast(^DNS_Job)user_data

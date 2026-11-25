@@ -183,8 +183,8 @@ fs_read_pool_done :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 // dropped at teardown, or the re-queued poll callback was discarded when the loop died.
 // Exactly one of {fs_read_complete_cb, fs_read_dispose} runs per request. For a job a
 // worker had taken, fs_read_cancel already released the callback, and this runs later —
-// possibly after the context is gone, possibly on a pool worker of a detached loop — so
-// it frees memory only (all heap: req.allocator).
+// possibly after the context is gone, possibly on the pool worker that ran it — so it
+// frees memory only (all heap: req.allocator).
 fs_read_dispose :: proc(user_data: rawptr) {
 	context = runtime.default_context()
 	req := cast(^FS_Read_Request)user_data

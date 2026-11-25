@@ -1,19 +1,15 @@
-// Linux-only: reads /proc/self/fd to tell whether a detached loop's wakeup pipe is
-// still the same pipe.
-#+build linux
 package eventloop
 
 import "base:runtime"
-import "core:fmt"
-import "core:os"
 import "core:sync"
 import "core:testing"
 import "core:thread"
 import "core:time"
 
-// The split teardown (close_begin / close_finish / close_detach) that lets the page
-// runner close a page without joining a pool worker blocked in `work` (#34). A job
-// here blocks on a semaphore the test posts, standing in for a read on a FIFO.
+// The split teardown (close_begin / close_finish) of a loop with a private pool, which
+// lets eval report a page's Result before it waits for a pool worker blocked in `work`
+// (#34). A job here blocks on a semaphore the test posts, standing in for a read on a
+// FIFO. The shared pool's side, where nothing waits, is eventloop_worker_pool_test.odin.
 
 @(private = "file")
 Blocking_Job :: struct {
@@ -91,8 +87,8 @@ heap_loop :: proc() -> ^Loop {
 
 // close_begin returns at once with a worker blocked in `work`, releases the job's
 // engine half through `cancel` exactly once, runs neither `done` nor `dispose`, and
-// says the workers are busy; close_finish, once close_ready, disposes the job's memory
-// and still never runs `done`.
+// says the workers are busy; close_finish waits for the worker, which disposes the
+// job's memory, and still never runs `done`.
 @(test)
 close_begin_cancels_a_running_job_without_waiting_for_it :: proc(t: ^testing.T) {
 	loop := heap_loop()
@@ -116,100 +112,17 @@ close_begin_cancels_a_running_job_without_waiting_for_it :: proc(t: ^testing.T) 
 	testing.expect(t, busy, "close_begin did not report the blocked worker")
 	testing.expect_value(t, sync.atomic_load(&job.cancel), 1)
 	testing.expect_value(t, sync.atomic_load(&job.dispose), 0)
-	testing.expect(t, !close_ready(loop), "close_ready while a worker is still inside work")
 
 	sync.atomic_store(&rel.stop, true)
 	thread.destroy(th)
 	sync.sema_post(&job.gate)
-	deadline := time.tick_add(time.tick_now(), 3 * time.Second)
-	for !close_ready(loop) && time.tick_diff(time.tick_now(), deadline) > 0 {
-		time.sleep(time.Millisecond)
-	}
-	testing.expect(t, close_ready(loop), "workers never reported their exit")
+	start = time.tick_now()
 	close_finish(loop)
+	took = time.duration_seconds(time.tick_since(start))
 	free(loop, runtime.heap_allocator())
+	testing.expectf(t, took < 2, "close_finish took %.2fs after the job was released", took)
 
 	testing.expect_value(t, job.done, 0)
 	testing.expect_value(t, sync.atomic_load(&job.cancel), 1)
 	testing.expect_value(t, sync.atomic_load(&job.dispose), 1)
-}
-
-// A detached loop is finished by its own last worker: close_detach returns at once,
-// the wakeup pipe stays open while the worker can still write it (a closed number
-// would be reused by the next loop, and the late wakeup byte would land there), and
-// once the worker exits, the job is disposed and the pipe closed — with nobody
-// joining anything.
-@(test)
-close_detach_leaves_the_loop_to_its_last_worker :: proc(t: ^testing.T) {
-	loop := heap_loop()
-	job: Blocking_Job
-	testing.expect(t, pool_submit(loop, blocking_work, blocking_done, &job, blocking_dispose, blocking_cancel))
-
-	if !wait_started(&job) {
-		testing.fail_now(t, "the worker never started the job")
-	}
-
-	rel := Releaser {
-		job   = &job,
-		delay = 2 * time.Second,
-	}
-	th := thread.create_and_start_with_poly_data(&rel, releaser_proc)
-	pipe_fd, _ := wakeup_fd(loop)
-	pipe_link := fd_link(int(pipe_fd))
-	defer delete(pipe_link)
-
-	start := time.tick_now()
-	testing.expect(t, close_begin(loop), "close_begin did not report the blocked worker")
-	detached := close_detach(loop)
-	took := time.duration_seconds(time.tick_since(start))
-	testing.expectf(t, took < 0.5, "close_begin + close_detach waited %.2fs on a worker blocked in work", took)
-	testing.expect(t, detached, "close_detach finished a loop whose worker is still blocked")
-	// The loop belongs to its workers now: nothing below reads it.
-	still := fd_link(int(pipe_fd))
-	testing.expectf(
-		t,
-		still == pipe_link,
-		"wakeup pipe fd %d changed from %q to %q while its worker was blocked",
-		pipe_fd,
-		pipe_link,
-		still,
-	)
-	delete(still)
-
-	sync.atomic_store(&rel.stop, true)
-	thread.destroy(th)
-	sync.sema_post(&job.gate)
-	deadline := time.tick_add(time.tick_now(), 3 * time.Second)
-	for sync.atomic_load(&job.dispose) == 0 &&
-	    time.tick_diff(time.tick_now(), deadline) > 0 {time.sleep(time.Millisecond)}
-	testing.expect_value(t, sync.atomic_load(&job.dispose), 1)
-	testing.expect_value(t, sync.atomic_load(&job.cancel), 1)
-	testing.expect_value(t, job.done, 0)
-	// The dispose runs before the pipe closes; give the worker the rest of its exit.
-	closed := false
-	for time.tick_diff(time.tick_now(), deadline) > 0 {
-		now := fd_link(int(pipe_fd))
-		closed = now != pipe_link
-		delete(now)
-
-		if closed {
-			break
-		}
-
-		time.sleep(time.Millisecond)
-	}
-	testing.expectf(t, closed, "the detached loop's wakeup pipe (fd %d) was never closed", pipe_fd)
-}
-
-// fd_link is what /proc/self/fd/<fd> points at ("pipe:[1234]"), or "" when the fd is
-// closed. A pipe's inode number tells the same pipe from a recycled descriptor number.
-@(private = "file")
-fd_link :: proc(fd: int) -> string {
-	target, err := os.read_link(fmt.tprintf("/proc/self/fd/%d", fd), context.allocator)
-
-	if err != nil {
-		return ""
-	}
-
-	return target
 }

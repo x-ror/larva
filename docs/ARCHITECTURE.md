@@ -436,8 +436,9 @@ names (`host_natives.odin`; note that registry's two tables are thread-lived, so
 _backing_ is bound to a process-lifetime allocator rather than to a state's). The
 payloads a pool worker writes into — `Dns_Lookup_Request` (+ `hostname`) and fetch's
 `DNS_Job` (+ `host`) — capture the **heap** instead of the state's allocator: a worker
-blocked in a lookup can outlive the loop's owner (a detached loop's last worker frees
-them — the page runner's reaping, `page_runner.odin`) and the allocator an embedder handed in, so they must not live there
+blocked in a lookup can outlive its page and the allocator an embedder handed in (an
+orphan of the page runner's shared pool is disposed by its worker whenever the lookup
+returns — `threadpool.odin`, `page_runner.odin`), so they must not live there
 (pinned by `eval_dns_workers_own_their_requests_on_the_heap`). It is
 deliberately _not_ context-based:
 those structs free under _multiple_ contexts (e.g. `fetch_reclaim_pending` during normal

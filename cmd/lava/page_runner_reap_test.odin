@@ -3,6 +3,7 @@
 #+build linux
 package main
 
+import "base:runtime"
 import "core:fmt"
 import "core:log"
 import "core:mem"
@@ -16,11 +17,13 @@ import "core:testing"
 import "core:thread"
 import "core:time"
 import lava "lava:pkg/runtime"
+import eventloop "lava:pkg/runtime/eventloop"
 
 // #34: closing a page must not join pool work still blocked on the runner thread. A
 // page whose worker is blocked — in open() on a FIFO nobody writes, or in a DNS
-// lookup the resolver has not answered — closes at once: its JS side goes, and its
-// loop waits on the runner's reaping list until the worker exits.
+// lookup the resolver has not answered — closes at once, loop included: the job is
+// an orphan of the runner's shared worker pool (#36), which its worker finishes and
+// disposes on its own.
 //
 // Every test that blocks a worker on a FIFO also starts an Unblocker: a thread that
 // opens the FIFO's write end after `delay`. It is the red phase's way out — a close
@@ -151,10 +154,16 @@ unblocker_proc :: proc(u: ^Unblocker) {
 	}
 }
 
-// wait_reaped reaps until the runner's reaping list is empty or `limit` passes.
-wait_reaped :: proc(runner: ^lava.Page_Runner, limit: time.Duration) -> bool {
+// wait_orphans waits until no closed page's job is still running on the runner's
+// pool, or `limit` passes.
+wait_orphans :: proc(runner: ^lava.Page_Runner, limit: time.Duration) -> bool {
+	return wait_pool_orphans(runner.workers, limit)
+}
+
+// wait_pool_orphans is wait_orphans for a pool the test retained past its runner.
+wait_pool_orphans :: proc(pool: ^eventloop.Worker_Pool, limit: time.Duration) -> bool {
 	deadline := time.tick_add(time.tick_now(), limit)
-	for lava.page_runner_reap(runner) > 0 {
+	for eventloop.pool_orphans(pool) > 0 {
 		if time.tick_diff(time.tick_now(), deadline) <= 0 {
 			return false
 		}
@@ -164,19 +173,6 @@ wait_reaped :: proc(runner: ^lava.Page_Runner, limit: time.Duration) -> bool {
 	return true
 }
 
-// fd_link is what /proc/self/fd/<fd> points at ("pipe:[1234]"), "" once closed. The
-// inode number tells the same pipe from a descriptor number reused by another.
-@(private = "file")
-fd_link :: proc(fd: int) -> string {
-	target, err := os.read_link(fmt.tprintf("/proc/self/fd/%d", fd), context.temp_allocator)
-
-	if err != nil {
-		return ""
-	}
-
-	return target
-}
-
 @(private = "file")
 fifo_page :: proc(fifo: string, extra := "") -> string {
 	return fmt.aprintf(`%srequire('fs').readFile(%q, () => {{}}); setTimeout(() => process.exit(4), 30);`, extra, fifo)
@@ -184,7 +180,7 @@ fifo_page :: proc(fifo: string, extra := "") -> string {
 
 // Issue #34, the FIFO case: a page whose pool worker is blocked in open() on a FIFO
 // closes at once, and its sibling on the thread finishes on time. The closed page's
-// loop waits on the reaping list and is reaped once the worker gets through.
+// job stays an orphan of the runner's pool until the worker gets through.
 @(test)
 runner_close_does_not_wait_for_a_worker_blocked_on_a_fifo :: proc(t: ^testing.T) {
 	fifo := make_fifo(t, "close")
@@ -217,46 +213,99 @@ runner_close_does_not_wait_for_a_worker_blocked_on_a_fifo :: proc(t: ^testing.T)
 		"the runner took %.2fs: page_close waited on a worker blocked in open() on a FIFO",
 		wall,
 	)
-	testing.expect_value(t, lava.page_runner_reaping(&runner), 1)
+	testing.expect_value(t, lava.page_runner_orphans(&runner), 1)
 	testing.expect(t, release_within(fifo, 2 * time.Second), "the worker was not blocked on the FIFO")
 	testing.expect(
 		t,
-		wait_reaped(&runner, 3 * time.Second),
-		"the closed page's loop was never reaped after its worker exited",
+		wait_orphans(&runner, 3 * time.Second),
+		"the closed page's job was still an orphan after its worker got through",
 	)
 }
 
+// Stub_Resolver points core:net at a resolv.conf naming loopback addresses with nothing
+// on port 53, so every lookup of a name absent from the hosts file waits out core:net's
+// 1 s receive timeout per server and family — no resolver hook needed. And at a hosts
+// file naming localhost for both families: /etc/hosts may list only 127.0.0.1 for it,
+// which would send its IPv6 half to the stub servers too. core:net reads both paths
+// from net.dns_configuration on every lookup; the setting is process-wide, so the
+// tests here that need it share one stub under a lock instead of each saving and
+// restoring it (a restore under a sibling's lookups would hand them the real resolver).
+// Only names under .test reach the servers, and no other test resolves one.
+@(private = "file")
+Stub_Resolver :: struct {
+	mutex:       sync.Mutex,
+	refs:        int,
+	saved:       string,
+	saved_hosts: string,
+	path:        string,
+	hosts:       string,
+}
+
+@(private = "file")
+stub_resolver: Stub_Resolver
+
+@(private = "file")
+stub_resolver_begin :: proc(t: ^testing.T) {
+	sync.lock(&stub_resolver.mutex)
+	defer sync.unlock(&stub_resolver.mutex)
+
+	if stub_resolver.refs == 0 {
+		heap := runtime.heap_allocator()
+		path := fmt.aprintf("/tmp/lava-reap-%d-resolv.conf", os.get_pid(), allocator = heap)
+		hosts := fmt.aprintf("/tmp/lava-reap-%d-hosts", os.get_pid(), allocator = heap)
+		conf_err := os.write_entire_file(path, transmute([]u8)string("nameserver 127.77.0.1\nnameserver 127.77.0.2\n"))
+		hosts_err := os.write_entire_file(hosts, transmute([]u8)string("127.0.0.1 localhost\n::1 localhost\n"))
+
+		if conf_err != nil || hosts_err != nil {
+			os.remove(path)
+			os.remove(hosts)
+			delete(path, heap)
+			delete(hosts, heap)
+			testing.fail_now(t, "could not write the stub resolv.conf and hosts")
+		}
+
+		stub_resolver.path = path
+		stub_resolver.hosts = hosts
+		stub_resolver.saved = net.dns_configuration.resolv_conf
+		stub_resolver.saved_hosts = net.dns_configuration.hosts_file
+		net.dns_configuration.resolv_conf = path
+		net.dns_configuration.hosts_file = hosts
+	}
+
+	stub_resolver.refs += 1
+}
+
+@(private = "file")
+stub_resolver_end :: proc() {
+	sync.lock(&stub_resolver.mutex)
+	defer sync.unlock(&stub_resolver.mutex)
+	stub_resolver.refs -= 1
+
+	if stub_resolver.refs == 0 {
+		net.dns_configuration.resolv_conf = stub_resolver.saved
+		net.dns_configuration.hosts_file = stub_resolver.saved_hosts
+		os.remove(stub_resolver.path)
+		os.remove(stub_resolver.hosts)
+		delete(stub_resolver.path, runtime.heap_allocator())
+		delete(stub_resolver.hosts, runtime.heap_allocator())
+	}
+}
+
 // Issue #34, the DNS case: a fetch and a node:dns lookup whose resolver never answers
-// do not hold their pages' close. core:net reads its nameservers from
-// net.dns_configuration.resolv_conf on every lookup, so pointing it at a file that
-// names two loopback addresses with nothing on port 53 makes every lookup wait out
-// core:net's 1 s receive timeout per server and family — no resolver hook needed.
-// The configuration is process-wide; only lookups of names absent from /etc/hosts
-// reach it, and no other test resolves one.
+// (Stub_Resolver) do not hold their pages' close. Both jobs become orphans of the
+// runner's pool.
 //
-// Then the runner is destroyed while both lookups still run, so both loops are
-// detached, and its allocator — a virtual arena — is unmapped. What the DNS workers
-// touch from then on (the node:dns request, fetch's DNS_Job and its host, which
-// core:net re-reads for each family) must be on the heap, and the dns callback must
-// already be unprotected: a late JSValueUnprotect from the worker would reach a VM
-// the destroy freed. Either mistake faults once the resolver times out; the test
-// waits for that, until both detached loops have closed their pipes.
+// Then the runner is destroyed while both lookups still run, and its allocator — a
+// virtual arena — is unmapped. What the DNS workers touch from then on (the node:dns
+// request, fetch's DNS_Job and its host, which core:net re-reads for each family) must
+// be on the heap, and the dns callback must already be unprotected: a late
+// JSValueUnprotect from the worker would reach a VM the destroy freed. Either mistake
+// faults once the resolver times out; the test keeps the pool (pool_retain) to wait
+// for that, until both orphans are done.
 @(test)
 runner_close_does_not_wait_for_a_hanging_dns_lookup :: proc(t: ^testing.T) {
-	conf := fmt.aprintf("/tmp/lava-reap-%d-resolv.conf", os.get_pid())
-
-	if err := os.write_entire_file(conf, transmute([]u8)string("nameserver 127.77.0.1\nnameserver 127.77.0.2\n"));
-	   err != nil {
-		testing.fail_now(t, "could not write the stub resolv.conf")
-	}
-
-	saved := net.dns_configuration.resolv_conf
-	net.dns_configuration.resolv_conf = conf
-	defer {
-		net.dns_configuration.resolv_conf = saved
-		os.remove(conf)
-		delete(conf)
-	}
+	stub_resolver_begin(t)
+	defer stub_resolver_end()
 	arena: virtual.Arena
 
 	if virtual.arena_init_growing(&arena) != nil {
@@ -298,19 +347,14 @@ runner_close_does_not_wait_for_a_hanging_dns_lookup :: proc(t: ^testing.T) {
 	expect_exit(t, b, 7, "sibling")
 	testing.expectf(t, wall < 1, "the runner took %.2fs: page_close waited for a DNS lookup", wall)
 
-	if lava.page_runner_reaping(&runner) != 2 {
+	if lava.page_runner_orphans(&runner) != 2 {
 		lava.page_runner_destroy(&runner)
-		testing.fail_now(t, "the lookups' loops are not on the reaping list")
+		testing.fail_now(t, "the lookups are not orphans of the runner's pool")
 	}
 
-	pipes: [2]int
-	links: [2]string
-	for i in 0 ..< 2 {
-		pipes[i] = int(runner.reaping[i].fd)
-		links[i] = strings.clone(fd_link(pipes[i]))
-	}
-	defer for l in links {delete(l)}
-
+	pool := runner.workers
+	eventloop.pool_retain(pool)
+	defer eventloop.pool_release(pool)
 	destroy_start := time.tick_now()
 	lava.page_runner_destroy(&runner)
 	took := time.duration_seconds(time.tick_since(destroy_start))
@@ -318,110 +362,79 @@ runner_close_does_not_wait_for_a_hanging_dns_lookup :: proc(t: ^testing.T) {
 	virtual.arena_destroy(&arena)
 	arena_live = false
 
-	deadline := time.tick_add(time.tick_now(), 15 * time.Second)
-	for i in 0 ..< 2 {
-		for fd_link(pipes[i]) == links[i] &&
-		    time.tick_diff(time.tick_now(), deadline) > 0 {time.sleep(5 * time.Millisecond)}
-		testing.expectf(
-			t,
-			fd_link(pipes[i]) != links[i],
-			"a detached lookup loop's pipe (fd %d) was never closed after the resolver timed out",
-			pipes[i],
-		)
-	}
+	testing.expect(
+		t,
+		wait_pool_orphans(pool, 15 * time.Second),
+		"the lookups were still running 15 s after the runner was destroyed",
+	)
 }
 
-// The hazard that rules out closing the wakeup pipe early (#34): a reaping loop's
-// pipe stays open — the same pipe, not just the same number — while its worker can
-// still write it, through siblings opening and closing their own loops; the late
-// completion and exit wakeups land in that pipe and wake the runner, which reaps the
-// loop while its siblings run; and afterwards the fd count is back where it started.
+@(private = "file")
+Stall :: struct {
+	opened:  time.Tick,
+	took:    time.Duration,
+	blocker: Page_Outcome,
+	sibling: Page_Outcome,
+}
+
+@(private = "file")
+stall_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Result) {
+	s := cast(^Stall)user_data
+
+	if result.exit_code == 4 {
+		record_page_outcome(runner, &s.blocker, result)
+		return
+	}
+
+	s.took = time.tick_since(s.opened)
+	record_page_outcome(runner, &s.sibling, result)
+}
+
+// #36, breakage 1: a page whose lookups hold every core worker of the runner's pool
+// does not starve a sibling's lookup. The blocker's four fetches hang on the stub
+// resolver for seconds while it stays open; the sibling's fetch of localhost (in the
+// stub hosts file, so it resolves at once, then is refused on port 1) must settle well
+// before the first of those lookups returns — through the overflow worker that
+// runner_round's pool_tick starts once the blocker's jobs are POOL_STALL_MS old, and a
+// runner_wait bounded by pool_wait_hint_ms, since no page has a timer due sooner.
 @(test)
-runner_reaping_loop_keeps_its_pipe_until_its_worker_exits :: proc(t: ^testing.T) {
-	fifo := make_fifo(t, "pipe")
-	defer drop_fifo(fifo)
-	u: Unblocker
-	unblocker_start(&u, {fifo}, 2 * time.Second)
-	defer unblocker_stop(&u)
+runner_page_with_stalled_lookups_does_not_starve_a_sibling :: proc(t: ^testing.T) {
+	stub_resolver_begin(t)
+	defer stub_resolver_end()
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 4, record_page_outcome, context.allocator) {
+	if !lava.page_runner_init(&runner, 2, stall_done, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 
-	defer lava.page_runner_destroy(&runner)
-
-	// Warm the VMs first, so the baseline already holds their permanent timerfds.
-	warm: [3]Page_Outcome
-	for &w in warm {
-		lava.page_runner_open(&runner, QUICK_PAGE, "<warm>", LIMITS, &w)
-	}
+	s: Stall
+	lava.page_runner_open(
+		&runner,
+		"for (let i = 0; i < 4; i++) fetch('http://lava-reap-hang-' + i + '.test/').then(() => {}, () => {}); setTimeout(() => process.exit(4), 3000);",
+		"<blocker>",
+		LIMITS,
+		&s,
+	)
+	s.opened = time.tick_now()
+	lava.page_runner_open(
+		&runner,
+		"fetch('http://localhost:1/').then(() => { process.exitCode = 5; }, () => { process.exitCode = 6; });",
+		"<sibling>",
+		LIMITS,
+		&s,
+	)
 	lava.page_runner_run(&runner)
-	base := fd_census()
-
-	src := fifo_page(fifo)
-	defer delete(src)
-	a: Page_Outcome
-	lava.page_runner_open(&runner, src, "<fifo>", LIMITS, &a)
-	lava.page_runner_run(&runner)
-	expect_exit(t, a, 4, "fifo page")
-
-	if lava.page_runner_reaping(&runner) != 1 {
-		testing.fail_now(t, "the closed page's loop is not on the reaping list")
-	}
-
-	pipe := int(runner.reaping[0].fd)
-	link := strings.clone(fd_link(pipe))
-	defer delete(link)
+	expect_exit(t, s.blocker, 4, "blocker")
+	expect_exit(t, s.sibling, 6, "sibling")
 	testing.expectf(
 		t,
-		strings.has_prefix(link, "pipe:"),
-		"reaping fd %d is %q, not the loop's wakeup pipe",
-		pipe,
-		link,
+		s.took < 500 * time.Millisecond,
+		"the sibling's lookup of localhost took %v behind a page holding every core worker",
+		s.took,
 	)
-
-	// Siblings open and close loops of their own — rings, epoll fds, pipes, pool
-	// threads — while A's sits in the list.
-	sibling := "require('fs').readFile('/proc/self/stat', () => { " + QUICK_PAGE + " });"
-	sibs: [3]Page_Outcome
-	for &s in sibs {
-		lava.page_runner_open(&runner, sibling, "<sibling>", LIMITS, &s)
-	}
-	lava.page_runner_run(&runner)
-	for s in sibs {
-		expect_exit(t, s, 7, "sibling")
-	}
-	now := fd_link(pipe)
-	testing.expectf(
-		t,
-		now == link,
-		"reaping loop's pipe fd %d went from %q to %q while its worker was blocked",
-		pipe,
-		link,
-		now,
-	)
-
-	// Release A's worker while two siblings wait on timers. Its late completion and
-	// its exit write A's own pipe, which wakes the runner to reap A mid-run.
-	late: [2]Page_Outcome
-	for &l in late {lava.page_runner_open(&runner, "setTimeout(() => { process.exitCode = 7; }, 300);", "<late>", LIMITS, &l)}
-	u2: Unblocker
-	unblocker_start(&u2, {fifo}, 50 * time.Millisecond)
-	lava.page_runner_run(&runner)
-	unblocker_stop(&u2)
-	for l in late {
-		expect_exit(t, l, 7, "late sibling")
-	}
-	testing.expect_value(t, lava.page_runner_reaping(&runner), 0)
-
-	when RUNNER_THREADS == 1 {
-		testing.expect(t, wait_reaped(&runner, 3 * time.Second), "reaping never finished")
-		end := fd_census()
-		testing.expectf(t, base >= 0 && end == base, "fd count went from %d to %d across a reaped page", base, end)
-	} else {
-		log.info("fd census skipped: needs -define:ODIN_TEST_THREADS=1 (make test-odin-serial)")
-	}
+	// The blocker's lookups outlive it; wait for them before the stub resolver goes.
+	testing.expect(t, wait_orphans(&runner, 15 * time.Second), "the blocker's lookups never returned")
+	lava.page_runner_destroy(&runner)
 }
 
 @(private = "file")
@@ -502,14 +515,14 @@ runner_second_page_in_a_reused_vm_gets_no_callback_from_the_first_pages_job :: p
 	testing.expectf(t, wall < 1.5, "two pages took %.2fs: the first page's close waited on its worker", wall)
 	_, created := lava.vm_pool_stats(&runner.pool)
 	testing.expect_value(t, created, 1)
-	testing.expect(t, wait_reaped(&runner, 3 * time.Second), "the first page's loop was never reaped")
+	testing.expect(t, wait_orphans(&runner, 3 * time.Second), "the first page's job never finished")
 }
 
-// The reaping list is bounded (#34): at the bound page_runner_open refuses a page
-// with its own reason — reported from the run loop, before it takes a VM — and once
-// the blocked workers exit and their loops are reaped, pages open again.
+// Orphans are bounded (#34, #36): at the bound page_runner_open refuses a page with its
+// own reason — reported from the run loop, before it takes a VM — and once the blocked
+// workers get through, pages open again.
 @(test)
-runner_refuses_pages_while_its_reaping_list_is_full :: proc(t: ^testing.T) {
+runner_refuses_pages_at_its_orphan_bound :: proc(t: ^testing.T) {
 	fifos := [2]string{make_fifo(t, "bound-0"), make_fifo(t, "bound-1")}
 	defer for f in fifos {drop_fifo(f)}
 	u: Unblocker
@@ -522,7 +535,7 @@ runner_refuses_pages_while_its_reaping_list_is_full :: proc(t: ^testing.T) {
 	}
 
 	defer lava.page_runner_destroy(&runner)
-	runner.reap_limit = 2
+	runner.orphan_limit = 2
 
 	blocked: [2]Page_Outcome
 	srcs := [2]string{fifo_page(fifos[0]), fifo_page(fifos[1])}
@@ -534,7 +547,7 @@ runner_refuses_pages_while_its_reaping_list_is_full :: proc(t: ^testing.T) {
 	for b in blocked {
 		expect_exit(t, b, 4, "fifo page")
 	}
-	testing.expect_value(t, lava.page_runner_reaping(&runner), 2)
+	testing.expect_value(t, lava.page_runner_orphans(&runner), 2)
 	_, created_before := lava.vm_pool_stats(&runner.pool)
 
 	refused: Page_Outcome
@@ -554,21 +567,22 @@ runner_refuses_pages_while_its_reaping_list_is_full :: proc(t: ^testing.T) {
 	for f in fifos {
 		testing.expect(t, release_within(f, 2 * time.Second), "a worker was not blocked on its FIFO")
 	}
-	testing.expect(t, wait_reaped(&runner, 3 * time.Second), "the blocked loops were never reaped")
+	testing.expect(t, wait_orphans(&runner, 3 * time.Second), "the blocked jobs never finished")
 	again: Page_Outcome
 	lava.page_runner_open(&runner, "process.exitCode = 3;", "<again>", LIMITS, &again)
 	lava.page_runner_run(&runner)
-	expect_exit(t, again, 3, "page opened after the reap")
+	expect_exit(t, again, 3, "page opened after the orphans finished")
 }
 
-// page_runner_destroy detaches, it does not join (#34): it returns at once with one
-// worker blocked under a closed page and another under a live one, and leaves those
-// loops to their workers. Everything a worker touches afterwards is on the heap: the
-// runner's allocator is a virtual arena, unmapped right after destroy, so a worker
-// that touched runner memory on its way out would fault. The pipes stay open until
-// the workers exit, then close; serially, the fd count returns to where it started.
+// page_runner_destroy does not wait for blocked pool work (#34, #36): it returns at
+// once with one worker blocked under a closed page and another under a live one, and
+// leaves the shared pool to its workers. Everything a worker touches afterwards is on
+// the heap: the runner's allocator is a virtual arena, unmapped right after destroy, so
+// a worker that touched runner memory on its way out would fault. The test keeps the
+// pool (pool_retain) to see both jobs finish; serially, the fd count returns to where
+// it started, every page loop's descriptors closed with its page.
 @(test)
-runner_destroy_detaches_loops_whose_workers_are_blocked :: proc(t: ^testing.T) {
+runner_destroy_does_not_wait_for_blocked_workers :: proc(t: ^testing.T) {
 	fifos := [2]string{make_fifo(t, "destroy-0"), make_fifo(t, "destroy-1")}
 	defer for f in fifos {drop_fifo(f)}
 	u: Unblocker
@@ -616,60 +630,38 @@ runner_destroy_detaches_loops_whose_workers_are_blocked :: proc(t: ^testing.T) {
 	lava.page_runner_run(&runner)
 	expect_exit(t, closed, 4, "closed page")
 
-	if lava.page_runner_reaping(&runner) != 1 {
+	if lava.page_runner_orphans(&runner) != 1 {
 		lava.page_runner_destroy(&runner)
-		testing.fail_now(t, "the closed page's loop is not on the reaping list")
+		testing.fail_now(t, "the closed page's job is not an orphan of the runner's pool")
 	}
 
-	pipe := int(runner.reaping[0].fd)
-	link := strings.clone(fd_link(pipe))
-	defer delete(link)
 	lava.page_runner_open(&runner, live_src, "<live>", LIMITS, &live)
 	time.sleep(50 * time.Millisecond) // the live page's worker is in open() by now
+	pool := runner.workers
+	eventloop.pool_retain(pool)
+	defer eventloop.pool_release(pool)
 
 	start := time.tick_now()
 	lava.page_runner_destroy(&runner)
 	took := time.duration_seconds(time.tick_since(start))
 	testing.expectf(t, took < 0.5, "page_runner_destroy took %.2fs: it joined a worker blocked in open()", took)
 	testing.expectf(t, live.done && live.kill == .Cancelled, "live page: %s", describe_outcome(live))
-	now := fd_link(pipe)
-	testing.expectf(
-		t,
-		now == link,
-		"destroy closed a detached loop's pipe (fd %d: %q -> %q) while its worker was blocked",
-		pipe,
-		link,
-		now,
-	)
+	testing.expect_value(t, eventloop.pool_orphans(pool), 2)
 
 	virtual.arena_destroy(&arena)
 	arena_live = false
 	for f in fifos {
 		testing.expect(t, release_within(f, 2 * time.Second), "a worker was not blocked on its FIFO")
 	}
-	deadline := time.tick_add(time.tick_now(), 3 * time.Second)
-	for fd_link(pipe) == link && time.tick_diff(time.tick_now(), deadline) > 0 {
-		time.sleep(time.Millisecond)
-	}
-	testing.expectf(
-		t,
-		fd_link(pipe) != link,
-		"the detached loop's pipe (fd %d) was never closed after its worker exited",
-		pipe,
-	)
+	testing.expect(t, wait_pool_orphans(pool, 3 * time.Second), "the blocked jobs never finished after destroy")
 	when RUNNER_THREADS == 1 {
-		// The second detached loop is the live page's, whose fd the test never saw:
-		// wait for the count to settle. Timerfds are left out of both counts — every
-		// VM the runner created keeps one until process exit (vm_pool.odin).
+		// Timerfds are left out of both counts — every VM the runner created keeps one
+		// until process exit (vm_pool.odin).
 		end := fd_census() - fd_census(timerfds_only = true)
-		for end != base && time.tick_diff(time.tick_now(), deadline) > 0 {
-			time.sleep(time.Millisecond)
-			end = fd_census() - fd_census(timerfds_only = true)
-		}
 		testing.expectf(
 			t,
 			end == base,
-			"fd count (timerfds aside) went from %d to %d once the detached workers exited",
+			"fd count (timerfds aside) went from %d to %d once the blocked jobs finished",
 			base,
 			end,
 		)
@@ -678,13 +670,13 @@ runner_destroy_detaches_loops_whose_workers_are_blocked :: proc(t: ^testing.T) {
 	}
 }
 
-// Reaping keeps the runner allocator's books balanced (CLAUDE.md §4): the runner owns
-// its pages and the reaping list's backing; the reaped loop — struct, pool, threads,
-// pipe — is the heap's, and is freed there, never through the runner allocator. The
-// runner runs on a tracking allocator that records a free of memory it never handed
-// out instead of panicking, and the books must end empty with no such free.
+// Orphans keep the runner allocator's books balanced (CLAUDE.md §4): the runner owns
+// its pages; the pool, an orphan's job and the page loop are the heap's, and are freed
+// there, never through the runner allocator. The runner runs on a tracking allocator
+// that records a free of memory it never handed out instead of panicking, and the
+// books must end empty with no such free.
 @(test)
-runner_reaping_frees_through_matching_allocators :: proc(t: ^testing.T) {
+runner_orphans_free_through_matching_allocators :: proc(t: ^testing.T) {
 	fifo := make_fifo(t, "alloc")
 	defer drop_fifo(fifo)
 	u: Unblocker
@@ -707,16 +699,16 @@ runner_reaping_frees_through_matching_allocators :: proc(t: ^testing.T) {
 	lava.page_runner_open(&runner, src, "<fifo>", LIMITS, &a)
 	lava.page_runner_open(&runner, QUICK_PAGE, "<sibling>", LIMITS, &b)
 	lava.page_runner_run(&runner)
-	testing.expect_value(t, lava.page_runner_reaping(&runner), 1)
+	testing.expect_value(t, lava.page_runner_orphans(&runner), 1)
 	testing.expect(t, release_within(fifo, 2 * time.Second), "the worker was not blocked on the FIFO")
-	testing.expect(t, wait_reaped(&runner, 3 * time.Second), "the closed page's loop was never reaped")
+	testing.expect(t, wait_orphans(&runner, 3 * time.Second), "the closed page's job never finished")
 	lava.page_runner_open(&runner, QUICK_PAGE, "<after>", LIMITS, &c)
 	lava.page_runner_run(&runner)
 	lava.page_runner_destroy(&runner)
 
 	expect_exit(t, a, 4, "fifo page")
 	expect_exit(t, b, 7, "sibling")
-	expect_exit(t, c, 7, "page after the reap")
+	expect_exit(t, c, 7, "page after the orphan")
 	testing.expectf(
 		t,
 		len(track.bad_free_array) == 0,
@@ -726,94 +718,4 @@ runner_reaping_frees_through_matching_allocators :: proc(t: ^testing.T) {
 	for _, entry in track.allocation_map {
 		testing.expectf(t, false, "runner allocator leaked %d bytes from %v", entry.size, entry.location)
 	}
-}
-
-@(private = "file")
-Wake :: struct {
-	fifos:   [2]string,
-	a, b:    Page_Outcome,
-	pipe:    int,
-	link:    string,
-	closed:  bool, // atomic: the checker saw the reaped loop's pipe closed in time
-	checker: ^thread.Thread,
-}
-
-@(private = "file")
-wake_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Result) {
-	w := cast(^Wake)user_data
-
-	if result.exit_code != 4 {
-		record_page_outcome(runner, &w.b, result)
-		return
-	}
-
-	record_page_outcome(runner, &w.a, result)
-
-	// Delivered right after runner_finish put A's loop on the list.
-	if lava.page_runner_reaping(runner) == 1 {
-		w.pipe = int(runner.reaping[0].fd)
-		w.link = strings.clone(fd_link(w.pipe))
-	}
-
-	w.checker = thread.create_and_start_with_poly_data(w, wake_checker)
-}
-
-// wake_checker lets A's worker through, looks at A's pipe half a second later from off
-// the runner thread — the runner itself only ever looks after a reap pass — and then
-// lets B's worker through, which is what ends the run.
-@(private = "file")
-wake_checker :: proc(w: ^Wake) {
-	time.sleep(50 * time.Millisecond)
-	release_within(w.fifos[0], time.Second)
-	time.sleep(500 * time.Millisecond)
-	sync.atomic_store(&w.closed, w.link != "" && fd_link(w.pipe) != w.link)
-	release_within(w.fifos[1], 2 * time.Second)
-}
-
-// A reaping loop wakes the runner by itself (#34): its worker's exit writes the loop's
-// wakeup pipe, which sits in the runner's epoll set, so the runner reaps it while the
-// only live page waits on a FIFO with no timer at all — the runner's wait has no
-// timeout, and nothing else would wake it until that page's own read completes.
-@(test)
-runner_reaps_a_loop_as_soon_as_its_worker_exits :: proc(t: ^testing.T) {
-	w: Wake
-	w.fifos = {make_fifo(t, "wake-0"), make_fifo(t, "wake-1")}
-	defer for f in w.fifos {drop_fifo(f)}
-	defer delete(w.link)
-	u: Unblocker
-	unblocker_start(&u, w.fifos[:], 5 * time.Second)
-	defer unblocker_stop(&u)
-	runner: lava.Page_Runner
-
-	if !lava.page_runner_init(&runner, 2, wake_done, context.allocator) {
-		testing.fail_now(t, "page_runner_init failed")
-	}
-
-	defer lava.page_runner_destroy(&runner)
-	a_src := fifo_page(w.fifos[0])
-	b_src := fmt.aprintf(`require('fs').readFile(%q, () => {{ process.exitCode = 5; }});`, w.fifos[1])
-	defer delete(a_src)
-	defer delete(b_src)
-
-	lava.page_runner_open(&runner, a_src, "<reaped>", LIMITS, &w)
-	lava.page_runner_open(&runner, b_src, "<waiting>", LIMITS, &w)
-	lava.page_runner_run(&runner)
-
-	if w.checker != nil {
-		thread.destroy(w.checker)
-	}
-
-	expect_exit(t, w.a, 4, "reaped page")
-	expect_exit(t, w.b, 5, "waiting page")
-	testing.expectf(
-		t,
-		strings.has_prefix(w.link, "pipe:"),
-		"A's loop was not on the reaping list when it was reported (%q)",
-		w.link,
-	)
-	testing.expect(
-		t,
-		sync.atomic_load(&w.closed),
-		"A's loop was still unreaped 500 ms after its worker exited: the runner slept through its wakeup pipe",
-	)
 }

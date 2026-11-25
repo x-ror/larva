@@ -104,21 +104,29 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
      that reuses the VM. No page loop blocks on its own; when no page can
      progress the runner blocks on every page loop's descriptor at once,
      bounded by the nearest timer;
+   - one worker pool per runner thread (#36), not one per page: every page
+     loop is a client of the runner's `eventloop.Worker_Pool`, four core
+     threads shared by all its pages instead of four per page that touched
+     the pool. Clients are served round-robin, at most four jobs running each;
+     a page left waiting while the oldest running job is older than 10 ms and
+     no worker is idle gets an overflow worker (hard cap 64; extra workers exit
+     after 1 s idle), so a page whose lookups hang does not starve its
+     siblings;
    - closing a page never waits for blocking pool work (#34). A page whose
-     loop still has a worker inside a job — an `fs` read on a FIFO, a `fetch`
-     or `node:dns` lookup the resolver has not answered — has its JS side torn
-     down at once (VM, `Runtime_State`, context; every callback of the job
-     released while the context lives), and its loop, pool and wakeup pipe
-     move to the runner's **reaping list**. The runner waits on the loop's
-     wakeup pipe through its epoll set and finishes the loop when the worker
-     exits. The list is bounded (8 by default, `Page_Runner.reap_limit`); at
-     the bound `page_runner_open` refuses with `Kill_Reason.Reaping_Full`,
-     since a page reading a FIFO nobody writes never releases its entry.
-     `page_runner_destroy` detaches, it does not join: the last worker of a
-     detached loop frees it. Page loops are on the heap, never on the runner
+     job is still running — an `fs` read on a FIFO, a `fetch` or `node:dns`
+     lookup the resolver has not answered — has its JS side torn down at once
+     (VM, `Runtime_State`, context; every callback of the job released while
+     the context lives) and its loop closed: the job becomes an **orphan**
+     that its worker finishes and disposes alone, and no completion can reach
+     the closed loop (a worker posts only to an open client, under the pool's
+     lock). Orphans do not count toward the four core workers. They are
+     bounded (32 by default, `Page_Runner.orphan_limit`); at the bound
+     `page_runner_open` refuses with `Kill_Reason.Reaping_Full`, since a page
+     reading a FIFO nobody writes never releases its thread.
+     `page_runner_destroy` does not join: the pool's last worker frees it. The
+     pool, its jobs and the page loops are on the heap, never on the runner
      allocator, so the embedder may free that allocator as soon as destroy
-     returns; nothing is leaked once the workers exit, but each blocked
-     worker keeps its thread and its loop's two pipe descriptors until then;
+     returns; each blocked worker keeps its thread until its job returns;
    - Pages on one thread still share its CPU; threads are sized to cores. A runner
      page must carry a CPU budget (`page_runner_open` refuses one without), and a
      page that spins is killed alone. Until then it delays its siblings by up to its
