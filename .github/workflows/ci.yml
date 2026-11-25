@@ -4,10 +4,8 @@ on:
   pull_request:
   push:
     branches: [master]
-  # sync-lava.yml starts CI on the sync branch this way: a PR it opens with
-  # GITHUB_TOKEN does not trigger pull_request runs.
   # The test and mutation jobs run ONLY from here while tests are paused (see those
-  # jobs): Actions → CI → Run workflow. So a sync PR the workflow opens still runs them.
+  # jobs): Actions → CI → Run workflow.
   workflow_dispatch:
 
 # Cancel superseded runs on the same ref (e.g. new pushes to a PR).
