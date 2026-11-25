@@ -25,7 +25,7 @@ endif
 SOURCE ?= console.log('hello from Lava')
 FILE ?=
 
-.PHONY: gates test-stdio help env sdk-diff bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-html-odin test-http-odin test-sqlite-odin test-sqlite-node test-sqlite-lava test-fs-node test-fs-lava test-eventloop-node test-eventloop-lava test-fetch-smoke test-net-smoke test-http-smoke test-https-smoke test-multicore-smoke test-zerocopy-smoke bench bench-gate bench-http fmt clean test-bench-pages-smoke bench-pages
+.PHONY: gates test-stdio help env sdk-diff test-one bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-html-odin test-http-odin test-sqlite-odin test-sqlite-node test-sqlite-lava test-fs-node test-fs-lava test-eventloop-node test-eventloop-lava test-fetch-smoke test-net-smoke test-http-smoke test-https-smoke test-multicore-smoke test-zerocopy-smoke bench bench-gate bench-http fmt clean test-bench-pages-smoke bench-pages
 
 help:
 	@printf '%s\n' 'Lava commands'
@@ -63,6 +63,7 @@ help:
 	@printf '%s\n' '  make test-lava          Every supported oracle suite node-vs-Lava'
 	@printf '%s\n' '  make test-lava-nohostfn Same suites with private host-call ABI forced off'
 	@printf '%s\n' '  make test-odin          Odin tests for cmd/lava'
+	@printf '%s\n' '  make test-one T=a,b     Only the named Odin tests (PKG=pkg/runtime for another package)'
 	@printf '%s\n' '  make test-odin-serial   cmd/lava Odin tests on ONE runner thread'
 	@printf '%s\n' '  make test-eventloop-odin Odin event-loop unit tests (serial)'
 	@printf '%s\n' '  make test-runtime-odin  Odin tests for pkg/runtime'
@@ -274,6 +275,17 @@ test-compat-lava-strict: build
 
 test-odin: native-deps
 	$(ODIN) test cmd/lava -collection:lava=.
+
+# Only the named tests: `make test-one T=a,b` (PKG=pkg/runtime for another package).
+# ODIN_TEST_NAMES wants package-qualified names, and the package clause is not the
+# directory name (cmd/lava is `main`), so it is read from the sources.
+PKG ?= cmd/lava
+test-one: native-deps
+	@test -n "$(T)" || { echo 'make test-one: set T=<test>[,<test>...]' >&2; exit 2; }
+	@ns=$$(sed -n 's/^package \([A-Za-z_0-9]*\).*/\1/p' $(PKG)/*.odin | head -1); \
+	names=$$(printf '%s' '$(T)' | sed "s/[^,][^,]*/$$ns.&/g"); \
+	echo "$(ODIN) test $(PKG) -collection:lava=. -define:ODIN_TEST_NAMES=$$names"; \
+	$(ODIN) test $(PKG) -collection:lava=. -define:ODIN_TEST_NAMES=$$names
 
 # The Odin test runner defaults to one thread per core, so each test that calls
 # lava.eval usually gets a fresh thread — and the host-native registry, the

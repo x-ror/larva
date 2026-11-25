@@ -110,6 +110,28 @@ the runner's default thread-per-core.
 - A deviation from Node needs a Lava-only test pinning the intended behavior plus
   a comment saying what was traded for what.
 
+## Working loop
+
+Measured on one run (#88: 15 min, 86 calls, ~2.5 min of it in commands): the time
+goes into rewriting, not building. So:
+
+- **Reuse before writing.** Grep `cmd/lava/*_test.odin` for the runner setup,
+  tracking-allocator harness and result recorders before defining your own; a
+  copy that differs by one field is an edit to the original, not a new type.
+- **One test, one binary.** `make test-one T=<name>[,<name>…]` (add
+  `PKG=pkg/runtime` for another package) builds and runs only those tests. Do not
+  rerun the whole suite to see one result; its known reds are not yours.
+- **Probe in scratch, not in the target file.** An experiment ("does JSC count X?")
+  goes in a throwaway probe test outside the file you are writing, so the real test
+  is written once. More than two full rewrites of one file means the design is
+  unsettled: stop and report the question instead.
+- **Mutations before the commit.** `make test-mutation FILTER=<entry substring>`
+  needs only the production files it patches to be clean — your new test files and
+  `tests/mutation-manifest.json` may be uncommitted. Run it before committing; a
+  WRONG REASON found after the commit costs an amend.
+- **A missing tool is a line in the report, not a search.** If `odinfmt` (or any
+  formatter) is not on PATH, say so and move on.
+
 ## Before reporting done
 
 Run the gates your paths map to
