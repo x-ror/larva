@@ -986,3 +986,17 @@ runner_step_wakes_on_a_watched_fd :: proc(t: ^testing.T) {
 	testing.expectf(t, elapsed > 0.2 && elapsed < 3, "the byte written at 300 ms was seen after %.2fs", elapsed)
 	testing.expectf(t, steps < 50, "%d steps in %.2fs: step did not block until the fd was readable", steps, elapsed)
 }
+
+// page_runner_orphans on a destroyed runner — whose worker pool is gone with it —
+// answers 0 instead of reaching through the nil pool.
+@(test)
+runner_orphans_is_zero_once_destroyed :: proc(t: ^testing.T) {
+	runner: lava.Page_Runner
+
+	if !lava.page_runner_init(&runner, 1, record_page_outcome, context.allocator) {
+		testing.fail_now(t, "page_runner_init failed")
+	}
+
+	lava.page_runner_destroy(&runner)
+	testing.expect_value(t, lava.page_runner_orphans(&runner), 0)
+}

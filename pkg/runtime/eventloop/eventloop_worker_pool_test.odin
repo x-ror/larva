@@ -3,6 +3,7 @@
 package eventloop
 
 import "base:runtime"
+import "core:mem"
 import "core:os"
 import "core:strconv"
 import "core:strings"
@@ -183,7 +184,7 @@ shared_pool_completion_never_reaches_a_closed_client :: proc(t: ^testing.T) {
 	submit_gated(t, a, &job)
 
 	if !wait_until(&job.started, 2 * time.Second) {
-		release_all({job})
+		sync.sema_post(&job.gate)
 		testing.fail_now(t, "no worker took the job")
 	}
 
@@ -495,4 +496,194 @@ task_count :: proc() -> int {
 		}
 	}
 	return -1
+}
+
+@(private = "file")
+Closing_Submit :: struct {
+	loop:     ^Loop,
+	tried:    bool,
+	accepted: bool,
+}
+
+@(private = "file")
+noop_work :: proc(user_data: rawptr) {}
+
+// closing_submit is a timer's dispose, which close_begin runs after it has closed the
+// loop's pool client: a teardown hook that submits.
+@(private = "file")
+closing_submit :: proc(user_data: rawptr) {
+	cs := cast(^Closing_Submit)user_data
+	cs.tried = true
+	cs.accepted = pool_submit(cs.loop, noop_work, nil)
+}
+
+@(private = "file")
+never_fires :: proc(loop: ^Loop, user_data: rawptr) {}
+
+// A loop whose close has begun takes no more pool work, whether a teardown hook submits
+// during close_begin or a caller after it — for a runner page's loop and for one with a
+// private pool alike. Accepted, the job would start a fresh private pool on the closing
+// loop that close_finish then waits for (and trips its assert on). An accepted submit
+// leaves the loop unfinished here, so the failure is an assertion, not that abort.
+@(test)
+pool_submit_refuses_a_loop_that_is_closing :: proc(t: ^testing.T) {
+	pool := pool_create(runtime.heap_allocator())
+	defer pool_release(pool)
+	shared := client_loop(pool)
+	private := new(Loop, runtime.heap_allocator())
+	private^ = init(runtime.heap_allocator())
+	private.never_block = true
+	first: [1]Gated_Job
+	submit_gated(t, private, &first[0])
+
+	if !settle(private, first[:]) {
+		testing.fail_now(t, "the private pool's first job never completed")
+	}
+
+	for loop, i in ([2]^Loop{shared, private}) {
+		cs := Closing_Submit {
+			loop = loop,
+		}
+		set_timeout(loop, never_fires, 100_000, &cs, closing_submit)
+		close_begin(loop)
+		after := pool_submit(loop, noop_work, nil)
+		testing.expectf(t, cs.tried, "loop %d: close_begin did not dispose the timer", i)
+		testing.expectf(t, !cs.accepted, "loop %d: a teardown hook's pool_submit was accepted", i)
+		testing.expectf(t, !after, "loop %d: pool_submit after close_begin was accepted", i)
+
+		if cs.accepted || after {
+			continue // leave it: close_finish would wait on, then assert about, the new pool
+		}
+
+		close_finish(loop)
+		free(loop, runtime.heap_allocator())
+	}
+}
+
+// Orphans never take the threads open clients run on (POOL_MAX_WORKERS' invariant):
+// with as many orphans blocked as the cap allows workers, a new client's job still
+// starts at once, through the core rule, without the runner's tick.
+@(test)
+shared_pool_orphans_never_take_the_threads_of_live_clients :: proc(t: ^testing.T) {
+	ROUNDS :: POOL_MAX_WORKERS / THREADPOOL_SIZE
+	pool := pool_create(runtime.heap_allocator())
+	defer pool_release(pool)
+	orphans: [ROUNDS * THREADPOOL_SIZE]Gated_Job
+	for r in 0 ..< ROUNDS {
+		l := client_loop(pool)
+		jobs := orphans[r * THREADPOOL_SIZE:][:THREADPOOL_SIZE]
+		for &j in jobs {
+			j.gated = true
+			submit_gated(t, l, &j)
+		}
+		for &j in jobs {
+			if !wait_until(&j.started, 2 * time.Second) {
+				close_loop(l)
+				release_all(orphans[:])
+				testing.fail_now(t, "a fresh client's jobs never all started")
+			}
+		}
+		close_loop(l)
+	}
+	testing.expect_value(t, pool_orphans(pool), POOL_MAX_WORKERS)
+
+	n := client_loop(pool)
+	fresh: Gated_Job
+	submit_gated(t, n, &fresh)
+	deadline := time.tick_add(time.tick_now(), time.Second)
+	for fresh.done == 0 && time.tick_diff(time.tick_now(), deadline) > 0 {
+		run_once(n)
+		time.sleep(100 * time.Microsecond)
+	}
+	release_all(orphans[:])
+
+	testing.expectf(
+		t,
+		fresh.done == 1,
+		"a live client's job never ran while %d orphans held their workers",
+		POOL_MAX_WORKERS,
+	)
+	testing.expect(t, wait_count(&pool.orphans, 0, 5 * time.Second), "the orphans never drained")
+	close_loop(n)
+}
+
+// Closing a page that held every core worker replaces all of them for a sibling with
+// jobs waiting, not one: the sibling's four queued jobs all start without the runner's
+// tick.
+@(test)
+shared_pool_close_replaces_every_orphan_a_sibling_waits_for :: proc(t: ^testing.T) {
+	pool := pool_create(runtime.heap_allocator())
+	defer pool_release(pool)
+	a := client_loop(pool)
+	b := client_loop(pool)
+	held: [THREADPOOL_SIZE]Gated_Job
+	waiting: [THREADPOOL_SIZE]Gated_Job
+	for &j in held {
+		j.gated = true
+		submit_gated(t, a, &j)
+	}
+	for &j in held {
+		if !wait_until(&j.started, 2 * time.Second) {
+			release_all(held[:])
+			testing.fail_now(t, "the four core workers never all took a job")
+		}
+	}
+	for &j in waiting {
+		j.gated = true
+		submit_gated(t, b, &j)
+	}
+	close_loop(a)
+
+	started := 0
+	for &j in waiting {
+		if wait_until(&j.started, time.Second) {
+			started += 1
+		}
+	}
+	release_all(waiting[:])
+	release_all(held[:])
+
+	testing.expectf(t, started == THREADPOOL_SIZE, "%d of the sibling's %d queued jobs started", started, THREADPOOL_SIZE)
+	testing.expect(t, settle(b, waiting[:]), "the sibling's jobs never completed")
+	testing.expect(t, wait_count(&pool.orphans, 0, 2 * time.Second), "the orphans never drained")
+	close_loop(b)
+}
+
+// After its owner releases it, the shared pool is freed by its last worker — the only
+// free path once page_runner_destroy has returned with an orphan still running. The
+// pool runs on a tracking allocator (thread-safe: it locks), which must end empty.
+@(test)
+shared_pool_last_worker_frees_the_pool :: proc(t: ^testing.T) {
+	track: mem.Tracking_Allocator
+	mem.tracking_allocator_init(&track, runtime.heap_allocator())
+	defer mem.tracking_allocator_destroy(&track)
+	pool := pool_create(mem.tracking_allocator(&track))
+	l := client_loop(pool)
+	job := Gated_Job {
+		gated = true,
+	}
+	submit_gated(t, l, &job)
+
+	if !wait_until(&job.started, 2 * time.Second) {
+		sync.sema_post(&job.gate)
+		testing.fail_now(t, "no worker took the job")
+	}
+
+	close_loop(l)
+	pool_release(pool)
+	testing.expect(t, tracked_bytes(&track) > 0, "the pool was freed while its orphan still ran")
+	sync.sema_post(&job.gate)
+	deadline := time.tick_add(time.tick_now(), 2 * time.Second)
+	for tracked_bytes(&track) > 0 && time.tick_diff(time.tick_now(), deadline) > 0 {
+		time.sleep(time.Millisecond)
+	}
+	testing.expectf(t, tracked_bytes(&track) == 0, "%d bytes of the pool were never freed", tracked_bytes(&track))
+	testing.expect_value(t, sync.atomic_load(&job.dispose), 1)
+}
+
+@(private = "file")
+tracked_bytes :: proc(track: ^mem.Tracking_Allocator) -> i64 {
+	sync.lock(&track.mutex)
+	defer sync.unlock(&track.mutex)
+	return track.current_memory_allocated
 }

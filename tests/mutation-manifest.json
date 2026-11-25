@@ -1410,8 +1410,8 @@
       "name": "runner_refuses_pages_at_its_orphan_bound dies when page_runner_open ignores the orphan bound",
       "why": "Pages that read FIFOs never release their orphaned workers; without the bound they pile up threads until the process runs out (#34, #36).",
       "source": "pkg/runtime/page_runner.odin",
-      "find": "\tif eventloop.pool_orphans(runner.workers) >= runner.orphan_limit {\n",
-      "replace": "\tif eventloop.pool_orphans(runner.workers) >= runner.orphan_limit + 1000 {\n",
+      "find": "\tif page_runner_orphans(runner) >= runner.orphan_limit {\n",
+      "replace": "\tif page_runner_orphans(runner) >= runner.orphan_limit + 1000 {\n",
       "gate": "odin:cmd/lava:main.runner_refuses_pages_at_its_orphan_bound",
       "expect_detail": "page_runner_live(&runner) to be 0"
     },
@@ -2130,6 +2130,42 @@
       "replace": "pool.queued + 1 > pool.idle && pool.live < THREADPOOL_SIZE",
       "gate": "odin:pkg/runtime/eventloop:eventloop.shared_pool_orphan_does_not_count_toward_core",
       "expect_detail": "a new client's job never ran while four orphans held the old workers"
+    },
+    {
+      "name": "pool_submit_refuses_a_loop_that_is_closing dies when pool_submit accepts work on a destroyed loop",
+      "why": "A teardown hook's submit starts a fresh private pool on a closing runner loop: close_finish then waits for that job on the runner thread (#34) and aborts on the stray client.",
+      "source": "pkg/runtime/eventloop/threadpool.odin",
+      "find": "if loop == nil || work == nil || loop.destroyed {",
+      "replace": "if loop == nil || work == nil {",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.pool_submit_refuses_a_loop_that_is_closing",
+      "expect_detail": "a teardown hook's pool_submit was accepted"
+    },
+    {
+      "name": "shared_pool_orphans_never_take_the_threads_of_live_clients dies when orphan-held workers count against the cap",
+      "why": "Enough jobs of closed pages that never return (FIFO reads) fill the hard cap, and every live page's lookups and reads wait for one of them for good.",
+      "source": "pkg/runtime/eventloop/threadpool.odin",
+      "find": "\t// Orphan-held workers do not count: see POOL_MAX_WORKERS.\n\tif pool.live - pool.orphans >= POOL_MAX_WORKERS {",
+      "replace": "\tif pool.live >= POOL_MAX_WORKERS {",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.shared_pool_orphans_never_take_the_threads_of_live_clients",
+      "expect_detail": "a live client's job never ran while"
+    },
+    {
+      "name": "shared_pool_close_replaces_every_orphan_a_sibling_waits_for dies when the core is refilled one worker at a time",
+      "why": "After a page with every core worker closes, a sibling's queued jobs run one at a time behind a single replacement until its next submit.",
+      "source": "pkg/runtime/eventloop/threadpool.odin",
+      "find": "\tfor pool_core_short(pool) {",
+      "replace": "\tif pool_core_short(pool) {",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.shared_pool_close_replaces_every_orphan_a_sibling_waits_for",
+      "expect_detail": "of the sibling's 4 queued jobs started"
+    },
+    {
+      "name": "shared_pool_last_worker_frees_the_pool dies when the last worker does not free the released pool",
+      "why": "After page_runner_destroy the last worker is the only one left to free the pool; without it every runner leaks its pool, silently, since no other test owns that memory.",
+      "source": "pkg/runtime/eventloop/threadpool.odin",
+      "find": "\t// Nothing of the pool is touched after the unlock unless this worker frees it.\n\tif last {",
+      "replace": "\tif false {",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.shared_pool_last_worker_frees_the_pool",
+      "expect_detail": "bytes of the pool were never freed"
     },
     {
       "name": "runner_page_with_stalled_lookups_does_not_starve_a_sibling dies when runner_round does not tick the worker pool",

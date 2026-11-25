@@ -83,13 +83,22 @@ POOL_PER_CLIENT_CAP :: 4
 // shared_pool_page_with_four_stalled_jobs_does_not_starve_a_sibling.
 POOL_STALL_MS :: 10
 
-// POOL_MAX_WORKERS is the hard cap H on a pool's threads, overflow and orphan-held
-// workers included. K (4) + the runner's orphan bound (RUNNER_ORPHAN_LIMIT, 32) + 28
-// for live pages that stall at once: the worst case is about what one runner pinned
-// before #36 with its reaping list full (8 loops x 4) plus a few live pages' pools,
-// where the common case is now 4. At the cap a starving page waits for a worker to
-// free up instead of getting a new one.
-POOL_MAX_WORKERS :: 64
+// POOL_MAX_WORKERS is the hard cap H on the workers that serve OPEN clients — core and
+// overflow. Orphan-held workers are not counted against it, so orphans can never use
+// up the threads live pages run on:
+//
+//   INVARIANT: whatever the number of orphans, open clients can always get K core
+//   workers (the core rule) and up to H - K overflow workers (the stall rule).
+//
+// Orphans are bounded elsewhere: a page closes with at most POOL_PER_CLIENT_CAP jobs
+// running, and the page runner refuses new pages at its orphan bound
+// (RUNNER_ORPHAN_LIMIT, 32), so a runner's threads stay below H + its orphan bound +
+// POOL_PER_CLIENT_CAP x its page capacity — the order of what it pinned before #36
+// (4 per live page + 8 reaping loops x 4). 32 = K + 28 live pages stalled at once,
+// where the common case is now at most 4. At the cap a starving page waits for a
+// worker to free up instead of getting a new one. Pinned by
+// shared_pool_orphans_never_take_the_threads_of_live_clients.
+POOL_MAX_WORKERS :: 32
 
 // POOL_IDLE_EXIT is how long a worker above the core size stays idle before it exits.
 // Long enough that a page that stalls repeatedly does not create and join a thread per
@@ -295,10 +304,13 @@ pool_orphans :: proc(pool: ^Worker_Pool) -> int {
 // has run for POOL_STALL_MS or more. One worker per call, never past POOL_MAX_WORKERS.
 // The page runner calls it once a round, after the pages' ticks; nothing else does,
 // so a loop alone on its pool never overflows (it cannot starve itself: a client with
-// a job running is not starving).
+// a job running is not starving). It first retries the core rule (pool_fill_core).
 pool_tick :: proc(pool: ^Worker_Pool) {
 	sync.lock(&pool.mutex)
 	defer sync.unlock(&pool.mutex)
+	// A replacement the close or a submit could not start (thread limit, no memory) is
+	// retried here, or a client starving behind orphans would wait for the next submit.
+	pool_fill_core(pool)
 
 	if age, starving := pool_stall_age(pool); starving && age >= POOL_STALL_MS * time.Millisecond {
 		pool_spawn(pool)
@@ -312,6 +324,12 @@ pool_tick :: proc(pool: ^Worker_Pool) {
 pool_wait_hint_ms :: proc(pool: ^Worker_Pool) -> int {
 	sync.lock(&pool.mutex)
 	defer sync.unlock(&pool.mutex)
+
+	// Short of core workers with jobs waiting: a spawn failed; pool_tick retries it.
+	if pool_core_short(pool) {
+		return 1
+	}
+
 	age, starving := pool_stall_age(pool)
 
 	if !starving {
@@ -336,7 +354,12 @@ pool_submit :: proc(
 	dispose: Pool_Dispose = nil,
 	cancel: Pool_Cancel = nil,
 ) -> bool {
-	if loop == nil || work == nil {
+	// A loop close_begin has begun (or finished) is refused like every other loop entry
+	// point (refuse_destroyed): its pool client is closed or gone, and without this a
+	// submit from a teardown hook would start a fresh private pool on it — and
+	// close_finish would wait for that job. Pinned by
+	// pool_submit_refuses_a_loop_that_is_closing.
+	if loop == nil || work == nil || loop.destroyed {
 		return false
 	}
 
@@ -348,11 +371,6 @@ pool_submit :: proc(
 
 	c := loop.pool_client
 	pool := c.pool
-
-	if c.closed {
-		return false
-	}
-
 	sync.lock(&pool.mutex)
 
 	// Start a worker when no idle one is left for this job and the core is not full —
@@ -463,12 +481,9 @@ pool_close_client :: proc(loop: ^Loop) -> (busy: bool) {
 	sync.atomic_add(&pool.orphans, orphans)
 	c.refs += orphans
 
-	// Orphans no longer count toward the core size: another client's queued job may
-	// need a replacement now.
-	if pool.queued > pool.idle && pool.live - pool.orphans < THREADPOOL_SIZE {
-		pool_spawn(pool)
-	}
-
+	// Orphans no longer count toward the core size: other clients' queued jobs may need
+	// replacements now — one per job waiting, up to K.
+	pool_fill_core(pool)
 	sync.unlock(&pool.mutex)
 
 	for job in c.outstanding[orphans:] {
@@ -663,7 +678,7 @@ pool_pick :: proc(pool: ^Worker_Pool) -> ^Pool_Job {
 // the stall. Under the mutex.
 @(private = "file")
 pool_stall_age :: proc(pool: ^Worker_Pool) -> (age: time.Duration, starving: bool) {
-	if pool.idle > 0 || pool.live >= POOL_MAX_WORKERS {
+	if pool.idle > 0 || pool.live - pool.orphans >= POOL_MAX_WORKERS {
 		return 0, false
 	}
 
@@ -689,6 +704,24 @@ pool_stall_age :: proc(pool: ^Worker_Pool) -> (age: time.Duration, starving: boo
 	return
 }
 
+// pool_core_short reports whether queued jobs outnumber the idle workers while fewer
+// than K workers serve open clients — the core rule's trigger. Under the mutex.
+@(private = "file")
+pool_core_short :: proc(pool: ^Worker_Pool) -> bool {
+	return pool.queued > pool.idle && pool.live - pool.orphans < THREADPOOL_SIZE
+}
+
+// pool_fill_core starts workers while pool_core_short holds, stopping at the first
+// spawn that fails. Under the mutex.
+@(private = "file")
+pool_fill_core :: proc(pool: ^Worker_Pool) {
+	for pool_core_short(pool) {
+		if !pool_spawn(pool) {
+			return
+		}
+	}
+}
+
 // pool_spawn starts one worker thread. The thread cleans up after itself
 // (Self_Cleanup), so nothing joins it; its struct comes from the heap because
 // core:thread frees it after the proc returns, when the pool — and a private pool's
@@ -696,7 +729,8 @@ pool_stall_age :: proc(pool: ^Worker_Pool) -> (age: time.Duration, starving: boo
 // the caller unlocks.
 @(private = "file")
 pool_spawn :: proc(pool: ^Worker_Pool) -> bool {
-	if pool.live >= POOL_MAX_WORKERS {
+	// Orphan-held workers do not count: see POOL_MAX_WORKERS.
+	if pool.live - pool.orphans >= POOL_MAX_WORKERS {
 		return false
 	}
 

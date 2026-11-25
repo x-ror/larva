@@ -229,7 +229,7 @@ page_runner_open :: proc(
 		return
 	}
 
-	if eventloop.pool_orphans(runner.workers) >= runner.orphan_limit {
+	if page_runner_orphans(runner) >= runner.orphan_limit {
 		append(&runner.done, Done_Page{user_data, page_killed_result(.Reaping_Full)})
 		return
 	}
@@ -240,7 +240,13 @@ page_runner_open :: proc(
 	rp.loop = new(eventloop.Loop, runtime.heap_allocator())
 	rp.loop^ = eventloop.init(runtime.heap_allocator(), real_time = true)
 	rp.loop.never_block = true
-	eventloop.pool_attach(rp.loop, runner.workers)
+
+	// Always set on a runner init made usable; a loop left unattached would still run,
+	// on a private pool of its own.
+	if runner.workers != nil {
+		eventloop.pool_attach(rp.loop, runner.workers)
+	}
+
 	append(&runner.pages, rp)
 	index := len(runner.pages) - 1
 
@@ -280,6 +286,11 @@ page_runner_open :: proc(
 // page_runner_orphans is the number of jobs still running for pages that have closed
 // (eventloop.pool_orphans). Never blocks; at orphan_limit page_runner_open refuses.
 page_runner_orphans :: proc(runner: ^Page_Runner) -> int {
+	// nil after page_runner_destroy, or after an init that failed.
+	if runner.workers == nil {
+		return 0
+	}
+
 	return eventloop.pool_orphans(runner.workers)
 }
 
