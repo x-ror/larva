@@ -28,7 +28,7 @@
 *.dll   binary
 *.dylib binary
 *.so    binary
-# Merged by name, not as text: Lava and Larva both append to the end of this
-# array. Driver: scripts/merge-mutation-manifest.mjs, registered by the Sync
-# from Lava workflow; without it git falls back to a normal text merge.
+# Merged by name, not as text: parallel branches all append to the end of this
+# array. Driver: scripts/merge-mutation-manifest.mjs, registered per clone (see
+# CONTRIBUTING.md); without it git falls back to a normal text merge.
 tests/mutation-manifest.json merge=mutation-manifest

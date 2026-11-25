@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // Git merge driver for tests/mutation-manifest.json (see .gitattributes).
 //
-// Lava and Larva both append entries to the end of the same JSON array, so every
-// sync from Lava conflicted on the manifest even when the two sides added
-// unrelated entries — the first automatic sync (Sync from Lava, run 1) stopped on
-// exactly that. Entries are keyed by `name`, which the runner already treats as
+// Branches append entries to the end of the same JSON array, so merging two of
+// them conflicts on the manifest even when they added unrelated entries — the
+// first automatic sync from Lava (when Larva still followed it) stopped on
+// exactly that, and parallel Larva branches hit the same thing. Entries are keyed by `name`, which the runner already treats as
 // the identity of a mutation, so a merge by name is exact:
 //   - an entry only one side added or changed is taken from that side;
 //   - an entry both sides changed differently, or one side deleted while the other
@@ -13,8 +13,8 @@
 // The top-level `$comment` follows the same rule.
 //
 // Git runs it as: node scripts/merge-mutation-manifest.mjs %O %A %B
-// (%O base, %A ours — written in place, %B theirs). The driver is registered by
-// the Sync from Lava workflow; a clone without `git config merge.mutation-manifest`
+// (%O base, %A ours — written in place, %B theirs). The driver is registered per
+// clone (CONTRIBUTING.md); a clone without `git config merge.mutation-manifest`
 // falls back to git's ordinary text merge, so this never hides a conflict.
 
 import { readFileSync, writeFileSync } from 'node:fs';
