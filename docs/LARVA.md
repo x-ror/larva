@@ -247,6 +247,10 @@ Stage 1 so far, on the Node profile and the `.Web` global surface:
 - the page (`pkg/runtime/page.odin`: `Page`, `page_open`/`page_tick`/`page_close`),
   one global context and one event loop per page, which `eval` and the page runner
   (`page_runner.odin`) both drive; the cumulative CPU budget (`Page_Limits`);
+- the persistent page: `page_open` split into `page_create` + `page_run_script`, and
+  on a live page `page_eval` (one more script; a throw fails the call, not the page)
+  and `page_run_until` (tick until a condition, idle, a deadline, or the page ends),
+  pinned by `cmd/lava/page_api_test.odin`;
 - the per-thread VM pool (`pkg/runtime/vm_pool.odin`); `eval` runs in a pooled VM
   on Linux and macOS, while Windows still creates a VM per context;
 - the per-entry execution limit (`vm_set_entry_limit`), exercised only by
