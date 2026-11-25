@@ -2,8 +2,8 @@
 // The toolchain facts an agent (or a person) needs before touching Larva, in one
 // block: the pinned Odin commit, the local compiler and SDK source and how far each
 // is from the pin, the linked C libraries, node/bun, and the core count CI has.
-// Printed by `make env`, which CLAUDE.md §3 has agents run first, so a session
-// starts knowing which SDK source to read instead of discovering it.
+// Printed by `make env` and by the SessionStart hook in .claude/settings.json, so a
+// session starts knowing which SDK source to read instead of discovering it.
 //
 // Usage: node scripts/odin-env.mjs            report, exit 0
 //        node scripts/odin-env.mjs --check    report, exit 1 unless the compiler is the pin
