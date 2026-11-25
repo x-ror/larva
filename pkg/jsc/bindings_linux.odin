@@ -71,6 +71,7 @@ foreign jsc_lib {
 	JSObjectMakeError :: proc(ctx: JSContextRef, argument_count: c.size_t, arguments: [^]JSValueRef, exception: ^JSValueRef) -> JSObjectRef ---
 
 	JSObjectGetProperty :: proc(ctx: JSContextRef, object: JSObjectRef, property_name: JSStringRef, exception: ^JSValueRef) -> JSValueRef ---
+	JSObjectGetPropertyForKey :: proc(ctx: JSContextRef, object: JSObjectRef, property_key: JSValueRef, exception: ^JSValueRef) -> JSValueRef ---
 	JSObjectSetProperty :: proc(ctx: JSContextRef, object: JSObjectRef, property_name: JSStringRef, value: JSValueRef, attributes: JSPropertyAttributes, exception: ^JSValueRef) ---
 	JSObjectHasProperty :: proc(ctx: JSContextRef, object: JSObjectRef, property_name: JSStringRef) -> bool ---
 	JSObjectDeleteProperty :: proc(ctx: JSContextRef, object: JSObjectRef, property_name: JSStringRef, exception: ^JSValueRef) -> bool ---

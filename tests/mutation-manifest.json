@@ -4382,8 +4382,8 @@
       "name": "js_clear_globals_read_an_id_like_chrome dies when .Web reads the id the node way",
       "why": "A page's clearTimeout(\"N.0\") or clearTimeout(id + 0.5) cancels timer N in Chrome (WebIDL long); the node reading leaves it running.",
       "source": "pkg/runtime/globals.odin",
-      "find": "\tclear_timer := surface == .Web ? clear_timer_web_cb : clear_timer_cb\n",
-      "replace": "\tclear_timer := clear_timer_cb\n",
+      "find": "\t\tinject_native_function(ctx, global, \"clearTimeout\", clear_timeout_web_cb)\n",
+      "replace": "\t\tinject_native_function(ctx, global, \"clearTimeout\", clear_timer_cb)\n",
       "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
       "expect_detail": "\"N.0\":fired"
     },
@@ -4400,10 +4400,73 @@
       "name": "js_clear_globals_read_an_id_like_chrome dies when a BigInt id does not throw",
       "why": "JSValueToNumber converts a BigInt where WebIDL's ToNumber throws a TypeError, so Chrome's clearTimeout(10n) throws and cancels nothing.",
       "source": "pkg/runtime/globals.odin",
-      "find": "\tif value_is_bigint(ctx, arguments[0]) {\n",
+      "find": "\tif value_is_bigint(ctx, p) {\n",
       "replace": "\tif false {\n",
       "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
       "expect_detail": "BigInt:cancelled"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_chrome dies when an error the argument throws is swallowed",
+      "why": "An error the page's own valueOf throws must reach the page, as in Chrome; dropped, clearTimeout returns quietly and the page's error handling never runs.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "web_rethrow :: proc(thrown: jsc.JSValueRef, exception: ^jsc.JSValueRef) -> bool {\n\tif exception != nil {\n",
+      "replace": "web_rethrow :: proc(thrown: jsc.JSValueRef, exception: ^jsc.JSValueRef) -> bool {\n\tif false {\n",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
+      "expect_detail": "throwing valueOf:fired no primitive"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_chrome dies when a Symbol id converts quietly",
+      "why": "WebIDL ToNumber throws a TypeError on a Symbol; JSValueToNumber with no exception slot turns it into NaN and the call returns quietly.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tif jsc.JSValueGetType(ctx, p) == .Symbol {\n",
+      "replace": "\tif false {\n",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
+      "expect_detail": "Symbol:fired throwing valueOf"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_chrome dies when an object id skips ToPrimitive",
+      "why": "JSValueToNumber converts the BigInt a wrapper's valueOf returns, so clearTimeout(Object(10n)) cancels timer 10 where Chrome throws a TypeError.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tif jsc.JSValueIsObject(ctx, v) {\n\t\tok: bool\n",
+      "replace": "\tif false {\n\t\tok: bool\n",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
+      "expect_detail": "BigInt obj:cancelled"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_chrome dies when the TypeError loses the binding prefix",
+      "why": "Chrome's binding prefixes every conversion TypeError with \"Failed to execute '<op>' on 'Window': \"; a page matching on the message sees a different text.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\t\tmessage := strings.concatenate({\"Failed to execute '\", op, \"' on 'Window': \", detail})\n",
+      "replace": "\t\tmessage := strings.concatenate({detail})\n",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
+      "expect_detail": "BigInt:fired (TypeError: Cannot convert a BigInt"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_chrome dies when clearInterval names itself clearTimeout",
+      "why": "The prefix names the method that was called; one shared op name would report clearInterval's failure as clearTimeout's.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\treturn clear_timer_web(ctx, argument_count, arguments, exception, \"clearInterval\")\n",
+      "replace": "\treturn clear_timer_web(ctx, argument_count, arguments, exception, \"clearTimeout\")\n",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
+      "expect_detail": "clearInterval(Symbol):TypeError: Failed to execute 'clearTimeout'"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_chrome dies when Symbol.toPrimitive is not captured",
+      "why": "Without the captured key ToPrimitive skips the exotic method, so a non-callable Symbol.toPrimitive converts quietly instead of throwing, and a callable one is never called.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tjsc.JSValueProtect(ctx, key)\n\tstate.symbol_to_primitive = key\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
+      "expect_detail": "bad toPrimitive:fired interval"
+    },
+    {
+      "name": "js_clear_globals_on_web_cannot_name_an_id_past_2_31 dies when the .Web id is not read as signed",
+      "why": "The declared .Web deviation: a long cannot name an id of 2^31 or more. Without the signed fold the WebIDL reading reaches it, and the test that pins the deviation no longer describes the code.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\t\tif x >= 2147483648 {\n\t\t\tx -= 4294967296\n\t\t}\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.js_clear_globals_on_web_cannot_name_an_id_past_2_31",
+      "expect_detail": "got true:cancelled"
     },
     {
       "name": "clear_owned_heap_timer_respects_owner dies when the heap-timer owner check is dropped",

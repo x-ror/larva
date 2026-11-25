@@ -394,6 +394,10 @@ page_run_script :: proc(page: ^Page, source: string, source_name := "<eval>", ec
 //          or a page with no context enters no JS and releases nothing; one for a
 //          source the runtime could not allocate enters no JS but has already released
 //          the previous value, like every call that reaches the page.
+// Resets:
+//   Every call that reaches the page ends with free_all(context.temp_allocator), the
+//   calling thread's temp arena, as eval does: temp memory the caller holds across a
+//   page_eval is gone when it returns.
 // Node:
 //   No counterpart (a Larva page step). What the script sees is the page's realm,
 //   exactly as a timer callback would.
