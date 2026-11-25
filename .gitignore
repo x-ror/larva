@@ -49,3 +49,6 @@ graphify-out/
 .agent-findings.json
 .agent-plan.json
 .agent-env
+
+# Isolated agent worktrees (Claude Code `isolation: worktree`); never committed.
+.claude/worktrees/

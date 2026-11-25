@@ -40,38 +40,20 @@ Pull request titles follow `type(scope): imperative summary`, and the body state
 what changed, which gates were run with their results, and the oracle evidence
 for any change to an observable surface.
 
-## Lava is upstream
+## Relationship to Lava
 
-Larva is built on [Lava](https://github.com/x-ror/lava) and shares its history:
-the two forked at `c0d16b4`. A change that is not browser-specific — a runtime
-fix, the event loop, the embedded Node surface, build tooling, the mutation gate,
-the agent playbooks — lands once, in Lava, and reaches Larva by merging Lava's
-`master`. Do not commit the same change to both repositories by hand.
+Larva was forked from [Lava](https://github.com/x-ror/lava) at `c0d16b4` and shares
+its history up to the last sync (#86). Since 2026-11-26 it no longer follows Lava:
+Larva is dropping the Node profile (`require`, `process`, `Buffer`, `node:*`) and
+keeps only the Window profile, so Lava's Node-surface work no longer applies here.
+There is no sync workflow and nothing is merged from Lava's `master`. A fix that
+also matters to Lava is ported by hand, as a normal pull request in either
+repository.
+
+`tests/mutation-manifest.json` keeps its merge driver (`.gitattributes`), because
+parallel branches here append to the same array. Register it once per clone:
 
 ```sh
-git remote add lava https://github.com/x-ror/lava   # once per clone
-git fetch lava master
-git checkout -b sync/lava origin/master
-git merge lava/master
+git config merge.mutation-manifest.name 'mutation manifest, merged by entry name'
+git config merge.mutation-manifest.driver 'node scripts/merge-mutation-manifest.mjs %O %A %B'
 ```
-
-Resolve conflicts on Larva's side wherever Larva has deliberately diverged: the
-page runner, the VM pool and per-page CPU budget in `pkg/runtime`, and the
-two-oracle (Node and Chrome) wording in `CLAUDE.md` and `agents/`. In
-`tests/mutation-manifest.json` keep both sides' entries. Open the merge as a
-normal pull request so CI runs the full gate set on the result.
-
-**Merge a sync pull request with "Create a merge commit", never "Squash and
-merge".** A squash keeps the files but drops Lava as a parent, so git forgets the
-merge happened and the next sync replays every conflict already resolved. This
-happened once (#42) and was repaired by an `ours` merge that records the parent
-without changing a file.
-
-`.github/workflows/sync-lava.yml` does the merge daily and opens the pull request
-on branch `sync/lava` itself; a merge that conflicts opens an issue instead. It
-needs "Allow GitHub Actions to create and approve pull requests" enabled under
-Settings → Actions → General.
-
-Larva-only work — DOM, the HTML parser, the Window profile, pages and sessions —
-stays here. A Larva change that turns out to be useful to Lava goes upstream as a
-Lava pull request, and comes back with the next merge.

@@ -12,6 +12,8 @@
     "bin",
     "build",
     ".deps",
+    // Agent worktrees (isolated checkouts with their own node_modules), never part of the tree.
+    ".claude/worktrees",
   ],
 
   "config": {
