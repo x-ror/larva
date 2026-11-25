@@ -78,12 +78,10 @@ vm_entry_limit_terminates_runaway_script :: proc(t: ^testing.T) {
 	testing.expect(t, vm2 == vm, "pool did not reuse its only VM")
 	testing.expect(t, !vm2.limit_hit, "limit_hit not cleared on acquire")
 	ctx2 := lava.vm_create_context(vm2, nil)
-	// Released VMs drop their limit, so a long-but-finite script now completes.
-	testing.expect(
-		t,
-		eval_source(ctx2, "var s = Date.now(); while (Date.now() - s < 150) {}"),
-		"limit leaked past vm_release",
-	)
+	// Released VMs drop their limit, so a long-but-finite script now completes. The kill
+	// latched the watchdog at its 1 ms floor, so the script spins on thread CPU, not
+	// wall time (spin_thread_cpu says why).
+	testing.expect(t, spin_thread_cpu(t, ctx2), "limit leaked past vm_release")
 	jsc.JSGlobalContextRelease(ctx2)
 	lava.vm_release(vm2)
 }

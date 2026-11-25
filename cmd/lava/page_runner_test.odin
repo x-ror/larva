@@ -8,7 +8,6 @@ import "core:log"
 import "core:os"
 import "core:strings"
 import "core:sys/linux"
-import "core:sys/posix"
 import "core:testing"
 import "core:thread"
 import "core:time"
@@ -277,13 +276,6 @@ runner_fd_count_stays_flat_over_10k_pages :: proc(t: ^testing.T) {
 	busy, created := lava.vm_pool_stats(&runner.pool)
 	testing.expect_value(t, busy, 0)
 	testing.expectf(t, created <= 8, "runner created %d VMs for 8 pages in flight", created)
-}
-
-@(private = "file")
-thread_cpu_seconds :: proc() -> f64 {
-	ts: posix.timespec
-	posix.clock_gettime(.THREAD_CPUTIME_ID, &ts)
-	return f64(ts.tv_sec) + f64(ts.tv_nsec) / 1e9
 }
 
 @(private = "file")
