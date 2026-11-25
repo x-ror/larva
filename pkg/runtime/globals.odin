@@ -2,6 +2,7 @@ package lava_runtime
 
 import "base:runtime"
 import "core:c"
+import "core:math"
 import "core:os"
 import "core:strings"
 import "core:sync"
@@ -55,6 +56,11 @@ Runtime_State :: struct {
 	// invoke_user_callback.
 	dispatch_fn:       jsc.JSValueRef,
 	next_tick_drain:   jsc.JSValueRef,
+	// Symbol.toPrimitive, read before user code on a `.Web` context (install_globals),
+	// GC-protected: web_to_primitive's key for the WebIDL ToNumber of a timer id. A
+	// well-known symbol cannot be replaced, but globalThis.Symbol can, so it is not
+	// read at call time.
+	symbol_to_primitive: jsc.JSValueRef,
 	// Settled fetch requests awaiting free. Their teardown is deferred to here
 	// because the io_uring watcher may reference a request once more after it is
 	// stopped; freeing only at destroy keeps that memory valid (see fetch.odin).
@@ -199,6 +205,7 @@ destroy_runtime_state :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) {
 	unprotect_before_eval_exit(ctx, state.rejection_handler)
 	unprotect_before_eval_exit(ctx, state.dispatch_fn)
 	unprotect_before_eval_exit(ctx, state.next_tick_drain)
+	unprotect_before_eval_exit(ctx, state.symbol_to_primitive)
 	// Clear the global's private slot BEFORE the free, so get_state_from_ctx can
 	// never hand out a dangling ^Runtime_State. The reachable path is the one the
 	// fail-closed dispatcher defines: host_dispatch_fail -> make_js_error ->
@@ -731,14 +738,18 @@ set_immediate_cb :: proc "c" (
 	return jsc.JSValueMakeNumber(ctx, f64(id))
 }
 
-// clear_timer_cb is clearTimeout, clearInterval and clearImmediate: it cancels the
-// timer or immediate `id` if, and only if, the JS timer globals created it.
+// clear_timer_cb is clearTimeout, clearInterval and clearImmediate on `.Node`: it
+// cancels the timer or immediate `id` if, and only if, the JS timer globals created it.
 //
 // Node:
-//   Returns undefined; an id naming no live user timer (NaN, negative, above 2^53,
-//   already fired, never issued) is a silent no-op. Only timers user code created are
-//   reachable by id: clearing every id from 1 to 100 past a fresh timer's cancels that
-//   timer and nothing of node's own (probed on the local node, v24.22.3).
+//   Returns undefined and never coerces: a number or a string is a key of node's id
+//   table, so only the number N or its canonical decimal string "N" names timer N.
+//   "N.0", " N", "0xN", "+N", "0N", N + 0.5, N ± 2^32, N + 2^33, [N], new String("N")
+//   and BigInt are silent no-ops, as are NaN, negatives, ids above 2^53, fired and
+//   never-issued ids. Only timers user code created are reachable: clearing every id from 1 to 100
+//   past a fresh timer's cancels that timer and nothing of node's own. Both probed on
+//   node 26.13.0 with numeric Timeout ids (`+setTimeout(…)`), the form a script's
+//   arithmetic gives; pinned by js_clear_globals_read_an_id_like_node.
 // Deviates:
 //   None observable. Lava's ids are shared with runtime-internal handles (net's
 //   TLS-handshake and drain timers, pkg/http's transfer deadline), so ownership is
@@ -754,27 +765,320 @@ clear_timer_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	loop := get_loop_from_ctx(ctx)
 
-	if loop == nil || argument_count < 1 {
-		return jsc.JSValueMakeUndefined(ctx)
+	if argument_count >= 1 {
+		if id, ok := node_timer_id(ctx, arguments[0]); ok {
+			clear_timer_owned_id(ctx, id)
+		}
 	}
 
-	// clearTimeout/clearInterval(NaN) (and any non-finite/negative id) is a no-op in
-	// Node — no handle can carry that id. Guard before u64(): float→int on NaN or an
-	// out-of-range value is undefined in Odin and could match an unrelated live id.
-	// Handle ids start at 1 and grow unbounded, but stay f64-exact below 2^53, so the
-	// upper bound is the exact-integer limit, not the timer-delay clamp.
-	n := jsc.JSValueToNumber(ctx, arguments[0], nil)
-
-	if !(n >= 1 && n <= MAX_SAFE_HANDLE_ID) {
-		return jsc.JSValueMakeUndefined(ctx)
-	}
-
-	// Owner-checked: a plain clear_timeout would run an internal handle's dispose for
-	// any id the script guessed (#92).
-	eventloop.clear_timeout_owned(loop, u64(n), js_callback_dispose)
 	return jsc.JSValueMakeUndefined(ctx)
+}
+
+// clear_timeout_web_cb and clear_interval_web_cb are clearTimeout and clearInterval on
+// `.Web`, with clear_timer_cb's ownership rule and Chrome's reading of the id.
+//
+// Node:
+//   No counterpart; Chrome is the oracle. The id is a WebIDL `long`: ToNumber, then
+//   truncation and modulo 2^32, so "N.0", " N", "0xN", N + 0.5, N ± 2^32, N + 2^33,
+//   [N] and new String("N") all cancel timer N, and a result ≤ 0 is a no-op. A
+//   conversion that fails throws a TypeError, no `code`, with the binding's prefix:
+//   "Failed to execute 'clearTimeout' on 'Window': Cannot convert a BigInt value to a
+//   number" (also for a BigInt wrapper), "… a Symbol value …", "… Cannot convert object
+//   to primitive value". An error the argument's own valueOf/toString/toPrimitive
+//   throws propagates unchanged. Recorded on Chrome 158.0.8127.88; pinned by
+//   js_clear_globals_read_an_id_like_chrome.
+// Deviates:
+//   A Lava id of 2^31 or more cannot be cleared, since a `long` cannot name it; Chrome's
+//   ids are `long`s and never get there, and a loop issuing two billion handles is not a
+//   page we keep alive. Pinned by js_clear_globals_on_web_cannot_name_an_id_past_2_31.
+//   A non-callable Symbol.toPrimitive throws with the prefix but not V8's rendering of
+//   the value and object ("'1' returned for property … of object '#<Object>' is not a
+//   function"); the case pins the prefix only.
+clear_timeout_web_cb :: proc "c" (
+	ctx: jsc.JSContextRef,
+	function: jsc.JSObjectRef,
+	this_object: jsc.JSObjectRef,
+	argument_count: c.size_t,
+	arguments: [^]jsc.JSValueRef,
+	exception: ^jsc.JSValueRef,
+) -> jsc.JSValueRef {
+	context = runtime.default_context()
+	return clear_timer_web(ctx, argument_count, arguments, exception, "clearTimeout")
+}
+
+clear_interval_web_cb :: proc "c" (
+	ctx: jsc.JSContextRef,
+	function: jsc.JSObjectRef,
+	this_object: jsc.JSObjectRef,
+	argument_count: c.size_t,
+	arguments: [^]jsc.JSValueRef,
+	exception: ^jsc.JSValueRef,
+) -> jsc.JSValueRef {
+	context = runtime.default_context()
+	return clear_timer_web(ctx, argument_count, arguments, exception, "clearInterval")
+}
+
+// node_timer_id reads `v` the way node's clearTimeout keys its id table: a number that
+// is an integer id, or a string that is one's canonical decimal (no sign, no leading
+// zero, no space, no exponent, digits only). Anything else names no timer, and nothing
+// is coerced, so no user code runs. Integers past 2^53 are refused before u64(): float→
+// int on NaN or an out-of-range value is undefined in Odin and could match a live id.
+@(private = "file")
+node_timer_id :: proc(ctx: jsc.JSContextRef, v: jsc.JSValueRef) -> (id: u64, ok: bool) {
+	if jsc.JSValueIsNumber(ctx, v) {
+		n := jsc.JSValueToNumber(ctx, v, nil)
+
+		if !(n >= 1 && n <= MAX_SAFE_HANDLE_ID) || n != math.trunc(n) {
+			return 0, false
+		}
+
+		return u64(n), true
+	}
+
+	if !jsc.JSValueIsString(ctx, v) {
+		return 0, false
+	}
+
+	s := jsc.JSValueToStringCopy(ctx, v, nil)
+
+	if s == nil {
+		return 0, false
+	}
+
+	defer jsc.JSStringRelease(s)
+	length := int(jsc.JSStringGetLength(s))
+
+	// 2^53 has 16 digits; a longer string is past every id.
+	if length < 1 || length > 16 {
+		return 0, false
+	}
+
+	chars := jsc.JSStringGetCharactersPtr(s)
+
+	if chars[0] == '0' {
+		return 0, false
+	}
+
+	for i in 0 ..< length {
+		ch := chars[i]
+
+		if ch < '0' || ch > '9' {
+			return 0, false
+		}
+
+		id = id * 10 + u64(ch - '0')
+	}
+
+	return id, id <= u64(MAX_SAFE_HANDLE_ID)
+}
+
+// clear_timer_web is the body of the two `.Web` clears; `op` names the method in a
+// thrown message, as Chrome's binding does. Two thin callbacks rather than reading the
+// callee's `name`, which a page can redefine.
+@(private = "file")
+clear_timer_web :: proc(
+	ctx: jsc.JSContextRef,
+	argument_count: c.size_t,
+	arguments: [^]jsc.JSValueRef,
+	exception: ^jsc.JSValueRef,
+	op: string,
+) -> jsc.JSValueRef {
+	// An omitted id is the IDL default, 0: no timer.
+	if argument_count < 1 {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
+
+	n, ok := web_to_number(ctx, arguments[0], op, exception)
+
+	if !ok {
+		return nil
+	}
+
+	// WebIDL ConvertToInt for `long`: NaN and ±Infinity are 0; otherwise truncate, take
+	// it modulo 2^32 and read the result as signed. Every step stays in f64, where these
+	// magnitudes are exact, so no float→int conversion sees an out-of-range value.
+	if !math.is_nan(n) && !math.is_inf(n) {
+		x := math.mod(math.trunc(n), 4294967296)
+
+		if x < 0 {
+			x += 4294967296
+		}
+
+		if x >= 2147483648 {
+			x -= 4294967296
+		}
+
+		if x >= 1 {
+			clear_timer_owned_id(ctx, u64(x))
+		}
+	}
+
+	return jsc.JSValueMakeUndefined(ctx)
+}
+
+// web_to_number is ECMAScript ToNumber as a WebIDL binding runs it: ToPrimitive with
+// the number hint, then a BigInt or a Symbol primitive is refused. JSValueToNumber
+// alone is not that — the C API converts a BigInt, wrapped or not, where ToNumber
+// throws — so the primitive step is done here and JSValueToNumber only ever sees a
+// primitive it converts without running page code. false: a throw is in `exception`.
+@(private = "file")
+web_to_number :: proc(ctx: jsc.JSContextRef, v: jsc.JSValueRef, op: string, exception: ^jsc.JSValueRef) -> (f64, bool) {
+	p := v
+
+	if jsc.JSValueIsObject(ctx, v) {
+		ok: bool
+		p, ok = web_to_primitive(ctx, cast(jsc.JSObjectRef)v, op, exception)
+
+		if !ok {
+			return 0, false
+		}
+	}
+
+	if value_is_bigint(ctx, p) {
+		return 0, web_throw_type_error(ctx, op, "Cannot convert a BigInt value to a number", exception)
+	}
+
+	if jsc.JSValueGetType(ctx, p) == .Symbol {
+		return 0, web_throw_type_error(ctx, op, "Cannot convert a Symbol value to a number", exception)
+	}
+
+	return jsc.JSValueToNumber(ctx, p, nil), true
+}
+
+// web_to_primitive is ToPrimitive(obj, "number"): a callable Symbol.toPrimitive is
+// called with "number", else valueOf then toString, the first non-object result wins.
+// The page's own errors from those calls propagate as they are; the failures the
+// algorithm itself raises are prefixed TypeErrors. Without a captured Symbol.toPrimitive
+// (a context install_globals did not set up as `.Web`) only the valueOf/toString step
+// runs. The values held across the calls are locals of this native frame, which JSC
+// scans conservatively, and the argument itself is rooted by the caller.
+@(private = "file")
+web_to_primitive :: proc(
+	ctx: jsc.JSContextRef,
+	obj: jsc.JSObjectRef,
+	op: string,
+	exception: ^jsc.JSValueRef,
+) -> (
+	jsc.JSValueRef,
+	bool,
+) {
+	thrown: jsc.JSValueRef
+	state := get_state_from_ctx(ctx)
+
+	if state != nil && state.symbol_to_primitive != nil {
+		exotic := jsc.JSObjectGetPropertyForKey(ctx, obj, state.symbol_to_primitive, &thrown)
+
+		if thrown != nil {
+			return nil, web_rethrow(thrown, exception)
+		}
+
+		if exotic != nil && !jsc.JSValueIsUndefined(ctx, exotic) && !jsc.JSValueIsNull(ctx, exotic) {
+			if !jsc.JSValueIsObject(ctx, exotic) || !jsc.JSObjectIsFunction(ctx, cast(jsc.JSObjectRef)exotic) {
+				return nil, web_throw_type_error(ctx, op, "Symbol.toPrimitive is not a function", exception)
+			}
+
+			hint := [1]jsc.JSValueRef{js_string_value(ctx, "number")}
+			r := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)exotic, obj, 1, raw_data(hint[:]), &thrown)
+
+			if thrown != nil {
+				return nil, web_rethrow(thrown, exception)
+			}
+
+			if r == nil || jsc.JSValueIsObject(ctx, r) {
+				return nil, web_throw_type_error(ctx, op, "Cannot convert object to primitive value", exception)
+			}
+
+			return r, true
+		}
+	}
+
+	for name in ([2]cstring{"valueOf", "toString"}) {
+		key := jsc.JSStringCreateWithUTF8CString(name)
+		method := jsc.JSObjectGetProperty(ctx, obj, key, &thrown)
+		jsc.JSStringRelease(key)
+
+		if thrown != nil {
+			return nil, web_rethrow(thrown, exception)
+		}
+
+		if method == nil || !jsc.JSValueIsObject(ctx, method) || !jsc.JSObjectIsFunction(ctx, cast(jsc.JSObjectRef)method) {
+			continue
+		}
+
+		r := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)method, obj, 0, nil, &thrown)
+
+		if thrown != nil {
+			return nil, web_rethrow(thrown, exception)
+		}
+
+		if r != nil && !jsc.JSValueIsObject(ctx, r) {
+			return r, true
+		}
+	}
+
+	return nil, web_throw_type_error(ctx, op, "Cannot convert object to primitive value", exception)
+}
+
+// web_throw_type_error stores the TypeError a Window binding throws for `op` in
+// `exception` and returns false, for `return 0, web_throw_type_error(…)`.
+@(private = "file")
+web_throw_type_error :: proc(ctx: jsc.JSContextRef, op, detail: string, exception: ^jsc.JSValueRef) -> bool {
+	if exception != nil {
+		message := strings.concatenate({"Failed to execute '", op, "' on 'Window': ", detail})
+		defer delete(message)
+		exception^ = make_js_named_error(ctx, "TypeError", message)
+	}
+
+	return false
+}
+
+// capture_symbol_to_primitive keeps the realm's Symbol.toPrimitive on Runtime_State for
+// web_to_primitive. Called from install_globals, before any page code runs, so the
+// global `Symbol` it reads is the intrinsic. One protect, released in
+// destroy_runtime_state; a second install on the same context keeps the first.
+@(private = "file")
+capture_symbol_to_primitive :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef) {
+	state := get_state_from_ctx(ctx)
+
+	if state == nil || state.symbol_to_primitive != nil {
+		return
+	}
+
+	symbol_ctor := get_named(ctx, global, "Symbol")
+
+	if symbol_ctor == nil || !jsc.JSValueIsObject(ctx, symbol_ctor) {
+		return
+	}
+
+	key := get_named(ctx, cast(jsc.JSObjectRef)symbol_ctor, "toPrimitive")
+
+	if key == nil || jsc.JSValueGetType(ctx, key) != .Symbol {
+		return
+	}
+
+	jsc.JSValueProtect(ctx, key)
+	state.symbol_to_primitive = key
+}
+
+// web_rethrow passes a page-thrown error through unchanged and returns false.
+@(private = "file")
+web_rethrow :: proc(thrown: jsc.JSValueRef, exception: ^jsc.JSValueRef) -> bool {
+	if exception != nil {
+		exception^ = thrown
+	}
+
+	return false
+}
+
+// clear_timer_owned_id cancels handle `id` on the context's loop if a JS timer global
+// created it. Owner-checked: a plain clear_timeout would run an internal handle's
+// dispose for any id the script guessed (#92).
+@(private = "file")
+clear_timer_owned_id :: proc(ctx: jsc.JSContextRef, id: u64) {
+	if loop := get_loop_from_ctx(ctx); loop != nil {
+		eventloop.clear_timeout_owned(loop, id, js_callback_dispose)
+	}
 }
 
 // process.nextTick and queueMicrotask are installed from JS (MICROTASK_PRELUDE)
@@ -1070,8 +1374,18 @@ install_globals :: proc(ctx: jsc.JSContextRef, loop: ^eventloop.Loop, surface: G
 	inject_native_function(ctx, global, "setTimeout", set_timeout_cb, arity = 2)
 	inject_native_function(ctx, global, "setInterval", set_interval_cb, arity = 2)
 	inject_native_function(ctx, global, "setImmediate", set_immediate_cb)
-	inject_native_function(ctx, global, "clearTimeout", clear_timer_cb)
-	inject_native_function(ctx, global, "clearInterval", clear_timer_cb)
+
+	// One cancel, two readings of the id: each surface reads it the way its oracle
+	// does (clear_timer_cb, clear_timer_web_cb).
+	if surface == .Web {
+		inject_native_function(ctx, global, "clearTimeout", clear_timeout_web_cb)
+		inject_native_function(ctx, global, "clearInterval", clear_interval_web_cb)
+		capture_symbol_to_primitive(ctx, global)
+	} else {
+		inject_native_function(ctx, global, "clearTimeout", clear_timer_cb)
+		inject_native_function(ctx, global, "clearInterval", clear_timer_cb)
+	}
+
 	inject_native_function(ctx, global, "clearImmediate", clear_timer_cb)
 
 	install_console(ctx, global)
