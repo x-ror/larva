@@ -15,7 +15,7 @@ maintenance, and usually _slower_ than a tuned SDK routine. Your default answer 
 ## Locate the SDK first
 
 The SDK Larva builds against is the commit in `.odin-version`, not whatever the
-local checkout has moved to. `make env` (also printed at session start by the hook in .claude/settings.json) says
+local checkout has moved to. Run `make env` first (the SessionStart hook prints it too); it says
 whether the local compiler and SDK source match it:
 
 ```sh
