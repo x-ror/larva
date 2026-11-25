@@ -127,7 +127,7 @@ run: build
 eval: build
 	$(LAVA) eval "$(SOURCE)"
 
-# The toolchain report the SessionStart hook prints (.claude/settings.json). Never
+# The toolchain report agents read first (CLAUDE.md §3). Never
 # fails: `node scripts/odin-env.mjs --check` is the strict form CI runs.
 env:
 	@ODIN=$(ODIN) node scripts/odin-env.mjs

@@ -1,5 +1,5 @@
 // The Odin toolchain pin (`.odin-version`) and the facts about the local toolchain
-// that `make env`, the SessionStart hook and `make sdk-diff` compare against it.
+// that `make env` and `make sdk-diff` compare against it.
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';

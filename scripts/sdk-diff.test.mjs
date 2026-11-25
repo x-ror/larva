@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { after, test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { matchesPin, parseOdinVersion, parsePin, sameCommit } from './lib/odin-pin.mjs';
-import { buildIndex, diffIndex, packageOf, scanFile } from './lib/odin-sdk-index.mjs';
-import { foreignHits, osCompatible, osOf, watchHits } from './sdk-diff.mjs';
+import { buildIndex, diffIndex, filesAtRev, packageOf, scanFile } from './lib/odin-sdk-index.mjs';
+import { foreignHits, larvaSurface, osCompatible, osOf, watchHits } from './sdk-diff.mjs';
 
 const names = (src) => scanFile(src).decls.map((d) => d.name);
 const decl = (src, name) => scanFile(src).decls.find((d) => d.name === name);
@@ -49,7 +54,11 @@ test('@(private) on a foreign block hides every binding in it', () => {
     '\tdeflate :: proc(s: ^Stream, flush: i32) -> i32 ---',
     '}',
   ].join('\n');
-  assert.deepEqual(names(src), ['deflate']);
+  assert.deepEqual(
+    names(src),
+    ['deflate'],
+    'getifaddrs from an @(private) foreign block was indexed as public',
+  );
   assert.equal(decl(src, 'deflate').foreign, true);
 });
 
@@ -207,6 +216,7 @@ test('foreignHits finds hand-declared bindings the SDK exports for that OS, new 
       ['New', true],
       ['Old', false],
     ],
+    'a Windows file was offered inet_ntop, which the SDK builds only for linux, darwin',
   );
 });
 
@@ -276,4 +286,141 @@ test('matchesPin: a git build by commit, a hashless release only by the pinned r
   assert.equal(matchesPin({ tag: 'dev-2026-11a', commit: null }, pin), true);
   assert.equal(matchesPin({ tag: 'dev-2026-10', commit: null }, pin), false);
   assert.equal(matchesPin({ tag: 'dev-2026-11a', commit: null }, { ...pin, release: '' }), false);
+});
+
+// --- git-backed paths: filesAtRev and the CLI -------------------------------
+
+const tmp = mkdtempSync(join(tmpdir(), 'sdk-diff-test-'));
+after(() => rmSync(tmp, { recursive: true, force: true }));
+
+/** Writes `files` (path → text, null deletes) into `dir`, commits, returns the SHA. */
+function commitFiles(dir, files) {
+  const git = (...a) =>
+    execFileSync(
+      'git',
+      ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...a],
+      { encoding: 'utf8' },
+    ).trim();
+  for (const [p, text] of Object.entries(files)) {
+    if (text === null) {
+      git('rm', '-q', p);
+      continue;
+    }
+    mkdirSync(dirname(join(dir, p)), { recursive: true });
+    writeFileSync(join(dir, p), text);
+    git('add', p);
+  }
+  git('commit', '-q', '-m', 'x');
+  return git('rev-parse', 'HEAD');
+}
+
+// A tiny SDK history. Names are chosen against what Larva really imports and
+// hand-declares (core:strings, JSStringRelease from pkg/jsc) so the CLI run below
+// exercises the imported-package and candidate sections end to end.
+const fx = join(tmp, 'odin');
+mkdirSync(fx);
+execFileSync('git', ['init', '-q', fx]);
+const FROM = {
+  // Multi-byte text: cat-file sizes are bytes, so a char-indexed reader mis-frames.
+  'core/strings/s.odin':
+    'package strings\n// → é\nto_upper :: proc(s: string) -> string { return s }\ngone :: proc() {}\n',
+  'core/strings/s_test.odin': 'package strings\nt :: proc() {}\n',
+  'core/strings/_inner/i.odin': 'package inner\ni :: proc() {}\n',
+  'core/other/o.odin': 'package other\nf :: proc(a: int) {}\n',
+  'vendor/z/z.odin': 'package z\nz :: 1\n',
+  'README.md': 'not odin\n',
+};
+const c1 = commitFiles(fx, FROM);
+const TO = {
+  'core/strings/s.odin':
+    'package strings\n// → é\nto_upper :: proc(s: string, allocator := context.allocator) -> string { return s }\n',
+  'core/other/o.odin': 'package other\nf :: proc(a: int, b: int) {}\n',
+  'core/sys/jscfx/j.odin':
+    'package jscfx\nforeign lib {\n\tJSStringRelease :: proc(s: rawptr) ---\n}\n',
+};
+const c2 = commitFiles(fx, TO);
+
+test('filesAtRev returns every public-package .odin file at each revision, byte-exact', () => {
+  const pick = (files, paths) => paths.map((path) => ({ path, text: files[path] }));
+  assert.deepEqual(
+    filesAtRev(fx, c1),
+    pick(FROM, ['core/other/o.odin', 'core/strings/s.odin', 'vendor/z/z.odin']),
+    'cat-file output was mis-framed at the first revision',
+  );
+  assert.deepEqual(
+    filesAtRev(fx, c2),
+    pick({ ...FROM, ...TO }, [
+      'core/other/o.odin',
+      'core/strings/s.odin',
+      'core/sys/jscfx/j.odin',
+      'vendor/z/z.odin',
+    ]),
+    'cat-file output was mis-framed at the second revision',
+  );
+});
+
+test('larvaSurface collects SDK imports and hand-declared foreign procs only', () => {
+  const root = join(tmp, 'larva');
+  mkdirSync(join(root, 'pkg'), { recursive: true });
+  writeFileSync(
+    join(root, 'pkg/a.odin'),
+    [
+      'package a',
+      'import "core:fmt"',
+      'import str "core:strings"',
+      'import "../b"',
+      'foreign lib {',
+      '\tbound :: proc() ---',
+      '\tFOREIGN_CONST :: 4',
+      '}',
+      'when ODIN_OS == .Linux {',
+      '\tin_when :: proc() {}',
+      '}',
+      'local :: proc() {}',
+    ].join('\n'),
+  );
+  const s = larvaSurface(root, ['pkg/a.odin']);
+  assert.deepEqual([...s.imports].sort(), ['core:fmt', 'core:strings']);
+  assert.deepEqual(
+    [...s.foreign],
+    [['bound', ['pkg/a.odin']]],
+    'larvaSurface listed a non-proc or non-foreign declaration as a hand-declared binding',
+  );
+});
+
+test('the sdk-diff CLI reports candidates and imported-package breaks, and --max-chars trims', () => {
+  const script = join(dirname(fileURLToPath(import.meta.url)), 'sdk-diff.mjs');
+  const cli = (...extra) => {
+    const r = spawnSync(
+      process.execPath,
+      [script, '--repo', fx, '--from', c1, '--to', c2, ...extra],
+      { encoding: 'utf8' },
+    );
+    assert.equal(r.status, 0, r.stderr);
+    return r.stdout;
+  };
+  const full = cli();
+  assert.match(full, /\*\*`JSStringRelease`\*\* is hand-declared in .*`pkg\/jsc\//);
+  assert.match(full, /the SDK exports it from `core:sys\/jscfx`/);
+  assert.match(
+    full,
+    /- `core:strings`\n {2}- `to_upper`: `proc\(s: string\) -> string` → `proc\(s: string, allocator := context\.allocator\) -> string`\n {2}- removed: `gone`/,
+  );
+  assert.match(
+    full,
+    /<summary>Changed signatures in packages Larva does not import<\/summary>\n\n- `core:other`: `f`/,
+  );
+  const tail = '_Full lists (new symbols, other changed signatures, merged PRs) omitted for size';
+  assert.ok(!full.includes(tail), 'the untrimmed report carried the brief tail');
+  assert.ok(
+    !cli('--max-chars', String(full.length + 10)).includes(tail),
+    'a limit above the length trimmed',
+  );
+  const brief = cli('--max-chars', '200');
+  assert.ok(brief.includes(tail), '--max-chars was ignored: no brief tail line past the limit');
+  assert.ok(
+    !brief.includes('<details>'),
+    '--max-chars was ignored: the collapsed lists are still there',
+  );
+  assert.ok(brief.includes('### Candidates for Larva'), 'the brief form dropped the candidates');
 });
