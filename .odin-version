@@ -7,6 +7,6 @@
 # commit   exact odin-lang/Odin commit (40 hex); the SDK source agents read is this tree.
 # release  prebuilt GitHub release built from `commit`, or empty to build from source.
 # llvm     LLVM major the compiler is built/linked with.
-commit=9a6991685ddf663956d9836602eb421e141fc443
-release=dev-2026-11a
+commit=dd407c60af028634ba3dff102308f08616022e83
+release=
 llvm=18
