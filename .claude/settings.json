@@ -5,20 +5,13 @@
       "Bash(./scripts/*:*)",
       "Bash(bash scripts/*:*)",
       "Bash(odin:*)",
-      "Bash(/opt/odin/odin:*)",
-      "Bash(/opt/odin/build_odin.sh:*)",
       "Bash(./build_odin.sh:*)",
       "Bash(LLVM_CONFIG=llvm-config-18 ./build_odin.sh:*)",
-      "Bash(git clone https://github.com/odin-lang/Odin.git:*)",
-      "Bash(ln -sf /opt/odin/odin:*)",
       "Bash(llvm-config-18:*)",
       "Bash(clang-18:*)",
       "Bash(pkg-config:*)",
       "Bash(nm:*)",
       "Bash(ldd:*)",
-      "Bash(sudo apt-get update:*)",
-      "Bash(sudo apt-get install:*)",
-      "Bash(apt-get install:*)",
       "Bash(apt-cache:*)",
       "Bash(./bin/lava:*)",
       "Bash(bin/lava:*)",
@@ -69,6 +62,20 @@
       "Bash(git reset --hard origin/master:*)",
       "Bash(rm -rf /:*)",
       "mcp__github__merge_pull_request"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/odin-env.mjs\" 2>/dev/null || true",
+            "timeout": 10,
+            "statusMessage": "Reading the Odin pin and local toolchain"
+          }
+        ]
+      }
     ]
   }
 }
