@@ -242,8 +242,11 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
 Status as of 2026-11-14. The issues are the source of truth; this column is updated
 in the PR that changes a stage's state.
 
-Stage 1 so far, all on the Node profile's `eval` path — there is no page object yet:
+Stage 1 so far, on the Node profile and the `.Web` global surface:
 
+- the page (`pkg/runtime/page.odin`: `Page`, `page_open`/`page_tick`/`page_close`),
+  one global context and one event loop per page, which `eval` and the page runner
+  (`page_runner.odin`) both drive; the cumulative CPU budget (`Page_Limits`);
 - the per-thread VM pool (`pkg/runtime/vm_pool.odin`); `eval` runs in a pooled VM
   on Linux and macOS, while Windows still creates a VM per context;
 - the per-entry execution limit (`vm_set_entry_limit`), exercised only by
@@ -251,11 +254,13 @@ Stage 1 so far, all on the Node profile's `eval` path — there is no page objec
 - VM cost measurements (`bench/jsc-vm`) and the global-state audit
   ([GLOBAL-STATE.md](GLOBAL-STATE.md));
 - the page dispatcher over N worker threads and per-page heap sampling
-  (`page_dispatcher.odin`, `Result.heap_bytes`; decision 2).
+  (`page_dispatcher.odin`, `Result.heap_bytes`; decision 2);
+- the Lava-only lifecycle tests in `cmd/lava/page_lifecycle_test.odin`: what a page
+  sees of a predecessor that finished in the same VM, a mixed-fate churn under a
+  tracking allocator, and the VM's protect count across pages.
 
-Still open in stage 1: the page lifecycle and per-page loop ownership, the
-cumulative CPU budget, acting on a heap sample (killing or retiring a VM), the
-Window profile, and the two-page isolation test that GLOBAL-STATE.md calls for.
+Still open in stage 1: acting on a heap sample (killing or retiring a VM) and the
+Window profile.
 
 ## Risks
 
