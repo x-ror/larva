@@ -15,6 +15,8 @@ Covered behavior:
 - microtasks drained between timer callbacks
 - nested timers deferred to a later turn
 - a timer that falls due during the timers phase deferred behind that turn's immediates
+- every timer due in a turn running before that turn's immediates, including one
+  queued by the first of them (also run as a sliced runner page, #35)
 - interval cancellation
 - `node:timers/promises` abort behavior
 - I/O callback handoff into the immediate/check phase

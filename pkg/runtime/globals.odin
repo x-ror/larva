@@ -1616,8 +1616,16 @@ invoke_user_callback :: proc(
 // reports whether a limit has now ended the page. A kill's termination exception is
 // dropped: the page is over, the caller reports the kill through Result.kill, and
 // reporting it as an uncaught error too would print one "uncaught" per skipped entry.
+//
+// It is also where a runner page's tick learns its CPU quantum is spent (#35): it asks
+// the loop to suspend the timers phase before the next due timer. Only the timers phase
+// acts on the request; anywhere else it is dropped when the next timers phase starts.
 page_checkpoint :: proc(state: ^Runtime_State, exception: ^jsc.JSValueRef) -> (killed: bool) {
 	vm_cpu_checkpoint(state.vm)
+
+	if state.loop != nil && vm_slice_spent(state.vm) {
+		state.loop.yield_requested = true
+	}
 
 	if !page_stop_if_killed(state) {
 		return false

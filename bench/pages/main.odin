@@ -13,6 +13,13 @@
 // Dispatcher: <bin> dispatch <threads> <slots> [total]
 //        `total` trivial pages submitted at once to a page dispatcher with `threads`
 //        workers of `slots` pages each; prints pages/s, submit to last on_done.
+// Sibling: <bin> sibling <K> <M> [slice_us]
+//        one runner thread: M light pages, each pinging setInterval(1) for 900 ms, beside
+//        one hog page with K timers due in a single tick (#35). Each light page prints
+//        `gap_ms=` (its longest gap between two callbacks), the hog `hog_span_ms=` (its
+//        first to last of the K callbacks), and the runner `max_round_ms=`. slice_us is
+//        Page_Runner.slice_us (default RUNNER_SLICE_US; 0 = no slicing). M = 0 times
+//        the hog alone, for what slicing costs it.
 // Smoke: make test-bench-pages-smoke (CI) — a small run must report no failed page,
 //        and a run with budget 0 must report every page failed and exit 1.
 //
@@ -130,6 +137,10 @@ main :: proc() {
 	}
 	if os.args[1] == "dispatch" {
 		dispatch_main()
+		return
+	}
+	if os.args[1] == "sibling" {
+		sibling_main()
 		return
 	}
 	n, _ := strconv.parse_int(os.args[1])
@@ -256,4 +267,83 @@ dispatch_main :: proc() {
 		refused,
 	)
 	if tally.failed + refused > 0 do os.exit(1)
+}
+
+// LIGHT_PAGE is a sibling that wants a turn every millisecond; the longest gap it saw is
+// how long another page on its thread held it up.
+LIGHT_PAGE :: `
+let last = -1, max = 0;
+const t0 = performance.now();
+const id = setInterval(() => {
+  const t = performance.now();
+  if (last >= 0 && t - last > max) max = t - last;
+  last = t;
+  if (t - t0 > 900) { clearInterval(id); console.log('gap_ms=' + max.toFixed(2)); }
+}, 1);
+`
+
+// hog_page has K timers due at once: they fall due at T, and a 4 ms callback at T-1 holds
+// the loop until all of them are, so one tick finds the whole pile due. That 4 ms is the
+// floor every arm shares: one callback no quantum can split.
+hog_page :: proc(k: int) -> string {
+	return fmt.aprintf(
+		`
+let x = 0, first = 0, done = 0; const o = {{ a: 1 }};
+const K = %d;
+function f(i) {{
+  if (done === 0) first = performance.now();
+  x = (x + i * o.a) | 0;
+  if (++done === K) console.log('hog_span_ms=' + (performance.now() - first).toFixed(2));
+}}
+const T = performance.now() + 300;
+setTimeout(() => {{ const e = performance.now() + 4; while (performance.now() < e); }}, 299);
+for (let i = 0; i < K; i++) setTimeout(f, Math.max(0, Math.round(T - performance.now())), i);
+`,
+		k,
+	)
+}
+
+sibling_failed := 0
+
+sibling_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Result) {
+	result := result
+	if result.status != .Ok {
+		sibling_failed += 1
+		fmt.eprintln("page failed:", result.status, result.message)
+	}
+	lava.result_destroy(&result)
+}
+
+// sibling_main: see the header. Web-profile pages, as in the #35 measurements.
+sibling_main :: proc() {
+	if len(os.args) < 4 {
+		fmt.eprintln("usage: bench-pages sibling <K> <M> [slice_us]")
+		os.exit(2)
+	}
+	k, _ := strconv.parse_int(os.args[2])
+	m, _ := strconv.parse_int(os.args[3])
+	runner: lava.Page_Runner
+	if !lava.page_runner_init(&runner, m + 1, sibling_done, context.allocator) {
+		fmt.eprintln("page_runner_init failed")
+		os.exit(1)
+	}
+	if len(os.args) > 4 do runner.slice_us, _ = strconv.parse_int(os.args[4])
+	for _ in 0 ..< m do lava.page_runner_open(&runner, LIGHT_PAGE, "<light>", BENCH_LIMITS, nil, .Web)
+	lava.page_runner_open(&runner, hog_page(k), "<hog>", BENCH_LIMITS, nil, .Web)
+	max_round: f64
+	for lava.page_runner_live(&runner) > 0 {
+		start := time.tick_now()
+		progressed := lava.page_runner_step(&runner)
+		if progressed do max_round = max(max_round, time.duration_milliseconds(time.tick_since(start)))
+	}
+	fmt.printf(
+		"mode=sibling K=%d M=%d slice_us=%d max_round_ms=%.2f failed=%d\n",
+		k,
+		m,
+		runner.slice_us,
+		max_round,
+		sibling_failed,
+	)
+	lava.page_runner_destroy(&runner)
+	if sibling_failed > 0 do os.exit(1)
 }

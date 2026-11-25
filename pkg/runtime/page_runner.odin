@@ -28,9 +28,14 @@ import eventloop "lava:pkg/runtime/eventloop"
 // thread for as long as its job blocks, but not the runner's thread, and not without
 // bound.
 //
+// A tick has a CPU quantum too (slice_us, #35): a page whose turn has many timers due
+// is suspended between two of them once it has spent the quantum, and its siblings tick
+// before the turn resumes. RUNNER_SLICE_US says what that bought.
+//
 // What it can do, all listed in docs/LARVA.md decision 2 as open work:
-//   - delay its siblings by up to its budget, not its entry limit: one page_tick
-//     fires every timer already due, and the thread's CPU is shared;
+//   - delay its siblings by one long callback, a microtask flood, its top-level script
+//     or its close, up to its entry limit or budget; the quantum only splits a turn
+//     between two due timers, and the thread's CPU is shared;
 //   - under the Node profile, reach the process-wide fd table (leak to EMFILE, close
 //     a sibling's descriptor). The runner is not a security boundary there.
 //
@@ -72,6 +77,20 @@ Runner_Page :: struct {
 // runner can pin to what its reaping list allowed before #36 (8 loops x 4 workers).
 RUNNER_ORPHAN_LIMIT :: 32
 
+// RUNNER_SLICE_US is the default CPU quantum of one page tick (Page_Runner.slice_us,
+// #35): once a tick has spent it, the page's timers phase suspends before its next due
+// timer and the runner ticks the siblings first. A sibling's wait behind a page with a
+// pile of due timers is then bounded by the quantum plus one callback, not by the
+// page's budget. Measured with `bench/pages sibling 100000 10` (one runner thread, 10
+// pages on a 1 ms interval beside one page with 100k timers due in one tick, -o:speed,
+// medians of 7 interleaved launches per arm, under a foreground load on one core): the
+// worst sibling gap fell from 322.83 ms to 4.22 ms at 1 ms and 4.23 ms at 250 µs, the
+// 4 ms floor being one unsliceable callback the bench spins on purpose; alone, the hog's
+// 100k timers took 348.38 ms with no quantum and 345.26 ms at 1 ms (`sibling 100000 0`).
+// 1000 is chosen, not measured to be best: 250 µs bought nothing more there and costs
+// four times the resume ticks.
+RUNNER_SLICE_US :: 1000
+
 Page_Runner :: struct {
 	pages:             [dynamic]^Runner_Page,
 	// The runner thread's one worker pool, every page loop its client. On the heap: it
@@ -98,6 +117,10 @@ Page_Runner :: struct {
 	// samples nothing. Set by the embedder after page_runner_init, like orphan_limit.
 	// Sampled pages pay the heap walk outside their CPU budget (page_close says why).
 	heap_sample_every: int,
+	// CPU quantum of one page tick, microseconds; RUNNER_SLICE_US unless the embedder
+	// changes it after page_runner_init (0 = no slicing). A page opened afterwards takes
+	// the value it finds here.
+	slice_us:          int,
 }
 
 // page_runner_init prepares a runner that can hold up to `capacity` live pages (one
@@ -123,6 +146,7 @@ page_runner_init :: proc(
 	runner.done = make([dynamic]Done_Page, allocator)
 	runner.workers = eventloop.pool_create(runtime.heap_allocator())
 	runner.orphan_limit = RUNNER_ORPHAN_LIMIT
+	runner.slice_us = RUNNER_SLICE_US
 	vm_pool_init(&runner.pool, capacity, allocator)
 	epfd, err := linux.epoll_create1({.FDCLOEXEC})
 
@@ -265,6 +289,12 @@ page_runner_open :: proc(
 		runner_finish(runner, index, deliver = false)
 		return
 	}
+
+	// After page_open, so the top-level script — which no slice can split — is not what
+	// arms it, and only here: eval, page_eval and page_run_until keep the 0 vm_acquire
+	// left. page_run_until must, since its `cond` may page_eval between two ticks, which
+	// would run script in the middle of a suspended timers phase.
+	rp.page.vm.slice_ns = i64(max(runner.slice_us, 0)) * 1000
 
 	// Edge-triggered: a CQE or watched fd the page's own tick is not going to reap
 	// (an I/O-free page waiting on a timer, say) must not keep the runner's wait
