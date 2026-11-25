@@ -66,3 +66,42 @@ js_clear_globals_cannot_cancel_native_handles :: proc(t: ^testing.T) {
 	testing.expectf(t, timeout.fired == 1 && timeout.disposed == 0, "native timeout: %v", timeout)
 	testing.expectf(t, immediate.fired == 1 && immediate.disposed == 0, "native immediate: %v", immediate)
 }
+
+// A fractional id names no timer: clearTimeout(id + 0.5) leaves timer `id` running.
+// node 26.13.0 prints "fired" for `const t = setTimeout(f, 10); clearTimeout(t + 0.5)`
+// (and the same for clearInterval). clear_timer_cb used to truncate the number with
+// u64(), so the call cancelled `id`. The surviving timer records that it ran; a later
+// timer throws if it did not. Run on `.Node`, where an uncaught throw from a timer ends
+// the eval with an error status; a `.Web` page, like Chrome's, reports it and goes on.
+// The native is the same one on both surfaces.
+@(private = "file")
+CLEAR_FRACTIONAL_ID_SCRIPT :: `
+'use strict';
+let timeoutRan = false, intervalRan = false;
+const t = setTimeout(() => { timeoutRan = true; }, 0);
+const i = setInterval(() => { intervalRan = true; clearInterval(i); }, 0);
+clearTimeout(t + 0.5);
+clearInterval(i + 0.25);
+setTimeout(() => {
+  if (!timeoutRan) throw new Error('clearTimeout(id + 0.5) cancelled timer id');
+  if (!intervalRan) throw new Error('clearInterval(id + 0.25) cancelled interval id');
+}, 5);
+`
+
+@(test)
+js_clear_globals_ignore_a_fractional_id :: proc(t: ^testing.T) {
+	loop := eventloop.init()
+
+	// eval consumes (destroys) the loop on every path; do not destroy it here.
+	result := lava.eval(CLEAR_FRACTIONAL_ID_SCRIPT, "<js-clear-fractional-id>", &loop, surface = .Node)
+	defer lava.result_destroy(&result)
+
+	testing.expectf(
+		t,
+		result.status == .Ok && result.exit_code == 0,
+		"eval: status=%v exit=%d message=%q",
+		result.status,
+		result.exit_code,
+		result.message,
+	)
+}

@@ -5,6 +5,7 @@ package main
 
 import "core:fmt"
 import "core:mem"
+import "core:sys/posix"
 import "core:testing"
 import "core:time"
 import jsc "lava:pkg/jsc"
@@ -18,17 +19,44 @@ import lava "lava:pkg/runtime"
 // Both are exported, plain-C entry points of WebKit's JSBasePrivate.h — the header is
 // not installed, the symbols are (`nm -D libjavascriptcoregtk-6.0.so.1`). Declared here
 // and not in pkg/jsc: nothing in production calls either, and the one production
-// reader of JSGetMemoryUsageStatistics (jsc.heap_size_bytes) resolves it through
-// dlsym and reads only heapCapacity. JSGarbageCollect, which pkg/jsc does bind, only
-// reports an abandoned object graph to the heap; it collects nothing on its own.
-foreign import jsc_debug "system:javascriptcoregtk-6.0"
+// reader of JSGetMemoryUsageStatistics (jsc.heap_size_bytes) reads only heapCapacity.
+// JSGarbageCollect, which pkg/jsc does bind, only reports an abandoned object graph to
+// the heap; it collects nothing on its own.
+//
+// Resolved through dlsym, as jsc.heap_size_bytes resolves its symbol, not linked: a
+// static reference to a private symbol is a link-time dependency of the whole cmd/lava
+// test binary, so a JSC build without it would fail to link every test in the package,
+// not just the ones that read it. Missing, each answers nil/false and the calling test
+// fails with that reason. core:sys/posix's dlsym, with a nil handle (RTLD_DEFAULT on
+// glibc), the lookup heap_size_bytes makes through its file-private binding.
+@(private = "file")
+Collect_Now_Proc :: #type proc "c" (ctx: jsc.JSContextRef)
+@(private = "file")
+Memory_Stats_Proc :: #type proc "c" (ctx: jsc.JSContextRef) -> jsc.JSObjectRef
 
-@(default_calling_convention = "c")
-foreign jsc_debug {
-	@(link_name = "JSSynchronousGarbageCollectForDebugging")
-	jsc_collect_now :: proc(ctx: jsc.JSContextRef) ---
-	@(link_name = "JSGetMemoryUsageStatistics")
-	jsc_memory_stats :: proc(ctx: jsc.JSContextRef) -> jsc.JSObjectRef ---
+// jsc_collect_now runs JSSynchronousGarbageCollectForDebugging on `ctx`'s VM; false
+// when this JSC does not export it.
+jsc_collect_now :: proc(ctx: jsc.JSContextRef) -> bool {
+	p := posix.dlsym(nil, "JSSynchronousGarbageCollectForDebugging")
+
+	if p == nil {
+		return false
+	}
+
+	(transmute(Collect_Now_Proc)p)(ctx)
+	return true
+}
+
+// jsc_memory_stats is JSGetMemoryUsageStatistics(ctx); nil when this JSC does not
+// export it.
+jsc_memory_stats :: proc(ctx: jsc.JSContextRef) -> jsc.JSObjectRef {
+	p := posix.dlsym(nil, "JSGetMemoryUsageStatistics")
+
+	if p == nil {
+		return nil
+	}
+
+	return (transmute(Memory_Stats_Proc)p)(ctx)
 }
 
 // LIMITS is a CPU budget far above anything a passing page spends: the runner refuses
@@ -160,7 +188,7 @@ runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first :: proc(t: ^t
 	}
 
 	vm := runner.pool.vms[0]
-	vm_collect(vm)
+	vm_collect(t, vm)
 	lava.page_runner_open(
 		&runner,
 		`const seen = [];
@@ -178,7 +206,7 @@ runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first :: proc(t: ^t
 	)
 	for lava.page_runner_live(&runner) > 0 {
 		lava.page_runner_step(&runner)
-		vm_collect(vm)
+		vm_collect(t, vm)
 	}
 	lava.page_runner_run(&runner)
 	testing.expectf(
@@ -560,13 +588,17 @@ vm_protect_counts :: proc(vm: ^lava.VM) -> (counts: Protect_Counts, ok: bool) {
 // VM's, the throwaway context sees none of the page, and a tick leaves no promise job
 // queued for the C-API exit to drain.
 @(private = "file")
-vm_collect :: proc(vm: ^lava.VM) {
+vm_collect :: proc(t: ^testing.T, vm: ^lava.VM, loc := #caller_location) {
 	probe := jsc.JSGlobalContextCreateInGroup(vm.group, nil)
 
 	if probe == nil {
-		return
+		testing.fail_now(t, "could not create a probe context to collect in", loc)
 	}
 
-	jsc_collect_now(cast(jsc.JSContextRef)probe)
+	collected := jsc_collect_now(cast(jsc.JSContextRef)probe)
 	jsc.JSGlobalContextRelease(probe)
+
+	if !collected {
+		testing.fail_now(t, "this JSC does not export JSSynchronousGarbageCollectForDebugging", loc)
+	}
 }

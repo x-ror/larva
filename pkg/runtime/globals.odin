@@ -2,6 +2,7 @@ package lava_runtime
 
 import "base:runtime"
 import "core:c"
+import "core:math"
 import "core:os"
 import "core:strings"
 import "core:sync"
@@ -735,10 +736,12 @@ set_immediate_cb :: proc "c" (
 // timer or immediate `id` if, and only if, the JS timer globals created it.
 //
 // Node:
-//   Returns undefined; an id naming no live user timer (NaN, negative, above 2^53,
-//   already fired, never issued) is a silent no-op. Only timers user code created are
-//   reachable by id: clearing every id from 1 to 100 past a fresh timer's cancels that
-//   timer and nothing of node's own (probed on the local node, v24.22.3).
+//   Returns undefined; an id naming no live user timer (NaN, negative, fractional,
+//   above 2^53, already fired, never issued) is a silent no-op. Only timers user code
+//   created are reachable by id: clearing every id from 1 to 100 past a fresh timer's
+//   cancels that timer and nothing of node's own, and clearTimeout(id + 0.5) leaves
+//   timer `id` running (both probed on node 26.13.0 with numeric Timeout ids, the form
+//   the id takes once a script does arithmetic on it).
 // Deviates:
 //   None observable. Lava's ids are shared with runtime-internal handles (net's
 //   TLS-handshake and drain timers, pkg/http's transfer deadline), so ownership is
@@ -764,10 +767,12 @@ clear_timer_cb :: proc "c" (
 	// Node — no handle can carry that id. Guard before u64(): float→int on NaN or an
 	// out-of-range value is undefined in Odin and could match an unrelated live id.
 	// Handle ids start at 1 and grow unbounded, but stay f64-exact below 2^53, so the
-	// upper bound is the exact-integer limit, not the timer-delay clamp.
+	// upper bound is the exact-integer limit, not the timer-delay clamp. A fractional
+	// id is refused too: u64() truncates, so `id + 0.5` would cancel timer `id`, which
+	// node does not (no Timeout is keyed by a fraction).
 	n := jsc.JSValueToNumber(ctx, arguments[0], nil)
 
-	if !(n >= 1 && n <= MAX_SAFE_HANDLE_ID) {
+	if !(n >= 1 && n <= MAX_SAFE_HANDLE_ID) || n != math.trunc(n) {
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 

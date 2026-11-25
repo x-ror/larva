@@ -384,11 +384,16 @@ page_run_script :: proc(page: ^Page, source: string, source_name := "<eval>", ec
 // Returns:
 //   value  The completion value. GC-protected until the next page_eval or page_close,
 //          whichever comes first: copy what is needed out of it before either. nil
-//          when ok is false.
+//          when ok is false. On `.Web` it may be an object of a hostile realm, and
+//          converting it natively (JSValueToStringCopy, value_to_string) runs page code
+//          — toString, Symbol.toPrimitive — outside the CPU budget and unseen by its
+//          kill check. Have the script return the primitive (`String(expr)`), which
+//          converts inside the charged call, or convert only primitives.
 //   ok     false when the script threw, when a limit or a requested stop ended the
-//          page during it, or when the call was refused: a finished page, a page with
-//          no context, or a source the runtime could not allocate. A refused call
-//          enters no JS and releases nothing.
+//          page during it, or when the call was refused. A refusal for a finished page
+//          or a page with no context enters no JS and releases nothing; one for a
+//          source the runtime could not allocate enters no JS but has already released
+//          the previous value, like every call that reaches the page.
 // Node:
 //   No counterpart (a Larva page step). What the script sees is the page's realm,
 //   exactly as a timer callback would.
@@ -407,6 +412,15 @@ page_eval :: proc(page: ^Page, source: string, source_name := "<page_eval>") -> 
 		return nil, false
 	}
 
+	// Per-eval temp arena boundary, as in eval and native_require_cb (CLAUDE.md §4):
+	// page_evaluate's scratch (the source name's cstring, on `.Node` the source plus
+	// its drain) and whatever the script's natives take would otherwise wait for the
+	// next tick's reset — forever on a page with no loop, and a source's size per call
+	// for a host evaluating between ticks. free_all rather than a temp guard because a
+	// require the script makes runs its own free_all mid-call, which a guard's rewind
+	// asserts against. Nothing returned lives in the temp arena: the value is JSC's.
+	defer free_all(context.temp_allocator)
+
 	ctx := cast(jsc.JSContextRef)page.ctx
 
 	// The previous value is released before the script runs, not after: the slot is
@@ -419,6 +433,15 @@ page_eval :: proc(page: ^Page, source: string, source_name := "<page_eval>") -> 
 	vm_cpu_enter(page.vm)
 	result, exception, alloc_failure := page_evaluate(page, source, source_name)
 
+	// Rooted before the drain, not after: the drain runs page JS (nextTicks and the
+	// promise jobs a C-API exit flushes), which can allocate and collect, and a value
+	// held only in a native local is live then only by JSC's conservative stack scan
+	// (CLAUDE.md §4). page_evaluate leaves `result` nil on a throw.
+	if result != nil {
+		jsc.JSValueProtect(ctx, result)
+		page.eval_value = result
+	}
+
 	// A throw leaves the page live, so its queued nextTicks still run ahead of the next
 	// timer, as after any callback that threw.
 	if alloc_failure == "" {
@@ -428,17 +451,19 @@ page_eval :: proc(page: ^Page, source: string, source_name := "<page_eval>") -> 
 	vm_cpu_exit(page.vm)
 
 	if ended, end := page_ended(page); ended {
+		// A kill during the drain: the call fails, so the slot holds nothing. The
+		// context is still alive; only page_close releases it.
+		if page.eval_value != nil {
+			jsc.JSValueUnprotect(ctx, page.eval_value)
+			page.eval_value = nil
+		}
+
 		page_fail(page, end)
 		return nil, false
 	}
 
 	if alloc_failure != "" || exception != nil {
 		return nil, false
-	}
-
-	if result != nil {
-		jsc.JSValueProtect(ctx, result)
-		page.eval_value = result
 	}
 
 	return result, true
