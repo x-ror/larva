@@ -2,6 +2,7 @@
 package main
 
 import "core:testing"
+import jsc "lava:pkg/jsc"
 import lava "lava:pkg/runtime"
 import eventloop "lava:pkg/runtime/eventloop"
 
@@ -18,7 +19,8 @@ import eventloop "lava:pkg/runtime/eventloop"
 //
 // Run on the .Web surface: that is the surface a page reaches. It has no clearImmediate
 // (neither has Chrome), but clearTimeout, clearInterval and the .Node surface's
-// clearImmediate are one native, clear_timer_cb, which also reaches immediates.
+// clearImmediate share one owner-checked cancel (clear_timer_owned_id), which also
+// reaches immediates; the surfaces differ only in how they read the id.
 
 @(private = "file")
 Native_Handle :: struct {
@@ -67,41 +69,111 @@ js_clear_globals_cannot_cancel_native_handles :: proc(t: ^testing.T) {
 	testing.expectf(t, immediate.fired == 1 && immediate.disposed == 0, "native immediate: %v", immediate)
 }
 
-// A fractional id names no timer: clearTimeout(id + 0.5) leaves timer `id` running.
-// node 26.13.0 prints "fired" for `const t = setTimeout(f, 10); clearTimeout(t + 0.5)`
-// (and the same for clearInterval). clear_timer_cb used to truncate the number with
-// u64(), so the call cancelled `id`. The surviving timer records that it ran; a later
-// timer throws if it did not. Run on `.Node`, where an uncaught throw from a timer ends
-// the eval with an error status; a `.Web` page, like Chrome's, reports it and goes on.
-// The native is the same one on both surfaces.
+// Which argument forms reach timer `id` is the profile's, and the two oracles disagree on
+// nearly all of them, so one script runs on each surface and its report is compared with
+// the oracle's recording of the same script.
+//
+// Node (`.Node`): clearTimeout looks a number or a string up as a property key of its
+// id table, so only the number N and the string "N" (the canonical decimal) cancel;
+// "N.0", " N", "0xN", fractions, N ± 2^32, N + 2^33, objects and BigInt name nothing. Recorded on
+// node 26.13.0: `node -e "require('./case.js'); setTimeout(() => console.log(report), 60)"`.
+//
+// Chrome (`.Web`): the id is a WebIDL `long`, so ToNumber, truncation and modulo 2^32
+// decide, and every numeric spelling of N cancels it, N ± 2^32 and N + 2^33 included; ToNumber on a
+// BigInt throws a TypeError. Recorded on Chrome 158.0.8127.88, `--headless=new
+// --virtual-time-budget=5000 --dump-dom` on a local page loading the script and printing
+// `report` 60 ms later; three runs, identical. Left out: an object whose valueOf returns
+// N — alone it cancels, as WebIDL says, but at this point of this script it did not,
+// which reads as a call-site optimization, not a rule to pin.
 @(private = "file")
-CLEAR_FRACTIONAL_ID_SCRIPT :: `
+CLEAR_ID_FORMS_SCRIPT :: `
 'use strict';
-let timeoutRan = false, intervalRan = false;
-const t = setTimeout(() => { timeoutRan = true; }, 0);
-const i = setInterval(() => { intervalRan = true; clearInterval(i); }, 0);
-clearTimeout(t + 0.5);
-clearInterval(i + 0.25);
+const forms = [
+  ['N', (id) => id],
+  ['"N"', (id) => String(id)],
+  ['"N.0"', (id) => id + '.0'],
+  ['" N"', (id) => ' ' + id],
+  ['"0xN"', (id) => '0x' + id.toString(16)],
+  ['"+N"', (id) => '+' + id],
+  ['"0N"', (id) => '0' + id],
+  ['N+0.5', (id) => id + 0.5],
+  ['N+2^32', (id) => id + 4294967296],
+  ['N-2^32', (id) => id - 4294967296],
+  ['N+2^33', (id) => id + 8589934592],
+  ['[N]', (id) => [id]],
+  ['String obj', (id) => new String(String(id))],
+  ['BigInt', (id) => BigInt(id)],
+];
+const fired = {};
+const threw = {};
+for (const [name, f] of forms) {
+  const id = +setTimeout(() => { fired[name] = true; }, 1);
+  try { clearTimeout(f(id)); } catch (e) { threw[name] = e.name; }
+}
+const iv = +setInterval(() => { fired.interval = true; clearInterval(iv); }, 1);
+clearInterval(iv + 0.25);
 setTimeout(() => {
-  if (!timeoutRan) throw new Error('clearTimeout(id + 0.5) cancelled timer id');
-  if (!intervalRan) throw new Error('clearInterval(id + 0.25) cancelled interval id');
-}, 5);
+  globalThis.report = forms.map(([n]) => n + ':' + (fired[n] ? 'fired' : 'cancelled') + (threw[n] ? '/' + threw[n] : '')).join(' ') +
+    ' interval+0.25:' + (fired.interval ? 'fired' : 'cancelled');
+}, 30);
 `
 
+@(private = "file")
+NODE_CLEAR_ID_FORMS :: `N:cancelled "N":cancelled "N.0":fired " N":fired "0xN":fired "+N":fired "0N":fired N+0.5:fired N+2^32:fired N-2^32:fired N+2^33:fired [N]:fired String obj:fired BigInt:fired interval+0.25:fired`
+
+@(private = "file")
+CHROME_CLEAR_ID_FORMS :: `N:cancelled "N":cancelled "N.0":cancelled " N":cancelled "0xN":cancelled "+N":cancelled "0N":cancelled N+0.5:cancelled N+2^32:cancelled N-2^32:cancelled N+2^33:cancelled [N]:cancelled String obj:cancelled BigInt:fired/TypeError interval+0.25:cancelled`
+
 @(test)
-js_clear_globals_ignore_a_fractional_id :: proc(t: ^testing.T) {
-	loop := eventloop.init()
+js_clear_globals_read_an_id_like_node :: proc(t: ^testing.T) {
+	report, allocated := clear_id_forms_report(t, .Node)
+	defer if allocated {
+		delete(report)
+	}
+	testing.expect_value(t, report, NODE_CLEAR_ID_FORMS)
+}
 
-	// eval consumes (destroys) the loop on every path; do not destroy it here.
-	result := lava.eval(CLEAR_FRACTIONAL_ID_SCRIPT, "<js-clear-fractional-id>", &loop, surface = .Node)
-	defer lava.result_destroy(&result)
+@(test)
+js_clear_globals_read_an_id_like_chrome :: proc(t: ^testing.T) {
+	report, allocated := clear_id_forms_report(t, .Web)
+	defer if allocated {
+		delete(report)
+	}
+	testing.expect_value(t, report, CHROME_CLEAR_ID_FORMS)
+}
 
-	testing.expectf(
-		t,
-		result.status == .Ok && result.exit_code == 0,
-		"eval: status=%v exit=%d message=%q",
-		result.status,
-		result.exit_code,
-		result.message,
-	)
+// clear_id_forms_report runs CLEAR_ID_FORMS_SCRIPT on a page of `surface` until its loop
+// idles and returns the page's `report` global ("" when the page never set it);
+// `allocated` says the caller owns the string, as for lava.value_to_string.
+@(private = "file")
+clear_id_forms_report :: proc(t: ^testing.T, surface: lava.Global_Surface) -> (report: string, allocated: bool) {
+	page: lava.Page
+	loop := eventloop.init(real_time = true)
+
+	if !lava.page_create(&page, "<js-clear-id-forms>", &loop, limits = {cpu_budget = 30}, surface = surface) {
+		testing.fail_now(t, "page_create refused the page")
+	}
+
+	if lava.page_run_script(&page, CLEAR_ID_FORMS_SCRIPT, "<js-clear-id-forms>") {
+		for {
+			if alive, _ := lava.page_tick(&page); !alive {
+				break
+			}
+		}
+	}
+
+	v, ok := lava.page_eval(&page, `typeof report === 'string' ? report : ''`)
+
+	if ok {
+		report, allocated = lava.value_to_string(cast(jsc.JSContextRef)page.ctx, v)
+	}
+
+	result, busy := lava.page_close(&page)
+	lava.result_destroy(&result)
+
+	if busy != nil {
+		eventloop.close_finish(busy)
+	}
+
+	return
 }

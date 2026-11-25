@@ -4346,19 +4346,64 @@
       "name": "js_clear_globals_cannot_cancel_native_handles dies when clear_timer_cb cancels any id",
       "why": "Page JS clearing ids 1..n disposes runtime-internal handles sharing the loop's id counter: a pkg/http transfer finishes .Cancelled, a TLS handshake loses its timeout (#92).",
       "source": "pkg/runtime/globals.odin",
-      "find": "\teventloop.clear_timeout_owned(loop, u64(n), js_callback_dispose)\n",
-      "replace": "\teventloop.clear_timeout(loop, u64(n))\n",
+      "find": "\t\teventloop.clear_timeout_owned(loop, id, js_callback_dispose)\n",
+      "replace": "\t\teventloop.clear_timeout(loop, id)\n",
       "gate": "odin:cmd/lava:main.js_clear_globals_cannot_cancel_native_handles",
       "expect_detail": "native timeout"
     },
     {
-      "name": "js_clear_globals_ignore_a_fractional_id dies when clear_timer_cb truncates a fractional id",
+      "name": "js_clear_globals_read_an_id_like_node dies when clear_timer_cb truncates a fractional id",
       "why": "u64() truncates, so clearTimeout(id + 0.5) cancels timer id, which node 26 leaves running.",
       "source": "pkg/runtime/globals.odin",
       "find": " || n != math.trunc(n) {",
       "replace": " {",
-      "gate": "odin:cmd/lava:main.js_clear_globals_ignore_a_fractional_id",
-      "expect_detail": "clearTimeout(id + 0.5) cancelled timer id"
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_node",
+      "expect_detail": "N+0.5:cancelled"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_node dies when clear_timer_cb coerces a non-number, non-string id",
+      "why": "Node never coerces the argument: an array, a String object or a BigInt names no timer, and coercing one runs user valueOf/toString inside clearTimeout.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tif jsc.JSValueIsNumber(ctx, v) {\n\t\tn := jsc.JSValueToNumber(ctx, v, nil)\n",
+      "replace": "\tif !jsc.JSValueIsString(ctx, v) {\n\t\tn := jsc.JSValueToNumber(ctx, v, nil)\n",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_node",
+      "expect_detail": "[N]:cancelled"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_node dies when a string id with a leading zero is accepted",
+      "why": "node keys its id table by the canonical decimal, so \"0N\" names no timer; accepting it cancels timer N.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tif chars[0] == '0' {\n",
+      "replace": "\tif false {\n",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_node",
+      "expect_detail": "\"0N\":cancelled"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_chrome dies when .Web reads the id the node way",
+      "why": "A page's clearTimeout(\"N.0\") or clearTimeout(id + 0.5) cancels timer N in Chrome (WebIDL long); the node reading leaves it running.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tclear_timer := surface == .Web ? clear_timer_web_cb : clear_timer_cb\n",
+      "replace": "\tclear_timer := clear_timer_cb\n",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
+      "expect_detail": "\"N.0\":fired"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_chrome dies when the .Web id is not taken modulo 2^32",
+      "why": "WebIDL's long conversion is a true modulo, so Chrome's clearTimeout(id + 2^33) cancels timer id; the sign folds after it only undo a single wrap, so only a double one pins the modulo.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\t\tx := math.mod(math.trunc(n), 4294967296)\n",
+      "replace": "\t\tx := math.trunc(n)\n",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
+      "expect_detail": "N+2^33:fired"
+    },
+    {
+      "name": "js_clear_globals_read_an_id_like_chrome dies when a BigInt id does not throw",
+      "why": "JSValueToNumber converts a BigInt where WebIDL's ToNumber throws a TypeError, so Chrome's clearTimeout(10n) throws and cancels nothing.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tif value_is_bigint(ctx, arguments[0]) {\n",
+      "replace": "\tif false {\n",
+      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
+      "expect_detail": "BigInt:cancelled"
     },
     {
       "name": "clear_owned_heap_timer_respects_owner dies when the heap-timer owner check is dropped",

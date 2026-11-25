@@ -732,16 +732,18 @@ set_immediate_cb :: proc "c" (
 	return jsc.JSValueMakeNumber(ctx, f64(id))
 }
 
-// clear_timer_cb is clearTimeout, clearInterval and clearImmediate: it cancels the
-// timer or immediate `id` if, and only if, the JS timer globals created it.
+// clear_timer_cb is clearTimeout, clearInterval and clearImmediate on `.Node`: it
+// cancels the timer or immediate `id` if, and only if, the JS timer globals created it.
 //
 // Node:
-//   Returns undefined; an id naming no live user timer (NaN, negative, fractional,
-//   above 2^53, already fired, never issued) is a silent no-op. Only timers user code
-//   created are reachable by id: clearing every id from 1 to 100 past a fresh timer's
-//   cancels that timer and nothing of node's own, and clearTimeout(id + 0.5) leaves
-//   timer `id` running (both probed on node 26.13.0 with numeric Timeout ids, the form
-//   the id takes once a script does arithmetic on it).
+//   Returns undefined and never coerces: a number or a string is a key of node's id
+//   table, so only the number N or its canonical decimal string "N" names timer N.
+//   "N.0", " N", "0xN", "+N", "0N", N + 0.5, N ± 2^32, N + 2^33, [N], new String("N")
+//   and BigInt are silent no-ops, as are NaN, negatives, ids above 2^53, fired and
+//   never-issued ids. Only timers user code created are reachable: clearing every id from 1 to 100
+//   past a fresh timer's cancels that timer and nothing of node's own. Both probed on
+//   node 26.13.0 with numeric Timeout ids (`+setTimeout(…)`), the form a script's
+//   arithmetic gives; pinned by js_clear_globals_read_an_id_like_node.
 // Deviates:
 //   None observable. Lava's ids are shared with runtime-internal handles (net's
 //   TLS-handshake and drain timers, pkg/http's transfer deadline), so ownership is
@@ -757,29 +759,149 @@ clear_timer_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
-	loop := get_loop_from_ctx(ctx)
 
-	if loop == nil || argument_count < 1 {
-		return jsc.JSValueMakeUndefined(ctx)
+	if argument_count >= 1 {
+		if id, ok := node_timer_id(ctx, arguments[0]); ok {
+			clear_timer_owned_id(ctx, id)
+		}
 	}
 
-	// clearTimeout/clearInterval(NaN) (and any non-finite/negative id) is a no-op in
-	// Node — no handle can carry that id. Guard before u64(): float→int on NaN or an
-	// out-of-range value is undefined in Odin and could match an unrelated live id.
-	// Handle ids start at 1 and grow unbounded, but stay f64-exact below 2^53, so the
-	// upper bound is the exact-integer limit, not the timer-delay clamp. A fractional
-	// id is refused too: u64() truncates, so `id + 0.5` would cancel timer `id`, which
-	// node does not (no Timeout is keyed by a fraction).
-	n := jsc.JSValueToNumber(ctx, arguments[0], nil)
-
-	if !(n >= 1 && n <= MAX_SAFE_HANDLE_ID) || n != math.trunc(n) {
-		return jsc.JSValueMakeUndefined(ctx)
-	}
-
-	// Owner-checked: a plain clear_timeout would run an internal handle's dispose for
-	// any id the script guessed (#92).
-	eventloop.clear_timeout_owned(loop, u64(n), js_callback_dispose)
 	return jsc.JSValueMakeUndefined(ctx)
+}
+
+// clear_timer_web_cb is clearTimeout and clearInterval on `.Web`, with clear_timer_cb's
+// ownership rule and Chrome's reading of the id.
+//
+// Node:
+//   No counterpart; Chrome is the oracle. The id is a WebIDL `long`: ToNumber (which
+//   runs valueOf/toString, and throws its TypeError for a BigInt), then truncation and
+//   modulo 2^32, so "N.0", " N", "0xN", N + 0.5, N ± 2^32, N + 2^33, [N] and
+//   new String("N") all cancel timer N, and a result ≤ 0 is a no-op. Recorded on
+//   Chrome 158.0.8127.88; pinned by js_clear_globals_read_an_id_like_chrome.
+// Deviates:
+//   A Lava id above 2^31 - 1 is unreachable, since a `long` cannot name it; Chrome's
+//   ids are `long`s and never get there. A loop issuing two billion handles is not a
+//   page we keep alive.
+clear_timer_web_cb :: proc "c" (
+	ctx: jsc.JSContextRef,
+	function: jsc.JSObjectRef,
+	this_object: jsc.JSObjectRef,
+	argument_count: c.size_t,
+	arguments: [^]jsc.JSValueRef,
+	exception: ^jsc.JSValueRef,
+) -> jsc.JSValueRef {
+	context = runtime.default_context()
+
+	// An omitted id is the IDL default, 0: no timer.
+	if argument_count < 1 {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
+
+	// ToNumber throws on a BigInt; JSValueToNumber converts it instead, so the throw is
+	// ours, with Chrome's (V8's) message.
+	if value_is_bigint(ctx, arguments[0]) {
+		if exception != nil {
+			exception^ = make_js_named_error(ctx, "TypeError", "Cannot convert a BigInt value to a number")
+		}
+
+		return nil
+	}
+
+	thrown: jsc.JSValueRef
+	n := jsc.JSValueToNumber(ctx, arguments[0], &thrown)
+
+	if thrown != nil {
+		if exception != nil {
+			exception^ = thrown
+		}
+
+		return nil
+	}
+
+	// WebIDL ConvertToInt for `long`: NaN and ±Infinity are 0; otherwise truncate, take
+	// it modulo 2^32 and read the result as signed. Every step stays in f64, where these
+	// magnitudes are exact, so no float→int conversion sees an out-of-range value.
+	if !math.is_nan(n) && !math.is_inf(n) {
+		x := math.mod(math.trunc(n), 4294967296)
+
+		if x < 0 {
+			x += 4294967296
+		}
+
+		if x >= 2147483648 {
+			x -= 4294967296
+		}
+
+		if x >= 1 {
+			clear_timer_owned_id(ctx, u64(x))
+		}
+	}
+
+	return jsc.JSValueMakeUndefined(ctx)
+}
+
+// node_timer_id reads `v` the way node's clearTimeout keys its id table: a number that
+// is an integer id, or a string that is one's canonical decimal (no sign, no leading
+// zero, no space, no exponent, digits only). Anything else names no timer, and nothing
+// is coerced, so no user code runs. Integers past 2^53 are refused before u64(): float→
+// int on NaN or an out-of-range value is undefined in Odin and could match a live id.
+@(private = "file")
+node_timer_id :: proc(ctx: jsc.JSContextRef, v: jsc.JSValueRef) -> (id: u64, ok: bool) {
+	if jsc.JSValueIsNumber(ctx, v) {
+		n := jsc.JSValueToNumber(ctx, v, nil)
+
+		if !(n >= 1 && n <= MAX_SAFE_HANDLE_ID) || n != math.trunc(n) {
+			return 0, false
+		}
+
+		return u64(n), true
+	}
+
+	if !jsc.JSValueIsString(ctx, v) {
+		return 0, false
+	}
+
+	s := jsc.JSValueToStringCopy(ctx, v, nil)
+
+	if s == nil {
+		return 0, false
+	}
+
+	defer jsc.JSStringRelease(s)
+	length := int(jsc.JSStringGetLength(s))
+
+	// 2^53 has 16 digits; a longer string is past every id.
+	if length < 1 || length > 16 {
+		return 0, false
+	}
+
+	chars := jsc.JSStringGetCharactersPtr(s)
+
+	if chars[0] == '0' {
+		return 0, false
+	}
+
+	for i in 0 ..< length {
+		ch := chars[i]
+
+		if ch < '0' || ch > '9' {
+			return 0, false
+		}
+
+		id = id * 10 + u64(ch - '0')
+	}
+
+	return id, id <= u64(MAX_SAFE_HANDLE_ID)
+}
+
+// clear_timer_owned_id cancels handle `id` on the context's loop if a JS timer global
+// created it. Owner-checked: a plain clear_timeout would run an internal handle's
+// dispose for any id the script guessed (#92).
+@(private = "file")
+clear_timer_owned_id :: proc(ctx: jsc.JSContextRef, id: u64) {
+	if loop := get_loop_from_ctx(ctx); loop != nil {
+		eventloop.clear_timeout_owned(loop, id, js_callback_dispose)
+	}
 }
 
 // process.nextTick and queueMicrotask are installed from JS (MICROTASK_PRELUDE)
@@ -1075,8 +1197,11 @@ install_globals :: proc(ctx: jsc.JSContextRef, loop: ^eventloop.Loop, surface: G
 	inject_native_function(ctx, global, "setTimeout", set_timeout_cb, arity = 2)
 	inject_native_function(ctx, global, "setInterval", set_interval_cb, arity = 2)
 	inject_native_function(ctx, global, "setImmediate", set_immediate_cb)
-	inject_native_function(ctx, global, "clearTimeout", clear_timer_cb)
-	inject_native_function(ctx, global, "clearInterval", clear_timer_cb)
+	// One cancel, two readings of the id: each surface reads it the way its oracle
+	// does (clear_timer_cb, clear_timer_web_cb).
+	clear_timer := surface == .Web ? clear_timer_web_cb : clear_timer_cb
+	inject_native_function(ctx, global, "clearTimeout", clear_timer)
+	inject_native_function(ctx, global, "clearInterval", clear_timer)
 	inject_native_function(ctx, global, "clearImmediate", clear_timer_cb)
 
 	install_console(ctx, global)

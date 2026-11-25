@@ -263,7 +263,7 @@ determine_received_type :: proc(ctx: jsc.JSContextRef, value: jsc.JSValueRef) ->
 // primitive types must be a BigInt. This holds regardless of whether a given JSC
 // build reports a BigInt as .Object or as an out-of-enum value. A BigInt *wrapper
 // object* (Object(10n)) is a real object and is handled as such, not here.
-@(private = "file")
+@(private)
 value_is_bigint :: proc(ctx: jsc.JSContextRef, value: jsc.JSValueRef) -> bool {
 	if jsc.JSValueIsObject(ctx, value) {
 		return false
