@@ -74,6 +74,15 @@
       "expect_detail": "run_until_idle_waits_out_a_stale_wakeup"
     },
     {
+      "name": "timer_due_during_timers_phase_waits_for_next_turn dies when the timers phase reads the live clock again",
+      "why": "set_timer re-syncs now_ms, so a callback that spins and then calls setTimeout pulls a timer that fell due mid-phase into this turn, ahead of this turn's setImmediate (node prints A,imm,B).",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\tif root.due_ms > timer_phase_now {",
+      "replace": "\t\tif root.due_ms > loop.now_ms {",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.timer_due_during_timers_phase_waits_for_next_turn",
+      "expect_detail": "expected len(actual) to be 2, got 3"
+    },
+    {
       "name": "the detector's fixtures die when isWrite swallows read-modify-write again",
       "why": "Compound, logical and update assignments all run GetValue before PutValue, so exempting them lets the ratchet pay out for rewriting a counted read as `??=`.",
       "source": "scripts/lib/primordials-detect.mjs",

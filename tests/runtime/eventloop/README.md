@@ -14,6 +14,7 @@ Covered behavior:
 - timer cancellation and stable timer ordering
 - microtasks drained between timer callbacks
 - nested timers deferred to a later turn
+- a timer that falls due during the timers phase deferred behind that turn's immediates
 - interval cancellation
 - `node:timers/promises` abort behavior
 - I/O callback handoff into the immediate/check phase
