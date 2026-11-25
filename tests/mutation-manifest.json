@@ -1343,6 +1343,24 @@
       "expect_detail": "a cleared budget still terminated the next page"
     },
     {
+      "name": "vm_entry_limit_terminates_runaway_script dies when vm_release keeps the armed watchdog",
+      "why": "An entry-limit kill latches the watchdog at its 1 ms floor; left armed, it terminates the next page on the reused VM after 1 ms of CPU.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tif vm.armed_limit > 0 {\n\t\tjsc.JSContextGroupClearExecutionTimeLimit(vm.group)\n\t}\n\n\tvm.entry_limit = 0\n",
+      "replace": "\tvm.entry_limit = 0\n",
+      "gate": "odin:cmd/lava:main.vm_entry_limit_terminates_runaway_script",
+      "expect_detail": "limit leaked past vm_release"
+    },
+    {
+      "name": "eval_after_a_killed_page_runs_unlimited dies when vm_release keeps the armed watchdog",
+      "why": "The next lava.eval on the thread's pool reuses the killed page's VM; a watchdog left at the kill floor cuts it as an entry-limit kill.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tif vm.armed_limit > 0 {\n\t\tjsc.JSContextGroupClearExecutionTimeLimit(vm.group)\n\t}\n\n\tvm.entry_limit = 0\n",
+      "replace": "\tvm.entry_limit = 0\n",
+      "gate": "odin:cmd/lava:main.eval_after_a_killed_page_runs_unlimited",
+      "expect_detail": "expected result.kill to be None, got Entry_Limit"
+    },
+    {
       "name": "runner_busy_page_is_not_held_up_by_a_waiting_sibling dies when a page loop may block in its own poll",
       "why": "A page loop that blocks on its own timer stalls every other page on the thread, so ten 300 ms pages run one after another.",
       "source": "pkg/runtime/page_runner.odin",
