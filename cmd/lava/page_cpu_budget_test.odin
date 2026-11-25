@@ -4,20 +4,11 @@
 #+build linux
 package main
 
-import "base:runtime"
 import "core:strings"
-import "core:sys/posix"
 import "core:testing"
 import jsc "lava:pkg/jsc"
 import lava "lava:pkg/runtime"
 import eventloop "lava:pkg/runtime/eventloop"
-
-@(private = "file")
-thread_cpu_s :: proc() -> f64 {
-	ts: posix.timespec
-	posix.clock_gettime(.THREAD_CPUTIME_ID, &ts)
-	return f64(ts.tv_sec) + f64(ts.tv_nsec) / 1e9
-}
 
 @(private = "file")
 eval_limited :: proc(src: string, limits: lava.Page_Limits) -> lava.Result {
@@ -39,10 +30,10 @@ cpu_budget_kills_timer_spinner :: proc(t: ^testing.T) {
 	}
 	setTimeout(spin, 0);
 	`
-	before := thread_cpu_s()
+	before := thread_cpu_seconds()
 	result := eval_limited(src, {entry_limit = 1, cpu_budget = 0.2})
 	defer lava.result_destroy(&result)
-	spent := thread_cpu_s() - before
+	spent := thread_cpu_seconds() - before
 
 	testing.expect_value(t, result.status, lava.Status.Execution_Error)
 	testing.expect_value(t, result.kill, lava.Kill_Reason.Cpu_Budget)
@@ -101,28 +92,12 @@ cpu_budget_spares_a_page_under_budget :: proc(t: ^testing.T) {
 	testing.expect_value(t, result.kill, lava.Kill_Reason.None)
 }
 
-// thread_cpu_cb is `cpu()` for a bare test context: this thread's CPU seconds. A
-// `proc "c"` callback has no Odin context, so it sets the default one before calling
-// thread_cpu_s; it allocates nothing.
-@(private = "file")
-thread_cpu_cb :: proc "c" (
-	ctx: jsc.JSContextRef,
-	function: jsc.JSObjectRef,
-	this_object: jsc.JSObjectRef,
-	argument_count: uint,
-	arguments: [^]jsc.JSValueRef,
-	exception: ^jsc.JSValueRef,
-) -> jsc.JSValueRef {
-	context = runtime.default_context()
-	return jsc.JSValueMakeNumber(ctx, thread_cpu_s())
-}
-
 // The budget and the time spent belong to the page that held the VM: release clears
 // them, so the next page on a reused VM starts at zero with no budget armed.
 //
-// The second page burns CPU, not wall time. The kill latched the watchdog at its 1 ms
-// floor, so if release leaves it armed, JSC terminates the next entry once that entry
-// has used 1 ms of thread CPU (and the watchdog timer has run since). This page used
+// The second page burns CPU, not wall time (spin_thread_cpu). The kill latched the watchdog at its 1 ms
+// floor, so if release leaves it armed, JSC terminates the next entry once that
+// entry has used 1 ms of thread CPU (and the watchdog timer has run since). This page used
 // to spin 150 ms of wall time, and on a loaded runner that bought it too little CPU:
 // with 64 busy loops pinned to its one core (`taskset -c 0`) the entry got 3.3-3.6 ms
 // of CPU (14 instrumented runs) and the mutation that drops the clear survived 5 of
@@ -164,24 +139,10 @@ cpu_budget_is_cleared_on_release :: proc(t: ^testing.T) {
 	testing.expect(t, vm2.cpu_budget_ns == 0, "budget survived release")
 	testing.expect_value(t, vm2.cpu_used_ns, 0)
 	ctx2 := lava.vm_create_context(vm2, nil)
-	cpu_name := jsc.JSStringCreateWithUTF8CString("cpu")
-	cpu_fn := jsc.JSObjectMakeFunctionWithCallback(cast(jsc.JSContextRef)ctx2, cpu_name, thread_cpu_cb)
-	jsc.JSObjectSetProperty(
-		cast(jsc.JSContextRef)ctx2,
-		jsc.JSContextGetGlobalObject(cast(jsc.JSContextRef)ctx2),
-		cpu_name,
-		cast(jsc.JSValueRef)cpu_fn,
-		{},
-		nil,
-	)
-	jsc.JSStringRelease(cpu_name)
 	lava.vm_cpu_enter(vm2)
-	s2 := jsc.JSStringCreateWithUTF8CString("var s = cpu(); while (cpu() - s < 0.1) {}")
-	exc2: jsc.JSValueRef
-	jsc.JSEvaluateScript(cast(jsc.JSContextRef)ctx2, s2, nil, nil, 1, &exc2)
-	jsc.JSStringRelease(s2)
+	completed := spin_thread_cpu(t, ctx2)
 	lava.vm_cpu_exit(vm2)
-	testing.expect(t, exc2 == nil, "a cleared budget still terminated the next page")
+	testing.expect(t, completed, "a cleared budget still terminated the next page")
 	jsc.JSGlobalContextRelease(ctx2)
 	lava.vm_release(vm2)
 }
@@ -201,10 +162,10 @@ cpu_budget_clamps_to_the_budget_left :: proc(t: ^testing.T) {
 	}
 	setTimeout(spin, 0);
 	`
-	before := thread_cpu_s()
+	before := thread_cpu_seconds()
 	result := eval_limited(src, {cpu_budget = 1.0})
 	defer lava.result_destroy(&result)
-	spent := thread_cpu_s() - before
+	spent := thread_cpu_seconds() - before
 	testing.expect_value(t, result.kill, lava.Kill_Reason.Cpu_Budget)
 	testing.expectf(t, spent < 1.35, "runaway entry was given %.3fs of CPU against a 1s budget", spent)
 }
@@ -226,10 +187,10 @@ cpu_nested_enter_charges_once :: proc(t: ^testing.T) {
 	lava.vm_set_cpu_budget(vm, 100)
 
 	burn :: proc(seconds: f64) {
-		s := thread_cpu_s()
-		for thread_cpu_s() - s < seconds {}
+		s := thread_cpu_seconds()
+		for thread_cpu_seconds() - s < seconds {}
 	}
-	before := thread_cpu_s()
+	before := thread_cpu_seconds()
 	lava.vm_cpu_enter(vm)
 	burn(0.04)
 	lava.vm_cpu_enter(vm)
@@ -237,7 +198,7 @@ cpu_nested_enter_charges_once :: proc(t: ^testing.T) {
 	lava.vm_cpu_exit(vm)
 	burn(0.03)
 	lava.vm_cpu_exit(vm)
-	wall := thread_cpu_s() - before
+	wall := thread_cpu_seconds() - before
 	used := f64(vm.cpu_used_ns) / 1e9
 	testing.expectf(t, used <= wall + 0.005, "nested stretch charged %.3fs for %.3fs of CPU", used, wall)
 	testing.expectf(t, used >= 0.095, "only %.3fs of a ~0.1s stretch was charged", used)
@@ -245,15 +206,28 @@ cpu_nested_enter_charges_once :: proc(t: ^testing.T) {
 
 // A killed page leaves nothing behind for the next eval on the thread's pool: the
 // next page runs unlimited and completes.
+//
+// The next page must burn CPU, not wall time: the kill latched the watchdog at its
+// 1 ms floor, and a leaked watchdog cuts an entry only once it has used that much
+// thread CPU (see spin_thread_cpu for why a wall-time spin can miss it under load).
+// lava.eval builds its own context, so there is no bare context to put a `cpu()` on
+// before the script runs; the page does a fixed amount of work instead, sized so the
+// loop alone costs ~100x the floor on a fast machine and more on a slow or loaded
+// one. Measured through lava.eval on this thread, three unloaded runs each: 3e8
+// iterations took 147-173 ms of thread CPU, an empty page 2.8 ms, and the 150 ms
+// wall-time spin it replaces 152 ms. `| 0` keeps the sum an int32 and the global
+// write keeps the loop observable, so neither tier can drop it.
 @(test)
 eval_after_a_killed_page_runs_unlimited :: proc(t: ^testing.T) {
 	killed := eval_limited("while (true) {}", {cpu_budget = 0.05})
 	lava.result_destroy(&killed)
 	loop := eventloop.init(real_time = true)
-	result := lava.eval("var s = Date.now(); while (Date.now() - s < 150) {}", "<after-kill>", &loop, false)
+	result := lava.eval("var x = 0; for (var i = 0; i < 3e8; i++) x = (x + i) | 0;", "<after-kill>", &loop, false)
 	defer lava.result_destroy(&result)
-	testing.expect_value(t, result.status, lava.Status.Ok)
+	// The kill reason first: it names the leaked watchdog, where a bare
+	// Execution_Error could be anything.
 	testing.expect_value(t, result.kill, lava.Kill_Reason.None)
+	testing.expect_value(t, result.status, lava.Status.Ok)
 }
 
 // Many timers due in ONE tick: each is a fresh entry with a fresh watchdog window, so
@@ -264,10 +238,10 @@ cpu_budget_kills_many_timers_in_one_tick :: proc(t: ^testing.T) {
 	src := `
 	for (let i = 0; i < 5000; i++) setTimeout(() => { const s = Date.now(); while (Date.now() - s < 2) {} }, 0);
 	`
-	before := thread_cpu_s()
+	before := thread_cpu_seconds()
 	result := eval_limited(src, {cpu_budget = 0.2})
 	defer lava.result_destroy(&result)
-	spent := thread_cpu_s() - before
+	spent := thread_cpu_seconds() - before
 	testing.expect_value(t, result.kill, lava.Kill_Reason.Cpu_Budget)
 	testing.expectf(t, spent < 1.0, "one tick ran %.3fs of CPU past a 0.2s budget", spent)
 }
@@ -283,10 +257,10 @@ cpu_budget_kills_a_next_tick_ping_pong :: proc(t: ^testing.T) {
 	}
 	setTimeout(f, 0);
 	`
-	before := thread_cpu_s()
+	before := thread_cpu_seconds()
 	result := eval_limited(src, {cpu_budget = 0.2})
 	defer lava.result_destroy(&result)
-	spent := thread_cpu_s() - before
+	spent := thread_cpu_seconds() - before
 	testing.expect_value(t, result.kill, lava.Kill_Reason.Cpu_Budget)
 	testing.expectf(t, spent < 1.0, "ping-pong ran %.3fs of CPU past a 0.2s budget", spent)
 }
@@ -306,10 +280,10 @@ cpu_budget_kill_latches_over_queued_microtasks :: proc(t: ^testing.T) {
 	Promise.resolve().then(f);
 	while (true) {}
 	`
-	before := thread_cpu_s()
+	before := thread_cpu_seconds()
 	result := eval_limited(src, {cpu_budget = 0.5})
 	defer lava.result_destroy(&result)
-	spent := thread_cpu_s() - before
+	spent := thread_cpu_seconds() - before
 	testing.expect_value(t, result.kill, lava.Kill_Reason.Cpu_Budget)
 	testing.expectf(t, spent < 0.75, "killed page ran %.3fs of CPU against a 0.5s budget", spent)
 }
@@ -325,10 +299,10 @@ entry_limit_kill_latches_over_queued_microtasks :: proc(t: ^testing.T) {
 	Promise.resolve().then(f);
 	while (true) {}
 	`
-	before := thread_cpu_s()
+	before := thread_cpu_seconds()
 	result := eval_limited(src, {entry_limit = 0.3, cpu_budget = 30})
 	defer lava.result_destroy(&result)
-	spent := thread_cpu_s() - before
+	spent := thread_cpu_seconds() - before
 	testing.expect_value(t, result.kill, lava.Kill_Reason.Entry_Limit)
 	testing.expectf(t, spent < 0.45, "killed page ran %.3fs of CPU against a 0.3s entry limit", spent)
 }
