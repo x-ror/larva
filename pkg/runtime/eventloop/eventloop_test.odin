@@ -386,6 +386,43 @@ timer_scheduled_by_timer_waits_for_next_turn :: proc(t: ^testing.T) {
 	testing.expect_value(t, pending_count(&loop), 0)
 }
 
+// record_spin_and_schedule_immediate stands in for a timer callback that burns 5 ms of
+// wall clock and then queues an immediate: on the virtual clock the spin is advance_time,
+// which moves now_ms exactly as set_timer's sync_real_clock does in real_time mode.
+record_spin_and_schedule_immediate :: proc(loop: ^Loop, user_data: rawptr) {
+	rec := cast(^Recorder)user_data
+	append(&rec.events, 1)
+	advance_time(loop, 5)
+	set_immediate(loop, record_2, user_data)
+}
+
+// A timer that falls due WHILE the timers phase runs waits for the next turn, behind
+// this turn's immediates. Node (26.13.0, measured): A due at +10 spins 5 ms, B due at
+// +12 — prints A,imm,B, because processTimers compares every list against the `now`
+// it was entered with. Comparing against the clock as it stands after A printed A,B,imm.
+@(test)
+timer_due_during_timers_phase_waits_for_next_turn :: proc(t: ^testing.T) {
+	loop := init()
+	defer destroy(&loop)
+
+	rec := Recorder{}
+	defer delete(rec.events)
+
+	set_timeout(&loop, record_spin_and_schedule_immediate, 10, &rec)
+	set_timeout(&loop, record_3, 12, &rec)
+
+	// run_next fast-forwards to A's deadline (10); A moves the clock to 15, past B's 12.
+	testing.expect(t, run_next(&loop))
+	expect_events(t, rec.events[:], []int{1, 2})
+	testing.expect_value(t, pending_count(&loop), 1)
+
+	// B is due at the clock A left behind, so it fires with no clock movement. run_next,
+	// not run_once: with B gone (the bug), run_once would block forever in poll(-1).
+	testing.expect(t, run_next(&loop))
+	expect_events(t, rec.events[:], []int{1, 2, 3})
+	testing.expect_value(t, pending_count(&loop), 0)
+}
+
 @(test)
 close_callbacks_run_after_immediates :: proc(t: ^testing.T) {
 	loop := init()

@@ -930,6 +930,16 @@ run_once :: proc(loop: ^Loop) -> bool {
 	// no earlier than every already-due seq < limit timer — so stopping at the first
 	// such root cannot starve an earlier-scheduled due timer.
 	timer_phase_sequence_limit := loop.next_sequence
+	// The phase compares every deadline against the turn's `now`, sampled once above, not
+	// the live now_ms: set_timer re-syncs now_ms (a new timer's delay counts from when it
+	// is scheduled), so a callback that spins and then calls setTimeout would otherwise
+	// pull a timer that fell due mid-phase into this turn, ahead of this turn's
+	// immediates. Node keeps the turn's `now`: processTimers(now) / listOnTimeout(list,
+	// now) take it once per entry (read from node 26.13.0's internal/timers via
+	// --expose-internals), while insert() stamps a new timer with a fresh getLibuvNow().
+	// Measured: A due at +10 spins 5 ms, B due at +12 — node prints A,imm,B.
+	// Pinned by eventloop.timer_due_during_timers_phase_waits_for_next_turn.
+	timer_phase_now := loop.now_ms
 	for len(loop.timers) > 0 {
 		// Lazily drop a cancelled root: its binding was already disposed and its
 		// count already adjusted at cancel time, so just discard it.
@@ -944,7 +954,7 @@ run_once :: proc(loop: ^Loop) -> bool {
 			break
 		}
 
-		if root.due_ms > loop.now_ms {
+		if root.due_ms > timer_phase_now {
 			break
 		}
 
