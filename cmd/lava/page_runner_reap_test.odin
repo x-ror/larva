@@ -38,33 +38,13 @@ LIMITS :: lava.Page_Limits {
 QUICK_PAGE :: "let n = 0; (function f() { if (++n < 20) setTimeout(f, 1); else process.exitCode = 7; })();"
 
 @(private = "file")
-Outcome :: struct {
-	done:   bool,
-	status: lava.Status,
-	kill:   lava.Kill_Reason,
-	exit:   int,
-}
-
-@(private = "file")
-record :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Result) {
-	result := result
-	(cast(^Outcome)user_data)^ = {
-		done   = true,
-		status = result.status,
-		kill   = result.kill,
-		exit   = result.exit_code,
-	}
-	lava.result_destroy(&result)
-}
-
-@(private = "file")
-expect_exit :: proc(t: ^testing.T, o: Outcome, code: int, what: string, loc := #caller_location) {
+expect_exit :: proc(t: ^testing.T, o: Page_Outcome, code: int, what: string, loc := #caller_location) {
 	testing.expectf(
 		t,
 		o.done && o.status == .Ok && o.kill == .None && o.exit == code,
-		"%s: %v, want exit %d",
+		"%s: %s, want exit %d",
 		what,
-		o,
+		describe_outcome(o),
 		code,
 		loc = loc,
 	)
@@ -214,7 +194,7 @@ runner_close_does_not_wait_for_a_worker_blocked_on_a_fifo :: proc(t: ^testing.T)
 	defer unblocker_stop(&u)
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 2, record, context.allocator) {
+	if !lava.page_runner_init(&runner, 2, record_page_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 
@@ -222,7 +202,7 @@ runner_close_does_not_wait_for_a_worker_blocked_on_a_fifo :: proc(t: ^testing.T)
 	src := fifo_page(fifo)
 	defer delete(src)
 
-	a, b: Outcome
+	a, b: Page_Outcome
 	start := time.tick_now()
 	lava.page_runner_open(&runner, src, "<fifo>", LIMITS, &a)
 	lava.page_runner_open(&runner, QUICK_PAGE, "<sibling>", LIMITS, &b)
@@ -289,11 +269,11 @@ runner_close_does_not_wait_for_a_hanging_dns_lookup :: proc(t: ^testing.T) {
 	}
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 3, record, virtual.arena_allocator(&arena)) {
+	if !lava.page_runner_init(&runner, 3, record_page_outcome, virtual.arena_allocator(&arena)) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 
-	f, d, b: Outcome
+	f, d, b: Page_Outcome
 	start := time.tick_now()
 	lava.page_runner_open(
 		&runner,
@@ -365,14 +345,14 @@ runner_reaping_loop_keeps_its_pipe_until_its_worker_exits :: proc(t: ^testing.T)
 	defer unblocker_stop(&u)
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 4, record, context.allocator) {
+	if !lava.page_runner_init(&runner, 4, record_page_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 
 	defer lava.page_runner_destroy(&runner)
 
 	// Warm the VMs first, so the baseline already holds their permanent timerfds.
-	warm: [3]Outcome
+	warm: [3]Page_Outcome
 	for &w in warm {
 		lava.page_runner_open(&runner, QUICK_PAGE, "<warm>", LIMITS, &w)
 	}
@@ -381,7 +361,7 @@ runner_reaping_loop_keeps_its_pipe_until_its_worker_exits :: proc(t: ^testing.T)
 
 	src := fifo_page(fifo)
 	defer delete(src)
-	a: Outcome
+	a: Page_Outcome
 	lava.page_runner_open(&runner, src, "<fifo>", LIMITS, &a)
 	lava.page_runner_run(&runner)
 	expect_exit(t, a, 4, "fifo page")
@@ -404,7 +384,7 @@ runner_reaping_loop_keeps_its_pipe_until_its_worker_exits :: proc(t: ^testing.T)
 	// Siblings open and close loops of their own — rings, epoll fds, pipes, pool
 	// threads — while A's sits in the list.
 	sibling := "require('fs').readFile('/proc/self/stat', () => { " + QUICK_PAGE + " });"
-	sibs: [3]Outcome
+	sibs: [3]Page_Outcome
 	for &s in sibs {
 		lava.page_runner_open(&runner, sibling, "<sibling>", LIMITS, &s)
 	}
@@ -424,7 +404,7 @@ runner_reaping_loop_keeps_its_pipe_until_its_worker_exits :: proc(t: ^testing.T)
 
 	// Release A's worker while two siblings wait on timers. Its late completion and
 	// its exit write A's own pipe, which wakes the runner to reap A mid-run.
-	late: [2]Outcome
+	late: [2]Page_Outcome
 	for &l in late {lava.page_runner_open(&runner, "setTimeout(() => { process.exitCode = 7; }, 300);", "<late>", LIMITS, &l)}
 	u2: Unblocker
 	unblocker_start(&u2, {fifo}, 50 * time.Millisecond)
@@ -449,7 +429,7 @@ Reuse :: struct {
 	fifo, marker:  string,
 	// The release thread's path list; it must outlive reuse_done's frame.
 	fifo_list:     [1]string,
-	first, second: Outcome,
+	first, second: Page_Outcome,
 	opened_second: bool,
 	release:       Unblocker,
 }
@@ -459,11 +439,11 @@ reuse_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Re
 	r := cast(^Reuse)user_data
 
 	if r.opened_second {
-		record(runner, &r.second, result)
+		record_page_outcome(runner, &r.second, result)
 		return
 	}
 
-	record(runner, &r.first, result)
+	record_page_outcome(runner, &r.first, result)
 	r.opened_second = true
 	// The runner's only VM, so this page reuses the first page's.
 	lava.page_runner_open(
@@ -537,14 +517,14 @@ runner_refuses_pages_while_its_reaping_list_is_full :: proc(t: ^testing.T) {
 	defer unblocker_stop(&u)
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 4, record, context.allocator) {
+	if !lava.page_runner_init(&runner, 4, record_page_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 
 	defer lava.page_runner_destroy(&runner)
 	runner.reap_limit = 2
 
-	blocked: [2]Outcome
+	blocked: [2]Page_Outcome
 	srcs := [2]string{fifo_page(fifos[0]), fifo_page(fifos[1])}
 	defer for s in srcs {delete(s)}
 	for s, i in srcs {
@@ -557,7 +537,7 @@ runner_refuses_pages_while_its_reaping_list_is_full :: proc(t: ^testing.T) {
 	testing.expect_value(t, lava.page_runner_reaping(&runner), 2)
 	_, created_before := lava.vm_pool_stats(&runner.pool)
 
-	refused: Outcome
+	refused: Page_Outcome
 	lava.page_runner_open(&runner, "process.exitCode = 3;", "<refused>", LIMITS, &refused)
 	testing.expect(t, !refused.done, "the refusal was reported from inside page_runner_open")
 	testing.expect_value(t, lava.page_runner_live(&runner), 0)
@@ -565,8 +545,8 @@ runner_refuses_pages_while_its_reaping_list_is_full :: proc(t: ^testing.T) {
 	testing.expectf(
 		t,
 		refused.done && refused.status == .Execution_Error && refused.kill == .Reaping_Full,
-		"page opened at the bound: %v",
-		refused,
+		"page opened at the bound: %s",
+		describe_outcome(refused),
 	)
 	_, created_after := lava.vm_pool_stats(&runner.pool)
 	testing.expect_value(t, created_after, created_before)
@@ -575,7 +555,7 @@ runner_refuses_pages_while_its_reaping_list_is_full :: proc(t: ^testing.T) {
 		testing.expect(t, release_within(f, 2 * time.Second), "a worker was not blocked on its FIFO")
 	}
 	testing.expect(t, wait_reaped(&runner, 3 * time.Second), "the blocked loops were never reaped")
-	again: Outcome
+	again: Page_Outcome
 	lava.page_runner_open(&runner, "process.exitCode = 3;", "<again>", LIMITS, &again)
 	lava.page_runner_run(&runner)
 	expect_exit(t, again, 3, "page opened after the reap")
@@ -598,9 +578,9 @@ runner_destroy_detaches_loops_whose_workers_are_blocked :: proc(t: ^testing.T) {
 	// baseline already holds them (this test may be the first in the process to).
 	{
 		warm: lava.Page_Runner
-		w: Outcome
+		w: Page_Outcome
 
-		if !lava.page_runner_init(&warm, 1, record, context.allocator) {
+		if !lava.page_runner_init(&warm, 1, record_page_outcome, context.allocator) {
 			testing.fail_now(t, "page_runner_init failed")
 		}
 
@@ -622,7 +602,7 @@ runner_destroy_detaches_loops_whose_workers_are_blocked :: proc(t: ^testing.T) {
 	}
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 2, record, virtual.arena_allocator(&arena)) {
+	if !lava.page_runner_init(&runner, 2, record_page_outcome, virtual.arena_allocator(&arena)) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 
@@ -631,7 +611,7 @@ runner_destroy_detaches_loops_whose_workers_are_blocked :: proc(t: ^testing.T) {
 	defer delete(closed_src)
 	defer delete(live_src)
 
-	closed, live: Outcome
+	closed, live: Page_Outcome
 	lava.page_runner_open(&runner, closed_src, "<closed>", LIMITS, &closed)
 	lava.page_runner_run(&runner)
 	expect_exit(t, closed, 4, "closed page")
@@ -651,7 +631,7 @@ runner_destroy_detaches_loops_whose_workers_are_blocked :: proc(t: ^testing.T) {
 	lava.page_runner_destroy(&runner)
 	took := time.duration_seconds(time.tick_since(start))
 	testing.expectf(t, took < 0.5, "page_runner_destroy took %.2fs: it joined a worker blocked in open()", took)
-	testing.expectf(t, live.done && live.kill == .Cancelled, "live page: %v", live)
+	testing.expectf(t, live.done && live.kill == .Cancelled, "live page: %s", describe_outcome(live))
 	now := fd_link(pipe)
 	testing.expectf(
 		t,
@@ -717,13 +697,13 @@ runner_reaping_frees_through_matching_allocators :: proc(t: ^testing.T) {
 
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 2, record, mem.tracking_allocator(&track)) {
+	if !lava.page_runner_init(&runner, 2, record_page_outcome, mem.tracking_allocator(&track)) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 
 	src := fifo_page(fifo)
 	defer delete(src)
-	a, b, c: Outcome
+	a, b, c: Page_Outcome
 	lava.page_runner_open(&runner, src, "<fifo>", LIMITS, &a)
 	lava.page_runner_open(&runner, QUICK_PAGE, "<sibling>", LIMITS, &b)
 	lava.page_runner_run(&runner)
@@ -751,7 +731,7 @@ runner_reaping_frees_through_matching_allocators :: proc(t: ^testing.T) {
 @(private = "file")
 Wake :: struct {
 	fifos:   [2]string,
-	a, b:    Outcome,
+	a, b:    Page_Outcome,
 	pipe:    int,
 	link:    string,
 	closed:  bool, // atomic: the checker saw the reaped loop's pipe closed in time
@@ -763,11 +743,11 @@ wake_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Res
 	w := cast(^Wake)user_data
 
 	if result.exit_code != 4 {
-		record(runner, &w.b, result)
+		record_page_outcome(runner, &w.b, result)
 		return
 	}
 
-	record(runner, &w.a, result)
+	record_page_outcome(runner, &w.a, result)
 
 	// Delivered right after runner_finish put A's loop on the list.
 	if lava.page_runner_reaping(runner) == 1 {

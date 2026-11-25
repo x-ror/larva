@@ -23,27 +23,6 @@ LIMITS :: lava.Page_Limits {
 	cpu_budget = 30,
 }
 
-@(private = "file")
-Outcome :: struct {
-	done:   bool,
-	status: lava.Status,
-	kill:   lava.Kill_Reason,
-	exit:   int,
-}
-
-@(private = "file")
-record_outcome :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Result) {
-	result := result
-	o := cast(^Outcome)user_data
-	o^ = {
-		done   = true,
-		status = result.status,
-		kill   = result.kill,
-		exit   = result.exit_code,
-	}
-	lava.result_destroy(&result)
-}
-
 // A well-behaved page: 40 timer turns of ~2 ms work, then exitCode 7 to prove it ran
 // to the end rather than being cut short with its siblings.
 @(private = "file")
@@ -65,13 +44,13 @@ run_with_one_bad_page :: proc(
 ) {
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 4, record_outcome, context.allocator) {
+	if !lava.page_runner_init(&runner, 4, record_page_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 
 	defer lava.page_runner_destroy(&runner)
 
-	outcomes: [4]Outcome
+	outcomes: [4]Page_Outcome
 	good := lava.Page_Limits {
 		entry_limit = 1,
 		cpu_budget  = 5,
@@ -91,9 +70,9 @@ run_with_one_bad_page :: proc(
 		testing.expectf(
 			t,
 			outcomes[i].status == .Ok && outcomes[i].exit == 7,
-			"page %d did not finish beside the killed page: %v",
+			"page %d did not finish beside the killed page: %s",
 			i,
-			outcomes[i],
+			describe_outcome(outcomes[i]),
 		)
 	}
 }
@@ -132,12 +111,12 @@ runner_cpu_budget_kills_only_the_spinner :: proc(t: ^testing.T) {
 runner_pages_wait_concurrently :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 10, record_outcome, context.allocator) {
+	if !lava.page_runner_init(&runner, 10, record_page_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 
 	defer lava.page_runner_destroy(&runner)
-	outcomes: [10]Outcome
+	outcomes: [10]Page_Outcome
 	start := time.tick_now()
 	for i in 0 ..< 10 {
 		lava.page_runner_open(
@@ -153,7 +132,7 @@ runner_pages_wait_concurrently :: proc(t: ^testing.T) {
 	wall := time.duration_seconds(time.tick_since(start))
 	cpu := thread_cpu_seconds() - cpu_before
 	for o, i in outcomes {
-		testing.expectf(t, o.done && o.status == .Ok && o.exit == 3, "page %d: %v", i, o)
+		testing.expectf(t, o.done && o.status == .Ok && o.exit == 3, "page %d: %s", i, describe_outcome(o))
 	}
 	testing.expectf(t, wall < 2.5, "10 x 600 ms pages took %.2fs: they ran one after another", wall)
 	testing.expectf(t, cpu < 0.2, "runner burned %.3fs of CPU while every page waited on a timer", cpu)
@@ -165,12 +144,12 @@ runner_pages_wait_concurrently :: proc(t: ^testing.T) {
 runner_reports_a_page_it_cannot_start :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 1, record_outcome, context.allocator) {
+	if !lava.page_runner_init(&runner, 1, record_page_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 
 	defer lava.page_runner_destroy(&runner)
-	a, b: Outcome
+	a, b: Page_Outcome
 	lava.page_runner_open(&runner, "setTimeout(() => {}, 50);", "<a>", LIMITS, &a)
 	lava.page_runner_open(&runner, "1", "<b>", LIMITS, &b)
 	testing.expect(t, !b.done, "a page that failed at open was reported from inside page_runner_open")
@@ -185,7 +164,7 @@ Churn :: struct {
 	opened, finished, failed: int,
 	total:                    int,
 	fds_after_warmup:         int,
-	outcome:                  Outcome,
+	outcome:                  Page_Outcome,
 	// Every fifo_every-th page closes with its pool worker blocked in open() on a
 	// FIFO, so its loop goes through the reaping list (#34); churn_done lets the
 	// worker through once the page is reported.
@@ -365,7 +344,7 @@ runner_busy_page_is_not_held_up_by_a_waiting_sibling :: proc(t: ^testing.T) {
 
 @(private = "file")
 Reuse :: struct {
-	first, second: Outcome,
+	first, second: Page_Outcome,
 	opened_second: bool,
 }
 
@@ -374,7 +353,7 @@ reuse_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Re
 	r := cast(^Reuse)user_data
 
 	if !r.opened_second {
-		record_outcome(runner, &r.first, result)
+		record_page_outcome(runner, &r.first, result)
 		r.opened_second = true
 		// The killed page's VM is the runner's only one, so this page reuses it.
 		lava.page_runner_open(
@@ -388,7 +367,7 @@ reuse_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Re
 		)
 		return
 	}
-	record_outcome(runner, &r.second, result)
+	record_page_outcome(runner, &r.second, result)
 }
 
 // The next page on a killed page's VM slot sees nothing of it (CLAUDE.md §6): not its
@@ -419,8 +398,8 @@ runner_second_page_in_a_reused_vm_sees_nothing_of_a_killed_first :: proc(t: ^tes
 	testing.expectf(
 		t,
 		r.second.done && r.second.status == .Ok && r.second.exit == 11,
-		"second page saw the first: %v",
-		r.second,
+		"second page saw the first: %s",
+		describe_outcome(r.second),
 	)
 	_, created := lava.vm_pool_stats(&runner.pool)
 	testing.expect_value(t, created, 1)
@@ -451,7 +430,7 @@ runner_wakes_on_io_without_timers_on_the_readiness_backend :: proc(t: ^testing.T
 run_io_wake :: proc(t: ^testing.T, readiness: bool) {
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 2, record_outcome, context.allocator) {
+	if !lava.page_runner_init(&runner, 2, record_page_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 
@@ -473,7 +452,7 @@ run_io_wake :: proc(t: ^testing.T, readiness: bool) {
 	)
 	defer delete(server)
 	defer delete(client)
-	so, co: Outcome
+	so, co: Page_Outcome
 	start := time.tick_now()
 	lava.page_runner_open(&runner, server, "<server>", LIMITS, &so)
 	lava.page_runner_open(&runner, client, "<client>", LIMITS, &co)
@@ -491,8 +470,8 @@ run_io_wake :: proc(t: ^testing.T, readiness: bool) {
 		testing.expectf(t, kind == want_kind, "page loop backend is %q, want %q", kind, want_kind)
 	}
 	lava.page_runner_run(&runner)
-	testing.expectf(t, so.done && so.status == .Ok && so.exit == 5, "server page: %v", so)
-	testing.expectf(t, co.done && co.status == .Ok && co.exit == 5, "client page: %v", co)
+	testing.expectf(t, so.done && so.status == .Ok && so.exit == 5, "server page: %s", describe_outcome(so))
+	testing.expectf(t, co.done && co.status == .Ok && co.exit == 5, "client page: %s", describe_outcome(co))
 	testing.expect(t, time.duration_seconds(time.tick_since(start)) < 3, "I/O-only pages took over 3s")
 }
 
@@ -508,12 +487,12 @@ runner_process_exit_ends_only_its_page :: proc(t: ^testing.T) {
 run_with_one_bad_page_exit :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 3, record_outcome, context.allocator) {
+	if !lava.page_runner_init(&runner, 3, record_page_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 
 	defer lava.page_runner_destroy(&runner)
-	outcomes: [3]Outcome
+	outcomes: [3]Page_Outcome
 	lava.page_runner_open(&runner, STEADY_PAGE, "<good-0>", LIMITS, &outcomes[0])
 	lava.page_runner_open(
 		&runner,
@@ -527,16 +506,16 @@ run_with_one_bad_page_exit :: proc(t: ^testing.T) {
 	testing.expectf(
 		t,
 		outcomes[1].done && outcomes[1].status == .Ok && outcomes[1].exit == 9 && outcomes[1].kill == .None,
-		"exiting page: %v",
-		outcomes[1],
+		"exiting page: %s",
+		describe_outcome(outcomes[1]),
 	)
 	for i in ([]int{0, 2}) {
 		testing.expectf(
 			t,
 			outcomes[i].done && outcomes[i].status == .Ok && outcomes[i].exit == 7,
-			"page %d did not finish beside the exiting page: %v",
+			"page %d did not finish beside the exiting page: %s",
 			i,
-			outcomes[i],
+			describe_outcome(outcomes[i]),
 		)
 	}
 }
@@ -547,11 +526,11 @@ run_with_one_bad_page_exit :: proc(t: ^testing.T) {
 runner_destroy_reports_live_pages_cancelled :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 2, record_outcome, context.allocator) {
+	if !lava.page_runner_init(&runner, 2, record_page_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 
-	o: Outcome
+	o: Page_Outcome
 	lava.page_runner_open(&runner, "process.exitCode = 4; setTimeout(() => {}, 10000);", "<long>", LIMITS, &o)
 	lava.page_runner_destroy(&runner)
 	testing.expect(t, o.done, "a live page was not reported on destroy")
@@ -613,7 +592,7 @@ epoll_watch_count :: proc(epfd: linux.Fd) -> int {
 runner_refuses_a_page_without_a_cpu_budget :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 4, record_outcome, context.allocator) {
+	if !lava.page_runner_init(&runner, 4, record_page_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 
@@ -621,7 +600,7 @@ runner_refuses_a_page_without_a_cpu_budget :: proc(t: ^testing.T) {
 	nan := 0.0
 	nan = nan / nan
 	bad := [4]lava.Page_Limits{{}, {cpu_budget = -1}, {cpu_budget = nan}, {entry_limit = 0.1}}
-	outcomes: [4]Outcome
+	outcomes: [4]Page_Outcome
 	for limits, i in bad {
 		lava.page_runner_open(
 			&runner,
@@ -637,7 +616,7 @@ runner_refuses_a_page_without_a_cpu_budget :: proc(t: ^testing.T) {
 	testing.expect_value(t, created, 0)
 	lava.page_runner_run(&runner)
 	for o, i in outcomes {
-		testing.expectf(t, o.done && o.status == .Invalid_Input && o.kill == .None, "limits %v: %v", bad[i], o)
+		testing.expectf(t, o.done && o.status == .Invalid_Input && o.kill == .None, "limits %v: %s", bad[i], describe_outcome(o))
 	}
 }
 
@@ -660,7 +639,7 @@ exit_marker :: proc(name: string) -> string {
 runner_process_exit_runs_no_code_after_it :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 3, record_outcome, context.allocator) {
+	if !lava.page_runner_init(&runner, 3, record_page_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 
@@ -689,13 +668,13 @@ runner_process_exit_runs_no_code_after_it :: proc(t: ^testing.T) {
 		),
 	}
 	defer for s in sources {delete(s)}
-	outcomes: [3]Outcome
+	outcomes: [3]Page_Outcome
 	for src, i in sources {
 		lava.page_runner_open(&runner, src, "<exit>", LIMITS, &outcomes[i])
 	}
 	lava.page_runner_run(&runner)
 	for o, i in outcomes {
-		testing.expectf(t, o.done && o.status == .Ok && o.kill == .None && o.exit == 3 + i, "page %d: %v", i, o)
+		testing.expectf(t, o.done && o.status == .Ok && o.kill == .None && o.exit == 3 + i, "page %d: %s", i, describe_outcome(o))
 		testing.expectf(t, !os.exists(paths[i]), "page %d ran code after process.exit()", i)
 	}
 }
@@ -711,12 +690,12 @@ runner_process_exit_runs_no_code_after_it :: proc(t: ^testing.T) {
 runner_process_exit_bounds_promise_jobs_queued_before_it :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 1, record_outcome, context.allocator) {
+	if !lava.page_runner_init(&runner, 1, record_page_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 
 	defer lava.page_runner_destroy(&runner)
-	o: Outcome
+	o: Page_Outcome
 	start := time.tick_now()
 	lava.page_runner_open(
 		&runner,
@@ -727,7 +706,7 @@ runner_process_exit_bounds_promise_jobs_queued_before_it :: proc(t: ^testing.T) 
 	)
 	lava.page_runner_run(&runner)
 	elapsed := time.duration_seconds(time.tick_since(start))
-	testing.expectf(t, o.done && o.status == .Ok && o.kill == .None && o.exit == 4, "page: %v", o)
+	testing.expectf(t, o.done && o.status == .Ok && o.kill == .None && o.exit == 4, "page: %s", describe_outcome(o))
 	testing.expectf(t, elapsed < 1, "a drained promise job ran %.2fs past process.exit()", elapsed)
 }
 
@@ -736,7 +715,7 @@ reuse_after_exit_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, resu
 	r := cast(^Reuse)user_data
 
 	if !r.opened_second {
-		record_outcome(runner, &r.first, result)
+		record_page_outcome(runner, &r.first, result)
 		r.opened_second = true
 		lava.page_runner_open(
 			runner,
@@ -748,7 +727,7 @@ reuse_after_exit_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, resu
 		return
 	}
 
-	record_outcome(runner, &r.second, result)
+	record_page_outcome(runner, &r.second, result)
 }
 
 // The next page on a VM whose last page called process.exit() inside a promise job
@@ -774,8 +753,8 @@ runner_vm_reused_after_process_exit_runs_the_next_page :: proc(t: ^testing.T) {
 		&r,
 	)
 	lava.page_runner_run(&runner)
-	testing.expectf(t, r.first.done && r.first.status == .Ok && r.first.exit == 2, "first page: %v", r.first)
-	testing.expectf(t, r.second.done && r.second.status == .Ok && r.second.exit == 11, "second page: %v", r.second)
+	testing.expectf(t, r.first.done && r.first.status == .Ok && r.first.exit == 2, "first page: %s", describe_outcome(r.first))
+	testing.expectf(t, r.second.done && r.second.status == .Ok && r.second.exit == 11, "second page: %s", describe_outcome(r.second))
 	_, created := lava.vm_pool_stats(&runner.pool)
 	testing.expect_value(t, created, 1)
 }
@@ -943,7 +922,7 @@ runner_run_returns_with_a_watched_fd_and_no_pages :: proc(t: ^testing.T) {
 	defer linux.close(fds[1])
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 1, record_outcome, context.allocator) {
+	if !lava.page_runner_init(&runner, 1, record_page_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 
@@ -954,10 +933,10 @@ runner_run_returns_with_a_watched_fd_and_no_pages :: proc(t: ^testing.T) {
 	defer thread.destroy(th)
 	start := time.tick_now()
 	for i in 0 ..< 3 {
-		o: Outcome
+		o: Page_Outcome
 		lava.page_runner_open(&runner, "1", "<no-budget>", {}, &o)
 		lava.page_runner_run(&runner)
-		testing.expectf(t, o.done && o.status == .Invalid_Input, "run %d, refused page: %v", i, o)
+		testing.expectf(t, o.done && o.status == .Invalid_Input, "run %d, refused page: %s", i, describe_outcome(o))
 	}
 	elapsed := time.duration_seconds(time.tick_since(start))
 	testing.expectf(t, elapsed < 1.0, "page_runner_run blocked %.2fs on a watched fd with no page live", elapsed)
@@ -972,7 +951,7 @@ runner_run_returns_with_a_watched_fd_and_no_pages :: proc(t: ^testing.T) {
 runner_step_wakes_on_a_watched_fd :: proc(t: ^testing.T) {
 	bare: lava.Page_Runner
 
-	if !lava.page_runner_init(&bare, 1, record_outcome, context.allocator) {
+	if !lava.page_runner_init(&bare, 1, record_page_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 
@@ -991,7 +970,7 @@ runner_step_wakes_on_a_watched_fd :: proc(t: ^testing.T) {
 	defer linux.close(fds[1])
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 1, record_outcome, context.allocator) {
+	if !lava.page_runner_init(&runner, 1, record_page_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 

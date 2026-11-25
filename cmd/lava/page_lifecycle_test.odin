@@ -48,19 +48,6 @@ CHURN_CANCELLED :: 2
 @(private = "file")
 CHURN_SLOTS :: 6
 
-@(private = "file")
-Outcome :: struct {
-	done:    bool,
-	status:  lava.Status,
-	kill:    lava.Kill_Reason,
-	exit:    int,
-	// The start of the Result's message: the one place a page that threw says what it
-	// saw. Copied into a fixed buffer, not cloned: on_done runs under the runner's
-	// allocator, which the churn test audits, and the copy is the test's, not the
-	// runner's.
-	message: [160]u8,
-}
-
 // Protect_Counts is what JSC's own books say about GC roots in one VM:
 // JSC::Heap::protectedObjectCount — every cell with a JSValueProtect or a
 // JSGlobalContextRetain outstanding, plus every Strong handle (see the protect-count
@@ -86,7 +73,7 @@ Churn_Page :: struct {
 	churn:   ^Churn,
 	fate:    Churn_Fate,
 	source:  string,
-	outcome: Outcome,
+	outcome: Page_Outcome,
 	// 1-based position in the order pages were reported in; 0 = not reported.
 	order:   int,
 	reports: int,
@@ -137,12 +124,12 @@ Churn :: struct {
 runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 1, record, context.allocator) {
+	if !lava.page_runner_init(&runner, 1, record_page_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 
 	defer lava.page_runner_destroy(&runner)
-	first, second: Outcome
+	first, second: Page_Outcome
 	lava.page_runner_open(
 		&runner,
 		`globalThis.leakA = 1;
@@ -165,7 +152,7 @@ runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first :: proc(t: ^t
 		t,
 		first.done && first.status == .Ok && first.kill == .None && first.exit == 5,
 		"first page did not finish normally: %s",
-		describe(first),
+		describe_outcome(first),
 	)
 
 	if len(runner.pool.vms) != 1 {
@@ -198,7 +185,7 @@ runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first :: proc(t: ^t
 		t,
 		second.done && second.status == .Ok && second.kill == .None && second.exit == 11,
 		"second page: %s",
-		describe(second),
+		describe_outcome(second),
 	)
 	_, created := lava.vm_pool_stats(&runner.pool)
 	testing.expect_value(t, created, 1)
@@ -308,7 +295,7 @@ runner_churn_of_mixed_fates_frees_everything_it_allocates :: proc(t: ^testing.T)
 		case .Cancelled:
 			ok = ok && o.status == .Execution_Error && o.kill == .Cancelled
 		}
-		testing.expectf(t, ok, "page %d (%v) reported %d time(s) as %s", i, cp.fate, cp.reports, describe(o))
+		testing.expectf(t, ok, "page %d (%v) reported %d time(s) as %s", i, cp.fate, cp.reports, describe_outcome(o))
 
 		if i > 0 && cp.order < pages[i - 1].order {
 			out_of_order += 1
@@ -448,7 +435,7 @@ runner_pages_leave_the_vm_protect_count_where_they_found_it :: proc(t: ^testing.
 
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 1, record, context.allocator) {
+	if !lava.page_runner_init(&runner, 1, record_page_outcome, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 
@@ -456,7 +443,7 @@ runner_pages_leave_the_vm_protect_count_where_they_found_it :: proc(t: ^testing.
 	before: Protect_Counts
 	for pass in 0 ..< 2 {
 		for c in cases {
-			o: Outcome
+			o: Page_Outcome
 			lava.page_runner_open(&runner, c.source, c.name, c.limits, &o, c.surface)
 			lava.page_runner_run(&runner)
 			testing.expectf(
@@ -464,7 +451,7 @@ runner_pages_leave_the_vm_protect_count_where_they_found_it :: proc(t: ^testing.
 				o.done && o.status == c.status && o.kill == c.kill && o.exit == c.exit,
 				"%s page ended as %s, want %v/%v/exit %d",
 				c.name,
-				describe(o),
+				describe_outcome(o),
 				c.status,
 				c.kill,
 				c.exit,
@@ -502,41 +489,13 @@ runner_pages_leave_the_vm_protect_count_where_they_found_it :: proc(t: ^testing.
 }
 
 @(private = "file")
-record :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Result) {
-	result := result
-	o := cast(^Outcome)user_data
-	o^ = {
-		done   = true,
-		status = result.status,
-		kill   = result.kill,
-		exit   = result.exit_code,
-	}
-	copy(o.message[:len(o.message) - 1], result.message)
-	lava.result_destroy(&result)
-}
-
-// describe renders an Outcome for a failure message, the message as text.
-@(private = "file")
-describe :: proc(o: Outcome) -> string {
-	msg := o.message
-	return fmt.tprintf(
-		"{{done=%v status=%v kill=%v exit=%d message=%q}}",
-		o.done,
-		o.status,
-		o.kill,
-		o.exit,
-		string(cstring(&msg[0])),
-	)
-}
-
-@(private = "file")
 churn_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Result) {
 	cp := cast(^Churn_Page)user_data
 	churn := cp.churn
 	churn.reported += 1
 	cp.order = churn.reported
 	cp.reports += 1
-	record(runner, &cp.outcome, result)
+	record_page_outcome(runner, &cp.outcome, result)
 
 	if churn.next < len(churn.pages) {
 		churn_open(runner, churn, churn.next)
