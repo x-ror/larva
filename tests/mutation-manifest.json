@@ -4269,6 +4269,72 @@
       "gate": "node-test:scripts/sdk-diff.test.mjs",
       "test": "the sdk-diff CLI reports candidates and imported-package breaks, and --max-chars trims",
       "expect_detail": "--max-chars was ignored"
+    },
+    {
+      "name": "runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first dies when a VM keeps one global context across pages",
+      "why": "A context reused for the next page in a pooled VM carries the previous page's globals and every intrinsic it polluted (Object/Array.prototype, JSON.parse, Error.stackTraceLimit). The runner reports the first error line, which is the second page's loader failing on the first page's already-locked Function.prototype.call — the same reuse, seen one step earlier; the test's own assertion follows it.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "vm_create_context :: proc(vm: ^VM, global_class: jsc.JSClassRef) -> jsc.JSGlobalContextRef {\n\treturn jsc.JSGlobalContextCreateInGroup(vm.group, global_class)\n}",
+      "replace": "foreign import mutant_jsc \"system:javascriptcoregtk-6.0\"\n@(default_calling_convention = \"c\")\nforeign mutant_jsc {\n\tJSGlobalContextRetain :: proc(ctx: jsc.JSGlobalContextRef) -> jsc.JSGlobalContextRef ---\n}\nvm_create_context :: proc(vm: ^VM, global_class: jsc.JSClassRef) -> jsc.JSGlobalContextRef {\n\t@(static) kept: jsc.JSGlobalContextRef\n\tif kept == nil {\n\t\tkept = jsc.JSGlobalContextCreateInGroup(vm.group, global_class)\n\t}\n\treturn JSGlobalContextRetain(kept)\n}",
+      "gate": "odin:cmd/lava:main.runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first",
+      "expect_detail": [
+        "second page saw the first: leakA",
+        "failed to initialize internal:loader: TypeError: Attempting to change the setter of an unconfigurable property"
+      ]
+    },
+    {
+      "name": "runner_churn_of_mixed_fates_frees_everything_it_allocates dies when runner_finish keeps the Runner_Page",
+      "why": "Every closed page would leak its Runner_Page on the runner allocator, whatever its fate.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\tfree(rp, runner.allocator)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.runner_churn_of_mixed_fates_frees_everything_it_allocates",
+      "expect_detail": "runner allocator leaked"
+    },
+    {
+      "name": "runner_churn_of_mixed_fates_frees_everything_it_allocates dies when a top-level throw hands back its message as not allocated",
+      "why": "A thrown page's message is cloned through the runner allocator; marked unallocated, result_destroy never frees it and every throw leaks it.",
+      "source": "pkg/runtime/page.odin",
+      "find": "message = msg, is_allocated = allocated})",
+      "replace": "message = msg, is_allocated = false})",
+      "gate": "odin:cmd/lava:main.runner_churn_of_mixed_fates_frees_everything_it_allocates",
+      "expect_detail": "runner allocator leaked"
+    },
+    {
+      "name": "runner_churn_of_mixed_fates_frees_everything_it_allocates dies when a page loop is freed through the runner allocator",
+      "why": "Page loops are heap memory (workers may outlive the page); freeing one through the runner allocator hands the embedder memory it never allocated.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\t\tfree(rp.loop, runtime.heap_allocator())\n",
+      "replace": "\t\tfree(rp.loop)\n",
+      "gate": "odin:cmd/lava:main.runner_churn_of_mixed_fates_frees_everything_it_allocates",
+      "expect_detail": "free(s) through the runner allocator of memory it never allocated"
+    },
+    {
+      "name": "runner_pages_leave_the_vm_protect_count_where_they_found_it dies when a cancelled timer keeps its roots",
+      "why": "A timer or interval the loop drops without firing (a cleared interval, a killed or exited page) would leave its callback protected in the VM for every later page.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tfree_js_callback(cb)\n}\n\nreport_uncaught",
+      "replace": "\tfree_js_callback(cb, release_roots = false)\n}\n\nreport_uncaught",
+      "gate": "odin:cmd/lava:main.runner_pages_leave_the_vm_protect_count_where_they_found_it",
+      "expect_detail": "left the VM's protect count"
+    },
+    {
+      "name": "runner_pages_leave_the_vm_protect_count_where_they_found_it dies when a settled fetch keeps its on_error root",
+      "why": "A fetch's settle path is where its callbacks are unprotected; missing one leaks a root per fetch, settled or cut short by the page's end.",
+      "source": "pkg/runtime/fetch.odin",
+      "find": "\tjs_root_clear(req.ctx, &req.on_error)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.runner_pages_leave_the_vm_protect_count_where_they_found_it",
+      "expect_detail": "fetch page left the VM's protect count"
+    },
+    {
+      "name": "runner_pages_leave_the_vm_protect_count_where_they_found_it dies when page_close does not release the page's context",
+      "why": "An unreleased context keeps its global object protected, and with it the whole page, in the pooled VM for good.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\tif page.ctx != nil {\n\t\trelease_global_context_after_eval(page.ctx)\n\t}\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.runner_pages_leave_the_vm_protect_count_where_they_found_it",
+      "expect_detail": "left the VM's protect count"
     }
   ]
 }
