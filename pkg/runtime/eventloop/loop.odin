@@ -90,6 +90,10 @@ Loop :: struct {
 	reffed_timer_count: int,
 	cancelled_ids:      map[Timer_ID]bool,
 	running_id:         Timer_ID,
+	// running_dispose is the running handle's dispose hook, set and cleared with
+	// running_id: the running handle has left the heap (or its queue), so this is the
+	// only place clear_timeout_owned can still read its owner from.
+	running_dispose:    Dispose,
 	active_io_count:    int,
 	io_events:          u64, // bumped by platform_poll each time a watcher callback fires
 	iteration:          u64, // bumped once per run_once; a monotonic loop-tick counter
@@ -773,6 +777,43 @@ clear_timeout :: proc(loop: ^Loop, id: Timer_ID) -> bool {
 	return false
 }
 
+// clear_timeout_owned cancels the timer or immediate `id` only when its dispose hook is
+// `owner`, and otherwise leaves it alone and returns false.
+//
+// Params:
+//   owner  The dispose every handle of the caller's kind is armed with. nil matches
+//          nothing: a handle armed without a dispose has no owner that can name it.
+// Returns:
+//   What clear_timeout returns for a handle `owner` owns; false for any other id.
+//
+// Handle ids come from one per-loop counter shared by every kind of handle — the JS
+// timer globals and the runtime's own timers (net's TLS-handshake and drain timers,
+// pkg/http's transfer deadline) alike — so an id alone does not say whose handle it
+// is, and an id handed in by JS is just a number the script picked (#92). The dispose
+// hook is what each kind already stores per handle, so the owner check costs no field
+// on Timer or Task. Looks in the same three places as clear_timeout, in its order.
+clear_timeout_owned :: proc(loop: ^Loop, id: Timer_ID, owner: Dispose) -> bool {
+	if owner == nil || id == 0 || loop.destroyed {
+		return false
+	}
+
+	if idx, ok := loop.timer_index[id]; ok {
+		return loop.timers[idx].dispose == owner && clear_timeout(loop, id)
+	}
+
+	if loop.running_id == id {
+		return loop.running_dispose == owner && clear_timeout(loop, id)
+	}
+
+	for i in 0 ..< len(loop.immediates) {
+		if loop.immediates[i].id == id && !loop.immediates[i].cancelled {
+			return loop.immediates[i].dispose == owner && clear_timeout(loop, id)
+		}
+	}
+
+	return false
+}
+
 clear_interval :: proc(loop: ^Loop, id: Timer_ID) -> bool {
 	return clear_timeout(loop, id)
 }
@@ -824,10 +865,10 @@ drain_io_callbacks :: proc(loop: ^Loop, limit: u64) -> (did_work: bool) {
 		}
 
 		did_work = true
-		loop.running_id = task.id
+		loop.running_id, loop.running_dispose = task.id, task.dispose
 		task.callback(loop, task.user_data)
 		drain_microtasks(loop)
-		loop.running_id = 0
+		loop.running_id, loop.running_dispose = 0, nil
 	}
 	return
 }
@@ -923,14 +964,14 @@ run_once :: proc(loop: ^Loop) -> bool {
 			loop.reffed_timer_count -= 1
 		}
 
-		loop.running_id = timer.id
+		loop.running_id, loop.running_dispose = timer.id, timer.dispose
 		timer.callback(loop, timer.user_data)
 		// Drain microtasks while running_id still names this timer: a task the
 		// callback queued (next_tick/microtask) that clears this very timer must
 		// reach clear_timeout's running-handle branch and record the cancel, or the
 		// re-arm check below misses it and re-arms a cancelled repeating timer.
 		drain_microtasks(loop)
-		loop.running_id = 0
+		loop.running_id, loop.running_dispose = 0, nil
 
 		if timer.repeating && !is_cancel_requested(loop, timer.id) {
 			// Re-armed: stays active, so reffed_timer_count is unchanged.
@@ -1050,10 +1091,10 @@ run_once :: proc(loop: ^Loop) -> bool {
 		}
 
 		did_work = true
-		loop.running_id = immediate.id
+		loop.running_id, loop.running_dispose = immediate.id, immediate.dispose
 		immediate.callback(loop, immediate.user_data)
 		drain_microtasks(loop)
-		loop.running_id = 0
+		loop.running_id, loop.running_dispose = 0, nil
 	}
 
 	// Phase 6: close callbacks
