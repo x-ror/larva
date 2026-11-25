@@ -83,6 +83,33 @@
       "expect_detail": "expected len(actual) to be 2, got 3"
     },
     {
+      "name": "interval_rearms_from_clock_before_its_callback dies when an interval re-arms from the clock after its callback again",
+      "why": "node's listOnTimeout re-inserts an interval with the start it read before _onTimeout(), so a slow callback does not push every later fire back by its own run time.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\t\ttimer.due_ms = rearm_start + timer.repeat_ms",
+      "replace": "\t\t\ttimer.due_ms = loop.now_ms + timer.repeat_ms",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.interval_rearms_from_clock_before_its_callback",
+      "expect_detail": "expected value to be 23, got 27"
+    },
+    {
+      "name": "interval_rearms_from_clock_before_its_callback dies when an interval re-arms from the turn's now",
+      "why": "node reads a fresh getLibuvNow() per interval fire, not the processTimers `now`, so a slow timer ahead of the interval in the same turn does not pull its next fire early.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\t\trearm_start = loop.now_ms",
+      "replace": "\t\t\trearm_start = timer_phase_now",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.interval_rearms_from_clock_before_its_callback",
+      "expect_detail": "expected value to be 23, got 20"
+    },
+    {
+      "name": "eventloop case 13 dies when the interval's pre-callback start skips the real clock",
+      "why": "In real_time mode now_ms only moves on a sync, so without one before the callback the re-arm start is the turn's now (or whatever a prior callback's setTimeout left), firing the interval early; the virtual-clock test cannot see this.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\tif timer.repeating {\n\t\t\tsync_real_clock(loop)\n",
+      "replace": "\t\tif timer.repeating {\n",
+      "gate": "compat:tests/runtime/eventloop/cases/13-interval-rearms-from-callback-start.js",
+      "expect_detail": "'interval2', 'early'"
+    },
+    {
       "name": "the detector's fixtures die when isWrite swallows read-modify-write again",
       "why": "Compound, logical and update assignments all run GetValue before PutValue, so exempting them lets the ratchet pay out for rewriting a counted read as `??=`.",
       "source": "scripts/lib/primordials-detect.mjs",
