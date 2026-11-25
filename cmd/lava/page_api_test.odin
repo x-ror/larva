@@ -76,6 +76,24 @@ page_create_then_run_script_ends_like_page_open :: proc(t: ^testing.T) {
 	testing.expect_value(t, refused.status, lava.Status.Invalid_Input)
 }
 
+// A page has one top-level script. A second page_run_script is refused before it runs
+// — it would take the completion slot the first one protected — and leaves the page as
+// it was: live, with the first script's state.
+@(test)
+page_run_script_runs_once :: proc(t: ^testing.T) {
+	page: lava.Page
+	loop: eventloop.Loop
+	open_web_page(t, &page, &loop, `globalThis.runs = 1;`)
+	defer close_page(&page)
+
+	again := lava.page_run_script(&page, `globalThis.runs = 2; 'again'`, "<page-api>", true)
+	testing.expect(t, !again, "a second page_run_script was accepted")
+	testing.expect(t, !page.finished, "a refused second page_run_script finished the page")
+	v, ok := lava.page_eval(&page, `runs`)
+	testing.expect(t, ok, "page_eval after a refused page_run_script failed")
+	testing.expectf(t, eval_number(&page, v) == 1, "the second script ran: runs=%v", eval_number(&page, v))
+}
+
 // page_eval runs on the page the top-level script left: it sees the script's globals
 // and an earlier page_eval's, and returns its own completion value.
 @(test)
@@ -277,6 +295,47 @@ page_run_until_returns_at_the_deadline :: proc(t: ^testing.T) {
 		if stop != .Deadline {
 			return
 		}
+	}
+}
+
+// Deadline holds even when page JS cancels the deadline timer: clearTimeout reaches
+// any handle id (clear_timer_cb, globals.odin), and ids come from one counter per loop
+// that only grows (next_handle_id, loop.odin), so clearing every id up to a fresh
+// probe's covers every timer armed before it — the deadline timer included. Two shapes:
+// an interval that does it every turn and burns CPU (with the deadline timer as the
+// only signal, the run never ends; the 2 s budget turns that into a kill, so the case
+// fails instead of hanging), and one timer that does it once and leaves only a far
+// timer behind (a deadline that is not re-armed sleeps through to it).
+@(test)
+page_run_until_deadline_survives_page_js_clearing_it :: proc(t: ^testing.T) {
+	CLEAR_ALL :: `function clearAll(keep) {
+			const probe = setTimeout(() => {}, 0);
+			for (let i = 1; i <= probe; i++) if (i !== keep) clearTimeout(i);
+		}
+		`
+	Case :: struct {
+		name:   string,
+		source: string,
+	}
+	cases := []Case {
+		{
+			"spinning interval",
+			CLEAR_ALL +
+			`let me; me = setInterval(() => { clearAll(me); const s = Date.now(); while (Date.now() - s < 1) {} }, 1);`,
+		},
+		{"far timer", CLEAR_ALL + `const far = setTimeout(() => {}, 3000); setTimeout(() => clearAll(far), 10);`},
+	}
+	for c in cases {
+		page: lava.Page
+		loop: eventloop.Loop
+		open_web_page(t, &page, &loop, c.source, {cpu_budget = 2})
+
+		start := time.tick_now()
+		stop := lava.page_run_until(&page, cond_never, nil, 100)
+		elapsed := time.duration_seconds(time.tick_since(start))
+		testing.expectf(t, stop == .Deadline, "%s: stopped with %v, want Deadline", c.name, stop)
+		testing.expectf(t, elapsed < 1.5, "%s: Deadline after %.3fs, want ~0.1s", c.name, elapsed)
+		close_page(&page)
 	}
 }
 

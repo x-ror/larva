@@ -4374,9 +4374,9 @@
     },
     {
       "name": "page_run_until_met_after_a_timer dies when page_run_until leaves its deadline timer on the loop",
-      "why": "The timer's user_data is page_run_until's stack frame: left armed, it fires into a dead frame on a later tick.",
+      "why": "A wake-up timer left armed outlives the call: a stale wake-up for every later tick, and one more heap entry per run_until.",
       "source": "pkg/runtime/page.odin",
-      "find": "\t\teventloop.clear_timeout(loop, deadline)\n",
+      "find": "\t\teventloop.clear_timeout(loop, wake)\n",
       "replace": "",
       "gate": "odin:cmd/lava:main.page_run_until_met_after_a_timer",
       "expect_detail": "the deadline timer is cleared"
@@ -4385,7 +4385,7 @@
       "name": "page_run_until_idle_returns_before_the_deadline dies when the deadline timer is reffed",
       "why": "A reffed deadline keeps an otherwise idle loop alive, so every run waits out its whole deadline and reports Deadline instead of Idle.",
       "source": "pkg/runtime/page.odin",
-      "find": "\t\teventloop.timer_unref(loop, deadline)\n",
+      "find": "\t\t\t\teventloop.timer_unref(loop, wake)\n",
       "replace": "",
       "gate": "odin:cmd/lava:main.page_run_until_idle_returns_before_the_deadline",
       "expect_detail": "expected stop to be Idle, got Deadline"
@@ -4394,10 +4394,10 @@
       "name": "page_run_until_returns_at_the_deadline dies when no deadline timer is armed",
       "why": "A tick blocked in its poll on a far timer or a silent socket sleeps through the deadline instead of returning at it.",
       "source": "pkg/runtime/page.odin",
-      "find": "\t\tdeadline = eventloop.set_timeout(loop, page_deadline_expired, deadline_ms, rawptr(&expired))\n",
-      "replace": "",
+      "find": "\t\t\t\twake = eventloop.set_timeout(loop, page_deadline_wake, deadline_at > now ? deadline_at - now : 0)\n",
+      "replace": "\t\t\t\t_ = now\n",
       "gate": "odin:cmd/lava:main.page_run_until_returns_at_the_deadline",
-      "expect_detail": "want Deadline"
+      "expect_detail": "Deadline after"
     },
     {
       "name": "page_run_until_met_before_any_tick dies when the condition is first checked after a tick",
@@ -4434,6 +4434,33 @@
       "replace": "",
       "gate": "odin:cmd/lava:main.page_api_lifecycle_frees_everything_it_allocates",
       "expect_detail": "the page leaked"
+    },
+    {
+      "name": "page_run_until_deadline_survives_page_js_clearing_it dies when the deadline is read off the timer instead of the clock",
+      "why": "Page JS can clearTimeout the deadline timer by id, so a run that only ends when that timer fires never ends on such a page.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\tif deadline_ms > 0 && page_loop_now(loop) >= deadline_at {\n",
+      "replace": "\t\tif false {\n",
+      "gate": "odin:cmd/lava:main.page_run_until_deadline_survives_page_js_clearing_it",
+      "expect_detail": "want Deadline"
+    },
+    {
+      "name": "page_run_until_deadline_survives_page_js_clearing_it dies when a cleared wake-up timer is not re-armed",
+      "why": "Once page JS clears the wake-up, a tick blocked on a far timer sleeps through the deadline to it.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\t\tif _, live := loop.timer_index[wake]; !live {\n",
+      "replace": "\t\t\tif wake == 0 {\n",
+      "gate": "odin:cmd/lava:main.page_run_until_deadline_survives_page_js_clearing_it",
+      "expect_detail": "far timer: Deadline after"
+    },
+    {
+      "name": "page_run_script_runs_once dies when a second top-level script is accepted",
+      "why": "A second run_script protects a second completion over the first, which is never unprotected, and runs a second entry on the page.",
+      "source": "pkg/runtime/page.odin",
+      "find": "|| page.script_ran {",
+      "replace": "{",
+      "gate": "odin:cmd/lava:main.page_run_script_runs_once",
+      "expect_detail": "a second page_run_script was accepted"
     }
   ]
 }

@@ -47,6 +47,8 @@ Page :: struct {
 	eval_value:   jsc.JSValueRef,
 	// Fixed by page_create: page_run_script and page_eval follow it.
 	surface:      Global_Surface,
+	// Set by page_run_script on entry: a page runs one top-level script.
+	script_ran:   bool,
 	// Set once the Result is decided early (a pre-flight rejection, a top-level throw,
 	// a limit kill): no more ticks, and page_close returns `result` as is.
 	finished:     bool,
@@ -277,15 +279,20 @@ page_create :: proc(
 // Returns:
 //   page_open's contract: true when the page has a loop worth ticking; false when it
 //   finished — a refused source, a throw, a limit kill — or has no loop, or was not
-//   live. The caller ends with page_close either way.
+//   live, or already ran its top-level script (refused, the page unchanged). The
+//   caller ends with page_close either way.
 // Node:
 //   The top-level run of `lava run`/`lava eval`: a throw is the process's uncaught
 //   exception, exit code 1 — pinned by every oracle suite.
 page_run_script :: proc(page: ^Page, source: string, source_name := "<eval>", echo_result := false) -> bool {
-	if page.finished || page.ctx == nil || page.state == nil {
+	// One top-level script per page: a second would take the completion slot the first
+	// protected, and register a second entry module. Refused before anything runs; the
+	// page is left as it was.
+	if page.finished || page.ctx == nil || page.state == nil || page.script_ran {
 		return false
 	}
 
+	page.script_ran = true
 	ctx := page.ctx
 	vm := page.vm
 	state := page.state
@@ -442,7 +449,8 @@ page_eval :: proc(page: ^Page, source: string, source_name := "<page_eval>") -> 
 //
 // Params:
 //   cond         Checked once before the first tick — already true is .Met with no
-//                tick — and after every tick.
+//                tick — and after every tick. It may page_eval the page; it must not
+//                close or destroy it (page_close, or anything that frees the loop).
 //   user_data    Passed to `cond`.
 //   deadline_ms  Bound on the call, measured on the page loop's clock (wall clock
 //                for a real_time loop, which every Lava page loop is). 0: no bound.
@@ -453,13 +461,20 @@ page_eval :: proc(page: ^Page, source: string, source_name := "<page_eval>") -> 
 // Node:
 //   No counterpart (a Larva page step).
 //
-// The deadline is an UNREFFED timer on the page's own loop: a tick blocked in its poll
-// (a far timer, a socket with nothing to read) wakes when the deadline is due rather
-// than sleeping through it, while a loop with nothing else left still reads as idle —
-// a reffed timer would keep it alive until the deadline. Cleared on every return, so
-// nothing of the call outlives it; the timer's user_data is this frame's flag. A tick
-// is page_tick, limits and all, so a run that crosses many ticks is charged exactly
-// like eval's loop. Single page only: the page runner drives its own loop.
+// The deadline is decided by the loop's clock after every tick, not by a timer firing:
+// page JS can clearTimeout any handle id (clear_timer_cb, globals.odin), the deadline
+// timer's included, so a run that waited for the timer would never end once a page
+// cancelled it. The timer is only the WAKE-UP: an UNREFFED timer on the page's own loop,
+// so a tick blocked in its poll (a far timer, a socket with nothing to read) wakes when
+// the deadline is due rather than sleeping through it, while a loop with nothing else
+// left still reads as idle — a reffed timer would keep it alive until the deadline.
+// Before every tick it is re-armed for the time left if it is no longer live (a map
+// lookup, versus a clear plus a heap push and a fresh id on every tick were it simply
+// re-set each turn). Residual: a page that clears it DURING a tick can still block that
+// one tick's poll until its own next timer or I/O. Cleared on every return — unless
+// `cond` broke the contract and the page no longer holds the loop it was armed on. A
+// tick is page_tick, limits and all, so a run that crosses many ticks is charged
+// exactly like eval's loop. Single page only: the page runner drives its own loop.
 page_run_until :: proc(page: ^Page, cond: Run_Until_Cond, user_data: rawptr = nil, deadline_ms: u64 = 0) -> Run_Stop {
 	if page_run_over(page) {
 		return .Finished
@@ -475,20 +490,22 @@ page_run_until :: proc(page: ^Page, cond: Run_Until_Cond, user_data: rawptr = ni
 		return .Idle
 	}
 
-	expired := false
-	deadline: eventloop.Timer_ID
+	deadline_at := page_loop_now(loop) + deadline_ms
+	wake: eventloop.Timer_ID
 
-	if deadline_ms > 0 {
-		deadline = eventloop.set_timeout(loop, page_deadline_expired, deadline_ms, rawptr(&expired))
-		eventloop.timer_unref(loop, deadline)
-	}
-
-	// A no-op for a deadline that already fired: a one-shot leaves the heap as it runs.
-	defer if deadline != 0 {
-		eventloop.clear_timeout(loop, deadline)
+	defer if wake != 0 && page.loop == loop {
+		eventloop.clear_timeout(loop, wake)
 	}
 
 	for {
+		if deadline_ms > 0 {
+			if _, live := loop.timer_index[wake]; !live {
+				now := page_loop_now(loop)
+				wake = eventloop.set_timeout(loop, page_deadline_wake, deadline_at > now ? deadline_at - now : 0)
+				eventloop.timer_unref(loop, wake)
+			}
+		}
+
 		alive, _ := page_tick(page)
 
 		if page_run_over(page) {
@@ -509,7 +526,7 @@ page_run_until :: proc(page: ^Page, cond: Run_Until_Cond, user_data: rawptr = ni
 			return .Idle
 		}
 
-		if expired {
+		if deadline_ms > 0 && page_loop_now(loop) >= deadline_at {
 			return .Deadline
 		}
 	}
@@ -907,9 +924,15 @@ page_run_over :: proc(page: ^Page) -> bool {
 	return page.finished || (page.loop != nil && (page.loop.backend_error || page.loop.force_exit))
 }
 
-// page_deadline_expired is page_run_until's deadline timer: it only marks the run's
-// flag; the tick it fires in returns, and the run checks the flag.
+// page_deadline_wake is page_run_until's wake-up timer. It does nothing: firing is what
+// ends a poll blocked past the deadline, and the run reads the clock itself.
 @(private = "file")
-page_deadline_expired :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
-	(cast(^bool)user_data)^ = true
+page_deadline_wake :: proc(loop: ^eventloop.Loop, user_data: rawptr) {}
+
+// page_loop_now reads the clock the loop's timers run on: the monotonic clock for a
+// real_time loop (read now, not the loop's last sample, so a deadline is not missed by
+// the time since the tick last synced), the loop's own simulated time otherwise.
+@(private = "file")
+page_loop_now :: proc(loop: ^eventloop.Loop) -> u64 {
+	return loop.real_time ? eventloop.real_now_ms(loop) : eventloop.now(loop)
 }
