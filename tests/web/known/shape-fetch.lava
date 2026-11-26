@@ -26,14 +26,66 @@ global Request data -cw fn name="Request" length=1 own=[length,name,prototype] p
 [[Prototype]] Function.prototype
 call: TypeError: Failed to construct 'Request': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
 static prototype data --- object [object Request]
-prototype [[Prototype]] Body.prototype
+prototype [[Prototype]] Object.prototype
+proto method accessor ec
+  get name="get method" length=0 own=[length,name] prototype=false ctor=false src="function get method() { [native code] }"
+  set undefined
+proto url accessor ec
+  get name="get url" length=0 own=[length,name] prototype=false ctor=false src="function get url() { [native code] }"
+  set undefined
+proto headers accessor ec
+  get name="get headers" length=0 own=[length,name] prototype=false ctor=false src="function get headers() { [native code] }"
+  set undefined
+proto destination accessor ec
+  get name="get destination" length=0 own=[length,name] prototype=false ctor=false src="function get destination() { [native code] }"
+  set undefined
+proto referrer accessor ec
+  get name="get referrer" length=0 own=[length,name] prototype=false ctor=false src="function get referrer() { [native code] }"
+  set undefined
+proto referrerPolicy accessor ec
+  get name="get referrerPolicy" length=0 own=[length,name] prototype=false ctor=false src="function get referrerPolicy() { [native code] }"
+  set undefined
+proto mode accessor ec
+  get name="get mode" length=0 own=[length,name] prototype=false ctor=false src="function get mode() { [native code] }"
+  set undefined
+proto credentials accessor ec
+  get name="get credentials" length=0 own=[length,name] prototype=false ctor=false src="function get credentials() { [native code] }"
+  set undefined
+proto cache accessor ec
+  get name="get cache" length=0 own=[length,name] prototype=false ctor=false src="function get cache() { [native code] }"
+  set undefined
+proto redirect accessor ec
+  get name="get redirect" length=0 own=[length,name] prototype=false ctor=false src="function get redirect() { [native code] }"
+  set undefined
+proto integrity accessor ec
+  get name="get integrity" length=0 own=[length,name] prototype=false ctor=false src="function get integrity() { [native code] }"
+  set undefined
+proto keepalive accessor ec
+  get name="get keepalive" length=0 own=[length,name] prototype=false ctor=false src="function get keepalive() { [native code] }"
+  set undefined
+proto signal accessor ec
+  get name="get signal" length=0 own=[length,name] prototype=false ctor=false src="function get signal() { [native code] }"
+  set undefined
+proto duplex accessor ec
+  get name="get duplex" length=0 own=[length,name] prototype=false ctor=false src="function get duplex() { [native code] }"
+  set undefined
+proto isHistoryNavigation accessor ec
+  get name="get isHistoryNavigation" length=0 own=[length,name] prototype=false ctor=false src="function get isHistoryNavigation() { [native code] }"
+  set undefined
 proto bodyUsed accessor ec
   get name="get bodyUsed" length=0 own=[length,name] prototype=false ctor=false src="function get bodyUsed() { [native code] }"
   set undefined
 proto arrayBuffer data ecw fn name="arrayBuffer" length=0 own=[length,name] prototype=false ctor=false src="function arrayBuffer() { [native code] }"
 proto blob data ecw fn name="blob" length=0 own=[length,name] prototype=false ctor=false src="function blob() { [native code] }"
+proto clone data ecw fn name="clone" length=0 own=[length,name] prototype=false ctor=false src="function clone() { [native code] }"
 proto json data ecw fn name="json" length=0 own=[length,name] prototype=false ctor=false src="function json() { [native code] }"
 proto text data ecw fn name="text" length=0 own=[length,name] prototype=false ctor=false src="function text() { [native code] }"
+proto targetAddressSpace accessor ec
+  get name="get targetAddressSpace" length=0 own=[length,name] prototype=false ctor=false src="function get targetAddressSpace() { [native code] }"
+  set undefined
+proto isReloadNavigation accessor ec
+  get name="get isReloadNavigation" length=0 own=[length,name] prototype=false ctor=false src="function get isReloadNavigation() { [native code] }"
+  set undefined
 proto body accessor ec
   get name="get body" length=0 own=[length,name] prototype=false ctor=false src="function get body() { [native code] }"
   set undefined
@@ -41,13 +93,35 @@ proto bytes data ecw fn name="bytes" length=0 own=[length,name] prototype=false 
 proto constructor data -cw fn name="Request" length=1 own=[length,name,prototype] prototype=true ctor=true src="function Request() { [native code] }"
 proto [Symbol(Symbol.toStringTag)] data -c- string "Request"
 == Response
-global Response data -cw fn name="Response" length=0 own=[length,name,prototype,error,json] prototype=true ctor=true src="function Response() { [native code] }"
+global Response data -cw fn name="Response" length=0 own=[length,name,prototype,error,json,redirect] prototype=true ctor=true src="function Response() { [native code] }"
 [[Prototype]] Function.prototype
 call: TypeError: Failed to construct 'Response': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
 static error data ecw fn name="error" length=0 own=[length,name] prototype=false ctor=false src="function error() { [native code] }"
 static json data ecw fn name="json" length=1 own=[length,name] prototype=false ctor=false src="function json() { [native code] }"
+static redirect data ecw fn name="redirect" length=1 own=[length,name] prototype=false ctor=false src="function redirect() { [native code] }"
 static prototype data --- object [object Response]
-prototype [[Prototype]] Body.prototype
+prototype [[Prototype]] Object.prototype
+proto type accessor ec
+  get name="get type" length=0 own=[length,name] prototype=false ctor=false src="function get type() { [native code] }"
+  set undefined
+proto url accessor ec
+  get name="get url" length=0 own=[length,name] prototype=false ctor=false src="function get url() { [native code] }"
+  set undefined
+proto redirected accessor ec
+  get name="get redirected" length=0 own=[length,name] prototype=false ctor=false src="function get redirected() { [native code] }"
+  set undefined
+proto status accessor ec
+  get name="get status" length=0 own=[length,name] prototype=false ctor=false src="function get status() { [native code] }"
+  set undefined
+proto ok accessor ec
+  get name="get ok" length=0 own=[length,name] prototype=false ctor=false src="function get ok() { [native code] }"
+  set undefined
+proto statusText accessor ec
+  get name="get statusText" length=0 own=[length,name] prototype=false ctor=false src="function get statusText() { [native code] }"
+  set undefined
+proto headers accessor ec
+  get name="get headers" length=0 own=[length,name] prototype=false ctor=false src="function get headers() { [native code] }"
+  set undefined
 proto body accessor ec
   get name="get body" length=0 own=[length,name] prototype=false ctor=false src="function get body() { [native code] }"
   set undefined
@@ -60,5 +134,5 @@ proto clone data ecw fn name="clone" length=0 own=[length,name] prototype=false 
 proto json data ecw fn name="json" length=0 own=[length,name] prototype=false ctor=false src="function json() { [native code] }"
 proto text data ecw fn name="text" length=0 own=[length,name] prototype=false ctor=false src="function text() { [native code] }"
 proto bytes data ecw fn name="bytes" length=0 own=[length,name] prototype=false ctor=false src="function bytes() { [native code] }"
-proto constructor data -cw fn name="Response" length=0 own=[length,name,prototype,error,json] prototype=true ctor=true src="function Response() { [native code] }"
+proto constructor data -cw fn name="Response" length=0 own=[length,name,prototype,error,json,redirect] prototype=true ctor=true src="function Response() { [native code] }"
 proto [Symbol(Symbol.toStringTag)] data -c- string "Response"

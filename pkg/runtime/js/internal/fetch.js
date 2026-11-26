@@ -14,20 +14,40 @@
   // body collection, redirects, and the streaming hand-off to the Odin transport —
   // because the loader keys natives by module id and native.request is bound to
   // `internal/fetch` (globals.odin). It also installs the globals.
-  var Headers = require('internal/fetch/headers').Headers;
-  var appendRawHeader = require('internal/fetch/headers').appendRaw;
-  var Request = require('internal/fetch/request').Request;
-  var Response = require('internal/fetch/response').Response;
+  //
+  // The driver reaches Request, Response and Headers through their modules' functions
+  // and state records, never through a prototype member: a page can redefine every
+  // one of those (they are configurable, as in Chrome), and a redefined `headers`
+  // getter must not steer what goes on the wire.
+  var headersModule = require('internal/fetch/headers');
+  var Headers = headersModule.Headers;
+  var appendRawHeader = headersModule.appendRaw;
+  var getRawHeader = headersModule.getRaw;
+  var removeRawHeader = headersModule.removeRaw;
+  var fillHeaders = headersModule.fillHeaders;
+  var freezeHeaders = headersModule.freezeHeaders;
+  var headerEntries = headersModule.entryList;
+  var requestModule = require('internal/fetch/request');
+  var Request = requestModule.Request;
+  var requestState = requestModule.requestState;
+  var FETCH = requestModule.FETCH;
+  var responseModule = require('internal/fetch/response');
+  var Response = responseModule.Response;
+  var makeResponse = responseModule.makeResponse;
+  var responseState = responseModule.responseState;
   var bodyModule = require('internal/fetch/body');
   var chunkToBytes = bodyModule.chunkToBytes;
   var concatChunks = bodyModule.concatChunks;
   var makeTransportStream = bodyModule.makeTransportStream;
+  var bodyStreamOf = bodyModule.bodyStreamOf;
+  var isBlob = bodyModule.isBlob;
   // fetchObjectURL's captures (this module is eager, so they are pristine).
   var P = require('internal/primordials');
   var PromiseResolveP = P.PromiseResolve;
   var PromiseRejectP = P.PromiseReject;
   var TypeErrorP = P.TypeError;
   var StringP = P.String;
+  var webErrors = require('internal/web_errors');
 
   // collectStreamBody materializes a known-length streaming body (a Blob) to a
   // single Uint8Array so it can be sent with Content-Length framing — matching
@@ -108,11 +128,19 @@
   // immediately; an abort that fires mid-flight cancels the native transport
   // and rejects with the signal's reason.
   function fetch(input, init) {
+    if (arguments.length === 0) {
+      var missing = webErrors.argumentsRequired(1, 0);
+      return PromiseRejectP(
+        webErrors.web ? webErrors.typeError('Window', 'fetch', missing) : new TypeErrorP(missing),
+      );
+    }
+
     var req;
     try {
-      req = new Request(input, init);
+      // FETCH: the Request's checks report under fetch's context, as Chrome's do.
+      req = requestState(new Request(input, init, FETCH));
     } catch (error) {
-      return Promise.reject(error);
+      return PromiseRejectP(error);
     }
 
     // A blob: URL never reaches the network: the object-URL registry answers it.
@@ -122,9 +150,8 @@
       return Promise.reject(new TypeError('fetch: native network backend unavailable'));
     }
 
-    // Extract signal from init (not from the Request object, which doesn't
-    // carry it — only the raw init dict does per the WHATWG fetch spec).
-    var signal = init && init.signal != null ? init.signal : null;
+    // The signal the Request follows: init's, else the one an input Request carried.
+    var signal = req.followSignal != null ? req.followSignal : null;
 
     // Pre-aborted fast path: reject synchronously without touching the network.
     if (signal && signal.aborted) {
@@ -156,17 +183,19 @@
     }
 
     var bytes = blobModule.blobBytes(blob);
-    var response = new Response(bytes.length === 0 ? null : bytes, {
-      status: 200,
-      statusText: 'OK',
-      headers: [
-        ['content-length', StringP(bytes.length)],
-        ['content-type', blobModule.typeOf(blob)],
-      ],
-      url: req.url,
-    });
-    response.type = 'basic';
-    return PromiseResolveP(response);
+    var headers = new Headers();
+    appendRawHeader(headers, 'content-length', StringP(bytes.length));
+    appendRawHeader(headers, 'content-type', blobModule.typeOf(blob));
+    return PromiseResolveP(
+      makeResponse(bytes.length === 0 ? null : bytes, {
+        __proto__: null,
+        status: 200,
+        statusText: 'OK',
+        headers: freezeHeaders(headers),
+        type: 'basic',
+        url: req.url,
+      }),
+    );
   }
 
   // Statuses that trigger a redirect when accompanied by a Location header.
@@ -187,12 +216,14 @@
   // Content-Length / Connection / Transfer-Encoding) the native side sets itself.
   function serializeHeaders(headers) {
     var headerLines = '';
-    headers.forEach(function (value, key) {
-      if (TRANSPORT_OWNED_HEADERS[key]) return;
+    var entries = headerEntries(headers);
+    for (var i = 0; i < entries.length; i++) {
+      var key = entries[i][0];
+      if (TRANSPORT_OWNED_HEADERS[key]) continue;
       // Names/values were CR/LF/NUL-validated when set (see Headers.append), so a
       // header cannot split the request line here.
-      headerLines += key + ': ' + String(value) + '\r\n';
-    });
+      headerLines += key + ': ' + entries[i][1] + '\r\n';
+    }
     return headerLines;
   }
 
@@ -203,24 +234,25 @@
   //   - any other body is sent buffered.
   function sendOne(req, signal) {
     var headerLines = serializeHeaders(req.headers);
-    if (req._streamBody) {
-      if (!req._streamNeedsDuplex) {
-        return collectStreamBody(req._streamBody, signal).then(function (bytes) {
+    if (req.streamBody) {
+      if (!req.streamNeedsDuplex) {
+        return collectStreamBody(req.streamBody, signal).then(function (bytes) {
           return startFetch(req, headerLines, bytes, null, signal);
         });
       }
-      return startFetch(req, headerLines, null, req._streamBody, signal);
+      return startFetch(req, headerLines, null, req.streamBody, signal);
     }
-    return startFetch(req, headerLines, req._bodyBytes, null, signal);
+    return startFetch(req, headerLines, req.bodyBytes, null, signal);
   }
 
   // cancelBody discards a response body we will not surface (an intermediate
   // redirect): cancel() tears the transport stream down; a rejected teardown is
   // swallowed so it never surfaces as an unhandled rejection.
   function cancelBody(response) {
-    if (!response.body) return;
+    var body = bodyStreamOf(response);
+    if (!body) return;
     try {
-      var canceled = response.body.cancel();
+      var canceled = body.cancel();
       if (canceled && typeof canceled.catch === 'function') canceled.catch(function () {});
     } catch {}
   }
@@ -233,14 +265,16 @@
     // Re-check between hops: an abort that lands after a redirect response has
     // resolved (but before the next hop starts) must stop the chain.
     if (signal && signal.aborted) return Promise.reject(signal.reason);
-    return sendOne(req, signal).then(function (response) {
-      if (!REDIRECT_STATUSES[response.status] || !response.headers.has('location')) {
+    return sendOne(req, signal).then(function (publicResponse) {
+      var response = responseState(publicResponse);
+      var location = getRawHeader(response.headers, 'location');
+      if (!REDIRECT_STATUSES[response.status] || location === null) {
         response.redirected = redirected;
-        return response;
+        return publicResponse;
       }
       if (req.redirect === 'manual') {
         response.redirected = redirected;
-        return response;
+        return publicResponse;
       }
       // From here the 3xx response is never surfaced to the caller — discard its
       // body so the connection does not linger, whether we follow, error, or hit
@@ -252,7 +286,7 @@
       if (redirectCount >= 20) {
         throw new TypeError('fetch: too many redirects');
       }
-      var nextReq = buildRedirectRequest(req, response, response.headers.get('location'));
+      var nextReq = buildRedirectRequest(req, response, location);
       return runFetch(nextReq, signal, redirectCount + 1, true);
     });
   }
@@ -277,16 +311,17 @@
       dropBody = true;
     }
 
-    var headers = new Headers(req.headers);
+    var headers = new Headers();
+    fillHeaders(headers, req.headers, '');
     if (dropBody) {
-      for (var i = 0; i < BODY_HEADERS.length; i++) headers.delete(BODY_HEADERS[i]);
+      for (var i = 0; i < BODY_HEADERS.length; i++) removeRawHeader(headers, BODY_HEADERS[i]);
     }
     // Cross-origin redirect: strip credentials (WHATWG drops Authorization; undici
     // also drops Cookie / Proxy-Authorization when the origin changes).
     if (new URL(nextUrl).origin !== new URL(req.url).origin) {
-      headers.delete('authorization');
-      headers.delete('cookie');
-      headers.delete('proxy-authorization');
+      removeRawHeader(headers, 'authorization');
+      removeRawHeader(headers, 'cookie');
+      removeRawHeader(headers, 'proxy-authorization');
     }
 
     var nextInit = { method: method, headers: headers, redirect: req.redirect };
@@ -297,19 +332,19 @@
     // ReadableStream / async-iterable was consumed by the first hop and cannot be
     // replayed, so the redirect fails (matching Node).
     if (!dropBody && method !== 'GET' && method !== 'HEAD') {
-      if (req._streamBody) {
-        if (typeof Blob !== 'undefined' && req._streamBody instanceof Blob) {
-          nextInit.body = req._streamBody;
+      if (req.streamBody) {
+        if (isBlob(req.streamBody)) {
+          nextInit.body = req.streamBody;
         } else {
           throw new TypeError(
             'fetch: cannot follow a redirect that resends a streaming request body',
           );
         }
-      } else if (req._bodyBytes != null) {
-        nextInit.body = req._bodyBytes;
+      } else if (req.bodyBytes != null) {
+        nextInit.body = req.bodyBytes;
       }
     }
-    return new Request(nextUrl, nextInit);
+    return requestState(new Request(nextUrl, nextInit, FETCH));
   }
 
   // startFetch hands the request to the Odin transport and wires its streaming
@@ -466,10 +501,11 @@
           bodyArg = bodyHandle.stream;
         }
         resolve(
-          new Response(bodyArg, {
+          makeResponse(bodyArg, {
+            __proto__: null,
             status: raw.status,
             statusText: raw.statusText,
-            headers: headers,
+            headers: freezeHeaders(headers),
             url: req.url,
           }),
         );
@@ -540,9 +576,9 @@
 
   // The interface objects and the operation a page sees (internal/native_shape), with
   // the members Lava has in Blink's relative order (Chrome 158,
-  // tests/web/cases/shape-fetch.expected). What is still missing or extra — Request's and
-  // Response's attributes are instance properties and the Body mixin is a parent class —
-  // is the S4d gap that case pins.
+  // tests/web/cases/shape-fetch.expected): the Body mixin's members laid on each
+  // interface, its attributes as prototype getters. formData() and textStream() are
+  // missing (no FormData in Larva) — the gap that case pins.
   var native_shape = require('internal/native_shape');
   var PublicHeaders = native_shape.defineInterface({
     name: 'Headers',
@@ -569,11 +605,29 @@
     impl: Request,
     length: 1,
     members: [
+      'method',
+      'url',
+      'headers',
+      'destination',
+      'referrer',
+      'referrerPolicy',
+      'mode',
+      'credentials',
+      'cache',
+      'redirect',
+      'integrity',
+      'keepalive',
+      'signal',
+      'duplex',
+      'isHistoryNavigation',
       'bodyUsed',
       'arrayBuffer:0',
       'blob:0',
+      'clone:0',
       'json:0',
       'text:0',
+      'targetAddressSpace',
+      'isReloadNavigation',
       'body',
       'bytes:0',
       'constructor',
@@ -584,8 +638,15 @@
     name: 'Response',
     impl: Response,
     length: 0,
-    statics: ['error:0', 'json:1'],
+    statics: ['error:0', 'json:1', 'redirect:1'],
     members: [
+      'type',
+      'url',
+      'redirected',
+      'status',
+      'ok',
+      'statusText',
+      'headers',
       'body',
       'bodyUsed',
       'arrayBuffer:0',

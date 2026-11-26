@@ -1,0 +1,78 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs fetch-webidl
+# ---
+req destination: ok ""
+req referrer: ok "about:client"
+req referrerPolicy: ok ""
+req mode: ok "cors"
+req credentials: ok "same-origin"
+req cache: ok "default"
+req redirect: ok "follow"
+req integrity: ok ""
+req keepalive: ok false
+req duplex: ok "half"
+req isHistoryNavigation: ok false
+req targetAddressSpace: ok "unknown"
+req isReloadNavigation: ok false
+req method: ok "GET"
+req url: ok "http://x/"
+req signal: ok "AbortSignal false"
+req signal same: ok true
+req signal init same: ok false
+req signal follows: ok true
+method patch: ok "patch"
+method post: ok "POST"
+method trace: TypeError: Failed to construct 'Request': 'trace' HTTP method is unsupported.
+method track: TypeError: Failed to construct 'Request': 'TRACK' HTTP method is unsupported.
+method empty: TypeError: Failed to construct 'Request': '' is not a valid HTTP method.
+mode bad: TypeError: Failed to construct 'Request': Failed to read the 'mode' property from 'RequestInit': The provided value 'x' is not a valid enum value of type RequestMode.
+cred bad: TypeError: Failed to construct 'Request': Failed to read the 'credentials' property from 'RequestInit': The provided value 'x' is not a valid enum value of type RequestCredentials.
+cache bad: TypeError: Failed to construct 'Request': Failed to read the 'cache' property from 'RequestInit': The provided value 'x' is not a valid enum value of type RequestCache.
+mode navigate: TypeError: Failed to construct 'Request': Cannot construct a Request with a RequestInit whose mode member is set as 'navigate'.
+only-if-cached: TypeError: Failed to construct 'Request': 'only-if-cached' can be set only with 'same-origin' mode
+bad url: TypeError: Failed to construct 'Request': Failed to parse URL from http://[
+bad url fetch: ok undefined
+hdr ctor name: TypeError: Failed to construct 'Headers': Invalid name
+hdr ctor value: TypeError: Failed to construct 'Headers': Invalid value
+hdr has: TypeError: Failed to execute 'has' on 'Headers': Invalid name
+hdr delete: TypeError: Failed to execute 'delete' on 'Headers': Invalid name
+hdr bytestring: TypeError: Failed to execute 'append' on 'Headers': String contains non ISO-8859-1 code point.
+hdr bad init: TypeError: Failed to construct 'Headers': The provided value is not of type '(record<ByteString, ByteString> or sequence<sequence<ByteString>>)'.
+req hdr name: TypeError: Failed to construct 'Request': Invalid name
+req hdr pair: TypeError: Failed to construct 'Request': Invalid value
+fetch hdr pair: ok undefined
+fetch method: ok undefined
+resp status 600: RangeError: Failed to construct 'Response': The status provided (600) is outside the range [200, 599].
+resp status 1.5: ok 200
+resp statusText: TypeError: Failed to construct 'Response': Invalid statusText
+resp 204 empty: TypeError: Failed to construct 'Response': Response with null body status cannot have body
+resp 204 null: ok 204
+resp 304 blob: TypeError: Failed to construct 'Response': Response with null body status cannot have body
+json undefined: TypeError: Failed to execute 'json' on 'Response': The data is not JSON serializable
+json fn: TypeError: Failed to execute 'json' on 'Response': The data is not JSON serializable
+redirect bad status: RangeError: Failed to execute 'redirect' on 'Response': Invalid status code
+redirect bad url: TypeError: Failed to execute 'redirect' on 'Response': Failed to parse URL from http://[
+redirect ok: ok "307,http://x/a,default,,"
+redirect default: ok 302
+error: ok "0,,error,,,false"
+error headers append: TypeError: Failed to execute 'append' on 'Headers': Headers are immutable
+resp defaults: ok "200,,default,\"\",false,"
+getter on {}: TypeError: Illegal invocation
+text on {}: ok undefined
+clone used: TypeError: Failed to execute 'clone' on 'Response': Response body is already used
+req clone used: TypeError: Failed to execute 'clone' on 'Request': Request body is already used
+req clone: ok "POSTno-corstext/plain;charset=UTF-8"
+usp ct: ok "application/x-www-form-urlencoded;charset=UTF-8"
+ab ct: ok null
+used text: ok undefined
+req from used: TypeError: Failed to construct 'Request': Cannot construct a Request with a Request object that has already been used.
+hdr order: ok "a,2|b,1, 3|c,4|set-cookie,z|set-cookie,y"
+hdr get set-cookie: ok "z, y"
+fetch bad url: Failed to execute 'fetch' on 'Window': Failed to parse URL from http://[
+fetch hdr pair: Failed to execute 'fetch' on 'Window': Invalid value
+fetch method: Failed to execute 'fetch' on 'Window': 'b d' is not a valid HTTP method.
+text on {}: TypeError: Failed to execute 'text' on 'Response': Illegal invocation
+used text: Failed to execute 'text' on 'Response': body stream already read
