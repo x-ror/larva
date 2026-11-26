@@ -1,0 +1,39 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs newline-crlf
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       "a
+b
+c
+"
+|     "
+"
+|     <textarea>
+|       "x
+"
+|     "
+"
+|     <p>
+|       title="l1
+l2"
+|       "y"
+|     "
+"
+#serialize
+<!DOCTYPE html><html><head></head><body><p>a
+b
+c
+</p>
+<textarea>x
+</textarea>
+<p title="l1
+l2">y</p>
+</body></html>

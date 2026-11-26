@@ -1,0 +1,26 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs table-implied
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <tbody>
+|         <tr>
+|           <td>
+|             "a"
+|           <td>
+|             "b"
+|         <tr>
+|           <td>
+|             "c"
+|     "
+"
+#serialize
+<!DOCTYPE html><html><head></head><body><table><tbody><tr><td>a</td><td>b</td></tr><tr><td>c</td></tr></tbody></table>
+</body></html>

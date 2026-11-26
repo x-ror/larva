@@ -12,8 +12,10 @@
 // sides cannot drift: the print shim's semantics, the fixture server both point the
 // case at, the `.expected` header, and the verdict rules (`judge`).
 
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -40,11 +42,12 @@ export const STAGES = ['S2', 'S4a', 'S4b', 'S4c', 'S4d', 'S4e', 'S5b', 'unplanne
 /**
  * The case-count floor for the suite (runtime/gates/case-counts.json): a deleted
  * case must not turn the suite green by vanishing. Applied to whichever suite the
- * runner was pointed at, so the floor itself is testable.
+ * runner was pointed at, so the floor itself is testable. `key` names another
+ * suite's entry (scripts/lib/dom-oracle.mjs passes 'tests/dom/cases').
  */
-export function caseFloor() {
+export function caseFloor(key = 'tests/web/cases') {
   const counts = JSON.parse(readFileSync(join(ROOT, 'runtime/gates/case-counts.json'), 'utf8'));
-  return counts.suites['tests/web/cases'].min;
+  return counts.suites[key].min;
 }
 
 /** Case names (file name without `.js`), sorted, so runs and reports are stable. */
@@ -96,10 +99,11 @@ export function parseExpected(text) {
 
 /**
  * Parses known-gaps.txt: `<case> <stage>: <reason>` per line, `#` comments. Every
- * entry needs a stage from STAGES and a reason; a malformed or duplicate line
- * throws, so a gap cannot be listed without saying why and when it closes.
+ * entry needs a stage from `stages` (STAGES unless another suite passes its own) and
+ * a reason; a malformed or duplicate line throws, so a gap cannot be listed without
+ * saying why and when it closes.
  */
-export function parseKnown(text) {
+export function parseKnown(text, stages = STAGES) {
   const known = new Map();
   const lines = text.split('\n');
   for (let i = 0; i < lines.length; i++) {
@@ -108,8 +112,8 @@ export function parseKnown(text) {
     const m = /^(\S+)\s+(\S+):\s*(.*)$/.exec(line);
     if (!m) throw new Error(`known-gaps.txt:${i + 1}: want '<case> <stage>: <reason>'`);
     const [, name, stage, reason] = m;
-    if (!STAGES.includes(stage)) {
-      throw new Error(`known-gaps.txt:${i + 1}: stage '${stage}' is not one of ${STAGES}`);
+    if (!stages.includes(stage)) {
+      throw new Error(`known-gaps.txt:${i + 1}: stage '${stage}' is not one of ${stages}`);
     }
     if (reason.trim() === '') throw new Error(`known-gaps.txt:${i + 1}: ${name} has no reason`);
     if (known.has(name)) throw new Error(`known-gaps.txt:${i + 1}: ${name} listed twice`);
@@ -123,18 +127,29 @@ export function parseKnown(text) {
  * a case that does not exist, a recording or a pinned gap with no case or no entry.
  * Each is a failure — an orphan is a case somebody deleted while its expectation
  * stayed behind, or a gap whose entry was dropped while its pin still excuses it.
+ *
+ * `units` are what a gap entry may name: the cases themselves here, `<case>.<view>`
+ * in the DOM suite, which judges each case's views apart. `label` is the suite's
+ * path in the messages.
  */
-export function suiteProblems(cases, known, casesDir = CASES_DIR, knownDir = KNOWN_DIR) {
+export function suiteProblems(
+  cases,
+  known,
+  casesDir = CASES_DIR,
+  knownDir = KNOWN_DIR,
+  { units = cases, label = 'tests/web' } = {},
+) {
   const out = [];
   const have = new Set(cases);
+  const listable = new Set(units);
   for (const name of known.keys()) {
-    if (!have.has(name)) out.push(`known-gaps.txt lists ${name}, which has no case`);
+    if (!listable.has(name)) out.push(`known-gaps.txt lists ${name}, which has no case`);
   }
   for (const f of filesWith(casesDir, '.expected')) {
-    if (!have.has(f)) out.push(`tests/web/cases/${f}.expected has no case`);
+    if (!have.has(f)) out.push(`${label}/cases/${f}.expected has no case`);
   }
   for (const f of filesWith(knownDir, '.lava')) {
-    if (!known.has(f)) out.push(`tests/web/known/${f}.lava has no known-gaps.txt entry`);
+    if (!known.has(f)) out.push(`${label}/known/${f}.lava has no known-gaps.txt entry`);
   }
   return out;
 }
@@ -161,6 +176,14 @@ export function parseSnapshot(text) {
   return { code: m[1] === 'null' ? null : Number(m[1]), stdout: text.slice(m[0].length) };
 }
 
+// Where judge's details send the reader: the recorder, the pins, the re-pin command.
+// The DOM suite passes its own (scripts/lib/dom-oracle.mjs).
+export const WEB_SUITE = {
+  record: 'node scripts/record-chrome.mjs',
+  known: 'tests/web/known',
+  update: 'node scripts/run-web-oracle.mjs --update-known',
+};
+
 /**
  * The verdict for one case.
  *
@@ -170,6 +193,7 @@ export function parseSnapshot(text) {
  * @param {{stdout: string, stderr: string, code: number|null}} c.actual  Lava's run.
  * @param {{stage: string, reason: string}|undefined} c.known  Its known-gaps entry.
  * @param {string|null} c.snapshot  The known gap's pinned Lava output file, or null.
+ * @param {typeof WEB_SUITE} [c.suite]  Paths and commands named in the details.
  * @returns {{verdict: 'pass'|'known'|'fail', detail: string}}
  *
  * A pass needs Chrome's bytes AND exit 0: a case that printed everything and then
@@ -177,11 +201,11 @@ export function parseSnapshot(text) {
  * recording fails rather than skips. A known gap that now matches Chrome fails too,
  * so its entry is removed in the change that closes it.
  */
-export function judge({ name, expected, actual, known, snapshot }) {
+export function judge({ name, expected, actual, known, snapshot, suite = WEB_SUITE }) {
   if (expected === null) {
     return {
       verdict: 'fail',
-      detail: `no Chrome recording; run: node scripts/record-chrome.mjs ${name}`,
+      detail: `no Chrome recording; run: ${suite.record} ${name}`,
     };
   }
   const matches = actual.stdout === expected && actual.code === 0;
@@ -189,7 +213,7 @@ export function judge({ name, expected, actual, known, snapshot }) {
     if (known) {
       return {
         verdict: 'fail',
-        detail: `matches Chrome but is listed in known-gaps.txt (${known.stage}); remove the entry and tests/web/known/${name}.lava`,
+        detail: `matches Chrome but is listed in known-gaps.txt (${known.stage}); remove the entry and ${suite.known}/${name}.lava`,
       };
     }
     return { verdict: 'pass', detail: '' };
@@ -198,14 +222,14 @@ export function judge({ name, expected, actual, known, snapshot }) {
   if (snapshot === null) {
     return {
       verdict: 'fail',
-      detail: `known gap has no tests/web/known/${name}.lava; run: node scripts/run-web-oracle.mjs --update-known ${name}`,
+      detail: `known gap has no ${suite.known}/${name}.lava; run: ${suite.update} ${name}`,
     };
   }
   let pinned;
   try {
     pinned = parseSnapshot(snapshot);
   } catch (e) {
-    return { verdict: 'fail', detail: `tests/web/known/${name}.lava: ${e.message}` };
+    return { verdict: 'fail', detail: `${suite.known}/${name}.lava: ${e.message}` };
   }
   if (actual.stdout === pinned.stdout && actual.code === pinned.code) {
     return { verdict: 'known', detail: `${known.stage}: ${known.reason}` };
@@ -345,6 +369,83 @@ export function readSink(dom, id) {
   ).toString('utf8');
 }
 
+// --- driving Chrome -----------------------------------------------------------------
+//
+// Shared by both recorders (scripts/record-chrome.mjs, scripts/record-dom.mjs): one
+// headless Chrome per run, each in a fresh profile, the page's DOM read back through
+// --dump-dom once it has loaded.
+
+/** `chrome --version`'s line, the header's `chrome:` field; throws when it cannot run. */
+export function chromeVersion(chrome) {
+  const version = spawnSync(chrome, ['--version'], { encoding: 'utf8' });
+  if (version.status !== 0)
+    throw new Error(`cannot run ${chrome} --version (set CHROME_BIN or --chrome)`);
+  return version.stdout.trim();
+}
+
+// The wall-clock guard is for a Chrome that hangs; a page's own timing is bounded by
+// the virtual-time budget the caller passes, if any.
+const WALL_TIMEOUT_MS = 120_000;
+
+/**
+ * Loads `url` in a headless Chrome with a fresh profile and resolves with the DOM it
+ * dumps. `args` go before --dump-dom (record-chrome.mjs passes its virtual-time
+ * budget there).
+ */
+export async function dumpDom(chrome, url, args = []) {
+  const profile = mkdtempSync(join(tmpdir(), 'larva-web-oracle-'));
+  try {
+    return await new Promise((resolveRun, rejectRun) => {
+      const child = spawn(
+        chrome,
+        [
+          '--headless=new',
+          '--no-sandbox',
+          '--disable-gpu',
+          '--no-first-run',
+          '--disable-extensions',
+          `--user-data-dir=${profile}`,
+          ...args,
+          '--dump-dom',
+          url,
+        ],
+        { stdio: ['ignore', 'pipe', 'ignore'] },
+      );
+      let dom = '';
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (d) => (dom += d));
+      const timer = setTimeout(() => child.kill('SIGKILL'), WALL_TIMEOUT_MS);
+      child.on('error', rejectRun);
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        if (code !== 0) return rejectRun(new Error(`chrome exited ${code ?? 'on a signal'}`));
+        resolveRun(dom);
+      });
+    });
+  } finally {
+    rmSync(profile, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Runs `url` `runs` times and judges the runs with recordVerdict: each run's #out and
+ * #err sinks, decoded by readSink.
+ * @returns {Promise<{output: string} | {error: string}>}
+ */
+export async function recordRuns(chrome, url, runs, args = []) {
+  const results = [];
+  for (let r = 0; r < runs; r++) {
+    let dom;
+    try {
+      dom = await dumpDom(chrome, url, args);
+    } catch (e) {
+      return { error: `run ${r + 1}: ${e.message}` };
+    }
+    results.push({ out: readSink(dom, 'out'), err: readSink(dom, 'err') });
+  }
+  return recordVerdict(results);
+}
+
 // --- the fixture server -------------------------------------------------------------
 //
 // One server for both sides. Chrome loads the page and the case from it, so every
@@ -397,13 +498,20 @@ function send(res, status, type, body) {
  * Starts the fixture server on an ephemeral 127.0.0.1 port (a secure context to
  * Chrome, which crypto.subtle and randomUUID need). Serves `/page/<case>` and
  * `/case/<case>.js` for the recorder and `/fx/*` for both.
+ *
+ * `pageFor(name)`, when given, answers `/page/<name>` instead (null for no such
+ * case): the DOM suite's harness page (scripts/lib/dom-oracle.mjs) is built from an
+ * HTML case, not a script.
  */
-export function startServer(casesDir = CASES_DIR) {
+export function startServer(casesDir = CASES_DIR, { pageFor } = {}) {
   const server = createServer((req, res) => {
     const path = new URL(req.url, 'http://x').pathname;
     const page = /^\/page\/([\w.-]+)$/.exec(path);
     const script = /^\/case\/([\w.-]+)\.js$/.exec(path);
-    if (page && existsSync(join(casesDir, page[1] + '.js'))) {
+    if (page && pageFor) {
+      const html = pageFor(page[1]);
+      if (html !== null) return send(res, 200, 'text/html; charset=utf-8', html);
+    } else if (page && existsSync(join(casesDir, page[1] + '.js'))) {
       const source = readFileSync(join(casesDir, page[1] + '.js'), 'utf8');
       return send(res, 200, 'text/html; charset=utf-8', chromePage(page[1], caseOptions(source)));
     }
