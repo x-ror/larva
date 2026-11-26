@@ -2527,7 +2527,7 @@
     {
       "name": "03-buffer dies when atob stops rejecting characters outside the forgiving-base64 alphabet",
       "why": "node's atob throws InvalidCharacterError 'Invalid character' for '!' and for VT; without the alphabet check they fall through to the length check.",
-      "source": "pkg/runtime/js/node/buffer.js",
+      "source": "pkg/runtime/js/internal/base64.js",
       "find": "      if (!alnum && c !== 0x2b && c !== 0x2f && c !== 0x3d)",
       "replace": "      if (false)",
       "gate": "compat:tests/node-compat/cases/03-buffer.js",
@@ -2538,7 +2538,7 @@
     {
       "name": "03-buffer dies when btoa stops rejecting code units above 0xFF",
       "why": "node's btoa throws InvalidCharacterError for 'Ā'; latin1 encoding would silently truncate it to 0x00.",
-      "source": "pkg/runtime/js/node/buffer.js",
+      "source": "pkg/runtime/js/internal/base64.js",
       "find": "  var NON_LATIN1_RE = /[^\\u0000-\\u00ff]/;",
       "replace": "  var NON_LATIN1_RE = /[^\\u0000-\\uffff]/;",
       "gate": "compat:tests/node-compat/cases/03-buffer.js",
@@ -2560,7 +2560,7 @@
     {
       "name": "atob_invalid_character_shape dies when the InvalidCharacterError code stops being the number 5",
       "why": "Lava has no DOMException, so atob/btoa throw an Error carrying DOMException's name and legacy NUMERIC code 5; console.log prints '5' and 5 alike, so only the Lava-only test sees the type.",
-      "source": "pkg/runtime/js/node/buffer.js",
+      "source": "pkg/runtime/js/internal/base64.js",
       "find": "    e.code = 5;\n",
       "replace": "    e.code = '5';\n",
       "gate": "odin:cmd/lava:main.atob_invalid_character_shape",
@@ -2571,7 +2571,7 @@
     {
       "name": "03-buffer dies when the atob fast-path regex lets a non-alphabet character through",
       "why": "the regex fast path skips the per-char loop; if it admits '!' or VT, atob reports the length error instead of node's 'Invalid character'.",
-      "source": "pkg/runtime/js/node/buffer.js",
+      "source": "pkg/runtime/js/internal/base64.js",
       "find": "  var ATOB_SLOW_RE = /[^A-Za-z0-9+/=]|=[^=]|===/;",
       "replace": "  var ATOB_SLOW_RE = /=[^=]|===/;",
       "gate": "compat:tests/node-compat/cases/03-buffer.js",
@@ -2582,7 +2582,7 @@
     {
       "name": "03-buffer dies when atob checks '=' padding before the lone-trailing-character rule",
       "why": "node 26 reports 'not correctly encoded' for 'a=', 'a==' and 'abcde=': the remainder without '=' is tested first.",
-      "source": "pkg/runtime/js/node/buffer.js",
+      "source": "pkg/runtime/js/internal/base64.js",
       "find": "    if ((nonWhitespace - equals) % 4 === 1)\n      throw errInvalidCharacter('The string to be decoded is not correctly encoded.');\n    if (equals && nonWhitespace % 4) throw errInvalidCharacter('Invalid character');\n",
       "replace": "    if (equals && nonWhitespace % 4) throw errInvalidCharacter('Invalid character');\n    if ((nonWhitespace - equals) % 4 === 1)\n      throw errInvalidCharacter('The string to be decoded is not correctly encoded.');\n",
       "gate": "compat:tests/node-compat/cases/03-buffer.js",
@@ -3015,10 +3015,10 @@
     },
     {
       "name": "builtin_factories_compile_on_first_require dies when the ratchet's eager set names a lazy module",
-      "why": "Statically crypto stays a loader req() root and so eager to the ratchet, but at run time it now loads after user code; static must stay a subset of what init compiles. This line is crypto's only top-level root (it also publishes pristineRandomUUID), so moving it is moving every eager path to crypto.",
+      "why": "Statically node:crypto stays a loader req() root and so eager to the ratchet, but at run time it now loads after user code; static must stay a subset of what init compiles. This line is node:crypto's only top-level root, so moving it is moving every eager path to it.",
       "source": "pkg/runtime/js/bootstrap/loader.js",
-      "find": "  req.pristineRandomUUID = req('crypto').randomUUID;\n",
-      "replace": "  publicReq.lateCrypto = function () {\n    req.pristineRandomUUID = req('crypto').randomUUID;\n  };\n",
+      "find": "  if (!web) req('crypto');\n",
+      "replace": "  publicReq.lateCrypto = function () {\n    req('crypto');\n  };\n",
       "gate": "odin:cmd/lava:main.builtin_factories_compile_on_first_require",
       "expect_detail": "is listed eager but compiled on first require"
     },
@@ -3434,9 +3434,9 @@
       "expect_detail": "node: Duplex has write function"
     },
     {
-      "name": "80-webstreams-internal-modules dies when a constructor is defined in the public entry again",
-      "why": "A constructor left behind in node/stream/web.js throws from a `node:stream/web` frame, which is exactly what the split moved away from.",
-      "source": "pkg/runtime/js/node/stream/web.js",
+      "name": "80-webstreams-internal-modules dies when a constructor is defined in the assembling entry again",
+      "why": "A constructor defined in internal/webstreams/index.js (the export assembly node:stream/web re-exports) throws from that file's frame instead of the file node attributes it to, which is what the split moved away from.",
+      "source": "pkg/runtime/js/internal/webstreams/index.js",
       "find": "  var CountQueuingStrategy = strategies.CountQueuingStrategy;",
       "replace": "  var CountQueuingStrategy = function CountQueuingStrategy(o) { if (!o) throw new TypeError('init'); return new strategies.CountQueuingStrategy(o); };",
       "gate": "compat:tests/node-compat/cases/80-webstreams-internal-modules.js",
@@ -3594,6 +3594,15 @@
       "replace": "\tinstall_stdio(ctx, global)",
       "gate": "odin:cmd/lava:main.global_surface_web_skips_stdio",
       "expect_detail": "web: resolving events compiled nothing"
+    },
+    {
+      "name": "global_surface_web_loads_no_node_module dies when the Window surface instantiates node:stream/web again",
+      "why": "The Node-profile removal deletes js/node/; a web global reached only through a node/ module on .Web would vanish with it. The loader gate is what keeps the stream globals' install path internal.",
+      "source": "pkg/runtime/js/bootstrap/loader.js",
+      "find": "  if (!web) req('stream/web');\n",
+      "replace": "  req('stream/web');\n",
+      "gate": "odin:cmd/lava:main.global_surface_web_loads_no_node_module",
+      "expect_detail": "node/stream/web was loaded by .Web init"
     },
     {
       "name": "global_surface_web_rejects_mjs dies when eval stops refusing .mjs on .Web",

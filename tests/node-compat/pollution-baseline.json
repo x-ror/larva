@@ -29,6 +29,12 @@
     "accessor": 0,
     "global": 9
   },
+  "internal/base64.js": {
+    "method": 2,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 3
+  },
   "internal/blob.js": {
     "method": 0,
     "invoke": 0,
@@ -305,6 +311,12 @@
     "accessor": 0,
     "global": 6
   },
+  "internal/webstreams/index.js": {
+    "method": 0,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 0
+  },
   "internal/webstreams/queuingstrategies.js": {
     "method": 0,
     "invoke": 0,
@@ -342,10 +354,10 @@
     "global": 40
   },
   "node/buffer.js": {
-    "method": 15,
+    "method": 13,
     "invoke": 5,
     "accessor": 12,
-    "global": 64
+    "global": 61
   },
   "node/console.js": {
     "method": 0,

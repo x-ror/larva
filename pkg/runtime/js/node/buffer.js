@@ -4,11 +4,11 @@
  * Codecs and byte-ops are Odin natives (`pkg/runtime/buffer.odin`) injected via
  * the loader's fourth `native` argument. This file owns Node API glue, errors and
  * pooling: the constructor, the statics, the pool, the prototype methods node keeps
- * in lib/buffer.js, and atob/btoa. The encoding codecs and the fixed-width numeric
- * accessors live in internal/buffer.js, as node's do in lib/internal/buffer.js.
- * Blob, File and the blob: URL registry live in internal/blob.js and
- * internal/file.js (node's lib/internal layout); this module re-exports them and
- * installs their globals, in the order it always has.
+ * in lib/buffer.js. The encoding codecs and the fixed-width numeric accessors live in
+ * internal/buffer.js, as node's do in lib/internal/buffer.js. Blob, File and the blob:
+ * URL registry live in internal/blob.js and internal/file.js (node's lib/internal
+ * layout), atob/btoa in internal/base64.js; this module re-exports them, and each of
+ * those installs its own globals so the Window surface needs no node/ module for them.
  *
  * @module lava/internal/buffer
  */
@@ -42,11 +42,11 @@
 
   var u8Fill = Uint8Array.prototype.fill;
 
-  // The encoding-name hardening moved to internal/buffer.js with the codecs; what is
-  // captured here serves write, fromString, inspect and atob.
+  // The encoding-name hardening moved to internal/buffer.js with the codecs, and atob/
+  // btoa to internal/base64.js; what is captured here serves write, fromString and
+  // inspect.
   var P = require('internal/primordials');
   var StringG = String;
-  var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;
   var StringPrototypeSlice = P.StringPrototypeSlice;
   var TypedArrayPrototypeGetLength = P.TypedArrayPrototypeGetLength;
 
@@ -72,14 +72,17 @@
   var ERR_INVALID_ARG_TYPE = errors.ERR_INVALID_ARG_TYPE;
   var ERR_INVALID_ARG_VALUE = errors.ERR_INVALID_ARG_VALUE;
   var ERR_OUT_OF_RANGE = errors.ERR_OUT_OF_RANGE;
-  var ERR_MISSING_ARGS = errors.ERR_MISSING_ARGS;
 
-  // Required here, at the top level, so both stay in the eager set: the globals and
-  // URL statics below are installed from this module, in the same order as before
-  // they were split out. Neither requires node:buffer back (see internal/blob.js).
+  // Required here, at the top level, so all three stay in the eager set. Each installs
+  // its own globals at module-eval — the URL statics and Blob, File, then atob/btoa —
+  // in the order this module installed them before they moved out; none requires
+  // node:buffer back (see internal/blob.js, internal/base64.js).
   var blobModule = require('internal/blob');
   var Blob = blobModule.Blob;
   var File = require('internal/file').File;
+  var base64 = require('internal/base64');
+  var atob = base64.atob;
+  var btoa = base64.btoa;
 
   function validateWriteOffset(offset, max, name) {
     if (Math.floor(offset) !== offset) throw ERR_OUT_OF_RANGE(name, 'an integer', offset);
@@ -800,98 +803,6 @@
 
   createPool();
 
-  // Node throws a DOMException here; Lava has no DOMException (same gap as
-  // structured_clone.js's DataCloneError), so this is an Error carrying the
-  // DOMException's name and legacy numeric code.
-  function errInvalidCharacter(message) {
-    var e = new Error(message);
-    e.name = 'InvalidCharacterError';
-    e.code = 5;
-    return e;
-  }
-
-  // One native regex scan instead of a per-char StringPrototypeCharCodeAt loop
-  // (~63 ns/char through the caller1 wrapper). 200 btoa calls on 48 KiB of latin1
-  // took 615 ms that way and 89 ms with the regex; 200 atob calls on 64 KiB of
-  // base64, 2542 vs 1579 ms (medians of 5 interleaved launches per arm, darwin
-  // arm64, -o:speed). Most of what is left is the Buffer round trip, not this
-  // check. Non-global, so RegExpMatches never touches lastIndex (§5).
-  // ATOB_SLOW_RE matches anything the fast path cannot take as-is: whitespace or a
-  // non-alphabet character, a '=' followed by anything but '=', or three '='; atob
-  // then falls back to the exact per-char loop, so error selection and messages
-  // are unchanged.
-  var ATOB_SLOW_RE = /[^A-Za-z0-9+/=]|=[^=]|===/;
-  var NON_LATIN1_RE = /[^\u0000-\u00ff]/;
-
-  /**
-   * Base64 → latin1 per the HTML forgiving-base64 decode (global atob and node:buffer's
-   * atob are the same function, as in Node).
-   * @param {*} input Stringified with a template literal, like Node (`${input}`).
-   * @returns {string}
-   * @throws {TypeError} ERR_MISSING_ARGS — called with no argument.
-   * @throws {Error} name InvalidCharacterError, code 5 — a character outside
-   *         A-Za-z0-9+/= and ASCII whitespace, '=' not at the end or more than two,
-   *         '=' when the length is not a multiple of 4, or a lone trailing character.
-   * @node Mirrors lib/buffer.js atob: whitespace is TAB LF FF CR SPACE (not VT); the
-   *       messages are 'Invalid character' and 'The string to be decoded is not
-   *       correctly encoded.' (node 26.13.0, tests/node-compat/cases/03-buffer.js).
-   * @deviates The error is an Error, not a DOMException (Lava has none); name, code
-   *           and message match. Pinned by cmd/lava/atob_invalid_character_test.odin.
-   */
-  function atob(input) {
-    if (arguments.length === 0) throw ERR_MISSING_ARGS('input');
-    input = `${input}`;
-    var nonWhitespace = 0;
-    var equals = 0;
-    if (!P.RegExpMatches(ATOB_SLOW_RE, input)) {
-      // Fast path: only alphabet characters and at most two trailing '='. The
-      // remainder rules below still apply.
-      nonWhitespace = input.length;
-      if (nonWhitespace > 0 && StringPrototypeCharCodeAt(input, nonWhitespace - 1) === 0x3d) {
-        equals = 1;
-        if (nonWhitespace > 1 && StringPrototypeCharCodeAt(input, nonWhitespace - 2) === 0x3d)
-          equals = 2;
-      }
-    } else
-      for (var i = 0; i < input.length; i++) {
-        var c = StringPrototypeCharCodeAt(input, i);
-        if (c === 0x09 || c === 0x0a || c === 0x0c || c === 0x0d || c === 0x20) continue;
-        var alnum =
-          (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) || (c >= 0x30 && c <= 0x39);
-        if (!alnum && c !== 0x2b && c !== 0x2f && c !== 0x3d)
-          throw errInvalidCharacter('Invalid character');
-        nonWhitespace++;
-        if (c === 0x3d) equals++;
-        else if (equals) throw errInvalidCharacter('Invalid character'); // '=' only at the end
-        if (equals > 2) throw errInvalidCharacter('Invalid character');
-      }
-    // The lone-trailing-character test runs on the length WITHOUT the '=' and wins
-    // over the padding test: node 26.13.0 answers 'not correctly encoded' for 'a=',
-    // 'a==' and 'abcde=', and 'Invalid character' for 'ab=', 'abc==' and 'Zm9v='
-    // (probed; pinned by tests/node-compat/cases/03-buffer.js).
-    if ((nonWhitespace - equals) % 4 === 1)
-      throw errInvalidCharacter('The string to be decoded is not correctly encoded.');
-    if (equals && nonWhitespace % 4) throw errInvalidCharacter('Invalid character');
-    return Buffer.from(input, 'base64').toString('latin1');
-  }
-
-  /**
-   * latin1 → Base64 (global btoa and node:buffer's btoa are the same function).
-   * @param {*} input Stringified with a template literal, like Node.
-   * @returns {string}
-   * @throws {TypeError} ERR_MISSING_ARGS — called with no argument.
-   * @throws {Error} name InvalidCharacterError, code 5 — a code unit above 0xFF.
-   * @node lib/buffer.js btoa (node 26.13.0, tests/node-compat/cases/03-buffer.js).
-   * @deviates Not a DOMException, as for atob; pinned by
-   *           cmd/lava/atob_invalid_character_test.odin.
-   */
-  function btoa(input) {
-    if (arguments.length === 0) throw ERR_MISSING_ARGS('input');
-    input = `${input}`;
-    if (P.RegExpMatches(NON_LATIN1_RE, input)) throw errInvalidCharacter('Invalid character');
-    return Buffer.from(input, 'latin1').toString('base64');
-  }
-
   /** @param {ArrayBuffer|Uint8Array} input @returns {boolean} */
   function isAscii(input) {
     var bytes = input instanceof ArrayBuffer ? new Uint8Array(input) : input;
@@ -914,31 +825,10 @@
     return Buffer.from(Buffer.from(source).toString(fromEnc), toEnc);
   }
 
-  var createObjectURL = blobModule.createObjectURL;
-  var revokeObjectURL = blobModule.revokeObjectURL;
-  if (globalThis.URL === undefined) {
-    globalThis.URL = { createObjectURL: createObjectURL, revokeObjectURL: revokeObjectURL };
-  } else {
-    if (typeof globalThis.URL.createObjectURL !== 'function')
-      globalThis.URL.createObjectURL = createObjectURL;
-    if (typeof globalThis.URL.revokeObjectURL !== 'function')
-      globalThis.URL.revokeObjectURL = revokeObjectURL;
-  }
-
+  // Node-only, and so still installed here; the web globals this module used to install
+  // (URL statics, Blob, File, atob, btoa) come from the internal modules required above.
   if (globalThis.Buffer === undefined) {
     globalThis.Buffer = Buffer;
-  }
-  if (globalThis.Blob === undefined) {
-    globalThis.Blob = Blob;
-  }
-  if (globalThis.File === undefined) {
-    globalThis.File = File;
-  }
-  if (globalThis.atob === undefined) {
-    globalThis.atob = atob;
-  }
-  if (globalThis.btoa === undefined) {
-    globalThis.btoa = btoa;
   }
 
   var exported = {

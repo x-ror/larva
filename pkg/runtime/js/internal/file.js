@@ -1,7 +1,7 @@
 /**
  * @fileoverview File (WHATWG File API), a Blob with a name and a lastModified
- * stamp — node's lib/internal/file.js. Re-exported from node:buffer, which also
- * installs the `File` global.
+ * stamp — node's lib/internal/file.js. Re-exported from node:buffer. Installs the
+ * `File` global itself, right after internal/blob.js installs `Blob`.
  *
  * @module lava/internal/file
  */
@@ -63,6 +63,10 @@
     value: 'File',
     configurable: true,
   });
+
+  if (globalThis.File === undefined) {
+    globalThis.File = File;
+  }
 
   module.exports = { File: File };
 });

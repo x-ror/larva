@@ -1355,8 +1355,9 @@ process_memory_usage_cb :: proc "c" (
 // timers, queueMicrotask, globalThis) onto the context's global object.
 // Timer functions are no-ops when no event loop is bound.
 //
-// `.Web` (Global_Surface, runtime.odin) changes two things here and nothing else:
-// install_stdio does not run, and install_microtasks defines no `__lava*` hook.
+// `.Web` (Global_Surface, runtime.odin) changes three things here and nothing else:
+// install_stdio does not run, install_microtasks defines no `__lava*` hook, and the
+// loader instantiates no node/ entry beyond node:buffer (install_internal_modules).
 // Everything else is installed as on `.Node` — the bootstrap needs `process` and the
 // rest — and setup_module_environment removes the Node names afterwards.
 install_globals :: proc(ctx: jsc.JSContextRef, loop: ^eventloop.Loop, surface: Global_Surface = .Node) {
@@ -1395,7 +1396,7 @@ install_globals :: proc(ctx: jsc.JSContextRef, loop: ^eventloop.Loop, surface: G
 	// reference — never a lazy global read — so a pre-first-require reassignment of
 	// globalThis.process / globalThis.console cannot poison the builtin (#247).
 	install_process(ctx, global)
-	install_internal_modules(ctx, global)
+	install_internal_modules(ctx, global, surface)
 
 	install_performance(ctx, global)
 	// process.nextTick + queueMicrotask are a JS shim (needs `process` to exist).
@@ -1719,7 +1720,15 @@ microtask_report_uncaught_cb :: proc "c" (
 // 16.85 -> 14.63 ms (medians of 50 interleaved spawn-to-exit runs per arm after 5
 // warmups, darwin arm64, -o:speed, f106ab4 vs this change). The cost moves to each
 // lazy module's first require, once per context. See builtin_compile_cb.
-install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef) {
+//
+// `surface` reaches the loader as its `web` argument: on `.Web` it instantiates the
+// internal/ modules that install the web globals and skips the node:stream/web,
+// node:url and node:crypto entries that re-export them (bootstrap/loader.js).
+install_internal_modules :: proc(
+	ctx: jsc.JSContextRef,
+	global: jsc.JSObjectRef,
+	surface: Global_Surface = .Node,
+) {
 	state := get_state_from_ctx(ctx)
 
 	if state == nil {
@@ -1788,9 +1797,13 @@ install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef)
 		set_named(ctx, natives, "node/console", console_val)
 	}
 
-	args := [2]jsc.JSValueRef{cast(jsc.JSValueRef)compile, cast(jsc.JSValueRef)natives}
+	args := [3]jsc.JSValueRef {
+		cast(jsc.JSValueRef)compile,
+		cast(jsc.JSValueRef)natives,
+		jsc.JSValueMakeBoolean(ctx, b32(surface == .Web)),
+	}
 	exception: jsc.JSValueRef
-	resolver := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)loader, nil, 2, raw_data(args[:]), &exception)
+	resolver := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)loader, nil, 3, raw_data(args[:]), &exception)
 
 	if exception != nil {
 		report_internal_exception(ctx, "internal:loader", exception)
