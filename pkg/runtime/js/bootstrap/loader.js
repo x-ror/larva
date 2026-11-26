@@ -21,9 +21,9 @@
 // is reachable solely through the `require` handed to the factories.
 //
 // `web` is true for the Window surface (Global_Surface `.Web`, runtime.odin). Every web
-// global is installed by an internal/ module, so `.Web` instantiates only those, plus
-// node:buffer, whose Buffer the shared code still hands out; the node:stream/web,
-// node:url and node:crypto entries are loaded on the Node surface only. Pinned by
+// global is installed by an internal/ module, so `.Web` instantiates only those; the
+// node:buffer, node:stream/web, node:url and node:crypto entries are loaded on the Node
+// surface only, and shared code reaches the byte codecs through natives instead. Pinned by
 // cmd/lava/global_surface_test.odin global_surface_web_loads_no_node_module.
 (function (compile, natives, web) {
   'use strict';
@@ -37,6 +37,9 @@
   // node:buffer's codecs and numeric accessors live in internal/buffer.js (node's
   // lib/internal/buffer seam); it decodes through node:buffer's own bindings object.
   natives['internal/buffer'] = natives['node/buffer'];
+  // atob/btoa decode through the same codec natives on `.Web`, where node:buffer (and
+  // with it the pristine Buffer below) is never instantiated.
+  natives['internal/base64'] = natives['node/buffer'];
   // The surface, for the one module shared Web API code takes its error text from
   // (internal/web_errors: Chrome's on `.Web`, node's on `.Node`). Handed in as that
   // module's factory argument — set here, before any module runs, from the flag Odin
@@ -152,7 +155,8 @@
   // loop (#91, #97). Before any module that could allocate a registry, and before user
   // code, which must only ever see the wrapped constructors.
   req('internal/deferred');
-  req('buffer');
+  // Node surface only: `.Web` instantiates no node/ module (docs/LARVA.md decision 1).
+  if (!web) req('buffer');
 
   // Hand the LAZY internal modules a PRISTINE Buffer.
   //
@@ -184,25 +188,32 @@
   // factory argument. The shape mirrors `publicReq.primordials` below, though that one
   // hangs off the PUBLIC resolver and is read by Odin for esm.js, not by a factory — this
   // is the first use of the internal-req channel, not a reuse of an existing one.
-  var PristineBufferCtor = req('buffer').Buffer;
-  req.pristineBuffer = {
-    __proto__: null,
-    Buffer: PristineBufferCtor,
-    from: PristineBufferCtor.from,
-    alloc: PristineBufferCtor.alloc,
-    concat: PristineBufferCtor.concat,
-    isBuffer: PristineBufferCtor.isBuffer,
-    isEncoding: PristineBufferCtor.isEncoding,
-    // Already UNCURRIED, so a consumer calls `bufferToString(buf, 'utf8')` directly. The
-    // primordials table sets this convention (`ArrayPrototypeSlice: caller2(...)`) — a raw
-    // unbound method invites each consumer to re-derive it, and two consumers deriving it
-    // differently is how the six copies of describeType happened.
-    bufferToString: req('internal/primordials').uncurryThis(PristineBufferCtor.prototype.toString),
-  };
+  //
+  // Not on `.Web`: nothing there may instantiate node:buffer, and the Window-surface
+  // consumers (internal/base64) take the codec natives instead.
+  var PristineBufferCtor = web ? null : req('buffer').Buffer;
+  req.pristineBuffer = web
+    ? null
+    : {
+        __proto__: null,
+        Buffer: PristineBufferCtor,
+        from: PristineBufferCtor.from,
+        alloc: PristineBufferCtor.alloc,
+        concat: PristineBufferCtor.concat,
+        isBuffer: PristineBufferCtor.isBuffer,
+        isEncoding: PristineBufferCtor.isEncoding,
+        // Already UNCURRIED, so a consumer calls `bufferToString(buf, 'utf8')` directly. The
+        // primordials table sets this convention (`ArrayPrototypeSlice: caller2(...)`) — a raw
+        // unbound method invites each consumer to re-derive it, and two consumers deriving it
+        // differently is how the six copies of describeType happened.
+        bufferToString: req('internal/primordials').uncurryThis(
+          PristineBufferCtor.prototype.toString,
+        ),
+      };
 
-  // Already instantiated by `buffer`, which requires all three at its top level; named
-  // here because they install the Blob/File/atob/btoa globals and the URL statics, and
-  // that must not hinge on node:buffer staying on the Window surface.
+  // On the Node surface already instantiated by `buffer`, which requires all three at its
+  // top level; named here because they install the Blob/File/atob/btoa globals and the
+  // URL statics, and `.Web` loads no node:buffer.
   req('internal/blob');
   req('internal/file');
   req('internal/base64');
