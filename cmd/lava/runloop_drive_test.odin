@@ -412,3 +412,90 @@ page_sees_finalization_cleanups_as_chrome_does :: proc(t: ^testing.T) {
 		lava.result_destroy(&result)
 	})
 }
+
+// A page whose FinalizationRegistry or WebAssembly.compile/instantiate could not be
+// replaced does not keep the engine's on a thread whose RunLoop is driven: there the
+// engine's would run its code from the RunLoop, outside every window (#97 review, round 2
+// safety F1). The failure is injected (lava.deferred_inject_install_fault: both installs
+// behave as if the host path were missing); the page must find all three gone.
+@(test)
+runloop_page_without_its_replacements_keeps_no_engine_original :: proc(t: ^testing.T) {
+	on_fresh_thread(t, proc(t: ^testing.T) {
+		lava.deferred_inject_install_fault(true)
+		defer lava.deferred_inject_install_fault(false)
+		runner: lava.Page_Runner
+
+		if !lava.page_runner_init(&runner, 1, record_page_outcome, context.allocator) {
+			testing.expect(t, false, "page_runner_init failed")
+			return
+		}
+
+		defer lava.page_runner_destroy(&runner)
+		o: Page_Outcome
+		lava.page_runner_open(
+			&runner,
+			`const left = [];
+			if (typeof FinalizationRegistry !== 'undefined') left.push('FinalizationRegistry');
+			if (typeof WebAssembly.compile !== 'undefined') left.push('compile');
+			if (typeof WebAssembly.instantiate !== 'undefined') left.push('instantiate');
+			if (left.length > 0) throw new Error('engine originals left: ' + left.join(','));`,
+			"<fail-closed>",
+			DRIVE_LIMITS,
+			&o,
+			.Web,
+		)
+		lava.page_runner_run(&runner)
+		testing.expect_value(t, jsc.runloop_drive(), jsc.Runloop_Drive.Adopted)
+		testing.expectf(t, o.done && o.status == .Ok, "page: %s", describe_outcome(o))
+	})
+}
+
+// A closed page's `enqueue` (deferred.js's route for a cleanup the engine runs from the
+// RunLoop) refuses and queues nothing, without depending on JSC dropping a dead realm's
+// pending cleanup (it did in every run measured, which is behaviour, not a contract).
+// The test keeps the page's context alive past page_close — the state is destroyed, the
+// realm is not — and calls the native the shim would: true while the page lives, false
+// after.
+@(test)
+deferred_enqueue_refuses_a_closed_page :: proc(t: ^testing.T) {
+	on_fresh_thread(t, proc(t: ^testing.T) {
+		page: lava.Page
+		loop := eventloop.init(real_time = true)
+
+		if !lava.page_create(&page, "<closed-enqueue>", &loop, limits = DRIVE_LIMITS, surface = .Web) {
+			testing.expect(t, false, "page_create refused the page")
+			result, _ := lava.page_close(&page)
+			lava.result_destroy(&result)
+			return
+		}
+
+		gctx := page.ctx
+		ctx := cast(jsc.JSContextRef)gctx
+		jsc.JSGlobalContextRetain(gctx)
+		defer jsc.JSGlobalContextRelease(gctx)
+		bindings := lava.make_deferred_bindings(ctx)
+		enqueue := get_property(ctx, bindings, "enqueue")
+		jsc.JSValueProtect(ctx, enqueue)
+		defer jsc.JSValueUnprotect(ctx, enqueue)
+		noop, _ := lava.page_eval(&page, `(function () {})`)
+		jsc.JSValueProtect(ctx, noop)
+		defer jsc.JSValueUnprotect(ctx, noop)
+		args := [3]jsc.JSValueRef{noop, jsc.JSValueMakeNumber(ctx, 1), jsc.JSValueMakeNumber(ctx, 1)}
+
+		live := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)enqueue, nil, 3, raw_data(args[:]), nil)
+		testing.expect(t, live != nil && jsc.JSValueToBoolean(ctx, live), "a live page's enqueue refused")
+		result, _ := lava.page_close(&page)
+		lava.result_destroy(&result)
+
+		closed := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)enqueue, nil, 3, raw_data(args[:]), nil)
+		refused := closed != nil && !jsc.JSValueToBoolean(ctx, closed)
+		testing.expect(t, refused, "a closed page's enqueue queued a cleanup")
+	})
+}
+
+@(private = "file")
+get_property :: proc(ctx: jsc.JSContextRef, object: jsc.JSObjectRef, name: cstring) -> jsc.JSValueRef {
+	key := jsc.JSStringCreateWithUTF8CString(name)
+	defer jsc.JSStringRelease(key)
+	return jsc.JSObjectGetProperty(ctx, object, key, nil)
+}

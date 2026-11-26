@@ -111,7 +111,11 @@ open_b_on_a_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: l
 wasm_of_a_killed_page_runs_nothing_after_it :: proc(t: ^testing.T) {
 	TAIL :: "\nspin(100); while (true) {}"
 	sources := [?]string {
-		WASM_SPIN + "const bytes = " + WASM_START + `; WebAssembly.instantiate(bytes, { m: { f() { spin(3000); } } });` + TAIL,
+		WASM_SPIN +
+		"const bytes = " +
+		WASM_START +
+		`; WebAssembly.instantiate(bytes, { m: { f() { spin(3000); } } });` +
+		TAIL,
 		WASM_SPIN +
 		`Object.defineProperty(WebAssembly.Module.prototype, 'then', { get() { spin(3000); } });
 		WebAssembly.compile(new Uint8Array([0,97,115,109,1,0,0,0]));` +
@@ -142,7 +146,8 @@ wasm_of_a_killed_page_runs_nothing_after_it :: proc(t: ^testing.T) {
 		lava.page_runner_run(&runner)
 		elapsed := time.duration_seconds(time.tick_since(start))
 		lava.page_runner_destroy(&runner)
-		testing.expectf(t, p.a.done && p.a.kill == .Entry_Limit, "vector %d: A was not killed: %s", i, describe_outcome(p.a))
+		killed := p.a.done && p.a.kill == .Entry_Limit
+		testing.expectf(t, killed, "vector %d: A was not killed: %s", i, describe_outcome(p.a))
 		testing.expectf(
 			t,
 			p.b.done && p.b.status == .Ok && p.b.kill == .None,

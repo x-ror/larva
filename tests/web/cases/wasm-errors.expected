@@ -11,3 +11,4 @@ instantiate() TypeError: WebAssembly.instantiate(): Argument 0 must be a buffer 
 instantiate(5) TypeError: WebAssembly.instantiate(): Argument 0 must be a buffer source or a WebAssembly.Module object
 instantiate(bytes, 5) TypeError: WebAssembly.instantiate(): Argument 1 must be an object
 instantiate(bytes, null) TypeError: WebAssembly.instantiate(): Argument 1 must be an object
+instantiate(fake Module) TypeError: WebAssembly.instantiate(): Argument 0 must be a buffer source

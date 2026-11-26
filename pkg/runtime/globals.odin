@@ -56,18 +56,22 @@ Runtime_State :: struct {
 	// invoke_user_callback.
 	dispatch_fn:       jsc.JSValueRef,
 	next_tick_drain:   jsc.JSValueRef,
+	// The same shim's dispatchCleanups (GC-protected): runs one FinalizationRegistry's
+	// due cleanups as one task (deferred.odin).
+	dispatch_cleanups: jsc.JSValueRef,
 	// Symbol.toPrimitive, read before user code on a `.Web` context (install_globals),
 	// GC-protected: web_to_primitive's key for the WebIDL ToNumber of a timer id. A
 	// well-known symbol cannot be replaced, but globalThis.Symbol can, so it is not
 	// read at call time.
 	symbol_to_primitive: jsc.JSValueRef,
 	// The context this state belongs to, for a loop task that must call into it and has
-	// no JS caller to take one from (deferred.odin's flush, wasm.odin's jobs). Set by
+	// no JS caller to take one from (deferred.odin's cleanups, wasm.odin's jobs). Set by
 	// page_create.
 	ctx:               jsc.JSContextRef,
-	// js/internal/deferred.js's flush, GC-protected: the loop task its `schedule` native
-	// posts (deferred.odin) runs it in the page's tick.
-	deferred_flush:    jsc.JSValueRef,
+	// FinalizationRegistry cleanups the engine handed deferred.js's shim, owed to this page
+	// (deferred.odin): each value GC-protected until it runs or this state is destroyed.
+	deferred_cleanups: [dynamic]Deferred_Cleanup,
+	deferred_scheduled: bool,
 	// FinalizationRegistry's routing (deferred.odin): the engine's constructor, the
 	// module's cleanup wrapper and Reflect.construct, captured before page code and
 	// GC-protected; and the two TypeError messages the engine gives for misuse, so the
@@ -79,6 +83,8 @@ Runtime_State :: struct {
 	// before page code and GC-protected, and the settlements the page is still owed.
 	wasm_module:       jsc.JSValueRef,
 	wasm_instance:     jsc.JSValueRef,
+	// WebAssembly.Module.imports, the brand check instantiate uses (wasm.odin).
+	wasm_brand:        jsc.JSValueRef,
 	wasm_jobs:         [dynamic]Wasm_Job,
 	wasm_scheduled:    bool,
 	// The page loop's watcher on the thread's RunLoop descriptor (deferred_service_page),
@@ -200,6 +206,7 @@ new_runtime_state :: proc(loop: ^eventloop.Loop) -> ^Runtime_State {
 	state.tls_server_ctxs = make(map[u64]rawptr)
 	state.next_net_id = 1
 	state.wasm_jobs = make([dynamic]Wasm_Job, state.allocator)
+	state.deferred_cleanups = make([dynamic]Deferred_Cleanup, state.allocator)
 	return state
 }
 
@@ -230,8 +237,9 @@ destroy_runtime_state :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) {
 	unprotect_before_eval_exit(ctx, state.rejection_handler)
 	unprotect_before_eval_exit(ctx, state.dispatch_fn)
 	unprotect_before_eval_exit(ctx, state.next_tick_drain)
+	unprotect_before_eval_exit(ctx, state.dispatch_cleanups)
 	unprotect_before_eval_exit(ctx, state.symbol_to_primitive)
-	unprotect_before_eval_exit(ctx, state.deferred_flush)
+	deferred_release_cleanups(ctx, state)
 	unprotect_before_eval_exit(ctx, state.fr_engine)
 	unprotect_before_eval_exit(ctx, state.fr_wrap)
 	unprotect_before_eval_exit(ctx, state.fr_construct)
@@ -1554,6 +1562,12 @@ install_microtasks :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef, surfa
 
 	dispatch := get_named(ctx, cast(jsc.JSObjectRef)exports, "dispatch")
 	drain := get_named(ctx, cast(jsc.JSObjectRef)exports, "drainNextTicks")
+	cleanups := get_named(ctx, cast(jsc.JSObjectRef)exports, "dispatchCleanups")
+
+	if cleanups != nil && jsc.JSValueIsObject(ctx, cleanups) {
+		jsc.JSValueProtect(ctx, cleanups)
+		state.dispatch_cleanups = cleanups
+	}
 
 	if dispatch != nil && jsc.JSValueIsObject(ctx, dispatch) {
 		jsc.JSValueProtect(ctx, dispatch)

@@ -10,6 +10,10 @@ const cases = [
   ['instantiate(5)', () => WebAssembly.instantiate(5)],
   ['instantiate(bytes, 5)', () => WebAssembly.instantiate(EMPTY, 5)],
   ['instantiate(bytes, null)', () => WebAssembly.instantiate(EMPTY, null)],
+  [
+    'instantiate(fake Module)',
+    () => WebAssembly.instantiate(Object.create(WebAssembly.Module.prototype)),
+  ],
 ];
 (async () => {
   for (const [label, run] of cases) {

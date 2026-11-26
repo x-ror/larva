@@ -18,6 +18,10 @@ compile -> Module true
 instantiate(bytes) -> module,instance true true true
 instantiate(module) -> Instance true
 start function order returned,start,resolved
+instantiate(module) order get m,start,returned,resolved
+instantiate(module) throwing getter get m,returned,rejected Error
+result own module true setter hits 0 is Module true
+brand check module,instance hasInstance hits 0
 compile() rejected TypeError clean true
 compile(5) rejected TypeError clean true
 compile(bad bytes) rejected CompileError clean true

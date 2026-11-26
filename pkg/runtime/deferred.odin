@@ -20,15 +20,42 @@ import eventloop "lava:pkg/runtime/eventloop"
 //     not in page_close, which says why;
 //   - what JSC runs from there for a page is deferred.js's shim — the cleanup the
 //     engine's registry holds is the shim, not the page's callback (fr_construct_host) —
-//     which queues the page's callback and calls `schedule`, which posts one task to the
-//     page's own loop
-//     (async_begin + post_async, so the loop stays alive until it runs);
-//   - that task (deferred_flush_task) runs in the page's tick, inside its CPU window, and
-//     calls the page's flush through invoke_user_callback, which charges the budget,
-//     drains nextTicks and stops a page a limit has ended;
+//     which hands the page's callback to `enqueue` (deferred_enqueue_cb): queued here, in
+//     Odin, with one task posted to the page's own loop (async_begin + post_async, so the
+//     loop stays alive until it runs);
+//   - that task (deferred_cleanup_task) runs in the page's tick, inside its CPU window, and
+//     runs ONE registry's queued cleanups through the microtask shim's dispatchCleanups
+//     — one entry, so their microtasks drain after the last of them, and one frame of
+//     lava:microtasks under the page's callback, the same a timer callback has;
 //   - a closed page's natives find no Runtime_State (destroy_runtime_state clears the
-//     global's slot), so `schedule` refuses and the shim drops the queue, and a task
-//     already posted dies with the loop (close_begin: no task runs after it).
+//     global's slot), so `enqueue` refuses, and a task already posted dies with the loop
+//     (close_begin: no task runs after it); destroy_runtime_state releases what was queued.
+//
+// Fail closed: on a thread whose RunLoop is driven, the engine's own FinalizationRegistry
+// (or WebAssembly.compile/instantiate, wasm.odin) would run page code from the RunLoop,
+// outside every window. Whatever the install could not replace is deleted from the page
+// before its code runs (deferred_fail_closed, from page_create).
+
+// Deferred_Cleanup is one FinalizationRegistry cleanup owed to a page: the page's callback,
+// the held value, and which registry it came from (one task per registry). Both values
+// are GC-protected from enqueue until they run or the page's Runtime_State goes —
+// exactly one unprotect each (deferred_cleanup_release).
+Deferred_Cleanup :: struct {
+	fn:       jsc.JSValueRef,
+	held:     jsc.JSValueRef,
+	registry: f64,
+}
+
+// g_deferred_install_fault makes the next installs on this thread behave as if the host
+// path had failed — the fault injection deferred_fail_closed is pinned with
+// (cmd/lava/runloop_drive_test.odin). Test-only; nothing in production sets it.
+@(thread_local)
+g_deferred_install_fault: bool
+
+// deferred_inject_install_fault sets g_deferred_install_fault for the calling thread.
+deferred_inject_install_fault :: proc(on: bool) {
+	g_deferred_install_fault = on
+}
 
 // make_deferred_bindings builds deferred.js's natives (the loader's
 // natives['internal/deferred']), reachable only from that module's factory.
@@ -38,21 +65,56 @@ import eventloop "lava:pkg/runtime/eventloop"
 // closed, dispatched any time after), and destroy_runtime_state has released the
 // context's host-call table by then, so a host native would throw from the fail-closed
 // dispatcher ("Uncaught Exception at run loop" on stderr). A C-API callback still runs,
-// finds no state, and refuses. All four are cold: once per context, or once per cleanup
-// batch.
+// finds no state, and refuses. Both are cold: once per context, or once per cleanup.
 make_deferred_bindings :: proc(ctx: jsc.JSContextRef) -> jsc.JSObjectRef {
 	bind :: proc(ctx: jsc.JSContextRef, to: jsc.JSObjectRef, name: string, cb: jsc.JSObjectCallAsFunctionCallback) {
 		set_named(ctx, to, name, cast(jsc.JSValueRef)make_native_function(ctx, name, cb))
 	}
 
 	bindings := jsc.JSObjectMake(ctx, nil, nil)
-	bind(ctx, bindings, "schedule", deferred_schedule_cb)
-	bind(ctx, bindings, "setFlush", deferred_set_flush_cb)
+	bind(ctx, bindings, "enqueue", deferred_enqueue_cb)
 	bind(ctx, bindings, "installFinalizationRegistry", deferred_install_registry_cb)
-	// The same reporter a throwing nextTick/queueMicrotask callback uses: report_uncaught,
-	// then the non-zero exit an uncaught callback error forces.
-	bind(ctx, bindings, "reportUncaught", microtask_report_uncaught_cb)
 	return bindings
+}
+
+// deferred_fail_closed deletes from the page what the install could not replace —
+// FinalizationRegistry when deferred.js's routing is not in place, WebAssembly.compile
+// and instantiate when wasm.odin's are not — on a thread whose RunLoop Lava drives, where
+// the engine's would run page code from the RunLoop outside every window (#97 review,
+// safety F1 of round 2). Runs in page_create, after the install and before any page code.
+//
+// Deleted rather than failing page_create: the cause is a transient allocation failure in
+// the host-call registry or a JSC without a private symbol, and a page that loses one API
+// it can feature-detect beats a page that is not run at all. A thread that is not driven
+// keeps the engine's: there they never run (cleanups) or never settle (wasm), which is
+// what they did before the drive and harms no other page.
+deferred_fail_closed :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) {
+	if state == nil || jsc.runloop_drive() != .Adopted {
+		return
+	}
+
+	global := jsc.JSContextGetGlobalObject(ctx)
+
+	if state.fr_engine == nil {
+		delete_named(ctx, global, "FinalizationRegistry")
+	}
+
+	if state.wasm_module == nil {
+		if wasm := get_named(ctx, global, "WebAssembly"); wasm != nil && jsc.JSValueIsObject(ctx, wasm) {
+			delete_named(ctx, cast(jsc.JSObjectRef)wasm, "compile")
+			delete_named(ctx, cast(jsc.JSObjectRef)wasm, "instantiate")
+		}
+	}
+}
+
+// deferred_release_cleanups gives back every cleanup a page was still owed when its
+// Runtime_State goes: destroy_runtime_state, with the context alive.
+deferred_release_cleanups :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) {
+	for &item in state.deferred_cleanups {
+		deferred_cleanup_release(ctx, &item)
+	}
+	delete(state.deferred_cleanups)
+	state.deferred_cleanups = nil
 }
 
 // deferred_service_page is the thread-level RunLoop service of a page whose loop blocks
@@ -116,23 +178,24 @@ deferred_unwatch_loop :: proc(state: ^Runtime_State) {
 deferred_wake :: proc(loop: ^eventloop.Loop, user_data: rawptr) {}
 
 // deferred_page_alive is the Runtime_State a deferred native may post to: the page is
-// live, has a loop that has not begun closing, and installed its flush.
+// live, has a loop that has not begun closing, and routes FinalizationRegistry.
 @(private = "file")
 deferred_page_alive :: proc(ctx: jsc.JSContextRef) -> ^Runtime_State {
 	state := get_state_from_ctx(ctx)
 
-	if state == nil || state.loop == nil || state.loop.destroyed || state.deferred_flush == nil {
+	if state == nil || state.loop == nil || state.loop.destroyed || state.fr_engine == nil {
 		return nil
 	}
 
 	return state
 }
 
-// schedule() -> boolean: asks the page's loop for one turn that runs the page's flush.
-// false when the page has no loop to run it on (closed, or never had one); the module then
-// drops its queue.
+// enqueue(cleanup, heldValue, registry) -> boolean: owes the page `cleanup(heldValue)` in
+// a later tick of its own. Called by deferred.js's shim from the RunLoop, at thread level:
+// it queues and returns, and runs nothing of the page. false — and nothing queued — when
+// the page has no loop to run it on (closed, or never had one).
 @(private = "file")
-deferred_schedule_cb :: proc "c" (
+deferred_enqueue_cb :: proc "c" (
 	ctx: jsc.JSContextRef,
 	function: jsc.JSObjectRef,
 	this_object: jsc.JSObjectRef,
@@ -143,65 +206,103 @@ deferred_schedule_cb :: proc "c" (
 	context = runtime.default_context()
 	state := deferred_page_alive(ctx)
 
-	if state == nil {
+	if state == nil || argument_count < 3 || !is_function(ctx, arguments[0]) {
 		return jsc.JSValueMakeBoolean(ctx, false)
 	}
 
-	// post_async from the loop's own thread: it wakes the loop like a worker completion,
-	// and drain_async drops the hold taken here when the task runs.
-	eventloop.async_begin(state.loop)
-	eventloop.post_async(state.loop, deferred_flush_task, state)
+	item := Deferred_Cleanup {
+		fn       = arguments[0],
+		held     = arguments[1],
+		registry = jsc.JSValueToNumber(ctx, arguments[2], nil),
+	}
+	jsc.JSValueProtect(ctx, item.fn)
+	jsc.JSValueProtect(ctx, item.held)
+	append(&state.deferred_cleanups, item)
+	deferred_schedule(state)
 	return jsc.JSValueMakeBoolean(ctx, true)
 }
 
-// setFlush(fn): records the module's flush on the page's Runtime_State, GC-protected
-// until destroy_runtime_state. Once per context: the module calls it at install, and a
-// second call is ignored so the protect count stays one.
+// deferred_schedule posts one task to the page's loop for its next registry's cleanups.
+// post_async from the loop's own thread wakes the loop like a worker completion, and the
+// async_begin keeps the page alive until the task runs; drain_async drops it.
 @(private = "file")
-deferred_set_flush_cb :: proc "c" (
-	ctx: jsc.JSContextRef,
-	function: jsc.JSObjectRef,
-	this_object: jsc.JSObjectRef,
-	argument_count: c.size_t,
-	arguments: [^]jsc.JSValueRef,
-	exception: ^jsc.JSValueRef,
-) -> jsc.JSValueRef {
-	context = runtime.default_context()
-	state := get_state_from_ctx(ctx)
-
-	if state == nil || state.deferred_flush != nil || argument_count < 1 {
-		return jsc.JSValueMakeUndefined(ctx)
-	}
-
-	fn := arguments[0]
-
-	if !jsc.JSValueIsObject(ctx, fn) || !jsc.JSObjectIsFunction(ctx, cast(jsc.JSObjectRef)fn) {
-		return jsc.JSValueMakeUndefined(ctx)
-	}
-
-	jsc.JSValueProtect(ctx, fn)
-	state.deferred_flush = fn
-	return jsc.JSValueMakeUndefined(ctx)
-}
-
-// deferred_flush_task is the loop task `schedule` posts: it runs the page's flush in the
-// page's tick, as a user callback. The loop runs no task after close_begin, which comes
-// before destroy_runtime_state, so `state` is live whenever this runs.
-@(private = "file")
-deferred_flush_task :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
-	state := cast(^Runtime_State)user_data
-
-	if state == nil || state.deferred_flush == nil {
+deferred_schedule :: proc(state: ^Runtime_State) {
+	if state.deferred_scheduled ||
+	   len(state.deferred_cleanups) == 0 ||
+	   state.loop == nil ||
+	   state.loop.destroyed {
 		return
 	}
 
-	exception: jsc.JSValueRef
-	invoke_user_callback(state.ctx, cast(jsc.JSObjectRef)state.deferred_flush, nil, 0, &exception)
+	state.deferred_scheduled = true
+	eventloop.async_begin(state.loop)
+	eventloop.post_async(state.loop, deferred_cleanup_task, state)
+}
 
-	if exception != nil {
-		report_uncaught(state.ctx, exception)
-		mark_async_failed(state.ctx)
+// deferred_cleanup_task runs ONE registry's queued cleanups, in the page's tick, as one
+// entry through the microtask shim's dispatchCleanups (charged and checked like any
+// callback: page_checkpoint). The loop runs no task after close_begin, which precedes
+// destroy_runtime_state, so `state` is live here.
+@(private = "file")
+deferred_cleanup_task :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
+	state := cast(^Runtime_State)user_data
+	state.deferred_scheduled = false
+	ctx := state.ctx
+
+	if len(state.deferred_cleanups) == 0 {
+		return
 	}
+
+	end := 1
+	for end < len(state.deferred_cleanups) &&
+	    state.deferred_cleanups[end].registry == state.deferred_cleanups[0].registry {
+		end += 1
+	}
+
+	defer {
+		for i in 0 ..< end {
+			deferred_cleanup_release(ctx, &state.deferred_cleanups[i])
+		}
+		remove_range(&state.deferred_cleanups, 0, end)
+		deferred_schedule(state)
+	}
+
+	if page_stop_if_killed(state) || state.dispatch_cleanups == nil {
+		return
+	}
+
+	fns := make([]jsc.JSValueRef, end, context.temp_allocator)
+	helds := make([]jsc.JSValueRef, end, context.temp_allocator)
+	for i in 0 ..< end {
+		fns[i] = state.deferred_cleanups[i].fn
+		helds[i] = state.deferred_cleanups[i].held
+	}
+	args := [3]jsc.JSValueRef {
+		cast(jsc.JSValueRef)jsc.JSObjectMakeArray(ctx, c.size_t(end), raw_data(fns), nil),
+		cast(jsc.JSValueRef)jsc.JSObjectMakeArray(ctx, c.size_t(end), raw_data(helds), nil),
+		jsc.JSValueMakeNumber(ctx, f64(end)),
+	}
+	exc: jsc.JSValueRef
+	jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)state.dispatch_cleanups, nil, 3, raw_data(args[:]), &exc)
+
+	if page_checkpoint(state, &exc) {
+		return
+	}
+
+	if exc != nil {
+		report_uncaught(ctx, exc)
+		mark_async_failed(ctx)
+		return
+	}
+
+	drain_next_ticks_settled(ctx, state)
+}
+
+@(private = "file")
+deferred_cleanup_release :: proc(ctx: jsc.JSContextRef, item: ^Deferred_Cleanup) {
+	unprotect_before_eval_exit(ctx, item.fn)
+	unprotect_before_eval_exit(ctx, item.held)
+	item^ = {}
 }
 
 // FR_NOT_CALLABLE and FR_WITHOUT_NEW are JSC 2.52's own TypeError messages for
@@ -246,6 +347,11 @@ deferred_install_registry_cb :: proc "c" (
 	state := get_state_from_ctx(ctx)
 
 	if state == nil || state.fr_engine != nil || argument_count < 1 || !is_function(ctx, arguments[0]) {
+		return jsc.JSValueMakeUndefined(ctx)
+	}
+
+	// Test-only: as if the host path were missing (g_deferred_install_fault).
+	if g_deferred_install_fault {
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
@@ -348,7 +454,13 @@ fr_construct_host :: proc "c" (global: rawptr, cf: [^]u64) -> i64 {
 	return transmute(i64)exc
 }
 
-@(private = "file")
 is_function :: proc(ctx: jsc.JSContextRef, v: jsc.JSValueRef) -> bool {
 	return v != nil && jsc.JSValueIsObject(ctx, v) && jsc.JSObjectIsFunction(ctx, cast(jsc.JSObjectRef)v)
+}
+
+// delete_named deletes `object[name]`; a missing or non-configurable property stays.
+delete_named :: proc(ctx: jsc.JSContextRef, object: jsc.JSObjectRef, name: cstring) {
+	key := jsc.JSStringCreateWithUTF8CString(name)
+	defer jsc.JSStringRelease(key)
+	jsc.JSObjectDeleteProperty(ctx, object, key, nil)
 }

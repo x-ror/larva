@@ -77,6 +77,79 @@ for (const k of ['compile', 'instantiate']) {
   await started;
   print('start function order ' + order.join(','));
 
+  // The module form: the imports are read and the start function runs inside the call.
+  const startModule = await WebAssembly.compile(START);
+  const seen = [];
+  const imports = {
+    get m() {
+      seen.push('get m');
+      return {
+        f() {
+          seen.push('start');
+        },
+      };
+    },
+  };
+  const viaModule = WebAssembly.instantiate(startModule, imports).then(() => seen.push('resolved'));
+  seen.push('returned');
+  await viaModule;
+  print('instantiate(module) order ' + seen.join(','));
+  const failing = [];
+  const throwing = WebAssembly.instantiate(startModule, {
+    get m() {
+      failing.push('get m');
+      throw new Error('import getter');
+    },
+  }).then(
+    () => failing.push('resolved'),
+    (e) => failing.push('rejected ' + e.constructor.name),
+  );
+  failing.push('returned');
+  await throwing;
+  print('instantiate(module) throwing getter ' + failing.join(','));
+
+  // The result of instantiate(bytes) holds its own data properties, whatever
+  // Object.prototype carries.
+  let setterHits = 0;
+  Object.defineProperty(Object.prototype, 'module', {
+    configurable: true,
+    set() {
+      setterHits++;
+    },
+    get() {
+      return 'proto';
+    },
+  });
+  const own = await WebAssembly.instantiate(EMPTY);
+  delete Object.prototype.module;
+  print(
+    'result own module ' +
+      Object.prototype.hasOwnProperty.call(own, 'module') +
+      ' setter hits ' +
+      setterHits +
+      ' is Module ' +
+      (own.module instanceof WebAssembly.Module),
+  );
+
+  // Whether a source is a Module is a brand check: a page's Symbol.hasInstance is not
+  // asked, and an object that only inherits from Module.prototype is no Module.
+  let hasInstanceHits = 0;
+  Object.defineProperty(WebAssembly.Module, Symbol.hasInstance, {
+    configurable: true,
+    value() {
+      hasInstanceHits++;
+      return true;
+    },
+  });
+  let branded;
+  try {
+    branded = Object.keys(await WebAssembly.instantiate(EMPTY)).join(',');
+  } catch (e) {
+    branded = 'rejected ' + e.constructor.name;
+  }
+  delete WebAssembly.Module[Symbol.hasInstance];
+  print('brand check ' + branded + ' hasInstance hits ' + hasInstanceHits);
+
   const cases = [
     ['compile()', () => WebAssembly.compile()],
     ['compile(5)', () => WebAssembly.compile(5)],

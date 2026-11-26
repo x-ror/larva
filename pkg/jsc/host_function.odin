@@ -345,12 +345,7 @@ when ODIN_OS == .Linux {
 		ctor_ptr := transmute(rawptr)ctor
 
 		if !constructible {
-			if !g_not_ctor_checked {
-				g_not_ctor_checked = true
-				g_not_ctor = host_dlsym(nil, "_ZN3JSC29callHostFunctionAsConstructorEPNS_14JSGlobalObjectEPNS_9CallFrameE")
-			}
-
-			if g_not_ctor == nil {
+			if !host_non_constructor_available() {
 				return nil, false
 			}
 
@@ -359,6 +354,18 @@ when ODIN_OS == .Linux {
 
 		function = create_raw(ctx, name, fn, arity, ctor_ptr)
 		return function, function != nil
+	}
+
+	// host_non_constructor_available reports whether this JSC exports
+	// callHostFunctionAsConstructor, which host_function_create(constructible = false)
+	// needs. A fact about the library; resolved once per thread.
+	host_non_constructor_available :: proc() -> bool {
+		if !g_not_ctor_checked {
+			g_not_ctor_checked = true
+			g_not_ctor = host_dlsym(nil, "_ZN3JSC29callHostFunctionAsConstructorEPNS_14JSGlobalObjectEPNS_9CallFrameE")
+		}
+
+		return g_not_ctor != nil
 	}
 
 	// host_calls_active reports whether the private-ABI host-call path resolved on
@@ -414,6 +421,10 @@ when ODIN_OS == .Linux {
 		ok: bool,
 	) {
 		return nil, false
+	}
+
+	host_non_constructor_available :: proc() -> bool {
+		return false
 	}
 
 	// Honest stub: the host-call path does not exist off Linux, so the registry is

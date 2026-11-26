@@ -18,9 +18,12 @@ import eventloop "lava:pkg/runtime/eventloop"
 // RunLoop:
 //   - the module is compiled synchronously (`new WebAssembly.Module`, captured before
 //     page code) inside the caller's own entry: charged to its budget, under its limits;
+//   - instantiate(module, imports) makes the Instance — reading the imports, running the
+//     start function — in the call too, as Chrome does (`get m,start,returned`);
+//     instantiate(bytes, imports) makes it in a later task on the page's loop, as Chrome
+//     does after its asynchronous compile (`returned,get m,start`);
 //   - the promise is settled one task later by a task on the page's own loop, which runs
-//     inside one of the page's ticks — and an instantiate's Instance (its imports and
-//     start function) is created there, as Chrome runs it in that later task;
+//     inside one of the page's ticks;
 //   - a page that closes first drops its jobs with its Runtime_State: no task runs after
 //     close_begin, and destroy_runtime_state releases what the jobs held.
 // Each job is its own task, as each of Chrome's is. Nothing is held for a promise a page
@@ -31,21 +34,28 @@ import eventloop "lava:pkg/runtime/eventloop"
 // source in a stack or message (review F1-F3). Pinned against Chrome 158 by
 // tests/web/cases/wasm-async.js and wasm-errors.js.
 //
-// Deviates (engine traits, not this file's): a CompileError or LinkError carries JSC's
-// text, not V8's; compileStreaming/instantiateStreaming do not exist (JSC GTK has none,
-// and Chrome's take a Response — not implemented here). The import object is read when
-// the Instance is made, in the later task; Chrome reads it in the call itself, so a
-// getter on it runs later in Lava (unpinned: no recorded case observes it). The module
-// is compiled during the call rather than off-thread, so a large module costs the
+// Deviates: a CompileError or LinkError carries JSC's text, not V8's (an engine trait).
+// compileStreaming/instantiateStreaming do not exist: they are the embedder's (Blink's,
+// over a Response), so Larva owes them, and their absence is a fingerprint — a known gap
+// pinned by tests/web/cases/wasm-streaming.js (stage `unplanned`), not stubbed, since a
+// stub that rejects breaks loaders that would otherwise take their ArrayBuffer path. The
+// module is compiled during the call rather than off-thread, so a large module costs the
 // calling entry its compile time — which is the point: it is charged.
+//
+// Fail closed: on a thread whose RunLoop Lava drives, the engine's own compile/instantiate
+// would settle from there and run page code outside every window (#97 review). So when
+// the replacements cannot be installed — the host path or JSC's non-constructor symbol
+// missing, a transient allocation failure — they are deleted from the page rather than
+// left as the engine's (deferred_fail_closed, from page_create). The page then sees no
+// WebAssembly.compile/instantiate, which is honest; failing page_create instead would
+// turn a transient allocation failure into a lost page. A thread that is not driven
+// keeps the engine's, which there never settle — what they did before the drive.
 
 @(private = "file")
 Wasm_Job_Kind :: enum u8 {
 	// Resolve or reject with `value`.
 	Settle,
-	// Make an Instance of the Module in `value` and resolve with it.
-	Instantiate,
-	// The same, resolving with {module, instance}.
+	// Make an Instance of the Module in `value` and resolve with {module, instance}.
 	Instantiate_Bytes,
 }
 
@@ -67,6 +77,8 @@ Wasm_Job :: struct {
 COMPILE_ARG0 :: "WebAssembly.compile(): Argument 0 must be a buffer source"
 @(private = "file")
 INSTANTIATE_ARG0 :: "WebAssembly.instantiate(): Argument 0 must be a buffer source or a WebAssembly.Module object"
+@(private = "file")
+INSTANTIATE_ARG0_BYTES :: "WebAssembly.instantiate(): Argument 0 must be a buffer source"
 @(private = "file")
 INSTANTIATE_ARG1 :: "WebAssembly.instantiate(): Argument 1 must be an object"
 
@@ -90,24 +102,27 @@ install_wasm :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) {
 	ns := cast(jsc.JSObjectRef)wasm
 	module := get_named(ctx, ns, "Module")
 	instance := get_named(ctx, ns, "Instance")
+	compile, instantiate: jsc.JSObjectRef
+	brand: jsc.JSValueRef
 
-	if !is_constructor(ctx, module) || !is_constructor(ctx, instance) {
-		return
+	if is_constructor(ctx, module) && is_constructor(ctx, instance) && !g_deferred_install_fault {
+		brand = get_named(ctx, cast(jsc.JSObjectRef)module, "imports")
+		compile = host_native_create(ctx, "compile", wasm_compile_cb, 1, constructible = false)
+		instantiate = host_native_create(ctx, "instantiate", wasm_instantiate_cb, 1, constructible = false)
 	}
 
-	compile := host_native_create(ctx, "compile", wasm_compile_cb, 1, constructible = false)
-	instantiate := host_native_create(ctx, "instantiate", wasm_instantiate_cb, 1, constructible = false)
-
-	// No host path (another platform, or the private ABI missing): the engine's own stay,
-	// and so does what they did before (on WebKitGTK, never settling).
-	if compile == nil || instantiate == nil {
+	// Not installed: page_create's deferred_fail_closed takes the engine's off a driven
+	// page.
+	if compile == nil || instantiate == nil || !is_function(ctx, brand) {
 		return
 	}
 
 	jsc.JSValueProtect(ctx, module)
 	jsc.JSValueProtect(ctx, instance)
+	jsc.JSValueProtect(ctx, brand)
 	state.wasm_module = module
 	state.wasm_instance = instance
+	state.wasm_brand = brand
 	set_named(ctx, ns, "compile", cast(jsc.JSValueRef)compile)
 	set_named(ctx, ns, "instantiate", cast(jsc.JSValueRef)instantiate)
 }
@@ -122,8 +137,10 @@ wasm_release_jobs :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) {
 	state.wasm_jobs = nil
 	unprotect_before_eval_exit(ctx, state.wasm_module)
 	unprotect_before_eval_exit(ctx, state.wasm_instance)
+	unprotect_before_eval_exit(ctx, state.wasm_brand)
 	state.wasm_module = nil
 	state.wasm_instance = nil
+	state.wasm_brand = nil
 }
 
 // compile(bytes) -> Promise<Module>.
@@ -150,7 +167,8 @@ wasm_compile_cb :: proc "c" (
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
-	module, failure, killed := wasm_compile(ctx, state, arg_or_undefined(ctx, arguments, argument_count, 0), COMPILE_ARG0)
+	source := arg_or_undefined(ctx, arguments, argument_count, 0)
+	module, failure, killed := wasm_compile(ctx, state, source, COMPILE_ARG0)
 
 	if killed != nil {
 		exception^ = killed
@@ -197,24 +215,32 @@ wasm_instantiate_cb :: proc "c" (
 		reject  = reject,
 	}
 
-	// Whether `source` is a Module is asked of the engine (instanceof, which may run a
-	// page's Symbol.hasInstance — inside this entry, as in Chrome's call).
-	exc: jsc.JSValueRef
-	is_module := jsc.JSValueIsInstanceOfConstructor(ctx, source, cast(jsc.JSObjectRef)state.wasm_module, &exc)
+	// Whether `source` is a Module is a brand check, not instanceof: Chrome reads no page
+	// hook here (a page's WebAssembly.Module[Symbol.hasInstance] is never called, and an
+	// Object.create(WebAssembly.Module.prototype) is no Module — tests/web wasm-async and
+	// wasm-errors). WebAssembly.Module.imports, captured at install, checks the internal
+	// slot and throws a TypeError for anything else, running no page code.
+	is_module := false
 
-	if exc != nil {
-		if page_stop_if_killed(state) {
-			exception^ = exc
+	if jsc.JSValueIsObject(ctx, source) {
+		brand_args := [1]jsc.JSValueRef{source}
+		brand_exc: jsc.JSValueRef
+		brand := cast(jsc.JSObjectRef)state.wasm_brand
+		jsc.JSObjectCallAsFunction(ctx, brand, nil, 1, raw_data(brand_args[:]), &brand_exc)
+
+		if brand_exc != nil && page_stop_if_killed(state) {
+			exception^ = brand_exc
 			return jsc.JSValueMakeUndefined(ctx)
 		}
 
-		job.value = exc
-		wasm_enqueue(ctx, state, job)
-		return cast(jsc.JSValueRef)promise
+		is_module = brand_exc == nil
 	}
 
 	if !is_module {
-		module, failure, killed := wasm_compile(ctx, state, source, INSTANTIATE_ARG0)
+		// Chrome words it by the argument's type: an object that is no Module is taken
+		// for bytes (tests/web wasm-errors: "instantiate(fake Module)").
+		message := jsc.JSValueIsObject(ctx, source) ? INSTANTIATE_ARG0_BYTES : INSTANTIATE_ARG0
+		module, failure, killed := wasm_compile(ctx, state, source, message)
 
 		if killed != nil {
 			exception^ = killed
@@ -236,11 +262,49 @@ wasm_instantiate_cb :: proc "c" (
 		return cast(jsc.JSValueRef)promise
 	}
 
-	job.kind = is_module ? .Instantiate : .Instantiate_Bytes
-	job.value = source
-	job.imports = imports
+	if !is_module {
+		job.kind = .Instantiate_Bytes
+		job.value = source
+		job.imports = imports
+		wasm_enqueue(ctx, state, job)
+		return cast(jsc.JSValueRef)promise
+	}
+
+	// The module form: the Instance now, in this entry (charged, under its limits), as
+	// Chrome reads the imports and runs the start function inside the call; only the
+	// settlement waits for a later task.
+	instance, exc := wasm_instance_new(ctx, state, source, imports)
+
+	if page_stop_if_killed(state) {
+		exception^ = exc
+		return jsc.JSValueMakeUndefined(ctx)
+	}
+
+	job.ok = exc == nil
+	job.value = exc != nil ? exc : instance
 	wasm_enqueue(ctx, state, job)
 	return cast(jsc.JSValueRef)promise
+}
+
+// wasm_instance_new is `new WebAssembly.Instance(module, imports)` with the captured
+// constructor; exactly one of the results is set.
+@(private = "file")
+wasm_instance_new :: proc(
+	ctx: jsc.JSContextRef,
+	state: ^Runtime_State,
+	module, imports: jsc.JSValueRef,
+) -> (
+	instance: jsc.JSValueRef,
+	exc: jsc.JSValueRef,
+) {
+	args := [2]jsc.JSValueRef{module, imports != nil ? imports : jsc.JSValueMakeUndefined(ctx)}
+	built := jsc.JSObjectCallAsConstructor(ctx, cast(jsc.JSObjectRef)state.wasm_instance, 2, raw_data(args[:]), &exc)
+
+	if exc != nil {
+		return nil, exc
+	}
+
+	return cast(jsc.JSValueRef)built, nil
 }
 
 // wasm_compile runs `new WebAssembly.Module(source)` in the calling entry.
@@ -275,10 +339,7 @@ wasm_compile :: proc(
 		return nil, nil, exc
 	}
 
-	type_error := state.error_intrinsics["TypeError"]
-
-	if exc == nil ||
-	   (type_error != nil && jsc.JSValueIsInstanceOfConstructor(ctx, exc, cast(jsc.JSObjectRef)type_error, nil)) {
+	if exc == nil || is_type_error(ctx, state, exc) {
 		return nil, make_native_error(ctx, "TypeError", message), nil
 	}
 
@@ -345,15 +406,9 @@ wasm_job_task :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 	value := job.value
 	exc: jsc.JSValueRef
 
-	if job.kind != .Settle {
-		args := [2]jsc.JSValueRef{job.value, job.imports != nil ? job.imports : jsc.JSValueMakeUndefined(ctx)}
-		instance := jsc.JSObjectCallAsConstructor(
-			ctx,
-			cast(jsc.JSObjectRef)state.wasm_instance,
-			2,
-			raw_data(args[:]),
-			&exc,
-		)
+	if job.kind == .Instantiate_Bytes {
+		instance: jsc.JSValueRef
+		instance, exc = wasm_instance_new(ctx, state, job.value, job.imports)
 
 		if page_checkpoint(state, &exc) {
 			return
@@ -361,14 +416,14 @@ wasm_job_task :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 
 		if exc != nil {
 			value = exc
-		} else if job.kind == .Instantiate {
-			ok = true
-			value = cast(jsc.JSValueRef)instance
 		} else {
-			// {module, instance}: a plain object, keys in Chrome's order.
-			result := jsc.JSObjectMake(ctx, nil, nil)
+			// {module, instance}: own data properties, keys in Chrome's order, as
+			// CreateDataProperty makes them — a [[Set]] would run a setter a page put on
+			// Object.prototype. JSON.parse creates them that way, and writing an own
+			// writable data property is a plain store.
+			result := wasm_result_object(ctx)
 			set_named(ctx, result, "module", job.value)
-			set_named(ctx, result, "instance", cast(jsc.JSValueRef)instance)
+			set_named(ctx, result, "instance", instance)
 			ok = true
 			value = cast(jsc.JSValueRef)result
 		}
@@ -393,12 +448,43 @@ wasm_job_release :: proc(ctx: jsc.JSContextRef, job: ^Wasm_Job) {
 }
 
 @(private = "file")
-arg_or_undefined :: proc(ctx: jsc.JSContextRef, arguments: [^]jsc.JSValueRef, count: c.size_t, i: int) -> jsc.JSValueRef {
+arg_or_undefined :: proc(
+	ctx: jsc.JSContextRef,
+	arguments: [^]jsc.JSValueRef,
+	count: c.size_t,
+	i: int,
+) -> jsc.JSValueRef {
 	if int(count) > i && arguments[i] != nil {
 		return arguments[i]
 	}
 
 	return jsc.JSValueMakeUndefined(ctx)
+}
+
+// wasm_result_object is a fresh {module: null, instance: null} whose two properties are
+// own data properties from the start (JSON.parse defines them; it never consults
+// Object.prototype).
+@(private = "file")
+wasm_result_object :: proc(ctx: jsc.JSContextRef) -> jsc.JSObjectRef {
+	text := jsc.JSStringCreateWithUTF8CString(`{"module":null,"instance":null}`)
+	defer jsc.JSStringRelease(text)
+	return cast(jsc.JSObjectRef)jsc.JSValueMakeFromJSONString(ctx, text)
+}
+
+// is_type_error reports whether `v` is a TypeError by its prototype, not instanceof: a
+// page may define TypeError[Symbol.hasInstance], and the prototype of an error the engine
+// just made is the realm's TypeError.prototype (read off the captured constructor, whose
+// `prototype` is non-writable and non-configurable).
+@(private = "file")
+is_type_error :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State, v: jsc.JSValueRef) -> bool {
+	ctor := state.error_intrinsics["TypeError"]
+
+	if ctor == nil || !jsc.JSValueIsObject(ctx, v) {
+		return false
+	}
+
+	proto := get_named(ctx, cast(jsc.JSObjectRef)ctor, "prototype")
+	return proto != nil && jsc.JSValueIsStrictEqual(ctx, jsc.JSObjectGetPrototype(ctx, cast(jsc.JSObjectRef)v), proto)
 }
 
 @(private = "file")

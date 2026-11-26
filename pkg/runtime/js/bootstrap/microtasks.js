@@ -121,6 +121,26 @@
     }
   }
 
+  // dispatchCleanups runs one FinalizationRegistry's due cleanups (pkg/runtime/deferred.odin)
+  // as ONE task: each with its held value alone and `this` undefined, a throw reported
+  // and the rest still run, the microtasks they queue drained when native's call returns
+  // — HTML's cleanup job, which Chrome runs per registry. Named `dispatch` like its
+  // sibling, and calling each cleanup straight from here: a cleanup's stack shows the
+  // same one frame of this file a timer callback's does, and nothing else of the runtime.
+  var dispatchCleanups = function dispatch(fns, values, count) {
+    try {
+      for (var i = 0; i < count; i++) {
+        try {
+          functionApply(fns[i], undefined, [values[i]]);
+        } catch (error) {
+          reportUncaught(error);
+        }
+      }
+    } finally {
+      drainNextTicks();
+    }
+  };
+
   function nextTick(callback) {
     if (typeof callback !== 'function') {
       throw new TypeError(
@@ -151,5 +171,5 @@
   // the `__lava_tl_drain` binding — are defined by install_microtasks from the
   // drainNextTicks returned here, and only on the `.Node` surface: they are
   // non-configurable, so a `.Web` context could not delete them once defined.
-  return { drainNextTicks: drainNextTicks, dispatch: dispatch };
+  return { drainNextTicks: drainNextTicks, dispatch: dispatch, dispatchCleanups: dispatchCleanups };
 });

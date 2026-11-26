@@ -1,4 +1,5 @@
 cleanups c0,c1,c2
 cleanup calls 1:true 1:true 1:true
 cleanups before their microtasks true
+cleanup stack clean true
 two registries, one task each true

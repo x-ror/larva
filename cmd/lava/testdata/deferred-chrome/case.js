@@ -19,9 +19,11 @@
   // they queue run after the last of them.
   const log = [];
   const calls = [];
+  const stacks = [];
   const reg = new FinalizationRegistry(function (held) {
     'use strict';
     calls.push(arguments.length + ':' + (this === undefined));
+    stacks.push(String(new Error().stack));
     log.push('c' + held);
     Promise.resolve().then(() => log.push('m' + held));
   });
@@ -51,7 +53,16 @@
   const cleaned = log.filter((x) => x[0] === 'c');
   out.push('cleanups ' + cleaned.slice().sort().join(','));
   out.push('cleanup calls ' + calls.join(' '));
-  out.push('cleanups before their microtasks ' + (log.length === 6 && log.slice(0, 3).every((x) => x[0] === 'c')));
+  out.push(
+    'cleanups before their microtasks ' +
+      (log.length === 6 && log.slice(0, 3).every((x) => x[0] === 'c')),
+  );
+  // Nothing of Lava's routing in a cleanup's stack. Lava's one frame below the cleanup
+  // (dispatch@lava:microtasks) is the one every timer callback shows too; not tested here.
+  out.push(
+    'cleanup stack clean ' +
+      (stacks.length > 0 && stacks.every((s) => !/internal\/|node:|flush@/.test(s))),
+  );
   out.push('two registries, one task each ' + /^(A+m+B+m+|B+m+A+m+)$/.test(seq.join('')));
 
   globalThis.report = out.join('\n');

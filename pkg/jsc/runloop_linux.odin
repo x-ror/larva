@@ -468,6 +468,13 @@ runloop_self_test :: proc(group: JSContextGroupRef) -> bool {
 		return false
 	}
 
+	// The same for wasm.odin's compile/instantiate, which must be non-constructors: a JSC
+	// without the symbol could install them on no page, and a page keeping the engine's
+	// is safe only where the RunLoop is not driven. So no symbol, no drive.
+	if !host_non_constructor_available() {
+		return false
+	}
+
 	SETUP :: "globalThis.ran = 0; globalThis.fr = new FinalizationRegistry(function () { ran = 1; });" +
 		" (function () { for (var i = 0; i < 4; i++) fr.register({}, i); })(); 0"
 	src := JSStringCreateWithUTF8CString(SETUP)

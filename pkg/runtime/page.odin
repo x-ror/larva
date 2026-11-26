@@ -289,6 +289,9 @@ page_create :: proc(
 	vm_cpu_enter(vm)
 	setup_module_environment(cast(jsc.JSContextRef)ctx, source_name, loop, surface)
 	vm_cpu_exit(vm)
+	// Before any page code: what the install could not replace is not left as the engine's
+	// on a thread whose RunLoop is driven (deferred.odin).
+	deferred_fail_closed(cast(jsc.JSContextRef)ctx, state)
 
 	if ended, result := page_ended(page); ended {
 		return page_fail(page, result)
