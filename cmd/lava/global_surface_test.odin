@@ -370,10 +370,11 @@ global_surface_web_loads_no_node_module :: proc(t: ^testing.T) {
 }
 
 // The node/ modules `.Web` init still instantiates, and why. Must only shrink.
-//   node/buffer  The shared Web API code is still Buffer-backed (internal/encoding,
-//                internal/crypto/random, structured_clone, the loader's pristineBuffer):
-//                `.Web` hands out Buffer-shaped bytes until stages S4b-S4d of the
-//                Node-profile removal take Buffer out of them.
+//   node/buffer  The loader instantiates it unconditionally, and shared Web API code is
+//                still Buffer-backed: internal/crypto/random and crypto/util, base64
+//                (atob/btoa), blob and structured_clone through the loader's
+//                pristineBuffer, and the streams under fetch. internal/encoding no
+//                longer is (S4b); stages S4c-S4d take Buffer out of the rest.
 @(private = "file")
 WEB_NODE_MODULES :: [?]string{"node/buffer"}
 
