@@ -7,6 +7,7 @@ import "core:strings"
 import "core:sync"
 import "core:sys/linux"
 import "core:thread"
+import jsc "lava:pkg/jsc"
 
 // A page dispatcher spreads pages over N worker threads, each driving its own page
 // runner (page_runner.odin) with its own VM pool (docs/LARVA.md decision 2: many VMs
@@ -532,6 +533,9 @@ worker_main :: proc(data: rawptr) {
 	// tables (host_native_thread_teardown says why).
 	thread_vm_pool_destroy()
 	host_native_thread_teardown()
+	// Last, once every VM of the thread is gone: one final RunLoop iteration closes their
+	// timer sources, then the drive's epoll set and context reference go.
+	jsc.runloop_thread_teardown()
 }
 
 // worker_loop runs pages until shutdown says stop. Each turn: consume a wake if there

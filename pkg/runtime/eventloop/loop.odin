@@ -148,6 +148,11 @@ Loop :: struct {
 	// driver does the blocking itself, on every loop's backend_fd at once, bounded by
 	// the smallest wait_hint_ms.
 	never_block:        bool,
+	// poll_cap_ms bounds the blocking poll of a real_time loop; 0 = no bound. Set before
+	// each tick by a driver with a deadline the loop cannot see — eval's thread, for
+	// GLib's next fd-less RunLoop deadline (pkg/runtime/deferred.odin). Waking at the
+	// cap counts as progress, like waking for the nearest timer.
+	poll_cap_ms:        int,
 	// yield_requested asks the timers phase to suspend the turn before the next due
 	// timer (#35). Set by the page runner's CPU quantum (page_checkpoint) from inside a
 	// timer callback; cleared when a timers phase starts, so a request left over from
@@ -185,6 +190,11 @@ IO_Watcher :: struct {
 	// that fails because the fd is already closed, a duplicate watch). Owned by the
 	// wrappers; callers must zero-initialize the watcher (a fresh IO_Watcher literal).
 	watched:      bool,
+	// unref makes the watcher one that does not keep the loop alive (node's
+	// handle.unref()): watch_fd and unwatch_fd leave active_io_count alone for it, so a
+	// loop with nothing else pending ends as if it were not there. Set before watch_fd and
+	// left unchanged while watched.
+	unref:        bool,
 	// backend_slot is io_uring-only scratch: the index of this watcher's entry in
 	// Platform_Loop.watch_slots while watched, so unwatch_fd reaches its slot in O(1)
 	// instead of scanning the table. Set by platform_watch_fd, read by
@@ -1055,6 +1065,10 @@ run_once :: proc(loop: ^Loop) -> bool {
 			timeout_ms = 0
 		}
 
+		if loop.poll_cap_ms > 0 && (timeout_ms < 0 || timeout_ms > loop.poll_cap_ms) {
+			timeout_ms = loop.poll_cap_ms
+		}
+
 		// With no timers but pending I/O, block indefinitely until an fd is ready
 		// rather than spinning (get_next_timer_timeout returns -1 in that case).
 		if timeout_ms != 0 || loop.active_io_count > 0 || loop.active_async > 0 {
@@ -1611,7 +1625,11 @@ watch_fd :: proc(loop: ^Loop, watcher: ^IO_Watcher) -> bool {
 
 	if platform_watch_fd(loop, watcher) {
 		watcher.watched = true
-		loop.active_io_count += 1
+
+		if !watcher.unref {
+			loop.active_io_count += 1
+		}
+
 		return true
 	}
 
@@ -1636,7 +1654,11 @@ unwatch_fd :: proc(loop: ^Loop, watcher: ^IO_Watcher) -> bool {
 	// logical `watched` flag — not the syscall result — drives the accounting.
 	platform_unwatch_fd(loop, watcher)
 	watcher.watched = false
-	loop.active_io_count = max(0, loop.active_io_count - 1)
+
+	if !watcher.unref {
+		loop.active_io_count = max(0, loop.active_io_count - 1)
+	}
+
 	return true
 }
 

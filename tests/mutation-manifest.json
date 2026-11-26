@@ -3434,15 +3434,6 @@
       "expect_detail": "node: Duplex has write function"
     },
     {
-      "name": "80-webstreams-internal-modules dies when a constructor is defined in the assembling entry again",
-      "why": "A constructor defined in internal/webstreams/index.js (the export assembly node:stream/web re-exports) throws from that file's frame instead of the file node attributes it to, which is what the split moved away from.",
-      "source": "pkg/runtime/js/internal/webstreams/index.js",
-      "find": "  var CountQueuingStrategy = strategies.CountQueuingStrategy;",
-      "replace": "  var CountQueuingStrategy = function CountQueuingStrategy(o) { if (!o) throw new TypeError('init'); return new strategies.CountQueuingStrategy(o); };",
-      "gate": "compat:tests/node-compat/cases/80-webstreams-internal-modules.js",
-      "expect_detail": "node: CountQueuingStrategy(): node:internal/webstreams/queuingstrategies true false"
-    },
-    {
       "name": "80-webstreams-internal-modules dies when pipeTo loses its writablestream import",
       "why": "pipeTo's abort path calls writableStreamAbort across the readablestream -> writablestream seam; a dropped import throws out of the abort path (unhandled, exit 1) instead of rejecting the pipe with the signal's reason.",
       "source": "pkg/runtime/js/internal/webstreams/readablestream.js",
@@ -3594,15 +3585,6 @@
       "replace": "\tinstall_stdio(ctx, global)",
       "gate": "odin:cmd/lava:main.global_surface_web_skips_stdio",
       "expect_detail": "web: resolving events compiled nothing"
-    },
-    {
-      "name": "global_surface_web_loads_no_node_module dies when the Window surface instantiates node:stream/web again",
-      "why": "The Node-profile removal deletes js/node/; a web global reached only through a node/ module on .Web would vanish with it. The loader gate is what keeps the stream globals' install path internal.",
-      "source": "pkg/runtime/js/bootstrap/loader.js",
-      "find": "  if (!web) req('stream/web');\n",
-      "replace": "  req('stream/web');\n",
-      "gate": "odin:cmd/lava:main.global_surface_web_loads_no_node_module",
-      "expect_detail": "node/stream/web was loaded by .Web init"
     },
     {
       "name": "global_surface_web_rejects_mjs dies when eval stops refusing .mjs on .Web",
@@ -4657,6 +4639,61 @@
       "expect_detail": "in the temp arena"
     },
     {
+      "name": "runloop_adopts_only_before_the_threads_first_vm dies when the RunLoop self-test is skipped",
+      "why": "WTF binds a thread's RunLoop for good to the context that was thread-default at its first VM; a thread whose first VM came before the push would report a drive that never runs anything, and its pages would keep a held wasm compile alive forever.",
+      "source": "pkg/jsc/runloop_linux.odin",
+      "find": "\tadopted := group != nil && runloop_self_test(group)\n",
+      "replace": "\tadopted := group != nil\n",
+      "gate": "odin:cmd/lava:main.runloop_adopts_only_before_the_threads_first_vm",
+      "expect_detail": "to be Not_Adopted"
+    },
+    {
+      "name": "runner_runs_a_finalization_cleanup_in_its_page dies when the runner stops dispatching the RunLoop between rounds",
+      "why": "Without the runner's dispatch a runner page's FinalizationRegistry cleanup is queued on a RunLoop nothing iterates, which is #91 itself.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\tif jsc.runloop_due() && jsc.runloop_dispatch() {",
+      "replace": "\tif false {",
+      "gate": "odin:cmd/lava:main.runner_runs_a_finalization_cleanup_in_its_page",
+      "expect_detail": "no FinalizationRegistry cleanup within 3 s"
+    },
+    {
+      "name": "eval_runs_a_finalization_cleanup dies when page_tick's service stops dispatching the RunLoop",
+      "why": "On eval's thread the page loop is the only driver; without the dispatch before each tick a cleanup waits for the page to close and is dropped there.",
+      "source": "pkg/runtime/deferred.odin",
+      "find": "\tif jsc.runloop_due() {\n\t\tjsc.runloop_dispatch()\n\t}\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.eval_runs_a_finalization_cleanup",
+      "expect_detail": "no FinalizationRegistry cleanup within 3 s"
+    },
+    {
+      "name": "vm_pool_releases_its_timerfds dies when vm_pool_destroy no longer iterates the RunLoop after its releases",
+      "why": "A released VM's timer source closes its timerfd only at the next iteration, so every retired VM would again cost a descriptor for the life of its thread.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tif len(pool.vms) > 0 {\n\t\tjsc.runloop_dispatch()\n\t}\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.vm_pool_releases_its_timerfds",
+      "expect_detail": "outlived their VMs"
+    },
+    {
+      "name": "runner_churn_with_the_drive_does_not_crash dies when JSC's GC activity timers stay on under the drive",
+      "why": "A driven full-GC activity timer reaches RunLoop::mainSingleton(), null in this embedding (session probes: SIGSEGV in 12 of 12 runs); the observable here is the crash, or a spin, so the verdict is the gate's own failure.",
+      "source": "pkg/jsc/runloop_linux.odin",
+      "find": "\t\t\t(transmute(Disable_GC_Timer_Proc)p)()\n",
+      "replace": "\t\t\t_ = p\n",
+      "gate": "odin:cmd/lava:main.runner_churn_with_the_drive_does_not_crash",
+      "expect_detail": "",
+      "timeout_ms": 120000
+    },
+    {
+      "name": "runner_collects_a_vm_whose_sampled_heap_was_large dies when page_create skips the pending collection",
+      "why": "With the GC activity timers off, the heap-gated collection is the only one not driven by allocation; without it a VM keeps a large predecessor's garbage (bench/pages heavy: 66 MB RSS growth per VM against 27 MB).",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\tjsc.collect_garbage_now(cast(jsc.JSContextRef)ctx)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.runner_collects_a_vm_whose_sampled_heap_was_large",
+      "expect_detail": "was not collected"
+    },
+    {
       "name": "suspended_timers_phase_resumes_the_same_turn dies when a yield breaks out of the timers phase",
       "why": "A slice that falls through to the later phases runs this turn's setImmediate (and any completion) ahead of the timers still due in it: t1,micro,imm,t2 where node prints t1,micro,t2,imm.",
       "source": "pkg/runtime/eventloop/loop.odin",
@@ -4883,6 +4920,168 @@
       "gate": "node-test:scripts/run-web-oracle.test.mjs",
       "test": "a suite below the case-count floor fails before running anything",
       "expect_detail": "a suite below the case-count floor fails before running anything"
+    },
+    {
+      "name": "runner_charges_a_cleanup_to_its_own_page dies when the shim runs the cleanup at the RunLoop dispatch",
+      "why": "The RunLoop is dispatched outside every page's CPU window, so a cleanup run there is charged to nobody and a page can move unbounded work into cleanups past its budget.",
+      "source": "pkg/runtime/js/internal/deferred.js",
+      "find": "      enqueue(cleanup, heldValue, registry);",
+      "replace": "      cleanup(heldValue);",
+      "gate": "odin:cmd/lava:main.runner_charges_a_cleanup_to_its_own_page",
+      "expect_detail": "were not charged to A"
+    },
+    {
+      "name": "page_sees_finalization_cleanups_as_chrome_does dies when one task runs every registry's cleanups",
+      "why": "HTML queues a cleanup task per registry, so Chrome drains one registry's microtasks before the next registry's cleanups run (AAmmBBmm); one flush for all of them prints AABBmmmm (#91 review F4).",
+      "source": "pkg/runtime/deferred.odin",
+      "find": "\tfor end < len(state.deferred_cleanups) &&\n\t    state.deferred_cleanups[end].registry == state.deferred_cleanups[0].registry {",
+      "replace": "\tfor end < len(state.deferred_cleanups) {",
+      "gate": "odin:cmd/lava:main.page_sees_finalization_cleanups_as_chrome_does",
+      "expect_detail": "two registries, one task each false"
+    },
+    {
+      "name": "finalization-shape dies when FinalizationRegistry's native constructor drops new.target",
+      "why": "Constructing the engine registry with its own new.target gives a subclass instance, or one made through Reflect.construct, FinalizationRegistry.prototype instead of its own prototype.",
+      "source": "pkg/runtime/deferred.odin",
+      "find": "\t\t\targs := [3]jsc.JSValueRef{state.fr_engine, cast(jsc.JSValueRef)list, new_target}",
+      "replace": "\t\t\targs := [3]jsc.JSValueRef{state.fr_engine, cast(jsc.JSValueRef)list, state.fr_engine}",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL finalization-shape"
+    },
+    {
+      "name": "finalization-shape dies when FinalizationRegistry is constructed through its call native",
+      "why": "Without a constructor native of its own, `new FinalizationRegistry(cb)` runs the call path and throws the without-new TypeError, so no page can make a registry.",
+      "source": "pkg/runtime/deferred.odin",
+      "find": "jsc.host_function_create(ctx, \"FinalizationRegistry\", fr_call_host, 1, ctor = fr_construct_host)",
+      "replace": "jsc.host_function_create(ctx, \"FinalizationRegistry\", fr_call_host, 1)",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL finalization-shape"
+    },
+    {
+      "name": "wasm-async dies when WebAssembly.compile becomes constructible",
+      "why": "Chrome's WebAssembly.compile is a built-in method: `new` throws TypeError; a host function that keeps its call native as constructor returns a promise instead.",
+      "source": "pkg/runtime/wasm.odin",
+      "find": "\t\tcompile = host_native_create(ctx, \"compile\", wasm_compile_cb, 1, constructible = false)",
+      "replace": "\t\tcompile = host_native_create(ctx, \"compile\", wasm_compile_cb, 1)",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL wasm-async"
+    },
+    {
+      "name": "wasm-errors dies when a non-buffer source rejects with the engine's TypeError",
+      "why": "JSC words it 'first argument must be an ArrayBufferView or an ArrayBuffer'; a page on Chrome reads 'WebAssembly.compile(): Argument 0 must be a buffer source'.",
+      "source": "pkg/runtime/wasm.odin",
+      "find": "\t\treturn nil, make_native_error(ctx, \"TypeError\", message), nil",
+      "replace": "\t\treturn nil, exc, nil",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL wasm-errors"
+    },
+    {
+      "name": "wasm_start_function_is_charged_to_its_page dies when the engine's WebAssembly.instantiate is kept",
+      "why": "The engine settles an instantiate from the thread's RunLoop, so the start function and imports run outside the page's CPU window and a page escapes its budget through them (#97 review, safety F2).",
+      "source": "pkg/runtime/wasm.odin",
+      "find": "\tset_named(ctx, ns, \"instantiate\", cast(jsc.JSValueRef)instantiate)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.wasm_start_function_is_charged_to_its_page",
+      "expect_detail": "the start functions were not charged"
+    },
+    {
+      "name": "runner_holds_a_page_until_its_wasm_settles dies when a settlement job takes no hold on the loop",
+      "why": "A page whose only work is a pending compile then has nothing pending, ends at its next tick, and never sees the settlement (#97's keep-alive half).",
+      "source": "pkg/runtime/wasm.odin",
+      "find": "\tstate.wasm_scheduled = true\n\teventloop.async_begin(state.loop)\n",
+      "replace": "\tstate.wasm_scheduled = true\n",
+      "gate": "odin:cmd/lava:main.runner_holds_a_page_until_its_wasm_settles",
+      "expect_detail": "exit=0"
+    },
+    {
+      "name": "eval_settles_a_chain_of_wasm_compiles dies when a settlement job is never posted",
+      "why": "Without the task on the page's loop the promise never settles: a chained compile hangs the page until something kills it.",
+      "source": "pkg/runtime/wasm.odin",
+      "find": "\teventloop.post_async(state.loop, wasm_job_task, state)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.eval_settles_a_chain_of_wasm_compiles",
+      "expect_detail": "kill Entry_Limit"
+    },
+    {
+      "name": "wasm-async dies when instantiate(module) makes its Instance in a later task",
+      "why": "Chrome reads the import object and runs the start function inside instantiate(module, imports) (`get m,start,returned,resolved`); a deferred Instance reorders them after the call returns (#97 review round 2, oracle N1).",
+      "source": "pkg/runtime/wasm.odin",
+      "find": "\tif !is_module {\n\t\tjob.kind = .Instantiate_Bytes",
+      "replace": "\tif true {\n\t\tjob.kind = .Instantiate_Bytes",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL wasm-async"
+    },
+    {
+      "name": "wasm-async dies when instantiate(bytes)'s result is built by [[Set]]",
+      "why": "A [[Set]] of `module` runs a setter a page put on Object.prototype and leaves no own property; Chrome defines both as own data properties (oracle N3).",
+      "source": "pkg/runtime/wasm.odin",
+      "find": "\t\t\tresult := wasm_result_object(ctx)",
+      "replace": "\t\t\tresult := jsc.JSObjectMake(ctx, nil, nil)",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL wasm-async"
+    },
+    {
+      "name": "wasm-async dies when instantiate tells a Module by instanceof",
+      "why": "instanceof runs a page's WebAssembly.Module[Symbol.hasInstance], which Chrome never calls, and lets the page pass bytes off as a Module (oracle N4).",
+      "source": "pkg/runtime/wasm.odin",
+      "find": "\t\tis_module = brand_exc == nil",
+      "replace": "\t\tis_module = jsc.JSValueIsInstanceOfConstructor(ctx, source, cast(jsc.JSObjectRef)state.wasm_module, nil)",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL wasm-async"
+    },
+    {
+      "name": "page_sees_finalization_cleanups_as_chrome_does dies when a cleanup's runner frame is named for the runtime",
+      "why": "The frame under a cleanup must be the one a timer callback shows (dispatch@lava:microtasks) and nothing of the routing; a runtime-named frame there is what the page used to see as flush@node:internal/deferred (oracle N2).",
+      "source": "pkg/runtime/js/bootstrap/microtasks.js",
+      "find": "  var dispatchCleanups = function dispatch(fns, values, count) {",
+      "replace": "  var dispatchCleanups = function flush(fns, values, count) {",
+      "gate": "odin:cmd/lava:main.page_sees_finalization_cleanups_as_chrome_does",
+      "expect_detail": "cleanup stack clean false"
+    },
+    {
+      "name": "runloop_page_without_its_replacements_keeps_no_engine_original dies when fail-closed keeps the engine's FinalizationRegistry",
+      "why": "On a driven thread the engine's FinalizationRegistry runs a page's cleanup from the RunLoop, outside every window, and after its page closed (#97 review round 2, safety F1).",
+      "source": "pkg/runtime/deferred.odin",
+      "find": "\t\tdelete_named(ctx, global, \"FinalizationRegistry\")\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.runloop_page_without_its_replacements_keeps_no_engine_original",
+      "expect_detail": "engine originals left: FinalizationRegistry"
+    },
+    {
+      "name": "runloop_page_without_its_replacements_keeps_no_engine_original dies when fail-closed keeps the engine's wasm",
+      "why": "On a driven thread the engine's WebAssembly.instantiate settles from the RunLoop and runs a start function outside every window (#97 review round 2, safety F1).",
+      "source": "pkg/runtime/deferred.odin",
+      "find": "\t\t\tdelete_named(ctx, cast(jsc.JSObjectRef)wasm, \"compile\")\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.runloop_page_without_its_replacements_keeps_no_engine_original",
+      "expect_detail": "engine originals left: compile"
+    },
+    {
+      "name": "deferred_enqueue_refuses_a_closed_page dies when enqueue does not check for a destroyed state",
+      "why": "JSC may run a closed realm's cleanup shim any time after the close; without the check the native reads a Runtime_State that is gone (round 2 safety fact 1).",
+      "source": "pkg/runtime/deferred.odin",
+      "find": "\tif state == nil || state.loop == nil || state.loop.destroyed || state.fr_engine == nil {",
+      "replace": "\tif state.loop == nil || state.loop.destroyed || state.fr_engine == nil {",
+      "gate": "odin:cmd/lava:main.deferred_enqueue_refuses_a_closed_page",
+      "expect_detail": "exited"
+    },
+    {
+      "name": "80-webstreams-internal-modules dies when a constructor is defined in the assembling entry again",
+      "why": "A constructor defined in internal/webstreams/index.js (the export assembly node:stream/web re-exports) throws from that file's frame instead of the file node attributes it to, which is what the split moved away from.",
+      "source": "pkg/runtime/js/internal/webstreams/index.js",
+      "find": "  var CountQueuingStrategy = strategies.CountQueuingStrategy;",
+      "replace": "  var CountQueuingStrategy = function CountQueuingStrategy(o) { if (!o) throw new TypeError('init'); return new strategies.CountQueuingStrategy(o); };",
+      "gate": "compat:tests/node-compat/cases/80-webstreams-internal-modules.js",
+      "expect_detail": "node: CountQueuingStrategy(): node:internal/webstreams/queuingstrategies true false"
+    },
+    {
+      "name": "global_surface_web_loads_no_node_module dies when the Window surface instantiates node:stream/web again",
+      "why": "The Node-profile removal deletes js/node/; a web global reached only through a node/ module on .Web would vanish with it. The loader gate is what keeps the stream globals' install path internal.",
+      "source": "pkg/runtime/js/bootstrap/loader.js",
+      "find": "  if (!web) req('stream/web');\n",
+      "replace": "  req('stream/web');\n",
+      "gate": "odin:cmd/lava:main.global_surface_web_loads_no_node_module",
+      "expect_detail": "node/stream/web was loaded by .Web init"
     }
   ]
 }

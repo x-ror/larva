@@ -8,7 +8,9 @@ import "core:fmt"
 import "core:math"
 import "core:sys/posix"
 import "core:testing"
+import "core:thread"
 import jsc "lava:pkg/jsc"
+import lava "lava:pkg/runtime"
 
 // Thread-CPU helpers shared by the CPU-budget and VM-pool tests. page_cpu_budget_test
 // and page_runner_test each used to declare an identical file-private clock reader.
@@ -100,4 +102,30 @@ spin_thread_cpu :: proc(t: ^testing.T, ctx: jsc.JSGlobalContextRef) -> (complete
 	}
 
 	return true
+}
+
+@(private = "file")
+Fresh_Thread :: struct {
+	t:    ^testing.T,
+	body: proc(t: ^testing.T),
+}
+
+// on_fresh_thread runs `body` on a new thread and joins it, then gives back what the
+// thread holds as a dispatcher worker does (the implicit pool, the host tables, the
+// drive). The test's context — its logger and tracking allocator — goes along; this
+// thread only waits in the join, so nothing touches either concurrently.
+//
+// For a test of what JSC's RunLoop drive does (pkg/jsc/runloop_linux.odin): WTF binds a
+// thread's RunLoop for good when the thread creates its first VM, and a test-runner thread
+// is reused across tests, many of which create a bare JSGlobalContextCreate VM first.
+on_fresh_thread :: proc(t: ^testing.T, body: proc(t: ^testing.T)) {
+	f := Fresh_Thread{t, body}
+	th := thread.create_and_start_with_poly_data(&f, proc(f: ^Fresh_Thread) {
+		f.body(f.t)
+		lava.thread_vm_pool_destroy()
+		lava.host_native_thread_teardown()
+		jsc.runloop_thread_teardown()
+	}, context)
+	thread.join(th)
+	thread.destroy(th)
 }

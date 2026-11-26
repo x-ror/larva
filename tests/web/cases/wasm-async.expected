@@ -1,0 +1,32 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs wasm-async
+# ---
+compile function compile 1 function/true/true/true
+compile native source true
+compile own keys length,name
+compile with new TypeError
+instantiate function instantiate 1 function/true/true/true
+instantiate native source true
+instantiate own keys length,name
+instantiate with new TypeError
+returns a Promise true
+settled within the calling task false
+compile -> Module true
+instantiate(bytes) -> module,instance true true true
+instantiate(module) -> Instance true
+start function order returned,start,resolved
+instantiate(module) order get m,start,returned,resolved
+instantiate(module) throwing getter get m,returned,rejected Error
+result own module true setter hits 0 is Module true
+brand check module,instance hasInstance hits 0
+compile() rejected TypeError clean true
+compile(5) rejected TypeError clean true
+compile(bad bytes) rejected CompileError clean true
+instantiate(5) rejected TypeError clean true
+instantiate(bytes, 5) rejected TypeError clean true
+instantiate(start, {}) rejected TypeError clean true
+instantiate(start, {m: {}}) rejected LinkError clean true
+end

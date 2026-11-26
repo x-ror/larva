@@ -122,6 +122,7 @@ STATIC_EAGER :: [?]string {
 	"internal/crypto/random",
 	"internal/crypto/scrypt",
 	"internal/crypto/util",
+	"internal/deferred",
 	"internal/encoding",
 	"internal/errors",
 	"internal/fetch",

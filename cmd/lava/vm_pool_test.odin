@@ -1,5 +1,5 @@
-// Linux-only: the timerfd census reads /proc/self/fd, and the leak it pins is the
-// WebKitGTK RunLoop timer.
+// Linux-only: the timerfd census reads /proc/self/fd, and the descriptor it counts is
+// the WebKitGTK RunLoop timer's.
 #+build linux
 package main
 
@@ -20,9 +20,10 @@ eval_source :: proc(ctx: jsc.JSContextRef, src: cstring) -> (ok: bool) {
 	return exc == nil
 }
 
-// Every JSC VM ever created keeps one timerfd for the life of the process
-// (bench/jsc-vm). eval used to create a VM per call, so a process running many evals
-// grew one fd per eval. With pooled VMs the count must stay flat after the first.
+// A JSC VM's timerfd outlived the VM for as long as the thread's RunLoop was not
+// iterated (bench/jsc-vm; vm_pool_releases_its_timerfds pins that it now closes). eval
+// used to create a VM per call, so a process running many evals grew one fd per eval.
+// With pooled VMs the count must stay flat after the first.
 @(test)
 repeated_eval_reuses_pooled_vm :: proc(t: ^testing.T) {
 	run_one :: proc(t: ^testing.T) {

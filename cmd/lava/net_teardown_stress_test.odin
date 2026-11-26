@@ -55,9 +55,10 @@ eval_fd_delta :: proc(src: string) -> (delta: int, ok: bool) {
 //   * an ABSOLUTE fd count is confounded: the FIRST eval on a thread pays
 //     one-time costs that have nothing to do with net — measured at +5 fds on a
 //     cold runner thread, among them JavaScriptCore's per-VM
-//     `anon_inode:[timerfd]`, which survives even the VM's destruction (see
-//     create_eval_context in runtime.odin). eval reuses a pooled VM per thread,
-//     so every later eval costs +0.
+//     `anon_inode:[timerfd]` and, since #91, the thread's RunLoop drive (GLib's
+//     wakeup eventfd and the drive's epoll set: pkg/jsc/runloop_linux.odin), all
+//     thread-lived. eval reuses a pooled VM per thread, so every later eval
+//     costs +0.
 // So the test first runs one throwaway eval to pay those costs, then a baseline
 // eval of the same script minus the connects, which absorbs anything per-eval
 // that remains; what is left beyond it is attributable to the three sockets.

@@ -4,6 +4,7 @@ import "core:os"
 import "core:strconv"
 import "core:sync"
 import "core:thread"
+import jsc "lava:pkg/jsc"
 import eventloop "lava:pkg/runtime/eventloop"
 
 // Multi-core workers (Slice 3a). JSC contexts can't share a heap and a shared VM serializes, so "use N
@@ -231,6 +232,9 @@ worker_main :: proc(data: rawptr) {
 	// an eval that failed before creating one never bound the tables, and teardown is then a no-op.
 	// Pinned by workers_give_back_their_host_tables.
 	host_native_thread_teardown()
+	// After the pool and every context: the RunLoop drive's last iteration, epoll set and
+	// context reference (pkg/jsc/runloop_linux.odin).
+	jsc.runloop_thread_teardown()
 	sync.atomic_add(&g_worker_exits, 1)
 }
 

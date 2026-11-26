@@ -28,3 +28,4 @@ timers-due-mid-callback unplanned: Lava orders due timers by deadline as node do
 timers-interval-rearm unplanned: Lava re-arms an interval from the clock read before its callback, as node does (#99); Chrome re-arms from the interval's scheduled time, so its second fire lands before the +200 ms sentinel
 url-errors S4e: node's ERR_INVALID_URL/ERR_INVALID_ARG_TYPE with node's messages where Chrome has WebIDL text and no code
 url-host-space unplanned: Chrome percent-encodes a space in a special URL's host and accepts it; Lava follows the WHATWG parser and throws. Deciding whether to follow Chrome here is parser work, not message work
+wasm-streaming unplanned: no WebAssembly.compileStreaming/instantiateStreaming (Blink's, over a Response; JSC GTK has none) — a fingerprint; not stubbed, since a stub that rejects breaks loaders that would take their ArrayBuffer path; the implementation over Response needs an issue of its own
