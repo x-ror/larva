@@ -31,3 +31,11 @@ Float32Array 20000: DOMException TypeMismatchError code 17 own code false [objec
 BigInt64Array: no throw
 Uint8ClampedArray: no throw
 Uint16Array 32768: no throw
+receiver {}: TypeError TypeError code undefined own code false [object Error]
+  "Illegal invocation"
+receiver detached: TypeError TypeError code undefined own code false [object Error]
+  "Illegal invocation"
+receiver {} no argument: TypeError TypeError code undefined own code false [object Error]
+  "Illegal invocation"
+receiver inheriting crypto: TypeError TypeError code undefined own code false [object Error]
+  "Illegal invocation"

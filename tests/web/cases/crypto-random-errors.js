@@ -39,3 +39,10 @@ show('Float32Array 20000', () => crypto.getRandomValues(new Float32Array(20000))
 show('BigInt64Array', () => crypto.getRandomValues(new BigInt64Array(2)));
 show('Uint8ClampedArray', () => crypto.getRandomValues(new Uint8ClampedArray(2)));
 show('Uint16Array 32768', () => crypto.getRandomValues(new Uint16Array(32768)));
+show('receiver {}', () => crypto.getRandomValues.call({}, new Uint8Array(1)));
+show('receiver detached', () => {
+  const g = crypto.getRandomValues;
+  g(new Uint8Array(1));
+});
+show('receiver {} no argument', () => crypto.getRandomValues.call({}));
+show('receiver inheriting crypto', () => Object.create(crypto).getRandomValues(new Uint8Array(1)));

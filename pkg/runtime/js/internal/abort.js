@@ -9,23 +9,29 @@
   var webErrors = require('internal/web_errors');
   var web = webErrors.web;
   var typeError = webErrors.typeError;
+  var pageError = webErrors.pageError;
 
   // The default reasons are DOMExceptions on both surfaces — Chrome's and node's shape
   // alike (name AbortError/TimeoutError, legacy code 20/23, no own `code`). Only the text
   // is per surface: Chrome 158's (tests/web/cases/abort-reason-shape.expected) on the
   // Window surface, node 26's on the Node one (probed: AbortSignal.abort().reason.message,
-  // AbortSignal.timeout(1)'s reason after it fires).
+  // AbortSignal.timeout(1)'s reason after it fires). pageError gives each the stack a
+  // page sees in Chrome: from the page's own frame, none of this file's.
   function abortError() {
-    return new DOMException(
-      web ? 'signal is aborted without reason' : 'This operation was aborted',
-      'AbortError',
+    return pageError(
+      new DOMException(
+        web ? 'signal is aborted without reason' : 'This operation was aborted',
+        'AbortError',
+      ),
     );
   }
 
   function timeoutError() {
-    return new DOMException(
-      web ? 'signal timed out' : 'The operation was aborted due to timeout',
-      'TimeoutError',
+    return pageError(
+      new DOMException(
+        web ? 'signal timed out' : 'The operation was aborted due to timeout',
+        'TimeoutError',
+      ),
     );
   }
 

@@ -1,0 +1,15 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs clone-domexception
+# ---
+AbortError: [object DOMException] DOMException AbortError "m" 20 instanceof true own [] stack undefined
+unknown name: [object DOMException] DOMException Weird "x" 0 instanceof true own [] stack undefined
+quota: [object QuotaExceededError] QuotaExceededError QuotaExceededError "q" 22 instanceof true own [] stack undefined quota 1 requested 2
+quota empty: [object QuotaExceededError] QuotaExceededError QuotaExceededError "q" 22 instanceof true own [] stack undefined quota null requested null
+subclass: [object DOMException] DOMException NotFoundError "s" 8 instanceof true own [] stack undefined
+abort reason: [object DOMException] DOMException AbortError "signal is aborted without reason" 20 instanceof true own [] stack undefined
+own property: [object DOMException] DOMException Error "m" 0 instanceof true own [] stack undefined
+nested: [object DOMException] DOMException DataError "in" 0 instanceof true own [] stack undefined
+shared reference true

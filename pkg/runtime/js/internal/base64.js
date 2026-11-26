@@ -31,6 +31,7 @@
   var context = webErrors.context;
   var toDOMString = webErrors.toDOMString;
   var typeError = webErrors.typeError;
+  var pageError = webErrors.pageError;
 
   // An InvalidCharacterError DOMException (legacy code 5) on both surfaces — node's and
   // Chrome's shape alike. `nodeMessage` is node's text, which tells the bad-character
@@ -42,17 +43,16 @@
       op = 'atob';
     }
 
-    if (!web) {
-      return new DOMException(nodeMessage, 'InvalidCharacterError');
-    }
-
-    return new DOMException(
-      context('Window', op) +
+    var message = nodeMessage;
+    if (web) {
+      message =
+        context('Window', op) +
         (op === 'btoa'
           ? 'The string to be encoded contains characters outside of the Latin1 range.'
-          : 'The string to be decoded is not correctly encoded.'),
-      'InvalidCharacterError',
-    );
+          : 'The string to be decoded is not correctly encoded.');
+    }
+
+    return pageError(new DOMException(message, 'InvalidCharacterError'));
   }
 
   // The argument check and DOMString conversion both share: Chrome's arity TypeError

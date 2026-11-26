@@ -30,6 +30,11 @@
   var typeError = webErrors.typeError;
   var argumentsRequired = webErrors.argumentsRequired;
   var notOfType = webErrors.notOfType;
+  var illegalInvocation = webErrors.illegalInvocation;
+  var pageError = webErrors.pageError;
+  // The `crypto` global this file installs; getRandomValues' receiver brand on the
+  // Window surface.
+  var cryptoObject = null;
 
   // Every CSPRNG entry point goes through this, and none calls native.randomFill
   // directly. The native returns the view it filled, so an identity check is the
@@ -196,10 +201,18 @@
    *       its TypeError keeps Lava's previous text.
    * @deviates No SharedArrayBuffer-backed view can reach this — JSC here defines no
    *   SharedArrayBuffer — so Blink's "must not be shared" refusal has no arm.
-   *   Called with a `this` other than `crypto` it still fills (Chrome: Illegal
-   *   invocation); `crypto` is a plain object until it has an interface of its own.
+   *   The receiver brand is identity with the installed `crypto` object, which is a
+   *   plain object until Crypto is an interface of its own; Chrome's answer to every
+   *   other receiver, Illegal invocation, is the same.
    */
   function getRandomValues(typedArray) {
+    // Before the arguments, as Blink checks them (crypto-random-errors.expected). Node
+    // checks no receiver — node:crypto exports this same function, `this` the module —
+    // so the Node surface keeps filling.
+    if (web && this !== cryptoObject) {
+      throw illegalInvocation();
+    }
+
     if (arguments.length === 0 || !ArrayBufferIsView(typedArray)) {
       if (!web) {
         throw new TypeError('The data argument must be an integer-type TypedArray');
@@ -216,26 +229,30 @@
     var kind = TypedArrayPrototypeGetSymbolToStringTag(typedArray);
     if (kind === undefined || INTEGER_VIEWS[kind] !== true) {
       var type = kind === undefined ? 'DataView' : StringPrototypeSlice(kind, 0, kind.length - 5);
-      throw new DOMException(
-        web
-          ? context('Crypto', 'getRandomValues') +
-              "The provided ArrayBufferView is of type '" +
-              type +
-              "', which is not an integer array type."
-          : 'The data argument must be an integer-type TypedArray',
-        'TypeMismatchError',
+      throw pageError(
+        new DOMException(
+          web
+            ? context('Crypto', 'getRandomValues') +
+                "The provided ArrayBufferView is of type '" +
+                type +
+                "', which is not an integer array type."
+            : 'The data argument must be an integer-type TypedArray',
+          'TypeMismatchError',
+        ),
       );
     }
 
     var byteLength = TypedArrayPrototypeGetByteLength(typedArray);
     if (byteLength > GET_RANDOM_VALUES_MAX) {
-      throw new QuotaExceededError(
-        web
-          ? context('Crypto', 'getRandomValues') +
-              "The ArrayBufferView's byte length (" +
-              byteLength +
-              ') exceeds the number of bytes of entropy available via this API (65536).'
-          : 'The requested length exceeds 65,536 bytes',
+      throw pageError(
+        new QuotaExceededError(
+          web
+            ? context('Crypto', 'getRandomValues') +
+                "The ArrayBufferView's byte length (" +
+                byteLength +
+                ') exceeds the number of bytes of entropy available via this API (65536).'
+            : 'The requested length exceeds 65,536 bytes',
+        ),
       );
     }
 
@@ -304,10 +321,11 @@
   // node/crypto.js held when the install lived there — and node/crypto.js exports
   // these same two functions.
   if (globalThis.crypto === undefined) {
-    globalThis.crypto = {
+    cryptoObject = {
       randomUUID: randomUUID,
       getRandomValues: getRandomValues,
     };
+    globalThis.crypto = cryptoObject;
   }
 
   module.exports = {

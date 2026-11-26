@@ -59,6 +59,14 @@ print(
     constants.every((k) => DOMException.prototype[k] === DOMException[k]),
 );
 
+print('prototype names ' + Object.getOwnPropertyNames(DOMException.prototype).join(','));
+print(
+  'constructed own [' +
+    Reflect.ownKeys(new DOMException('m', 'AbortError')).map(String).join(',') +
+    '] stack ' +
+    typeof new DOMException('m').stack,
+);
+
 show('()', new DOMException());
 show('(m)', new DOMException('m'));
 show('(m, AbortError)', new DOMException('m', 'AbortError'));
@@ -128,6 +136,17 @@ print(
 );
 for (const k of ['quota', 'requested'])
   print('QuotaExceededError.prototype.' + k + ' ' + desc(QuotaExceededError.prototype, k));
+print(
+  'QuotaExceededError prototype names ' +
+    Object.getOwnPropertyNames(QuotaExceededError.prototype).join(','),
+);
+print(
+  'QuotaExceededError constructed own [' +
+    Reflect.ownKeys(new QuotaExceededError('m', { quota: 1 }))
+      .map(String)
+      .join(',') +
+    ']',
+);
 print('QuotaExceededError toStringTag ' + QuotaExceededError.prototype[Symbol.toStringTag]);
 print(
   'QuotaExceededError statics ' +

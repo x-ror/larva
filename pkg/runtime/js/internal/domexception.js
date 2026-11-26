@@ -5,11 +5,17 @@
  * differs per surface is the text the THROWERS pass in (internal/web_errors).
  *
  * An instance is a real Error — created by the Error constructor with the subclass's
- * prototype, so it carries a stack and `Error.isError(e)` is true, as Chrome answers —
- * and its state lives in private fields stamped onto that object, not in properties a
- * page can see or replace. `name`, `message` and `code` are enumerable accessors on the
- * prototype that brand-check their receiver, so `DOMException.prototype.name` is
- * "Illegal invocation" as in Chrome, not "Error" inherited from Error.prototype.
+ * prototype, so `Error.isError(e)` is true, as Chrome answers — stripped of the own
+ * properties that constructor gave it (Chrome's has none), with its state in private
+ * fields stamped onto that object, not in properties a page can see or replace. `name`,
+ * `message` and `code` are enumerable accessors on the prototype that brand-check
+ * their receiver, so `DOMException.prototype.name` is "Illegal invocation" as in
+ * Chrome, not "Error" inherited from Error.prototype.
+ *
+ * Still told apart from Chrome's: `Function.prototype.toString` of the interface and
+ * its accessors prints this source, not `[native code]`. That is the same for every
+ * Web API implemented in JS here and is fixed for all of them at once (host-native
+ * interface objects, its own issue), not per file.
  *
  * Instantiated eagerly (the loader names it, and internal/abort requires it), so every
  * capture below is pristine.
@@ -27,11 +33,13 @@
   var NumberIsFinite = P.NumberIsFinite;
   var ObjectDefineProperty = P.ObjectDefineProperty;
   var ObjectDefineProperties = P.ObjectDefineProperties;
+  var ObjectGetOwnPropertyDescriptor = P.ObjectGetOwnPropertyDescriptor;
   var ObjectGetOwnPropertyDescriptors = P.ObjectGetOwnPropertyDescriptors;
   var ObjectSetPrototypeOf = P.ObjectSetPrototypeOf;
   var ReflectConstruct = P.ReflectConstruct;
   var SymbolToStringTag = P.SymbolToStringTag;
   var illegalInvocation = webErrors.illegalInvocation;
+  var web = webErrors.web;
   var toDOMString = webErrors.toDOMString;
   var typeError = webErrors.typeError;
 
@@ -133,6 +141,7 @@
   // place outside the class body that may name its private fields.
   var nameOf;
   var messageOf;
+  var isDOMException;
   class DOMExceptionSlots extends Stamp {
     #name;
     #message;
@@ -157,6 +166,9 @@
 
         return o.#message;
       };
+      isDOMException = function (o) {
+        return typeof o === 'object' && o !== null && #name in o;
+      };
     }
   }
 
@@ -169,11 +181,12 @@
    * @node Same shape as node 26's global DOMException (probed: AbortSignal.abort().reason
    *       is [object DOMException], code 20, no own `code`). Chrome 158 recorded in
    *       tests/web/cases/domexception-class.expected and domexception-errors.expected.
-   * @deviates Own property names are JSC's Error ones (line, column, sourceURL, stack)
-   *   where Chrome has none on a constructed instance — an engine trait of every Error
-   *   in Lava, not printed by any case. Calling it without `new` throws JSC's
-   *   class-constructor TypeError text, not Blink's "Please use the 'new' operator"
-   *   (CLAUDE.md §5: a class's call-without-new text is the engine's).
+   * @deviates Calling it without `new` throws JSC's class-constructor TypeError text,
+   *   not Blink's "Please use the 'new' operator" (CLAUDE.md §5: a class's
+   *   call-without-new text is the engine's). Pinned by
+   *   cmd/lava/domexception_class_test.odin. Its `toString` shows this source where
+   *   Chrome's reads `[native code]` — the JS-implemented-interface gap tracked as its
+   *   own issue, as is every other Web API built in JS here.
    */
   class DOMException {
     constructor() {
@@ -183,6 +196,18 @@
       message = message === undefined ? '' : toDOMString(message, 'DOMException');
       name = name === undefined ? 'Error' : toDOMString(name, 'DOMException');
       var self = ReflectConstruct(ErrorP, [], new.target);
+      // The Error constructor gave it JSC's own line/column/sourceURL/stack. A page's
+      // `new DOMException()` has no own property at all in Chrome (no `stack`
+      // either; domexception-class.expected), so all four go on the Window surface;
+      // node keeps a `stack` on one (probed: Reflect.ownKeys is ['stack']). An
+      // exception the platform throws gets its stack back from pageError.
+      delete self.line;
+      delete self.column;
+      delete self.sourceURL;
+      if (web) {
+        delete self.stack;
+      }
+
       new DOMExceptionSlots(self, name, message);
       return self;
     }
@@ -217,12 +242,22 @@
     ObjectDefineProperty(DOMException.prototype, CONSTANTS[i], constant);
   }
 
+  reAppendConstructor(DOMException.prototype);
   ObjectDefineProperty(DOMException.prototype, SymbolToStringTag, {
     value: 'DOMException',
     writable: false,
     enumerable: false,
     configurable: true,
   });
+
+  // WebIDL puts `constructor` after the attributes and constants
+  // (getOwnPropertyNames(DOMException.prototype) ends with it in Chrome); a class
+  // creates it first, so it is taken off and defined again, unchanged.
+  function reAppendConstructor(proto) {
+    var ctor = ObjectGetOwnPropertyDescriptor(proto, 'constructor');
+    delete proto.constructor; // primordials-ok: accessor — our own class's prototype, deleted at module-eval
+    ObjectDefineProperty(proto, 'constructor', ctor);
+  }
 
   // QuotaExceededErrorOptions member: an absent or undefined member stays null; anything
   // else is a `double`, so ToNumber and a finiteness check.
@@ -246,6 +281,7 @@
   // QuotaExceededError's brand readers, assigned in its static block.
   var quotaOf;
   var requestedOf;
+  var isQuotaExceededError;
 
   /**
    * new QuotaExceededError(message = '', options = {}) — name and code fixed
@@ -256,7 +292,8 @@
    *   non-finite — Chrome's text, tests/web/cases/domexception-errors.expected.
    * @node Chrome 158 accepts a negative quota and requested < quota (no RangeError,
    *       though the spec draft has one); recorded, followed.
-   * @deviates As DOMException (own Error property names; call-without-new text).
+   * @deviates As DOMException: call-without-new text (pinned by
+   *   cmd/lava/domexception_class_test.odin) and toString.
    */
   class QuotaExceededError extends DOMException {
     #quota;
@@ -304,6 +341,9 @@
 
         return o.#requested;
       };
+      isQuotaExceededError = function (o) {
+        return typeof o === 'object' && o !== null && #quota in o;
+      };
     }
   }
 
@@ -318,12 +358,38 @@
       },
     }),
   );
+  reAppendConstructor(QuotaExceededError.prototype);
   ObjectDefineProperty(QuotaExceededError.prototype, SymbolToStringTag, {
     value: 'QuotaExceededError',
     writable: false,
     enumerable: false,
     configurable: true,
   });
+
+  /**
+   * The structured-clone steps for a DOMException (it is a serializable interface):
+   * a fresh DOMException, or QuotaExceededError, with the same name and message — and
+   * quota/requested — and nothing else: no own properties, no stack, and a page
+   * subclass comes back as the interface it derives from.
+   * @param {*} value
+   * @returns {DOMException|undefined} undefined when `value` is not a DOMException
+   *   (`Object.create(DOMException.prototype)` included: the brand is the slot).
+   * @node Chrome 158, tests/web/cases/clone-domexception.expected.
+   * @deviates none
+   */
+  function cloneDOMException(value) {
+    if (!isDOMException(value)) return undefined;
+    if (isQuotaExceededError(value)) {
+      var quota = quotaOf(value);
+      var requested = requestedOf(value);
+      return new QuotaExceededError(messageOf(value), {
+        quota: quota === null ? undefined : quota,
+        requested: requested === null ? undefined : requested,
+      });
+    }
+
+    return new DOMException(messageOf(value), nameOf(value));
+  }
 
   // Interface objects are writable, configurable, non-enumerable globals.
   ObjectDefineProperty(globalThis, 'DOMException', {
@@ -343,5 +409,6 @@
     __proto__: null,
     DOMException: DOMException,
     QuotaExceededError: QuotaExceededError,
+    cloneDOMException: cloneDOMException,
   });
 });

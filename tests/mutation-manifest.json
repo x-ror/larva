@@ -2186,8 +2186,8 @@
       "name": "crypto-random-errors dies when a Window-surface WebIDL TypeError carries a code",
       "why": "A page's TypeError has no own `code` in Chrome; an ERR_*-style code leaking through the shared builder is the Node shape §5 forbids on the Window surface.",
       "source": "pkg/runtime/js/internal/web_errors.js",
-      "find": "    return new TypeErrorP(context(iface, op) + detail);",
-      "replace": "    var e = new TypeErrorP(context(iface, op) + detail);\n    e.code = 'ERR_INVALID_ARG_TYPE';\n    return e;",
+      "find": "    return pageError(new TypeErrorP(context(iface, op) + detail));",
+      "replace": "    var e = pageError(new TypeErrorP(context(iface, op) + detail));\n    e.code = 'ERR_INVALID_ARG_TYPE';\n    return e;",
       "gate": "make:test-web",
       "expect_detail": "FAIL crypto-random-errors"
     },
@@ -2222,8 +2222,8 @@
       "name": "base64-errors dies when atob's Window-surface text falls back to node's",
       "why": "Chrome has one sentence for every atob decode failure, prefixed with its WebIDL context; node's 'Invalid character' is the Node surface's text only.",
       "source": "pkg/runtime/js/internal/base64.js",
-      "find": "    if (!web) {\n      return new DOMException(nodeMessage, 'InvalidCharacterError');",
-      "replace": "    if (true) {\n      return new DOMException(nodeMessage, 'InvalidCharacterError');",
+      "find": "    var message = nodeMessage;\n    if (web) {",
+      "replace": "    var message = nodeMessage;\n    if (false) {",
       "gate": "make:test-web",
       "expect_detail": "FAIL base64-errors"
     },
@@ -2236,6 +2236,62 @@
       "gate": "odin:cmd/lava:main.global_surface_web_coded_error_loads_no_node_util",
       "expect_detail": [
         "rendering the error loaded node:util"
+      ]
+    },
+    {
+      "name": "errors-stack dies when pageError stops dropping the leading internal frames",
+      "why": "A page's caught error then lists node:internal/web_errors, domexception and the thrower's own frames, which Chrome's stacks never show — and which name Node in every web error.",
+      "source": "pkg/runtime/js/internal/web_errors.js",
+      "find": "      e.stack = scrubStack(StringP(e.stack));",
+      "replace": "      e.stack = StringP(e.stack);",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL errors-stack"
+    },
+    {
+      "name": "domexception-class dies when a constructed DOMException keeps JSC's own line property",
+      "why": "Chrome's `new DOMException()` owns no property at all; JSC's Error constructor leaves line/column/sourceURL/stack pointing into internal/domexception.",
+      "source": "pkg/runtime/js/internal/domexception.js",
+      "find": "      delete self.line;\n",
+      "replace": "",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL domexception-class"
+    },
+    {
+      "name": "domexception-class dies when DOMException.prototype keeps constructor first",
+      "why": "Chrome lists code, name, message, the 25 constants, then constructor; a class puts constructor first, an order getOwnPropertyNames shows.",
+      "source": "pkg/runtime/js/internal/domexception.js",
+      "find": "  reAppendConstructor(DOMException.prototype);\n",
+      "replace": "",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL domexception-class"
+    },
+    {
+      "name": "clone-domexception dies when structuredClone loses the DOMException arm",
+      "why": "Without it a DOMException clones through the Error arm as a plain Error: no brand, name Error, code undefined, and QuotaExceededError's quota/requested lost.",
+      "source": "pkg/runtime/js/internal/structured_clone.js",
+      "find": "    var domException = cloneDOMException(value);",
+      "replace": "    var domException = undefined;",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL clone-domexception"
+    },
+    {
+      "name": "crypto-random-errors dies when getRandomValues stops brand-checking its receiver",
+      "why": "Chrome throws Illegal invocation for getRandomValues.call({}) and a detached call; without the check Lava fills the view.",
+      "source": "pkg/runtime/js/internal/crypto/random.js",
+      "find": "    if (web && this !== cryptoObject) {",
+      "replace": "    if (false) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL crypto-random-errors"
+    },
+    {
+      "name": "domexception_class_engine_traits dies when the DOMException global stops being the class",
+      "why": "The pin holds the call-without-new deviation to JSC's class text; a callable stand-in answers 'no throw', which is neither Chrome's nor the declared deviation.",
+      "source": "pkg/runtime/js/internal/domexception.js",
+      "find": "    value: DOMException,\n",
+      "replace": "    value: function DOMException() {},\n",
+      "gate": "odin:cmd/lava:main.domexception_class_engine_traits",
+      "expect_detail": [
+        "domexception: got no throw"
       ]
     },
     {

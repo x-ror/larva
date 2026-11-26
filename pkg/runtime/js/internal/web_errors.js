@@ -31,8 +31,15 @@
   'use strict';
 
   var P = require('internal/primordials');
+  var ErrorP = P.Error;
   var TypeErrorP = P.TypeError;
   var StringP = P.String;
+  var ObjectDefineProperty = P.ObjectDefineProperty;
+  var ObjectHasOwn = P.ObjectHasOwn;
+  var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;
+  var StringPrototypeIndexOf = P.StringPrototypeIndexOf;
+  var StringPrototypeSlice = P.StringPrototypeSlice;
+  var StringPrototypeStartsWith = P.StringPrototypeStartsWith;
 
   var web = profile !== undefined && profile !== null && profile.web === true;
 
@@ -60,7 +67,84 @@
    * @deviates none
    */
   function typeError(iface, op, detail) {
-    return new TypeErrorP(context(iface, op) + detail);
+    return pageError(new TypeErrorP(context(iface, op) + detail));
+  }
+
+  // Where the embedded sources run (globals.odin names internal modules
+  // `node:internal/<id>`), and JSC's location for a host or builtin frame.
+  var INTERNAL_URL = 'node:internal/';
+  var NATIVE_LOCATION = '[native code]';
+
+  // 0 for a page frame, 1 for one of ours, 2 for a native one. A JSC frame is
+  // `name@location:line:column` or a bare location; the location is what follows
+  // the LAST '@', since a function name may itself hold one.
+  function frameKind(stack, start, end) {
+    var at = -1;
+    for (var i = end - 1; i >= start; i--) {
+      if (StringPrototypeCharCodeAt(stack, i) === 0x40) {
+        at = i;
+        break;
+      }
+    }
+
+    var location = StringPrototypeSlice(stack, at + 1, end);
+    if (StringPrototypeStartsWith(location, INTERNAL_URL, 0)) return 1;
+    if (location === NATIVE_LOCATION) return 2;
+    return 0;
+  }
+
+  // `stack` without its leading run of our own frames. A native frame inside that run
+  // goes with it (Reflect.construct under DOMException's constructor); one after the
+  // last of ours stays, since it is the page's (`[x].forEach(atob)` keeps forEach).
+  // A code-unit scan, not split('\n'): a string separator still consults
+  // String.prototype[Symbol.split], which a page can define.
+  function scrubStack(stack) {
+    var cut = 0;
+    var start = 0;
+    var n = stack.length;
+    while (start < n) {
+      var end = StringPrototypeIndexOf(stack, '\n', start);
+      if (end === -1) end = n;
+      var kind = frameKind(stack, start, end);
+      if (kind === 0) break;
+      start = end + 1;
+      if (kind === 1) cut = start;
+    }
+
+    return cut === 0 ? stack : StringPrototypeSlice(stack, cut, n);
+  }
+
+  /**
+   * Readies an error the platform throws (or hands out as a reason) for the page that
+   * will catch it: drops JSC's `line`/`column`/`sourceURL` own properties, which a
+   * Chrome error does not have and which here would point into our sources, and gives
+   * it a `stack` that starts at the page's own frame — captured now when it has none
+   * (a DOMException, whose constructor leaves none on the Window surface). Every
+   * thrower in shared Web API code passes its error through this once.
+   * @param {Error} e
+   * @returns {Error} `e`.
+   * @node n/a. Chrome 158: a thrown TypeError owns `stack` and `message`, a thrown
+   *       DOMException owns `stack` only, and no frame names an internal source
+   *       (tests/web/cases/errors-stack.expected).
+   * @deviates The frames themselves are JSC's format (`fn@url:line:col`), an engine
+   *   trait; only which frames appear is ours.
+   */
+  function pageError(e) {
+    delete e.line;
+    delete e.column;
+    delete e.sourceURL;
+    if (ObjectHasOwn(e, 'stack')) {
+      e.stack = scrubStack(StringP(e.stack));
+    } else {
+      ObjectDefineProperty(e, 'stack', {
+        value: scrubStack(StringP(new ErrorP().stack)),
+        writable: true,
+        enumerable: false,
+        configurable: true,
+      });
+    }
+
+    return e;
   }
 
   /**
@@ -117,7 +201,7 @@
    * @deviates none
    */
   function illegalInvocation() {
-    return new TypeErrorP('Illegal invocation');
+    return pageError(new TypeErrorP('Illegal invocation'));
   }
 
   module.exports = P.ObjectFreeze({
@@ -131,5 +215,6 @@
     notOfType: notOfType,
     toDOMString: toDOMString,
     illegalInvocation: illegalInvocation,
+    pageError: pageError,
   });
 });

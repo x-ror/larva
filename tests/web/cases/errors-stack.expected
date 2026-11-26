@@ -1,0 +1,21 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs errors-stack
+# ---
+atob: DOMException own [stack] stack string internal false
+btoa: DOMException own [stack] stack string internal false
+atob(): TypeError own [message,stack] stack string internal false
+getRandomValues Float32Array: DOMException own [stack] stack string internal false
+getRandomValues 70000: QuotaExceededError own [stack] stack string internal false
+getRandomValues []: TypeError own [message,stack] stack string internal false
+getRandomValues receiver: TypeError own [message,stack] stack string internal false
+throwIfAborted: DOMException own [stack] stack string internal false
+AbortSignal.any(1): TypeError own [message,stack] stack string internal false
+new AbortSignal(): TypeError own [message,stack] stack string internal false
+DOMException(Symbol): TypeError own [message,stack] stack string internal false
+DOMException getter: TypeError own [message,stack] stack string internal false
+QuotaExceededError options: TypeError own [message,stack] stack string internal false
+abort reason: DOMException own [stack] stack string internal false
+timeout reason: DOMException own [stack] stack string internal false
