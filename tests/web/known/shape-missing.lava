@@ -1,0 +1,15 @@
+# exit 0
+TextEncoderStream undefined
+TextDecoderStream undefined
+FormData undefined
+FileReader undefined
+ReadableByteStreamController undefined
+ReadableStreamBYOBRequest undefined
+CompressionStream undefined
+DecompressionStream undefined
+EventTarget undefined
+Event undefined
+SubtleCrypto undefined
+CryptoKey undefined
+Performance undefined
+reportError undefined

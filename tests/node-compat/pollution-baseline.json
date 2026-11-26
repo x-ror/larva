@@ -27,7 +27,7 @@
     "method": 6,
     "invoke": 2,
     "accessor": 0,
-    "global": 7
+    "global": 5
   },
   "internal/base64.js": {
     "method": 2,
@@ -130,6 +130,12 @@
     "invoke": 0,
     "accessor": 0,
     "global": 4
+  },
+  "internal/native_shape.js": {
+    "method": 0,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 0
   },
   "internal/parse_args.js": {
     "method": 0,

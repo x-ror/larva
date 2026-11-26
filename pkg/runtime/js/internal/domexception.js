@@ -12,10 +12,9 @@
  * their receiver, so `DOMException.prototype.name` is "Illegal invocation" as in
  * Chrome, not "Error" inherited from Error.prototype.
  *
- * Still told apart from Chrome's: `Function.prototype.toString` of the interface and
- * its accessors prints this source, not `[native code]`. That is the same for every
- * Web API implemented in JS here and is fixed for all of them at once (host-native
- * interface objects, its own issue), not per file.
+ * The interface objects a page sees are built around the two classes by
+ * internal/native_shape (#114), as every Web API's is: native toString, Blink's
+ * call-without-`new` text, Blink's member order.
  *
  * Instantiated eagerly (the loader names it, and internal/abort requires it), so every
  * capture below is pristine.
@@ -28,16 +27,14 @@
 
   var P = require('internal/primordials');
   var webErrors = require('internal/web_errors');
+  var defineInterface = require('internal/native_shape').defineInterface;
   var ErrorP = P.Error;
   var NumberP = P.Number;
   var NumberIsFinite = P.NumberIsFinite;
-  var ObjectDefineProperty = P.ObjectDefineProperty;
   var ObjectDefineProperties = P.ObjectDefineProperties;
-  var ObjectGetOwnPropertyDescriptor = P.ObjectGetOwnPropertyDescriptor;
   var ObjectGetOwnPropertyDescriptors = P.ObjectGetOwnPropertyDescriptors;
   var ObjectSetPrototypeOf = P.ObjectSetPrototypeOf;
   var ReflectConstruct = P.ReflectConstruct;
-  var SymbolToStringTag = P.SymbolToStringTag;
   var illegalInvocation = webErrors.illegalInvocation;
   var web = webErrors.web;
   var toDOMString = webErrors.toDOMString;
@@ -181,12 +178,8 @@
    * @node Same shape as node 26's global DOMException (probed: AbortSignal.abort().reason
    *       is [object DOMException], code 20, no own `code`). Chrome 158 recorded in
    *       tests/web/cases/domexception-class.expected and domexception-errors.expected.
-   * @deviates Calling it without `new` throws JSC's class-constructor TypeError text,
-   *   not Blink's "Please use the 'new' operator" (CLAUDE.md §5: a class's
-   *   call-without-new text is the engine's). Pinned by
-   *   cmd/lava/domexception_class_test.odin. Its `toString` shows this source where
-   *   Chrome's reads `[native code]` — the JS-implemented-interface gap tracked as its
-   *   own issue, as is every other Web API built in JS here.
+   * @deviates none. The interface object a page calls is native_shape's wrapper
+   *   (Blink's call-without-new text, native toString; shape-domexception.expected).
    */
   class DOMException {
     constructor() {
@@ -231,32 +224,13 @@
       },
     }),
   );
+  // The constants, as a name -> value table for native_shape, which defines them on
+  // the interface object and the prototype (enumerable, read-only, non-configurable).
+  var CONSTANT_VALUES = { __proto__: null };
+  var CONSTANT_NAMES = [];
   for (var i = 0; i < CONSTANTS.length; i += 2) {
-    var constant = {
-      value: CONSTANTS[i + 1],
-      writable: false,
-      enumerable: true,
-      configurable: false,
-    };
-    ObjectDefineProperty(DOMException, CONSTANTS[i], constant);
-    ObjectDefineProperty(DOMException.prototype, CONSTANTS[i], constant);
-  }
-
-  reAppendConstructor(DOMException.prototype);
-  ObjectDefineProperty(DOMException.prototype, SymbolToStringTag, {
-    value: 'DOMException',
-    writable: false,
-    enumerable: false,
-    configurable: true,
-  });
-
-  // WebIDL puts `constructor` after the attributes and constants
-  // (getOwnPropertyNames(DOMException.prototype) ends with it in Chrome); a class
-  // creates it first, so it is taken off and defined again, unchanged.
-  function reAppendConstructor(proto) {
-    var ctor = ObjectGetOwnPropertyDescriptor(proto, 'constructor');
-    delete proto.constructor; // primordials-ok: accessor — our own class's prototype, deleted at module-eval
-    ObjectDefineProperty(proto, 'constructor', ctor);
+    CONSTANT_VALUES[CONSTANTS[i]] = CONSTANTS[i + 1];
+    CONSTANT_NAMES[i / 2] = CONSTANTS[i];
   }
 
   // QuotaExceededErrorOptions member: an absent or undefined member stays null; anything
@@ -292,8 +266,7 @@
    *   non-finite — Chrome's text, tests/web/cases/domexception-errors.expected.
    * @node Chrome 158 accepts a negative quota and requested < quota (no RangeError,
    *       though the spec draft has one); recorded, followed.
-   * @deviates As DOMException: call-without-new text (pinned by
-   *   cmd/lava/domexception_class_test.odin) and toString.
+   * @deviates none (as DOMException).
    */
   class QuotaExceededError extends DOMException {
     #quota;
@@ -358,13 +331,6 @@
       },
     }),
   );
-  reAppendConstructor(QuotaExceededError.prototype);
-  ObjectDefineProperty(QuotaExceededError.prototype, SymbolToStringTag, {
-    value: 'QuotaExceededError',
-    writable: false,
-    enumerable: false,
-    configurable: true,
-  });
 
   /**
    * The structured-clone steps for a DOMException (it is a serializable interface):
@@ -391,24 +357,33 @@
     return new DOMException(messageOf(value), nameOf(value));
   }
 
-  // Interface objects are writable, configurable, non-enumerable globals.
-  ObjectDefineProperty(globalThis, 'DOMException', {
-    value: DOMException,
-    writable: true,
-    enumerable: false,
-    configurable: true,
+  // The interface objects a page sees (internal/native_shape): Blink's order — the
+  // attributes, the 25 constants, then `constructor` (Chrome 158,
+  // tests/web/cases/shape-domexception.expected). Both are built here, after the
+  // classes, so `new DOMException()` from internal code skips the wrapper.
+  var PublicDOMException = defineInterface({
+    name: 'DOMException',
+    impl: DOMException,
+    length: 0,
+    constants: CONSTANT_VALUES,
+    statics: CONSTANT_NAMES,
+    members: P.ArrayPrototypeConcat(['code', 'name', 'message'], CONSTANT_NAMES, [
+      'constructor',
+      '@@toStringTag',
+    ]),
   });
-  ObjectDefineProperty(globalThis, 'QuotaExceededError', {
-    value: QuotaExceededError,
-    writable: true,
-    enumerable: false,
-    configurable: true,
+  var PublicQuotaExceededError = defineInterface({
+    name: 'QuotaExceededError',
+    impl: QuotaExceededError,
+    length: 0,
+    parent: PublicDOMException,
+    members: ['quota', 'requested', 'constructor', '@@toStringTag'],
   });
 
   module.exports = P.ObjectFreeze({
     __proto__: null,
-    DOMException: DOMException,
-    QuotaExceededError: QuotaExceededError,
+    DOMException: PublicDOMException,
+    QuotaExceededError: PublicQuotaExceededError,
     cloneDOMException: cloneDOMException,
   });
 });

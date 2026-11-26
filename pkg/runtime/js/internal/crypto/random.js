@@ -315,18 +315,31 @@
     return sample();
   }
 
-  // WHATWG Web Crypto global. Only the random surface is provided here;
-  // crypto.subtle is a follow-up. The loader instantiates this file before user code
-  // on both surfaces, as the last module that installs a global — the slot
-  // node/crypto.js held when the install lived there — and node/crypto.js exports
-  // these same two functions.
-  if (globalThis.crypto === undefined) {
-    cryptoObject = {
-      randomUUID: randomUUID,
-      getRandomValues: getRandomValues,
-    };
-    globalThis.crypto = cryptoObject;
+  // WHATWG Web Crypto global: `crypto`, an instance of the Crypto interface, behind a
+  // getter on the global as in Chrome. Only the random surface is provided here;
+  // crypto.subtle is a follow-up (shape-crypto's known gap). The loader instantiates
+  // this file before user code on both surfaces, as the last module that installs a
+  // global — the slot node/crypto.js held when the install lived there — and
+  // node/crypto.js exports these same two functions.
+  function Crypto() {
+    throw new P.TypeError('Illegal constructor');
   }
+  Crypto.prototype.getRandomValues = getRandomValues;
+  Crypto.prototype.randomUUID = randomUUID;
+  var nativeShape = require('internal/native_shape');
+  // Blink's order (Chrome 158, tests/web/cases/shape-crypto.expected): `subtle` would
+  // sit between `constructor` and randomUUID.
+  nativeShape.defineInterface({
+    name: 'Crypto',
+    impl: Crypto,
+    length: 0,
+    illegal: true,
+    members: ['getRandomValues:1', 'constructor', 'randomUUID:0', '@@toStringTag'],
+  });
+  cryptoObject = P.ObjectCreate(Crypto.prototype);
+  nativeShape.defineGlobalAttribute('crypto', function () {
+    return cryptoObject;
+  });
 
   module.exports = {
     randomBytes: randomBytes,

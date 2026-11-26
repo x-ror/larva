@@ -376,6 +376,39 @@
     });
   }
 
+  // Function.prototype's own keys in Chrome's order. JSC lists length, name, toString,
+  // apply, call, bind, arguments, caller, constructor; V8 (Chrome 158) lists length,
+  // name, constructor, apply, bind, call, toString, arguments, caller — one
+  // Reflect.ownKeys away from naming the engine. Re-adding each key in V8's order fixes
+  // it; Symbol.hasInstance, the one non-configurable key, is a symbol and lists last in
+  // both. Here, at the eager eval, because lockIntrinsics (next in the loader) makes
+  // call/apply/bind non-configurable. No `.call` between the delete and the re-add:
+  // every read here is a captured static.
+  var FUNCTION_PROTOTYPE_ORDER = [
+    'constructor',
+    'apply',
+    'bind',
+    'call',
+    'toString',
+    'arguments',
+    'caller',
+  ];
+  var getOwnDesc = Object.getOwnPropertyDescriptor;
+  (function orderFunctionPrototype() {
+    var descs = [];
+    var i;
+    for (i = 0; i < FUNCTION_PROTOTYPE_ORDER.length; i++) {
+      descs[i] = getOwnDesc(FunctionProto, FUNCTION_PROTOTYPE_ORDER[i]);
+    }
+    for (i = 0; i < FUNCTION_PROTOTYPE_ORDER.length; i++) {
+      if (descs[i] === undefined || !descs[i].configurable) return;
+    }
+    for (i = 0; i < FUNCTION_PROTOTYPE_ORDER.length; i++) {
+      delete FunctionProto[FUNCTION_PROTOTYPE_ORDER[i]];
+      defineProperty(FunctionProto, FUNCTION_PROTOTYPE_ORDER[i], descs[i]);
+    }
+  })();
+
   module.exports = {
     uncurryThis: uncurryThis,
     lockIntrinsics: lockIntrinsics,
@@ -485,6 +518,9 @@
     // the JS decode path (median of 16 paired launches). These two are the same
     // captured method on the same `.call` route — identical immunity, ~1.02-1.04x.
     ArrayPrototypePush1: caller1(ArrayProto.push),
+    // internal/native_shape's toString registry: read on every Function.prototype.toString.
+    WeakMapPrototypeGet: caller1(WeakMap.prototype.get),
+    WeakMapPrototypeSet: caller2(WeakMap.prototype.set),
     ArrayPrototypePush2: caller2(ArrayProto.push),
     ArrayPrototypePop: caller0(ArrayProto.pop),
     ArrayPrototypeShift: caller0(ArrayProto.shift),

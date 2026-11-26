@@ -492,10 +492,70 @@
     });
   }
 
-  if (globalThis.Headers === undefined) globalThis.Headers = Headers;
-  if (globalThis.Request === undefined) globalThis.Request = Request;
-  if (globalThis.Response === undefined) globalThis.Response = Response;
-  if (globalThis.fetch === undefined) globalThis.fetch = fetch;
+  // The interface objects and the operation a page sees (internal/native_shape), with
+  // the members Lava has in Blink's relative order (Chrome 158,
+  // tests/web/cases/shape-fetch.expected). What is still missing or extra — Request's and
+  // Response's attributes are instance properties, the Body mixin is a parent class,
+  // Headers has `_append`/`_entryList` — is the S4d gap that case pins.
+  var native_shape = require('internal/native_shape');
+  var PublicHeaders = native_shape.defineInterface({
+    name: 'Headers',
+    impl: Headers,
+    length: 0,
+    members: [
+      'append:2',
+      'delete:1',
+      'get:1',
+      'getSetCookie:0',
+      'has:1',
+      'set:2',
+      'entries:0',
+      'forEach:1',
+      'keys:0',
+      'values:0',
+      'constructor',
+      '@@toStringTag',
+      '@@iterator=entries',
+    ],
+  });
+  var PublicRequest = native_shape.defineInterface({
+    name: 'Request',
+    impl: Request,
+    length: 1,
+    members: [
+      'bodyUsed',
+      'arrayBuffer:0',
+      'json:0',
+      'text:0',
+      'body',
+      'bytes:0',
+      'constructor',
+      '@@toStringTag',
+    ],
+  });
+  var PublicResponse = native_shape.defineInterface({
+    name: 'Response',
+    impl: Response,
+    length: 0,
+    statics: ['error:0', 'json:1'],
+    members: [
+      'body',
+      'bodyUsed',
+      'arrayBuffer:0',
+      'clone:0',
+      'json:0',
+      'text:0',
+      'bytes:0',
+      'constructor',
+      '@@toStringTag',
+    ],
+  });
+  var publicFetch = native_shape.defineOperation('fetch', fetch, 1);
 
-  module.exports = { fetch: fetch, Headers: Headers, Request: Request, Response: Response };
+  module.exports = {
+    fetch: publicFetch,
+    Headers: PublicHeaders,
+    Request: PublicRequest,
+    Response: PublicResponse,
+  };
 });

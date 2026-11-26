@@ -42,6 +42,19 @@ runs agreed, the command that re-records it), `# ---`, then Chrome's bytes. The
 recorder runs every case three times in fresh profiles and writes it only if all
 runs agree and none raised a page error. Never edit one by hand.
 
+## Shape cases
+
+`cases/shape-<family>.js` print what a page reads off each Web API global without
+calling it — descriptors, names, lengths, own keys, constructibility and the
+`Function.prototype.toString` text of the global, its statics and every prototype
+member, in own-key order (#114). They are generated: edit
+[scripts/gen-web-shape.mjs](../../scripts/gen-web-shape.mjs) (its `FAMILIES` table
+lists the globals each case covers), run `node scripts/gen-web-shape.mjs`, then
+re-record. `make check-js` fails when a case and its generator disagree. The members
+are enumerated at run time, so a member either side adds is caught without a
+generator change. `shape-missing` lists the Chrome globals of those families Larva
+lacks; `shape-tostring` and `shape-stacks` are written by hand.
+
 ## Known gaps
 
 [known-gaps.txt](known-gaps.txt) lists the cases where Lava does not print what

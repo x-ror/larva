@@ -1,0 +1,6 @@
+# exit 0
+== performance
+global performance data ecw object [object Object]
+object [object Object] [[Prototype]] Object.prototype
+own now data ecw fn name="now" length=0 own=[length,name] prototype=false ctor=false src="function now() { [native code] }"
+own timeOrigin data ecw number

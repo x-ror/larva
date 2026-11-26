@@ -7,6 +7,7 @@
   var ABORT = 'abort';
   var DOMException = require('internal/domexception').DOMException;
   var webErrors = require('internal/web_errors');
+  var defineInterface = require('internal/native_shape').defineInterface;
   var web = webErrors.web;
   var typeError = webErrors.typeError;
   var pageError = webErrors.pageError;
@@ -35,10 +36,11 @@
     );
   }
 
+  // The implementation's constructor is never called: a page reaches native_shape's
+  // interface object, which refuses construction itself (`illegal`), and the platform
+  // mints signals through newSignal.
   function AbortSignal() {
-    throw web
-      ? typeError('AbortSignal', undefined, 'Illegal constructor')
-      : new TypeError('Illegal constructor');
+    throw new TypeError('Illegal constructor');
   }
 
   // Internal constructor: AbortSignal is not directly constructable, so
@@ -199,26 +201,50 @@
     return combined;
   };
 
-  function AbortController() {
-    // A function constructor, so the call-without-new text is ours to choose: Blink's on
-    // the Window surface.
-    if (!(this instanceof AbortController)) {
-      throw web
-        ? typeError(
-            'AbortController',
-            undefined,
-            "Please use the 'new' operator, this DOM object constructor cannot be called as a function.",
-          )
-        : new TypeError("Constructor AbortController requires 'new'");
+  // A class: the call-without-new text is native_shape's interface object's, and the
+  // signal lives in a private field behind Blink's `signal` accessor on the prototype
+  // (no own property on the instance, as in Chrome).
+  class AbortController {
+    #signal = newSignal();
+
+    get signal() {
+      return this.#signal;
     }
-    Object.defineProperty(this, 'signal', { value: newSignal(), enumerable: true });
+
+    abort(reason) {
+      runAbort(this.#signal, reason);
+    }
   }
-  AbortController.prototype.abort = function (reason) {
-    runAbort(this.signal, reason);
-  };
 
-  if (globalThis.AbortController === undefined) globalThis.AbortController = AbortController;
-  if (globalThis.AbortSignal === undefined) globalThis.AbortSignal = AbortSignal;
+  // The interface objects a page sees (internal/native_shape), in Blink's member order
+  // (Chrome 158, tests/web/cases/shape-abort.expected). AbortSignal's EventTarget
+  // methods are its own until EventTarget exists (a known gap of shape-abort).
+  var PublicAbortController = defineInterface({
+    name: 'AbortController',
+    impl: AbortController,
+    length: 0,
+    members: ['signal', 'abort:0', 'constructor', '@@toStringTag'],
+  });
+  var PublicAbortSignal = defineInterface({
+    name: 'AbortSignal',
+    impl: AbortSignal,
+    length: 0,
+    illegal: true,
+    statics: ['abort:0', 'any:1', 'timeout:1'],
+    members: [
+      // EventTarget's, here until EventTarget exists; first, so Blink's own order
+      // follows them.
+      'addEventListener:2',
+      'removeEventListener:2',
+      'dispatchEvent:1',
+      'aborted',
+      'reason',
+      'onabort',
+      'throwIfAborted:0',
+      'constructor',
+      '@@toStringTag',
+    ],
+  });
 
-  module.exports = { AbortController: AbortController, AbortSignal: AbortSignal };
+  module.exports = { AbortController: PublicAbortController, AbortSignal: PublicAbortSignal };
 });

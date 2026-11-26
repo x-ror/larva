@@ -1,0 +1,30 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs shape-operations
+# ---
+== atob
+global atob data ecw fn name="atob" length=1 own=[length,name] prototype=false ctor=false src="function atob() { [native code] }"
+[[Prototype]] Function.prototype
+== btoa
+global btoa data ecw fn name="btoa" length=1 own=[length,name] prototype=false ctor=false src="function btoa() { [native code] }"
+[[Prototype]] Function.prototype
+== structuredClone
+global structuredClone data ecw fn name="structuredClone" length=1 own=[length,name] prototype=false ctor=false src="function structuredClone() { [native code] }"
+[[Prototype]] Function.prototype
+== queueMicrotask
+global queueMicrotask data ecw fn name="queueMicrotask" length=1 own=[length,name] prototype=false ctor=false src="function queueMicrotask() { [native code] }"
+[[Prototype]] Function.prototype
+== setTimeout
+global setTimeout data ecw fn name="setTimeout" length=1 own=[length,name] prototype=false ctor=false src="function setTimeout() { [native code] }"
+[[Prototype]] Function.prototype
+== setInterval
+global setInterval data ecw fn name="setInterval" length=1 own=[length,name] prototype=false ctor=false src="function setInterval() { [native code] }"
+[[Prototype]] Function.prototype
+== clearTimeout
+global clearTimeout data ecw fn name="clearTimeout" length=0 own=[length,name] prototype=false ctor=false src="function clearTimeout() { [native code] }"
+[[Prototype]] Function.prototype
+== clearInterval
+global clearInterval data ecw fn name="clearInterval" length=0 own=[length,name] prototype=false ctor=false src="function clearInterval() { [native code] }"
+[[Prototype]] Function.prototype

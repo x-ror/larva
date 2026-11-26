@@ -1,0 +1,64 @@
+# exit 0
+== fetch
+global fetch data ecw fn name="fetch" length=1 own=[length,name] prototype=false ctor=false src="function fetch() { [native code] }"
+[[Prototype]] Function.prototype
+== Headers
+global Headers data -cw fn name="Headers" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Headers() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Failed to construct 'Headers': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static prototype data --- object [object Headers]
+prototype [[Prototype]] Object.prototype
+proto append data ecw fn name="append" length=2 own=[length,name] prototype=false ctor=false src="function append() { [native code] }"
+proto _append data -cw fn name="_append" length=2 own=[length,name] prototype=false ctor=false src="_append(name, value) {\n      var key = normalizeName(name);\n      if (key === 'set-cookie') {\n        this._cookies.push(String(value));\n        return;\n      }\n      var existing = this._map.get(key);\n      this._map.set(key, existing === undefined ? String(value) : existing + ', ' + value);\n    }"
+proto delete data ecw fn name="delete" length=1 own=[length,name] prototype=false ctor=false src="function delete() { [native code] }"
+proto _entryList data -cw fn name="_entryList" length=0 own=[length,name] prototype=false ctor=false src="_entryList() {\n      var out = [];\n      this._map.forEach((value, key) => out.push([key, value]));\n      for (var i = 0; i < this._cookies.length; i++) out.push(['set-cookie', this._cookies[i]]);\n      return out;\n    }"
+proto get data ecw fn name="get" length=1 own=[length,name] prototype=false ctor=false src="function get() { [native code] }"
+proto getSetCookie data ecw fn name="getSetCookie" length=0 own=[length,name] prototype=false ctor=false src="function getSetCookie() { [native code] }"
+proto has data ecw fn name="has" length=1 own=[length,name] prototype=false ctor=false src="function has() { [native code] }"
+proto set data ecw fn name="set" length=2 own=[length,name] prototype=false ctor=false src="function set() { [native code] }"
+proto entries data ecw fn name="entries" length=0 own=[length,name] prototype=false ctor=false src="function entries() { [native code] }"
+proto forEach data ecw fn name="forEach" length=1 own=[length,name] prototype=false ctor=false src="function forEach() { [native code] }"
+proto keys data ecw fn name="keys" length=0 own=[length,name] prototype=false ctor=false src="function keys() { [native code] }"
+proto values data ecw fn name="values" length=0 own=[length,name] prototype=false ctor=false src="function values() { [native code] }"
+proto constructor data -cw fn name="Headers" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Headers() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "Headers"
+proto [Symbol(Symbol.iterator)] data -cw fn name="entries" length=0 own=[length,name] prototype=false ctor=false src="function entries() { [native code] }"
+== Request
+global Request data -cw fn name="Request" length=1 own=[length,name,prototype] prototype=true ctor=true src="function Request() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Failed to construct 'Request': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static prototype data --- object [object Request]
+prototype [[Prototype]] Body.prototype
+proto bodyUsed accessor ec
+  get name="get bodyUsed" length=0 own=[length,name] prototype=false ctor=false src="function get bodyUsed() { [native code] }"
+  set undefined
+proto arrayBuffer data ecw fn name="arrayBuffer" length=0 own=[length,name] prototype=false ctor=false src="function arrayBuffer() { [native code] }"
+proto json data ecw fn name="json" length=0 own=[length,name] prototype=false ctor=false src="function json() { [native code] }"
+proto text data ecw fn name="text" length=0 own=[length,name] prototype=false ctor=false src="function text() { [native code] }"
+proto body accessor ec
+  get name="get body" length=0 own=[length,name] prototype=false ctor=false src="function get body() { [native code] }"
+  set undefined
+proto bytes data ecw fn name="bytes" length=0 own=[length,name] prototype=false ctor=false src="function bytes() { [native code] }"
+proto constructor data -cw fn name="Request" length=1 own=[length,name,prototype] prototype=true ctor=true src="function Request() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "Request"
+== Response
+global Response data -cw fn name="Response" length=0 own=[length,name,prototype,error,json] prototype=true ctor=true src="function Response() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Failed to construct 'Response': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static error data ecw fn name="error" length=0 own=[length,name] prototype=false ctor=false src="function error() { [native code] }"
+static json data ecw fn name="json" length=1 own=[length,name] prototype=false ctor=false src="function json() { [native code] }"
+static prototype data --- object [object Response]
+prototype [[Prototype]] Body.prototype
+proto body accessor ec
+  get name="get body" length=0 own=[length,name] prototype=false ctor=false src="function get body() { [native code] }"
+  set undefined
+proto bodyUsed accessor ec
+  get name="get bodyUsed" length=0 own=[length,name] prototype=false ctor=false src="function get bodyUsed() { [native code] }"
+  set undefined
+proto arrayBuffer data ecw fn name="arrayBuffer" length=0 own=[length,name] prototype=false ctor=false src="function arrayBuffer() { [native code] }"
+proto clone data ecw fn name="clone" length=0 own=[length,name] prototype=false ctor=false src="function clone() { [native code] }"
+proto json data ecw fn name="json" length=0 own=[length,name] prototype=false ctor=false src="function json() { [native code] }"
+proto text data ecw fn name="text" length=0 own=[length,name] prototype=false ctor=false src="function text() { [native code] }"
+proto bytes data ecw fn name="bytes" length=0 own=[length,name] prototype=false ctor=false src="function bytes() { [native code] }"
+proto constructor data -cw fn name="Response" length=0 own=[length,name,prototype,error,json] prototype=true ctor=true src="function Response() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "Response"

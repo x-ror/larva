@@ -353,6 +353,7 @@ inject_native_function :: proc(
 	callback: jsc.JSObjectCallAsFunctionCallback,
 	host: jsc.Host_Function_Proc = nil,
 	arity: int = 1,
+	constructible := true,
 ) {
 	c_name, err := strings.clone_to_cstring(name, context.temp_allocator)
 
@@ -366,9 +367,9 @@ inject_native_function :: proc(
 	fn: jsc.JSObjectRef
 
 	if host != nil {
-		fn, _ = jsc.host_function_create(ctx, name, host, arity)
+		fn, _ = jsc.host_function_create(ctx, name, host, arity, constructible = constructible)
 	} else {
-		fn = host_native_create(ctx, name, callback, arity)
+		fn = host_native_create(ctx, name, callback, arity, constructible = constructible)
 	}
 
 	if fn == nil {

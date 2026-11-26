@@ -17,6 +17,7 @@
   'use strict';
 
   var P = require('internal/primordials');
+  var defineInterface = require('internal/native_shape').defineInterface;
   var StringG = P.String;
   var TypeErrorG = P.TypeError;
   var Uint8ArrayG = P.Uint8Array;
@@ -30,7 +31,6 @@
   var MathMax = P.MathMax;
   var MathMin = P.MathMin;
   var SymbolIterator = P.Symbol.iterator;
-  var SymbolToStringTag = P.Symbol.toStringTag;
   var PromiseResolve = P.FunctionPrototypeBind(P.Promise.resolve, P.Promise);
   var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;
   var StringPrototypeSlice = P.StringPrototypeSlice;
@@ -129,22 +129,13 @@
     return merged;
   }
 
-  // Blob.prototype's methods were enumerable while Blob was a function whose prototype
-  // was assigned to; class methods are not. Kept enumerable so `for…in` and
-  // Object.keys(Blob.prototype) report what they did before the class conversion. Node's
-  // set differs (it also lists size/type and a textStream Lava does not have, and not
-  // toString), so matching it is a separate change, not a line here.
-  var ENUMERABLE_METHODS = ['arrayBuffer', 'bytes', 'stream', 'text', 'slice', 'toString'];
-
   /**
    * Minimal Blob: stores parts without eager concat; materializes on demand.
-   * @node A class, like node's: Blob.prototype is non-writable (node 26.13.0, verified).
-   * @deviates Calling it without `new` throws JSC's class-constructor TypeError —
-   *   `Cannot call a class constructor Blob without |new|` — where node says
-   *   `Class constructor Blob cannot be invoked without 'new'` (and Lava said
-   *   `Constructor Blob requires 'new'` before the class conversion). The text is the
-   *   engine's and cannot be customised on a class; pinned by
-   *   cmd/lava/blob_class_test.odin.
+   * @node Chrome 158's shape (tests/web/cases/shape-blob.expected): the interface object
+   *   and every member are built by internal/native_shape around this class, so they
+   *   read as native, members enumerable, and a call without `new` throws Blink's text.
+   * @deviates none in shape. Instances still carry non-enumerable `_parts`/`_size`/
+   *   `_type` own properties (S4c).
    */
   class Blob {
     /**
@@ -247,17 +238,51 @@
       return new Blob(out, contentType === undefined ? undefined : { type: contentType });
     }
 
-    toString() {
-      return '[object Blob]';
+    /**
+     * The contents as a stream of strings, decoded as UTF-8 (File API, Chrome 133+).
+     * @returns {ReadableStream<string>}
+     * @node n/a — Chrome 158 has it (tests/web/cases/shape-blob.expected).
+     * @deviates none
+     */
+    textStream() {
+      // Late-bound: webstreams and encoding load after this eager module.
+      var TransformStream = require('internal/webstreams/index').TransformStream;
+      var TextDecoder = require('internal/encoding').TextDecoder;
+      var decoder = new TextDecoder();
+      return this.stream().pipeThrough(
+        new TransformStream({
+          transform: function (chunk, controller) {
+            var text = decoder.decode(chunk, { stream: true });
+            if (text !== '') controller.enqueue(text);
+          },
+          flush: function (controller) {
+            var text = decoder.decode();
+            if (text !== '') controller.enqueue(text);
+          },
+        }),
+      );
     }
   }
-  for (var m = 0; m < ENUMERABLE_METHODS.length; m++) {
-    ObjectDefineProperty(Blob.prototype, ENUMERABLE_METHODS[m], { enumerable: true });
-  }
 
-  ObjectDefineProperty(Blob.prototype, SymbolToStringTag, {
-    value: 'Blob',
-    configurable: true,
+  // The interface object a page sees (internal/native_shape), in Blink's member order
+  // (Chrome 158, tests/web/cases/shape-blob.expected). `String(blob)` needs no own
+  // toString: Object.prototype.toString reads the @@toStringTag defined here.
+  var PublicBlob = defineInterface({
+    name: 'Blob',
+    impl: Blob,
+    length: 0,
+    members: [
+      'size',
+      'type',
+      'arrayBuffer:0',
+      'slice:0',
+      'stream:0',
+      'text:0',
+      'bytes:0',
+      'textStream:0',
+      'constructor',
+      '@@toStringTag',
+    ],
   });
 
   // A null-prototype dictionary rather than a Map: its get/set/delete are plain property
@@ -308,12 +333,8 @@
     if (typeof globalThis.URL.revokeObjectURL !== 'function')
       globalThis.URL.revokeObjectURL = revokeObjectURL;
   }
-  if (globalThis.Blob === undefined) {
-    globalThis.Blob = Blob;
-  }
-
   module.exports = {
-    Blob: Blob,
+    Blob: PublicBlob,
     createObjectURL: createObjectURL,
     revokeObjectURL: revokeObjectURL,
     resolveObjectURL: resolveObjectURL,
