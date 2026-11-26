@@ -53,14 +53,19 @@
 
   // util.inspect, for the three places node renders a value through it: a constructor-less
   // object in determineSpecificType, every ERR_INVALID_ARG_VALUE, and an ERR_OUT_OF_RANGE
-  // received value that is not a plain number. Looked up on first use — util is LAZY,
-  // and making it eager would put its whole factory on every script's startup for text
-  // that is only ever built when a call is already failing. The residual: the first
-  // failing call reads `require('util').inspect` after user code ran, so a replaced
-  // inspect steers MESSAGE TEXT — nothing else flows through it.
+  // received value that is not a plain number. Taken from internal/util/inspect — the
+  // module node:util re-exports it from — not from node:util itself, so a coded error
+  // raised on the Window surface does not instantiate a js/node/ module (node:util and
+  // everything it requires), which `.Web` must never load
+  // (cmd/lava/global_surface_test.odin, global_surface_web_loads_no_node_module). Looked
+  // up on first use: internal/util/inspect is LAZY, and making it eager would put its
+  // factory on every script's startup for text that is only ever built when a call is
+  // already failing. It also closes the residual the node:util lookup had: a replaced
+  // `require('util').inspect` no longer steers this text, since user code cannot reach
+  // an internal/ module.
   var inspectFn = null;
   function inspect(value, opts) {
-    if (inspectFn === null) inspectFn = require('util').inspect;
+    if (inspectFn === null) inspectFn = require('internal/util/inspect').inspect;
     return inspectFn(value, opts);
   }
 

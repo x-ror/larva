@@ -1,0 +1,50 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs domexception-class
+# ---
+typeof function function
+length 0 name DOMException
+global value function e0 c1 w1
+ctor proto is Function.prototype true
+proto proto is Error.prototype true
+prototype.name get function set undefined e1 c1 w0
+prototype.message get function set undefined e1 c1 w0
+prototype.code get function set undefined e1 c1 w0
+prototype.constructor value function e0 c1 w1
+toStringTag value string e0 c1 w0 DOMException
+constants INDEX_SIZE_ERR=1 DOMSTRING_SIZE_ERR=2 HIERARCHY_REQUEST_ERR=3 WRONG_DOCUMENT_ERR=4 INVALID_CHARACTER_ERR=5 NO_DATA_ALLOWED_ERR=6 NO_MODIFICATION_ALLOWED_ERR=7 NOT_FOUND_ERR=8 NOT_SUPPORTED_ERR=9 INUSE_ATTRIBUTE_ERR=10 INVALID_STATE_ERR=11 SYNTAX_ERR=12 INVALID_MODIFICATION_ERR=13 NAMESPACE_ERR=14 INVALID_ACCESS_ERR=15 VALIDATION_ERR=16 TYPE_MISMATCH_ERR=17 SECURITY_ERR=18 NETWORK_ERR=19 ABORT_ERR=20 URL_MISMATCH_ERR=21 QUOTA_EXCEEDED_ERR=22 TIMEOUT_ERR=23 INVALID_NODE_TYPE_ERR=24 DATA_CLONE_ERR=25
+constant value number e1 c0 w0 on prototype value number e1 c0 w0
+prototype constants match true
+prototype names code,name,message,INDEX_SIZE_ERR,DOMSTRING_SIZE_ERR,HIERARCHY_REQUEST_ERR,WRONG_DOCUMENT_ERR,INVALID_CHARACTER_ERR,NO_DATA_ALLOWED_ERR,NO_MODIFICATION_ALLOWED_ERR,NOT_FOUND_ERR,NOT_SUPPORTED_ERR,INUSE_ATTRIBUTE_ERR,INVALID_STATE_ERR,SYNTAX_ERR,INVALID_MODIFICATION_ERR,NAMESPACE_ERR,INVALID_ACCESS_ERR,VALIDATION_ERR,TYPE_MISMATCH_ERR,SECURITY_ERR,NETWORK_ERR,ABORT_ERR,URL_MISMATCH_ERR,QUOTA_EXCEEDED_ERR,TIMEOUT_ERR,INVALID_NODE_TYPE_ERR,DATA_CLONE_ERR,constructor
+constructed own [] stack undefined
+(): DOMException name "Error" code 0 message "" string "Error" tag [object DOMException]
+(m): DOMException name "Error" code 0 message "m" string "Error: m" tag [object DOMException]
+(m, AbortError): DOMException name "AbortError" code 20 message "m" string "AbortError: m" tag [object DOMException]
+(m, Bogus): DOMException name "Bogus" code 0 message "m" string "Bogus: m" tag [object DOMException]
+(undefined, undefined): DOMException name "Error" code 0 message "" string "Error" tag [object DOMException]
+(null, null): DOMException name "null" code 0 message "null" string "null: null" tag [object DOMException]
+(1, {}): DOMException name "[object Object]" code 0 message "1" string "[object Object]: 1" tag [object DOMException]
+(toString objects): DOMException name "tn" code 0 message "tm" string "tn: tm" tag [object DOMException]
+coercion order message,name
+codes IndexSizeError=1 HierarchyRequestError=3 WrongDocumentError=4 InvalidCharacterError=5 NoModificationAllowedError=7 NotFoundError=8 NotSupportedError=9 InUseAttributeError=10 InvalidStateError=11 SyntaxError=12 InvalidModificationError=13 NamespaceError=14 InvalidAccessError=15 TypeMismatchError=17 SecurityError=18 NetworkError=19 AbortError=20 URLMismatchError=21 QuotaExceededError=22 TimeoutError=23 InvalidNodeTypeError=24 DataCloneError=25 EncodingError=0 NotReadableError=0 DataError=0 OperationError=0 DOMStringSizeErr=0 ValidationError=0 NoDataAllowedError=0 constructor=0 __proto__=0
+assignment ignored b a 0
+instanceof Error true DOMException true
+isError true
+subclass: Sub name "NotFoundError" code 8 message "s" string "NotFoundError: s" tag [object DOMException]
+QuotaExceededError length 0
+extends true true
+QuotaExceededError.prototype.quota get function set undefined e1 c1 w0
+QuotaExceededError.prototype.requested get function set undefined e1 c1 w0
+QuotaExceededError prototype names quota,requested,constructor
+QuotaExceededError constructed own []
+QuotaExceededError toStringTag QuotaExceededError
+QuotaExceededError statics ["length","name","prototype"]
+quota (): QuotaExceededError name "QuotaExceededError" code 22 message "" string "QuotaExceededError" tag [object QuotaExceededError]
+quota () null null
+quota (m, {5, 7}): QuotaExceededError name "QuotaExceededError" code 22 message "m" string "QuotaExceededError: m" tag [object QuotaExceededError]
+quota (m, {5, 7}) 5 7
+quota coerced 1.5 -2
+quota null options null null name QuotaExceededError code 22
+options read order quota,requested

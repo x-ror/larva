@@ -13,6 +13,28 @@
   var invalidArgType = util.invalidArgType;
   var outOfRange = util.outOfRange;
   var validateByteCount = util.validateByteCount;
+  var P = require('internal/primordials');
+  var ArrayBufferIsView = P.ArrayBufferIsView;
+  var StringPrototypeSlice = P.StringPrototypeSlice;
+  var TypedArrayPrototypeGetBuffer = P.TypedArrayPrototypeGetBuffer;
+  var TypedArrayPrototypeGetByteLength = P.TypedArrayPrototypeGetByteLength;
+  var TypedArrayPrototypeGetByteOffset = P.TypedArrayPrototypeGetByteOffset;
+  var TypedArrayPrototypeGetSymbolToStringTag = P.TypedArrayPrototypeGetSymbolToStringTag;
+  var Uint8ArrayP = P.Uint8Array;
+  var domexception = require('internal/domexception');
+  var DOMException = domexception.DOMException;
+  var QuotaExceededError = domexception.QuotaExceededError;
+  var webErrors = require('internal/web_errors');
+  var web = webErrors.web;
+  var context = webErrors.context;
+  var typeError = webErrors.typeError;
+  var argumentsRequired = webErrors.argumentsRequired;
+  var notOfType = webErrors.notOfType;
+  var illegalInvocation = webErrors.illegalInvocation;
+  var pageError = webErrors.pageError;
+  // The `crypto` global this file installs; getRandomValues' receiver brand on the
+  // Window surface.
+  var cryptoObject = null;
 
   // Every CSPRNG entry point goes through this, and none calls native.randomFill
   // directly. The native returns the view it filled, so an identity check is the
@@ -144,30 +166,106 @@
     return s;
   }
 
-  // WHATWG crypto.getRandomValues: fill an integer TypedArray in place with
-  // CSPRNG bytes and return it. Float views and DataView are rejected; the spec
-  // caps a single call at 65536 bytes.
+  // The integer view kinds getRandomValues accepts, by %TypedArray%'s brand tag (read
+  // through the captured getter: it answers from the internal slot, so neither a
+  // subclass nor a forged Symbol.toStringTag changes it). Anything else that is a view
+  // — the float kinds and DataView — is a TypeMismatchError.
+  var INTEGER_VIEWS = {
+    __proto__: null,
+    Int8Array: true,
+    Uint8Array: true,
+    Uint8ClampedArray: true,
+    Int16Array: true,
+    Uint16Array: true,
+    Int32Array: true,
+    Uint32Array: true,
+    BigInt64Array: true,
+    BigUint64Array: true,
+  };
+  var GET_RANDOM_VALUES_MAX = 65536;
+
+  /**
+   * crypto.getRandomValues(view): fills an integer TypedArray in place with CSPRNG bytes
+   * and returns it.
+   * @param {ArrayBufferView} typedArray
+   * @returns {ArrayBufferView} the argument.
+   * @throws {TypeError} no argument, or not an ArrayBufferView.
+   * @throws {DOMException} TypeMismatchError (17) — a float view or a DataView, checked
+   *   before the length.
+   * @throws {QuotaExceededError} more than 65536 bytes; quota/requested left null, as
+   *   Chrome leaves them.
+   * @node Window surface: Chrome 158's shapes and text,
+   *       tests/web/cases/crypto-random-errors.expected. Node surface: the same
+   *       DOMException shapes with node 26's text ("The data argument must be an
+   *       integer-type TypedArray", "The requested length exceeds 65,536 bytes", probed);
+   *       its TypeError keeps Lava's previous text.
+   * @deviates No SharedArrayBuffer-backed view can reach this — JSC here defines no
+   *   SharedArrayBuffer — so Blink's "must not be shared" refusal has no arm.
+   *   The receiver brand is identity with the installed `crypto` object, which is a
+   *   plain object until Crypto is an interface of its own; Chrome's answer to every
+   *   other receiver, Illegal invocation, is the same.
+   */
   function getRandomValues(typedArray) {
-    if (
-      typedArray == null ||
-      typeof typedArray.byteLength !== 'number' ||
-      !(typedArray.buffer instanceof ArrayBuffer) ||
-      typedArray instanceof Float32Array ||
-      typedArray instanceof Float64Array ||
-      (typeof DataView !== 'undefined' && typedArray instanceof DataView)
-    ) {
-      throw new TypeError('The data argument must be an integer-type TypedArray');
+    // Before the arguments, as Blink checks them (crypto-random-errors.expected). Node
+    // checks no receiver — node:crypto exports this same function, `this` the module —
+    // so the Node surface keeps filling.
+    if (web && this !== cryptoObject) {
+      throw illegalInvocation();
     }
-    if (typedArray.byteLength > 65536) {
-      throw new RangeError(
-        "The ArrayBufferView's byte length (" +
-          typedArray.byteLength +
-          ') exceeds the number of bytes of entropy available via this API (65536)',
+
+    if (arguments.length === 0 || !ArrayBufferIsView(typedArray)) {
+      if (!web) {
+        throw new TypeError('The data argument must be an integer-type TypedArray');
+      }
+
+      throw typeError(
+        'Crypto',
+        'getRandomValues',
+        arguments.length === 0 ? argumentsRequired(1, 0) : notOfType(1, 'ArrayBufferView'),
       );
     }
-    if (typedArray.byteLength > 0) {
-      fillRandom(new Uint8Array(typedArray.buffer, typedArray.byteOffset, typedArray.byteLength));
+
+    // undefined for a DataView, the only view that is not a TypedArray.
+    var kind = TypedArrayPrototypeGetSymbolToStringTag(typedArray);
+    if (kind === undefined || INTEGER_VIEWS[kind] !== true) {
+      var type = kind === undefined ? 'DataView' : StringPrototypeSlice(kind, 0, kind.length - 5);
+      throw pageError(
+        new DOMException(
+          web
+            ? context('Crypto', 'getRandomValues') +
+                "The provided ArrayBufferView is of type '" +
+                type +
+                "', which is not an integer array type."
+            : 'The data argument must be an integer-type TypedArray',
+          'TypeMismatchError',
+        ),
+      );
     }
+
+    var byteLength = TypedArrayPrototypeGetByteLength(typedArray);
+    if (byteLength > GET_RANDOM_VALUES_MAX) {
+      throw pageError(
+        new QuotaExceededError(
+          web
+            ? context('Crypto', 'getRandomValues') +
+                "The ArrayBufferView's byte length (" +
+                byteLength +
+                ') exceeds the number of bytes of entropy available via this API (65536).'
+            : 'The requested length exceeds 65,536 bytes',
+        ),
+      );
+    }
+
+    if (byteLength > 0) {
+      fillRandom(
+        new Uint8ArrayP(
+          TypedArrayPrototypeGetBuffer(typedArray),
+          TypedArrayPrototypeGetByteOffset(typedArray),
+          byteLength,
+        ),
+      );
+    }
+
     return typedArray;
   }
 
@@ -223,10 +321,11 @@
   // node/crypto.js held when the install lived there — and node/crypto.js exports
   // these same two functions.
   if (globalThis.crypto === undefined) {
-    globalThis.crypto = {
+    cryptoObject = {
       randomUUID: randomUUID,
       getRandomValues: getRandomValues,
     };
+    globalThis.crypto = cryptoObject;
   }
 
   module.exports = {
