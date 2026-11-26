@@ -4503,7 +4503,7 @@
       "replace": "\t\t:",
       "gate": "node-test:scripts/run-odin-green.test.mjs",
       "test": "a listed test that now passes fails the run and is named",
-      "expect_detail": "now PASSING: goes_green"
+      "expect_detail": "a listed test that now passes fails the run and is named"
     },
     {
       "name": "run-odin-green dies when discovery is not cross-checked against the @(test) count",
@@ -4513,7 +4513,7 @@
       "replace": "if false; then",
       "gate": "node-test:scripts/run-odin-green.test.mjs",
       "test": "an attribute discovery cannot pair with a name fails the run",
-      "expect_detail": "@(test) attributes"
+      "expect_detail": "attributes .* but 5 test names discovered"
     },
     {
       "name": "run-odin-green dies when discovery only accepts a bare @(test) line",
