@@ -26,4 +26,5 @@ robust-view-probe unplanned: as robust-resizable-views: Chrome refuses the resiz
 streams-byte unplanned: no readable byte streams (ReadableByteStreamController, type 'bytes', BYOB reads)
 timers-due-mid-callback unplanned: Lava orders due timers by deadline as node does (#98); Chrome runs a 0 ms timer created inside a long callback before an older timer that fell due during it
 timers-interval-rearm unplanned: Lava re-arms an interval from the clock read before its callback, as node does (#99); Chrome re-arms from the interval's scheduled time, so its second fire lands before the +200 ms sentinel
-url-errors S4e: node's ERR_INVALID_URL/ERR_INVALID_ARG_TYPE with node's messages where Chrome has WebIDL text and no code; Chrome also accepts a space in a host (percent-encoding it) where Lava throws
+url-errors S4e: node's ERR_INVALID_URL/ERR_INVALID_ARG_TYPE with node's messages where Chrome has WebIDL text and no code
+url-host-space unplanned: Chrome percent-encodes a space in a special URL's host and accepts it; Lava follows the WHATWG parser and throws. Deciding whether to follow Chrome here is parser work, not message work

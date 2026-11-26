@@ -1,7 +1,6 @@
 # exit 0
 new URL(): TypeError: Failed to construct 'URL': 1 argument required, but only 0 present. code=undefined
 relative without base: TypeError: Invalid URL code=ERR_INVALID_URL
-bad host: TypeError: Invalid URL code=ERR_INVALID_URL
 empty host: TypeError: Invalid URL code=ERR_INVALID_URL
 bad base: TypeError: Invalid URL code=ERR_INVALID_URL
 bad port: TypeError: Invalid URL code=ERR_INVALID_URL

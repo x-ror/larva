@@ -45,6 +45,16 @@ run_args_surface_flag :: proc(t: ^testing.T) {
 	testing.expect(t, alone_err != "", "--surface=web without a file must be refused")
 }
 
+// The worker supervisor builds its pages on the Node surface, so `--surface=web`
+// with LAVA_WORKERS>1 must be refused rather than run with the Node names reachable.
+@(test)
+run_surface_refuses_workers :: proc(t: ^testing.T) {
+	testing.expect(t, run_surface_error(.Web, 2) != "", "web surface with 2 workers must be refused")
+	testing.expect_value(t, run_surface_error(.Web, 1), "")
+	testing.expect_value(t, run_surface_error(.Node, 2), "")
+	testing.expect_value(t, run_surface_error(.Node, 1), "")
+}
+
 // run_file must hand the surface to eval: with `.Web` the Node names are gone, and
 // without it (the default) they are all there. The script throws from the top level
 // on a mismatch, so a lost parameter is an Execution_Error naming the names.

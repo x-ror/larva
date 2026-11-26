@@ -279,6 +279,12 @@ const ROUTES = [
     targets: ['make test-web'],
   },
   {
+    // Node modules that still back page globals until S2 moves their installers:
+    // Blob/File/atob/btoa (buffer.js, aliased by internal/buffer) and crypto.
+    re: globToRe('pkg/runtime/js/node/{buffer,crypto}.js'),
+    targets: ['make test-web'],
+  },
+  {
     re: globToRe('{pkg/runtime/runtime.odin,cmd/lava/main.odin}'),
     targets: ['make test-web'],
   },

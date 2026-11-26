@@ -11,7 +11,6 @@ function show(label, f) {
 }
 show('new URL()', () => new URL());
 show('relative without base', () => new URL('/x'));
-show('bad host', () => new URL('http://exa mple.com/'));
 show('empty host', () => new URL('http://'));
 show('bad base', () => new URL('x', 'not a base'));
 show('bad port', () => new URL('http://a.com:99999/'));

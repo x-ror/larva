@@ -14,6 +14,9 @@ Buffer undefined
 global undefined
 setImmediate undefined
 clearImmediate undefined
+__lava_precache undefined
+__lavaDrainNextTicks undefined
+__lava_tl_drain undefined
 typeof require undefined
 typeof process undefined
 fetch function

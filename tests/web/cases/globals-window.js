@@ -12,6 +12,9 @@ const names = [
   'global',
   'setImmediate',
   'clearImmediate',
+  '__lava_precache',
+  '__lavaDrainNextTicks',
+  '__lava_tl_drain',
 ];
 for (const name of names) print(name + ' ' + typeof globalThis[name]);
 print('typeof require ' + typeof require);

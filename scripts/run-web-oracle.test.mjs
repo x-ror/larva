@@ -5,19 +5,23 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import vm from 'node:vm';
 import {
   HEADER_END,
   ROOT,
   caseOptions,
+  chromePage,
   formatExpected,
   formatSnapshot,
   judge,
   lavaPrelude,
   parseExpected,
   parseKnown,
+  readSink,
+  recordVerdict,
   suiteProblems,
 } from './lib/web-oracle.mjs';
 
@@ -223,4 +227,127 @@ test('the runner exits non-zero when a case does not match its recording', () =>
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// --- the recorder's side: what may become an oracle ---------------------------------
+
+test('recordVerdict keeps an output only when every run printed it and none erred', () => {
+  const run = (out, err = '') => ({ out, err });
+  assert.deepEqual(recordVerdict([run('a\n'), run('a\n'), run('a\n')]), { output: 'a\n' });
+  assert.match(
+    recordVerdict([run('a\n'), run('a\n', 'error: boom\n')]).error,
+    /page error in run 2/,
+  );
+  assert.match(recordVerdict([run('a\n'), run('b\n')]).error, /run 2 differs .*flaky/);
+  assert.match(recordVerdict([run(null)]).error, /no #out/);
+  assert.match(recordVerdict([]).error, /no run/);
+});
+
+// The Chrome shim, run for real: its inline script executes in a vm against just
+// enough DOM to hold two text nodes, then the sinks are serialized the way
+// --dump-dom does and read back through readSink. Pins the trailing newline, the
+// UTF-8/base64 round-trip, and that a page error and an unhandled rejection land in
+// #err, which the recorder refuses.
+function runShim() {
+  const html = chromePage('x');
+  const script = /<script>([\s\S]*?)<\/script>/.exec(html)[1];
+  class CharacterData {
+    constructor() {
+      this.data = '';
+    }
+    appendData(s) {
+      this.data += s;
+    }
+  }
+  const nodes = {};
+  const handlers = {};
+  const ctx = {
+    TextEncoder,
+    btoa,
+    CharacterData,
+    location: { origin: 'http://127.0.0.1:1' },
+    addEventListener: (type, fn) => (handlers[type] = fn),
+    document: {
+      createTextNode: () => new CharacterData(),
+      getElementById: (id) => ({ appendChild: (n) => (nodes[id] = n) }),
+    },
+  };
+  ctx.window = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(script, ctx);
+  const dom = () => `<pre id="out">${nodes.out.data}</pre><pre id="err">${nodes.err.data}</pre>`;
+  return { ctx, handlers, dom };
+}
+
+test('the Chrome shim prints String(value) and a newline per call, as UTF-8 through base64', () => {
+  const { ctx, dom } = runShim();
+  ctx.print('h\u00e9llo \u2615 \ud83d\ude00');
+  ctx.print(42);
+  ctx.print('lone \ud800');
+  assert.equal(readSink(dom(), 'out'), 'h\u00e9llo \u2615 \ud83d\ude00\n42\nlone \ufffd\n');
+  assert.equal(readSink(dom(), 'err'), '');
+  assert.equal(ctx.ORIGIN, 'http://127.0.0.1:1');
+});
+
+test('the Chrome shim records a page error and an unhandled rejection in #err', () => {
+  const { handlers, dom } = runShim();
+  handlers.error({ message: 'Uncaught boom' });
+  handlers.unhandledrejection({ reason: 'nope' });
+  assert.equal(readSink(dom(), 'err'), 'error: Uncaught boom\nunhandled rejection: nope\n');
+  assert.equal(readSink('<pre id="out"></pre>', 'err'), null);
+});
+
+// --- the runner's whole-suite rules, through the CLI ---------------------------------
+
+const FLOOR = JSON.parse(readFileSync(join(ROOT, 'runtime/gates/case-counts.json'), 'utf8')).suites[
+  'tests/web/cases'
+].min;
+
+// A throwaway suite of `count` cases whose recording is 'x\n', and a stand-in lava
+// that prints exactly that: every case passes, so only suite-level rules can fail.
+function runSuite(count, extra) {
+  const dir = mkdtempSync(join(tmpdir(), 'web-oracle-suite-'));
+  try {
+    const cases = join(dir, 'cases');
+    mkdirSync(cases);
+    mkdirSync(join(dir, 'known'));
+    writeFileSync(join(dir, 'known-gaps.txt'), '# none\n');
+    const meta = { chrome: 'Google Chrome 0', date: 'd', runs: 3, command: 'c' };
+    for (let i = 0; i < count; i++) {
+      writeFileSync(join(cases, `t-${i}.js`), "print('x');\n");
+      writeFileSync(join(cases, `t-${i}.expected`), formatExpected(meta, 'x\n'));
+    }
+    if (extra) extra(dir);
+    const fake = join(dir, 'lava');
+    writeFileSync(fake, "#!/bin/sh\nprintf 'x\\n'\n");
+    chmodSync(fake, 0o755);
+    return spawnSync(process.execPath, [join(ROOT, 'scripts/run-web-oracle.mjs')], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      env: { ...process.env, LAVA_BIN: fake, WEB_ORACLE_SUITE: dir },
+      timeout: 60_000,
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('a clean throwaway suite at the floor passes', () => {
+  const r = runSuite(FLOOR);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, new RegExp(`${FLOOR} pass, 0 known, 0 fail`));
+});
+
+test('an orphaned pin fails the run even when every case passes', () => {
+  const r = runSuite(FLOOR, (dir) => writeFileSync(join(dir, 'known', 'zzz.lava'), '# exit 0\n'));
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FAIL tests\/web\/known\/zzz\.lava has no known-gaps\.txt entry/);
+  assert.match(r.stdout, new RegExp(`${FLOOR} pass, 0 known, 1 fail`));
+});
+
+test('a suite below the case-count floor fails before running anything', () => {
+  const r = runSuite(FLOOR - 1);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout + r.stderr, /case-count/);
+  assert.doesNotMatch(r.stdout, /pass, 0 known/);
 });

@@ -4805,6 +4805,75 @@
       "replace": "\t\treport_data = report_data,\n\t)",
       "gate": "odin:cmd/lava:main.run_file_threads_surface",
       "expect_detail": "web sees"
+    },
+    {
+      "name": "run_surface_refuses_workers dies when --surface=web is allowed onto the worker supervisor",
+      "why": "The supervisor builds its pages on the Node surface, so without the refusal LAVA_WORKERS=2 lava run --surface=web leaves require/process/Buffer reachable behind a flag that promised to hide them.",
+      "source": "cmd/lava/main.odin",
+      "find": "\tif worker_count > 1 && surface != .Node {",
+      "replace": "\tif false {",
+      "gate": "odin:cmd/lava:main.run_surface_refuses_workers",
+      "expect_detail": "web surface with 2 workers must be refused"
+    },
+    {
+      "name": "the web oracle recorder refuses a run that raised a page error",
+      "why": "A Chrome run that throws after its last print would be recorded as a clean oracle, and Lava would then pass a case whose page errors in Chrome.",
+      "source": "scripts/lib/web-oracle.mjs",
+      "find": "    if (runs[r].err) return { error: `page error in run ${r + 1}:\\n${runs[r].err}` };\n",
+      "replace": "",
+      "gate": "node-test:scripts/run-web-oracle.test.mjs",
+      "test": "recordVerdict keeps an output only when every run printed it and none erred",
+      "expect_detail": "recordVerdict keeps an output only when every run printed it and none erred"
+    },
+    {
+      "name": "the web oracle recorder refuses runs that disagree",
+      "why": "Recording the first of several differing runs turns a flaky Chrome answer into an oracle the next recording contradicts.",
+      "source": "scripts/lib/web-oracle.mjs",
+      "find": "    if (runs[r].out !== runs[0].out) return",
+      "replace": "    if (false) return",
+      "gate": "node-test:scripts/run-web-oracle.test.mjs",
+      "test": "recordVerdict keeps an output only when every run printed it and none erred",
+      "expect_detail": "recordVerdict keeps an output only when every run printed it and none erred"
+    },
+    {
+      "name": "the Chrome shim's page-error listener feeds #err",
+      "why": "Without it a page error never reaches #err, so the recorder records a page that threw as a clean oracle.",
+      "source": "scripts/lib/web-oracle.mjs",
+      "find": "  addEventListener('error', (e) => emit(err, 'error: ' + S(e.message) + '\\\\n'));\n",
+      "replace": "",
+      "gate": "node-test:scripts/run-web-oracle.test.mjs",
+      "test": "the Chrome shim records a page error and an unhandled rejection in #err",
+      "expect_detail": "the Chrome shim records a page error and an unhandled rejection in #err"
+    },
+    {
+      "name": "the web oracle sink decodes UTF-8",
+      "why": "A latin1 decode of the base64 sink mangles every non-ASCII recording while the shim and the runner still agree with each other.",
+      "source": "scripts/lib/web-oracle.mjs",
+      "find": "  ).toString('utf8');",
+      "replace": "  ).toString('latin1');",
+      "gate": "node-test:scripts/run-web-oracle.test.mjs",
+      "test": "the Chrome shim prints String(value) and a newline per call, as UTF-8 through base64",
+      "expect_detail": "the Chrome shim prints String(value) and a newline per call"
+    },
+    {
+      "name": "the web oracle runner exits non-zero on a suite problem",
+      "why": "Orphans (a gap with no case, a stale recording or pin) print FAIL; without counting them the run still exits 0, the silent pass the orphan rule exists to close.",
+      "source": "scripts/run-web-oracle.mjs",
+      "find": "const failed = total('fail') + problems.length;",
+      "replace": "const failed = total('fail');",
+      "gate": "node-test:scripts/run-web-oracle.test.mjs",
+      "test": "an orphaned pin fails the run even when every case passes",
+      "expect_detail": "an orphaned pin fails the run even when every case passes"
+    },
+    {
+      "name": "the web oracle runner enforces the case-count floor",
+      "why": "A deleted case must not turn the suite green by vanishing; the floor is the only thing that notices.",
+      "source": "scripts/run-web-oracle.mjs",
+      "find": "if (all.length < caseFloor()) {",
+      "replace": "if (false) {",
+      "gate": "node-test:scripts/run-web-oracle.test.mjs",
+      "test": "a suite below the case-count floor fails before running anything",
+      "expect_detail": "a suite below the case-count floor fails before running anything"
     }
   ]
 }

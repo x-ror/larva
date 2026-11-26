@@ -6,7 +6,6 @@
 # ---
 new URL(): TypeError: Failed to construct 'URL': 1 argument required, but only 0 present. code=undefined
 relative without base: TypeError: Failed to construct 'URL': Invalid URL code=undefined
-bad host: no throw "http://exa%20mple.com/"
 empty host: TypeError: Failed to construct 'URL': Invalid URL code=undefined
 bad base: TypeError: Failed to construct 'URL': Invalid base URL code=undefined
 bad port: TypeError: Failed to construct 'URL': Invalid URL code=undefined

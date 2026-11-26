@@ -15,7 +15,7 @@
 // The case is written to a temp file as the one-line prelude (print, ORIGIN) followed
 // by the case's own bytes, so a stack line number is the case's own, as in Chrome.
 
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,6 +25,7 @@ import {
   KNOWN_FILE,
   ROOT,
   areaOf,
+  caseFloor,
   formatSnapshot,
   judge,
   lavaPrelude,
@@ -45,16 +46,15 @@ const LAVA = process.env.LAVA_BIN || join(ROOT, 'bin/lava');
 const TIMEOUT_MS = Number(process.env.CASE_TIMEOUT_SEC || 30) * 1000;
 if (!existsSync(LAVA)) die(`${LAVA} does not exist; run make build`);
 
-// The floor on the case count (runtime/gates/case-counts.json): a deleted case must
-// not turn the suite green by vanishing.
-const floor = spawnSync(
-  process.execPath,
-  [join(ROOT, 'runtime/gates/assert-case-counts.mjs'), 'tests/web/cases'],
-  { stdio: 'inherit' },
-);
-if (floor.status !== 0) process.exit(1);
-
 const all = listCases();
+// The floor on the case count (lib caseFloor): a deleted case must not turn the
+// suite green by vanishing.
+if (all.length < caseFloor()) {
+  console.error(
+    `gate-integrity case-count: ${CASES_DIR} has ${all.length} cases, expected >= ${caseFloor()} (see runtime/gates/case-counts.json)`,
+  );
+  process.exit(1);
+}
 for (const n of names) if (!all.includes(n)) die(`no such case: tests/web/cases/${n}.js`);
 const known = parseKnown(readFileSync(KNOWN_FILE, 'utf8'));
 const problems = suiteProblems(all, known);
@@ -97,6 +97,8 @@ async function runCase(name) {
 
   if (update) {
     if (!known.has(name)) die(`${name} is not in known-gaps.txt; only a listed gap is pinned`);
+    // A killed run (exit null) is a hang; pinned, it would cost CASE_TIMEOUT_SEC on every run.
+    if (actual.code === null) die(`${name} did not finish; a hang is not pinned as a known gap`);
     writeFileSync(join(KNOWN_DIR, `${name}.lava`), formatSnapshot(actual));
     console.log(`pinned ${name} (exit ${actual.code})`);
   }

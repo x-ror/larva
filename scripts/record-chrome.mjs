@@ -27,6 +27,7 @@ import {
   formatExpected,
   listCases,
   readSink,
+  recordVerdict,
   startServer,
 } from './lib/web-oracle.mjs';
 
@@ -87,7 +88,7 @@ function runChrome(url, profile, realTimeMs) {
 
 async function recordOne(origin, name) {
   const { realTimeMs } = caseOptions(readFileSync(join(CASES_DIR, `${name}.js`), 'utf8'));
-  const outputs = [];
+  const results = [];
   for (let r = 0; r < runs; r++) {
     const profile = mkdtempSync(join(tmpdir(), 'larva-web-oracle-'));
     try {
@@ -97,19 +98,12 @@ async function recordOne(origin, name) {
       } catch (e) {
         return { error: `run ${r + 1}: ${e.message}` };
       }
-      const out = readSink(dom, 'out');
-      const err = readSink(dom, 'err');
-      if (out === null) return { error: 'no #out in the dumped DOM (did the page load?)' };
-      if (err) return { error: `page error in run ${r + 1}:\n${err}` };
-      outputs.push(out);
+      results.push({ out: readSink(dom, 'out'), err: readSink(dom, 'err') });
     } finally {
       rmSync(profile, { recursive: true, force: true });
     }
   }
-  for (let r = 1; r < runs; r++) {
-    if (outputs[r] !== outputs[0]) return { error: `run ${r + 1} differs from run 1 (flaky)` };
-  }
-  return { output: outputs[0] };
+  return recordVerdict(results);
 }
 
 const server = await startServer();

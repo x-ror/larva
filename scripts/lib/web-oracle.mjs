@@ -18,7 +18,12 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-export const SUITE_DIR = join(ROOT, 'tests/web');
+// WEB_ORACLE_SUITE points the recorder and runner at another suite directory with the
+// same layout; scripts/run-web-oracle.test.mjs uses it to drive the runner's
+// whole-suite rules over a throwaway suite. Nothing else sets it.
+export const SUITE_DIR = process.env.WEB_ORACLE_SUITE
+  ? resolve(process.env.WEB_ORACLE_SUITE)
+  : join(ROOT, 'tests/web');
 export const CASES_DIR = join(SUITE_DIR, 'cases');
 export const KNOWN_FILE = join(SUITE_DIR, 'known-gaps.txt');
 export const KNOWN_DIR = join(SUITE_DIR, 'known');
@@ -31,6 +36,16 @@ export const HEADER_END = '# ---\n';
 // says what each one changes). An entry naming anything else is malformed: "fixed
 // later" without a stage is how a gap list turns into a skip list.
 export const STAGES = ['S2', 'S4a', 'S4b', 'S4c', 'S4d', 'S4e', 'S5b', 'unplanned'];
+
+/**
+ * The case-count floor for the suite (runtime/gates/case-counts.json): a deleted
+ * case must not turn the suite green by vanishing. Applied to whichever suite the
+ * runner was pointed at, so the floor itself is testable.
+ */
+export function caseFloor() {
+  const counts = JSON.parse(readFileSync(join(ROOT, 'runtime/gates/case-counts.json'), 'utf8'));
+  return counts.suites['tests/web/cases'].min;
+}
 
 /** Case names (file name without `.js`), sorted, so runs and reports are stable. */
 export function listCases(dir = CASES_DIR) {
@@ -282,8 +297,8 @@ export function chromePage(name, { realTimeMs = 0 } = {}) {
   };
   window.print = function print(v) { emit(out, S(v) + '\\n'); };
   window.ORIGIN = location.origin;
-  addEventListener('error', (e) => emit(err, 'error: ' + S(e.message)));
-  addEventListener('unhandledrejection', (e) => emit(err, 'unhandled rejection: ' + S(e.reason)));
+  addEventListener('error', (e) => emit(err, 'error: ' + S(e.message) + '\\n'));
+  addEventListener('unhandledrejection', (e) => emit(err, 'unhandled rejection: ' + S(e.reason) + '\\n'));
 })();
 </script>
 <script src="/case/${name}.js"></script>
@@ -293,6 +308,26 @@ ${
   realTimeMs ? `<img src="/hold/${realTimeMs}" alt="">` : ''
 }
 `;
+}
+
+/**
+ * What the recorder may write for a case, from its Chrome runs (`{out, err}` each,
+ * the decoded #out and #err sinks). An output is kept only if every run printed it
+ * and no run raised a page error or an unhandled rejection: a page that throws after
+ * its last print is not a clean oracle, and a case that prints differently run to
+ * run is flaky, not recorded.
+ * @returns {{output: string} | {error: string}}
+ */
+export function recordVerdict(runs) {
+  if (runs.length === 0) return { error: 'no run to record' };
+  for (let r = 0; r < runs.length; r++) {
+    if (runs[r].out === null) return { error: 'no #out in the dumped DOM (did the page load?)' };
+    if (runs[r].err) return { error: `page error in run ${r + 1}:\n${runs[r].err}` };
+  }
+  for (let r = 1; r < runs.length; r++) {
+    if (runs[r].out !== runs[0].out) return { error: `run ${r + 1} differs from run 1 (flaky)` };
+  }
+  return { output: runs[0].out };
 }
 
 /** Decodes one of chromePage's base64 sinks out of a --dump-dom serialization. */
