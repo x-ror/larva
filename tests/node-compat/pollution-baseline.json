@@ -234,10 +234,10 @@
     "global": 1
   },
   "internal/structured_clone.js": {
-    "method": 5,
+    "method": 4,
     "invoke": 1,
     "accessor": 0,
-    "global": 14
+    "global": 12
   },
   "internal/url.js": {
     "method": 31,

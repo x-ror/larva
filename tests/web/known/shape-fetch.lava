@@ -31,6 +31,7 @@ proto bodyUsed accessor ec
   get name="get bodyUsed" length=0 own=[length,name] prototype=false ctor=false src="function get bodyUsed() { [native code] }"
   set undefined
 proto arrayBuffer data ecw fn name="arrayBuffer" length=0 own=[length,name] prototype=false ctor=false src="function arrayBuffer() { [native code] }"
+proto blob data ecw fn name="blob" length=0 own=[length,name] prototype=false ctor=false src="function blob() { [native code] }"
 proto json data ecw fn name="json" length=0 own=[length,name] prototype=false ctor=false src="function json() { [native code] }"
 proto text data ecw fn name="text" length=0 own=[length,name] prototype=false ctor=false src="function text() { [native code] }"
 proto body accessor ec
@@ -54,6 +55,7 @@ proto bodyUsed accessor ec
   get name="get bodyUsed" length=0 own=[length,name] prototype=false ctor=false src="function get bodyUsed() { [native code] }"
   set undefined
 proto arrayBuffer data ecw fn name="arrayBuffer" length=0 own=[length,name] prototype=false ctor=false src="function arrayBuffer() { [native code] }"
+proto blob data ecw fn name="blob" length=0 own=[length,name] prototype=false ctor=false src="function blob() { [native code] }"
 proto clone data ecw fn name="clone" length=0 own=[length,name] prototype=false ctor=false src="function clone() { [native code] }"
 proto json data ecw fn name="json" length=0 own=[length,name] prototype=false ctor=false src="function json() { [native code] }"
 proto text data ecw fn name="text" length=0 own=[length,name] prototype=false ctor=false src="function text() { [native code] }"

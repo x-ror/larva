@@ -378,32 +378,30 @@ global_surface_web_loads_no_node_module :: proc(t: ^testing.T) {
 @(private = "file")
 WEB_NODE_MODULES :: [?]string{"node/buffer"}
 
-// A coded error raised on `.Web` renders its received value through
-// internal/util/inspect, not through node:util: `.Web` must not instantiate a node/
-// module (global_surface_web_loads_no_node_module), and internal/errors.js used to
-// reach node:util for exactly this text. The prelude takes the inspect path —
-// determineSpecificType on a constructor-less object — and checks the rendered
-// "[Object]" came back, so it cannot pass by throwing early. Lava-only: which
-// factories ran is not observable from a page.
+// A coded error raised on `.Web` does not load node:util: `.Web` must not instantiate a
+// node/ module (global_surface_web_loads_no_node_module), and internal/errors.js used to
+// reach node:util for its text. Lava-only: which factories ran is not observable from a
+// page.
 //
-// The trigger is URL.createObjectURL's ERR_INVALID_ARG_TYPE, itself a Node shape
-// on the Window surface that stage S4c of the removal turns into Chrome's TypeError;
-// when it does, the prelude reports false and this test needs another path into
-// internal/errors — or, once no web arm reaches internal/errors at all, deleting.
+// The trigger is `new Request()`'s ERR_INVALID_URL, a Node shape on the Window surface
+// until stage S4d/S4e. It used to be URL.createObjectURL's ERR_INVALID_ARG_TYPE, which
+// also took the inspect path (determineSpecificType) for its "Received …" tail; S4c
+// turned that into Chrome's TypeError, and no `.Web` entry point renders a received
+// value any more, so the inspect half of this check has nothing left to reach. Once no
+// web arm reaches internal/errors at all, delete the test.
 @(test)
 global_surface_web_coded_error_loads_no_node_util :: proc(t: ^testing.T) {
 	_, compiles, answered, prelude_ok := surface_resolve_compiles(
 		.Web,
 		"util",
-		`(() => { try { URL.createObjectURL(Object.create(null)); return false; } catch (e) {
-			return e.code === 'ERR_INVALID_ARG_TYPE' && e.message.endsWith('Received [Object]'); } })()`,
+		`(() => { try { new Request(); return false; } catch (e) { return e.code === 'ERR_INVALID_URL'; } })()`,
 	)
-	testing.expect(t, prelude_ok, "prelude: createObjectURL did not raise the inspect-rendered coded error")
+	testing.expect(t, prelude_ok, "prelude: new Request() did not raise the coded ERR_INVALID_URL")
 	testing.expect(t, answered, "the builtin resolver did not answer 'util'")
 	testing.expectf(
 		t,
 		compiles > 0,
-		"resolving util after the coded error compiled nothing — rendering the error loaded node:util",
+		"resolving util after the coded error compiled nothing — raising the error loaded node:util",
 	)
 }
 

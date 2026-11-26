@@ -1,0 +1,77 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs blob-errors
+# ---
+Blob(5): TypeError: Failed to construct 'Blob': The provided value cannot be converted to a sequence. code=undefined
+Blob(string): TypeError: Failed to construct 'Blob': The provided value cannot be converted to a sequence. code=undefined
+Blob({}): TypeError: Failed to construct 'Blob': The object must have a callable @@iterator property. code=undefined
+Blob(null): TypeError: Failed to construct 'Blob': The provided value cannot be converted to a sequence. code=undefined
+Blob(undefined): no throw 0
+Blob(array-like): TypeError: Failed to construct 'Blob': The object must have a callable @@iterator property. code=undefined
+Blob(Set): no throw 3
+Blob([Symbol]): TypeError: Failed to construct 'Blob': Cannot convert a Symbol value to a string code=undefined
+Blob([], 5): TypeError: Failed to construct 'Blob': The provided value is not of type 'BlobPropertyBag'. code=undefined
+Blob([], null): no throw ""
+Blob endings bogus: TypeError: Failed to construct 'Blob': Failed to read the 'endings' property from 'BlobPropertyBag': The provided value 'bogus' is not a valid enum value of type EndingType. code=undefined
+Blob endings Symbol: TypeError: Failed to construct 'Blob': Failed to read the 'endings' property from 'BlobPropertyBag': Cannot convert a Symbol value to a string code=undefined
+Blob type Symbol: TypeError: Failed to construct 'Blob': Failed to read the 'type' property from 'BlobPropertyBag': Cannot convert a Symbol value to a string code=undefined
+Blob type number: no throw "12"
+Blob conversion order: no throw "a/b"
+Blob order part,endings,type
+Blob bad endings after parts: TypeError: Failed to construct 'Blob': Failed to read the 'endings' property from 'BlobPropertyBag': The provided value 'nope' is not a valid enum value of type EndingType. code=undefined
+Blob order part
+Blob iterator throws: RangeError: it code=undefined
+Blob next not object: TypeError: Failed to construct 'Blob': Expected iterator.next() to return an Object. code=undefined
+slice strings: no throw 2
+slice NaN: no throw 6
+slice huge: no throw 6
+slice Symbol start: TypeError: Failed to execute 'slice' on 'Blob': Cannot convert a Symbol value to a number code=undefined
+slice BigInt start: TypeError: Failed to execute 'slice' on 'Blob': Cannot convert a BigInt value to a number code=undefined
+slice Symbol type: TypeError: Failed to execute 'slice' on 'Blob': Cannot convert a Symbol value to a string code=undefined
+slice type number: no throw "7"
+slice type bad char: no throw "\"\""
+slice order: no throw "x/y"
+slice order start,end,type
+File(): TypeError: Failed to construct 'File': 2 arguments required, but only 0 present. code=undefined
+File(parts): TypeError: Failed to construct 'File': 2 arguments required, but only 1 present. code=undefined
+File(5, name): TypeError: Failed to construct 'File': The provided value cannot be converted to a sequence. code=undefined
+File Symbol name: TypeError: Failed to construct 'File': Cannot convert a Symbol value to a string code=undefined
+File null name: no throw "null"
+File lastModified string: no throw 12
+File lastModified NaN: no throw 0
+File lastModified 1.9: no throw 1
+File lastModified -1.9: no throw -1
+File lastModified huge: no throw 0
+File endings bogus: TypeError: Failed to construct 'File': Failed to read the 'endings' property from 'BlobPropertyBag': The provided value 'bogus' is not a valid enum value of type EndingType. code=undefined
+File type Symbol: TypeError: Failed to construct 'File': Failed to read the 'type' property from 'BlobPropertyBag': Cannot convert a Symbol value to a string code=undefined
+File options 5: TypeError: Failed to construct 'File': The provided value is not of type 'FilePropertyBag'. code=undefined
+File options null: no throw "n"
+File lastModified Symbol: TypeError: Failed to construct 'File': Failed to read the 'lastModified' property from 'FilePropertyBag': Cannot convert a Symbol value to a number code=undefined
+File lastModified BigInt: TypeError: Failed to construct 'File': Failed to read the 'lastModified' property from 'FilePropertyBag': Cannot convert a BigInt value to a number code=undefined
+File order: no throw "n"
+File order part,name,endings,type,lastModified
+text strips BOM: resolved "ab"
+text replaces bad bytes: resolved "a�b"
+text keeps second BOM: resolved 2
+size on plain object: TypeError: Illegal invocation code=undefined
+type on plain object: TypeError: Illegal invocation code=undefined
+slice on plain object: TypeError: Illegal invocation code=undefined
+stream on plain object: TypeError: Illegal invocation code=undefined
+textStream on plain object: TypeError: Illegal invocation code=undefined
+text on plain object: rejected TypeError: Failed to execute 'text' on 'Blob': Illegal invocation
+arrayBuffer on plain object: rejected TypeError: Failed to execute 'arrayBuffer' on 'Blob': Illegal invocation
+bytes on plain object: rejected TypeError: Failed to execute 'bytes' on 'Blob': Illegal invocation
+name on a Blob: TypeError: Illegal invocation code=undefined
+lastModified on a Blob: TypeError: Illegal invocation code=undefined
+lastModifiedDate on a Blob: TypeError: Illegal invocation code=undefined
+webkitRelativePath on a Blob: TypeError: Illegal invocation code=undefined
+size on a File: no throw 2
+instance own keys: no throw "[]"
+createObjectURL(): TypeError: Failed to execute 'createObjectURL' on 'URL': 1 argument required, but only 0 present. code=undefined
+createObjectURL({}): TypeError: Failed to execute 'createObjectURL' on 'URL': Overload resolution failed. code=undefined
+createObjectURL(blob heir): TypeError: Failed to execute 'createObjectURL' on 'URL': Overload resolution failed. code=undefined
+revokeObjectURL(): TypeError: Failed to execute 'revokeObjectURL' on 'URL': 1 argument required, but only 0 present. code=undefined
+revokeObjectURL(Symbol): TypeError: Failed to execute 'revokeObjectURL' on 'URL': Cannot convert a Symbol value to a string code=undefined
+revokeObjectURL(undefined): no throw undefined

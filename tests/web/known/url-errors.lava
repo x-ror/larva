@@ -10,4 +10,4 @@ URL.canParse bad: no throw "false"
 URLSearchParams bad pair: TypeError: Each query pair must be an iterable [name, value] tuple code=undefined
 URLSearchParams bad entry: TypeError: The provided value cannot be converted to a sequence. code=undefined
 href setter: TypeError: Invalid URL code=ERR_INVALID_URL
-createObjectURL string: TypeError: The "obj" argument must be an instance of Blob. Received type string ('x') code=ERR_INVALID_ARG_TYPE
+createObjectURL string: TypeError: Failed to execute 'createObjectURL' on 'URL': Overload resolution failed. code=undefined

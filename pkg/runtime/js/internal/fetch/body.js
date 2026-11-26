@@ -45,10 +45,12 @@
     if (body instanceof Uint8Array) return body;
     if (body instanceof ArrayBuffer) return new Uint8Array(body);
     // A Blob/File body: join its in-memory chunks synchronously. Lava's Blob keeps
-    // its bytes in memory (_parts), so no async read is needed; concatChunks yields
-    // null for an empty Blob (absent body). A Blob used as a *request* body instead
-    // takes Request's async _streamBody path and never reaches here.
-    if (typeof Blob !== 'undefined' && body instanceof Blob) return concatChunks(body._parts || []);
+    // its bytes in memory, so no async read is needed; an empty Blob is an absent body.
+    // Branded by its private field (internal/blob), not `instanceof` the replaceable
+    // global. A Blob used as a *request* body instead takes Request's async
+    // _streamBody path and never reaches here.
+    var blobBytes = require('internal/blob').blobBytes(body);
+    if (blobBytes !== null) return blobBytes.length === 0 ? null : blobBytes;
     var text = typeof body === 'string' ? body : String(body);
     // An empty string (passed directly or produced by String(body)) has no
     // bytes — treat it as an absent body.
@@ -241,6 +243,17 @@
         var copy = new Uint8Array(bytes.length);
         copy.set(bytes);
         return copy;
+      });
+    }
+    // The body as a Blob typed by the Content-Type header ('' without one), as the
+    // fetch standard's "consume body" does for blob(). Late-bound: internal/blob's
+    // class is the implementation, not the replaceable global.
+    async blob() {
+      var type = this.headers ? this.headers.get('content-type') : null;
+      var bytes = await this._consume();
+      var BlobCtor = require('internal/blob').Blob;
+      return new BlobCtor(bytes === null || bytes === undefined ? [] : [bytes], {
+        type: type === null ? '' : type,
       });
     }
   }

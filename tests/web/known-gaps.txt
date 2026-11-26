@@ -9,11 +9,8 @@
 # `unplanned` marks a gap no removal stage closes: it needs an issue of its own.
 
 abort-signal unplanned: EventTarget is not a global on either surface, so `signal instanceof EventTarget` throws ReferenceError; the AbortSignal behavior before it matches Chrome
-blob-object-url S4c: createObjectURL mints blob:nodedata:<uuid> where Chrome mints blob:<origin>/<uuid>, and fetch() cannot read a blob: URL ("fetch: invalid URL")
-blob-pristine-reads S4c: the object URL is blob:nodedata:<uuid>; the spy log, size and type already match Chrome
-clone-structured S4c: a boxed BigInt clones to a plain object, DataCloneError is an Error rather than a DOMException, and the transfer option is refused
 fetch-body-utf8 S4d: a string body sets no content-type (Chrome: text/plain;charset=UTF-8)
-fetch-classes S4d: headers iterate in insertion order instead of sorted, Request mode/credentials/cache are empty, Response.error().type is "default", and Body has no blob()
+fetch-classes S4d: headers iterate in insertion order instead of sorted, Request mode/credentials/cache are empty, Response.error().type is "default", and a string body sets no content-type, so blob().type is "" (as fetch-body-utf8)
 fetch-errors S4d: undici-style messages where Chrome has WebIDL text, and five checks are missing (Headers pair length, Request method token and forbidden methods, Response status range, null-body status with a body)
 fetch-network S4d: fetch(request) sends no content-type for a string body the Request carries; the other network lines match Chrome
 perf-now unplanned: performance is a plain object (no Performance brand, no toJSON)
@@ -23,11 +20,11 @@ robust-view-probe unplanned: as robust-resizable-views: Chrome refuses the resiz
 shape-abort unplanned: EventTarget is not a global (#114): AbortSignal's [[Prototype]] is Function.prototype and its prototype's Object.prototype, and AbortSignal.prototype carries addEventListener/removeEventListener/dispatchEvent itself; everything else matches Chrome
 shape-console unplanned: console has no context/createTask/memory (#114); every other member matches Chrome's shape
 shape-crypto unplanned: no crypto.subtle (SubtleCrypto is not implemented); the Crypto interface and getRandomValues/randomUUID match Chrome (#114)
-shape-fetch S4d: Request's and Response's attributes are instance properties, Body is their parent class, Request.prototype has no blob/clone/formData/textStream, and Response no blob/formData/textStream/redirect; every member Lava has is native-shaped (#114)
+shape-fetch S4d: Request's and Response's attributes are instance properties, Body is their parent class, Request.prototype has no clone/formData/textStream, and Response no formData/textStream/redirect; every member Lava has is native-shaped (#114)
 shape-missing unplanned: the Chrome globals of the shape-* families Larva does not implement (TextEncoderStream, FormData, EventTarget, SubtleCrypto, Performance, reportError, …) — one line each, so implementing one is a visible change
 shape-performance unplanned: performance is a plain data property holding a plain object — no Performance interface, getter, toJSON, mark/measure or entries (as perf-now); now() alone is native-shaped (#114)
 streams-byte unplanned: no readable byte streams (ReadableByteStreamController, type 'bytes', BYOB reads)
 timers-string-handler unplanned: a non-function handler is ignored (no timer, the delay not converted) where Chrome converts it to a string and runs it as a script when the timer fires; needs a native that evaluates source in the page's global scope
-url-errors S4e: node's ERR_INVALID_URL/ERR_INVALID_ARG_TYPE with node's messages where Chrome has WebIDL text and no code
+url-errors S4e: node's ERR_INVALID_URL and URLSearchParams messages where Chrome has WebIDL text and no code (createObjectURL already matches, S4c)
 url-host-space unplanned: Chrome percent-encodes a space in a special URL's host and accepts it; Lava follows the WHATWG parser and throws. Deciding whether to follow Chrome here is parser work, not message work
 wasm-streaming unplanned: no WebAssembly.compileStreaming/instantiateStreaming (Blink's, over a Response; JSC GTK has none) — a fingerprint; not stubbed, since a stub that rejects breaks loaders that would take their ArrayBuffer path; the implementation over Response needs an issue of its own
