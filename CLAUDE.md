@@ -137,7 +137,7 @@ appears in CI, read the code or shrink the CPU set; do not just re-run.
   `Runtime_State.allocator` at creation and clones _and_ frees through it. Do not
   rely on the ambient `context.allocator`: a `proc "c"` callback resets `context`
   to `runtime.default_context()`, so alloc-inside-callback / free-at-teardown
-  mismatches. Guarded by `module_cache_alloc_test`, `dns_alloc_test`.
+  mismatches. Guarded by `module_cache_alloc_test`, `fetch_dns_alloc_test`.
 - **Temp arena** is freed at one choke point per tick / per require / per eval.
   Anything crossing a loop turn must not live in `context.temp_allocator`.
 - **JSC lifetimes.** Every `JSValueProtect` has exactly one `Unprotect`, on fire
