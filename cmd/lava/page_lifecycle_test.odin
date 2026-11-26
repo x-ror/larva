@@ -126,97 +126,110 @@ Churn :: struct {
 // each with its own intrinsics; a context kept across pages would carry every one of
 // them.
 //
-// The first page also leaves a FinalizationRegistry holding dead targets, which is the
-// VM-level risk: the registry's cleanup is scheduled by the GC on the VM, not on the
-// page, so a collection after the page closed could run it on the next page's watch.
-// The cleanup can reach nothing of the second page — only its own realm, whose
-// natives are severed from the closed page's state (destroy_runtime_state clears the
-// global's private slot) — so what it does is burn 1.5 s of CPU, and the second page
-// runs under a 1 s budget: a cleanup that ran inside one of its ticks kills it. The
-// test forces full collections itself (vm_collect), after the first page closes and
-// between every tick of the second, rather than hoping one happens.
+// The first page also leaves a FinalizationRegistry cleanup DUE when it closes, which is
+// the VM-level risk: the registry's cleanup is scheduled by the GC on the VM and queued on
+// the thread's RunLoop, not on the page, so a drive after the page closed could run it on
+// the next page's watch. The test collects right after the first page opens, so its 8
+// targets are dead and the cleanup task is queued before the page's one and only tick
+// ends it; the RunLoop is next dispatched by the runner's round after that close. What
+// must happen then (js/internal/deferred.js, pkg/runtime/deferred.odin): the engine runs
+// the shim in the closed realm, the shim asks for a turn on a page that is gone and
+// drops the queue, and the cleanup — 1.5 s of busy wall time — runs nowhere. Two observations: the second page,
+// under a 1 s budget, is not killed; and the whole stretch from the first page's close to
+// the second's end takes well under 1.5 s of wall time on this thread, which a cleanup
+// run anywhere on it (at the close, between the second page's rounds, inside its ticks)
+// could not. The test forces full collections between every step of the second page too
+// (vm_collect), rather than hoping one happens.
 //
-// What that half does NOT prove today: Lava never runs FinalizationRegistry cleanups at
-// all. Probed with a single page that registered a target and ticked a timer 60 times
-// while the test ran vm_collect between ticks: a WeakRef to the same target read
-// undefined by the 10th tick, and the cleanup never ran, in that page or after. Why,
-// from WebKit's source rather than traced in this build: JSC hands the cleanup to its
-// DeferredWorkTimer, a timer on the thread's WTF::RunLoop, which nothing in Lava
-// iterates. So this half is a tripwire for the day something does, and no mutation of
-// Lava's own code can make it fire; the intrinsic half is the pinned one.
+// On a fresh thread (on_fresh_thread), so the drive is on: a test-runner thread whose
+// first VM was a bare JSGlobalContextCreate never adopts it, and the cleanup would never
+// be dispatched at all — the test would pass for the wrong reason, as it did while it was
+// a tripwire (Lava never ran a cleanup before #91).
 //
 // Not tested: the Symbol.for registry, which is the VM's and does survive into the
 // next page. It is unobservable from there: Symbol.for(key) answers the same symbol
 // whoever registered key first, and the second page has no handle on the first's.
 @(test)
 runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first :: proc(t: ^testing.T) {
-	runner: lava.Page_Runner
+	on_fresh_thread(t, proc(t: ^testing.T) {
+		runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 1, record_page_outcome, context.allocator) {
-		testing.fail_now(t, "page_runner_init failed")
-	}
+		if !lava.page_runner_init(&runner, 1, record_page_outcome, context.allocator) {
+			testing.expect(t, false, "page_runner_init failed")
+			return
+		}
 
-	defer lava.page_runner_destroy(&runner)
-	first, second: Page_Outcome
-	lava.page_runner_open(
-		&runner,
-		`globalThis.leakA = 1;
-		Object.prototype.pollutedA = 1;
-		Array.prototype.pollutedA = 1;
-		JSON.parse = () => 'from the first page';
-		Error.stackTraceLimit = 0;
-		const fr = new FinalizationRegistry(() => { const s = Date.now(); while (Date.now() - s < 1500) {} });
-		globalThis.keepFr = fr;
-		(function () { for (let i = 0; i < 64; i++) fr.register({}, i); })();
-		let wr;
-		(function () { const o = {}; fr.register(o, 'weak'); wr = new WeakRef(o); })();
-		setTimeout(() => { process.exitCode = 5; }, 2);`,
-		"<first>",
-		LIMITS,
-		&first,
-	)
-	lava.page_runner_run(&runner)
-	testing.expectf(
-		t,
-		first.done && first.status == .Ok && first.kill == .None && first.exit == 5,
-		"first page did not finish normally: %s",
-		describe_outcome(first),
-	)
+		defer lava.page_runner_destroy(&runner)
+		first, second: Page_Outcome
+		lava.page_runner_open(
+			&runner,
+			`globalThis.leakA = 1;
+			Object.prototype.pollutedA = 1;
+			Array.prototype.pollutedA = 1;
+			JSON.parse = () => 'from the first page';
+			Error.stackTraceLimit = 0;
+			const fr = new FinalizationRegistry(() => { const s = Date.now(); while (Date.now() - s < 1500) {} });
+			globalThis.keepFr = fr;
+			(function () { for (let i = 0; i < 8; i++) fr.register({}, i); })();`,
+			"<first>",
+			LIMITS,
+			&first,
+			.Web,
+		)
 
-	if len(runner.pool.vms) != 1 {
-		testing.fail_now(t, "the first page left no VM to reuse")
-	}
+		if len(runner.pool.vms) != 1 {
+			testing.expect(t, false, "the first page left no VM to reuse")
+			return
+		}
 
-	vm := runner.pool.vms[0]
-	vm_collect(t, vm)
-	lava.page_runner_open(
-		&runner,
-		`const seen = [];
-		if (typeof leakA !== 'undefined') seen.push('leakA');
-		if ('pollutedA' in {}) seen.push('Object.prototype');
-		if ('pollutedA' in []) seen.push('Array.prototype');
-		if (JSON.parse('1') !== 1) seen.push('JSON.parse');
-		if (Error.stackTraceLimit === 0) seen.push('Error.stackTraceLimit');
-		if (seen.length > 0) throw new Error('second page saw the first: ' + seen.join(', '));
-		let n = 0;
-		(function tick() { if (++n < 20) setTimeout(tick, 1); else process.exitCode = 11; })();`,
-		"<second>",
-		{cpu_budget = 1},
-		&second,
-	)
-	for lava.page_runner_live(&runner) > 0 {
-		lava.page_runner_step(&runner)
+		testing.expect_value(t, jsc.runloop_drive(), jsc.Runloop_Drive.Adopted)
+		vm := runner.pool.vms[0]
 		vm_collect(t, vm)
-	}
-	lava.page_runner_run(&runner)
-	testing.expectf(
-		t,
-		second.done && second.status == .Ok && second.kill == .None && second.exit == 11,
-		"second page: %s",
-		describe_outcome(second),
-	)
-	_, created := lava.vm_pool_stats(&runner.pool)
-	testing.expect_value(t, created, 1)
+		start := time.tick_now()
+		lava.page_runner_run(&runner)
+		testing.expectf(
+			t,
+			first.done && first.status == .Ok && first.kill == .None && first.exit == 0,
+			"first page did not finish normally: %s",
+			describe_outcome(first),
+		)
+		lava.page_runner_open(
+			&runner,
+			`const seen = [];
+			if (typeof leakA !== 'undefined') seen.push('leakA');
+			if ('pollutedA' in {}) seen.push('Object.prototype');
+			if ('pollutedA' in []) seen.push('Array.prototype');
+			if (JSON.parse('1') !== 1) seen.push('JSON.parse');
+			if (Error.stackTraceLimit === 0) seen.push('Error.stackTraceLimit');
+			if (seen.length > 0) throw new Error('second page saw the first: ' + seen.join(', '));
+			let n = 0;
+			(function tick() { if (++n < 20) setTimeout(tick, 1); })();`,
+			"<second>",
+			{cpu_budget = 1},
+			&second,
+			.Web,
+		)
+		for lava.page_runner_live(&runner) > 0 {
+			lava.page_runner_step(&runner)
+			vm_collect(t, vm)
+		}
+		lava.page_runner_run(&runner)
+		elapsed := time.duration_seconds(time.tick_since(start))
+		testing.expectf(
+			t,
+			second.done && second.status == .Ok && second.kill == .None && second.exit == 0,
+			"second page: %s",
+			describe_outcome(second),
+		)
+		testing.expectf(
+			t,
+			elapsed < 1.2,
+			"the first page's close and the second page took %.2f s: the first page's cleanup ran after it closed",
+			elapsed,
+		)
+		_, created := lava.vm_pool_stats(&runner.pool)
+		testing.expect_value(t, created, 1)
+	})
 }
 
 // A churn of pages with every fate gives back everything it took from the runner
@@ -587,7 +600,6 @@ vm_protect_counts :: proc(vm: ^lava.VM) -> (counts: Protect_Counts, ok: bool) {
 // happens to land where it matters. Safe between a live page's ticks: the heap is the
 // VM's, the throwaway context sees none of the page, and a tick leaves no promise job
 // queued for the C-API exit to drain.
-@(private = "file")
 vm_collect :: proc(t: ^testing.T, vm: ^lava.VM, loc := #caller_location) {
 	probe := jsc.JSGlobalContextCreateInGroup(vm.group, nil)
 

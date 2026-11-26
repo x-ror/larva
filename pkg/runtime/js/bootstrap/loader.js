@@ -111,6 +111,10 @@
   // Only runtime code runs before this line (the
   // console prelude, install_process), so locking here leaves no window.
   req('internal/primordials').lockIntrinsics();
+  // FinalizationRegistry cleanups and WebAssembly settlements back onto the page's own
+  // loop (#91, #97). Before any module that could allocate a registry, and before user
+  // code, which must only ever see the wrapped constructors.
+  req('internal/deferred');
   req('buffer');
 
   // Hand the LAZY internal modules a PRISTINE Buffer.

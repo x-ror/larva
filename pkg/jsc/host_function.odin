@@ -109,6 +109,12 @@ when ODIN_OS == .Linux {
 	g_probe_seen: bool
 	@(private = "file", thread_local)
 	g_probe_callee: rawptr
+	// JSC::callHostFunctionAsConstructor, the constructor slot of a non-constructor
+	// host function; resolved on the first host_function_create that asks for one.
+	@(private = "file", thread_local)
+	g_not_ctor: rawptr
+	@(private = "file", thread_local)
+	g_not_ctor_checked: bool
 
 	// debug_log reports probe outcomes on stderr when LAVA_HOSTFN_DEBUG is set —
 	// the fallback is silent by design, so this is the diagnostic switch.
@@ -151,7 +157,13 @@ when ODIN_OS == .Linux {
 	}
 
 	@(private = "file")
-	create_raw :: proc(ctx: JSContextRef, name: string, fn: Host_Function_Proc, arity: int) -> JSObjectRef {
+	create_raw :: proc(
+		ctx: JSContextRef,
+		name: string,
+		fn: Host_Function_Proc,
+		arity: int,
+		ctor: rawptr = nil,
+	) -> JSObjectRef {
 		impl, name_ok := wtf_string_impl_from_ascii(name)
 
 		if !name_ok {
@@ -166,8 +178,8 @@ when ODIN_OS == .Linux {
 
 		holder: rawptr
 		g_host_lock_ctor(&holder, rawptr(ctx))
-		// The same fn doubles as the constructor slot: our natives are never
-		// `new`ed, and a non-null pointer can never null-deref if one is.
+		// The same fn doubles as the constructor slot unless the caller chose one: most
+		// natives are never `new`ed, and a non-null pointer can never null-deref if one is.
 		fptr := g_host_create(
 			vm,
 			rawptr(ctx),
@@ -176,7 +188,7 @@ when ODIN_OS == .Linux {
 			transmute(rawptr)fn,
 			0,
 			0,
-			transmute(rawptr)fn,
+			ctor != nil ? ctor : transmute(rawptr)fn,
 			nil,
 		)
 		g_host_lock_dtor(&holder)
@@ -303,11 +315,23 @@ when ODIN_OS == .Linux {
 	// The returned object is an ordinary JS function value (attach it with
 	// JSObjectSetProperty). ok=false whenever the private path is unavailable —
 	// callers must fall back to JSObjectMakeFunctionWithCallback.
+	//
+	// Params:
+	//   ctor           What `new` runs: nil reuses `fn` (the long-standing default),
+	//                  otherwise this native, which finds new.target in the frame's
+	//                  `this` slot (JSC passes it there to a native constructor).
+	//   constructible  false makes the function a non-constructor like a built-in
+	//                  method: `new f()` throws JSC's own TypeError and
+	//                  `class extends f` is refused. JSC marks a host function so
+	//                  when its constructor is callHostFunctionAsConstructor; a JSC
+	//                  that does not export it gives ok=false.
 	host_function_create :: proc(
 		ctx: JSContextRef,
 		name: string,
 		fn: Host_Function_Proc,
 		arity: int,
+		ctor: Host_Function_Proc = nil,
+		constructible := true,
 	) -> (
 		function: JSObjectRef,
 		ok: bool,
@@ -318,8 +342,30 @@ when ODIN_OS == .Linux {
 			return nil, false
 		}
 
-		function = create_raw(ctx, name, fn, arity)
+		ctor_ptr := transmute(rawptr)ctor
+
+		if !constructible {
+			if !host_non_constructor_available() {
+				return nil, false
+			}
+
+			ctor_ptr = g_not_ctor
+		}
+
+		function = create_raw(ctx, name, fn, arity, ctor_ptr)
 		return function, function != nil
+	}
+
+	// host_non_constructor_available reports whether this JSC exports
+	// callHostFunctionAsConstructor, which host_function_create(constructible = false)
+	// needs. A fact about the library; resolved once per thread.
+	host_non_constructor_available :: proc() -> bool {
+		if !g_not_ctor_checked {
+			g_not_ctor_checked = true
+			g_not_ctor = host_dlsym(nil, "_ZN3JSC29callHostFunctionAsConstructorEPNS_14JSGlobalObjectEPNS_9CallFrameE")
+		}
+
+		return g_not_ctor != nil
 	}
 
 	// host_calls_active reports whether the private-ABI host-call path resolved on
@@ -368,11 +414,17 @@ when ODIN_OS == .Linux {
 		_: string,
 		_: Host_Function_Proc,
 		_: int,
+		ctor: Host_Function_Proc = nil,
+		constructible := true,
 	) -> (
 		function: JSObjectRef,
 		ok: bool,
 	) {
 		return nil, false
+	}
+
+	host_non_constructor_available :: proc() -> bool {
+		return false
 	}
 
 	// Honest stub: the host-call path does not exist off Linux, so the registry is

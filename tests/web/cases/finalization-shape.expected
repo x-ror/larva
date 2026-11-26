@@ -1,0 +1,23 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs finalization-shape
+# ---
+typeof function name FinalizationRegistry length 1
+native source true
+own keys length,name,prototype
+global function/true/false/true
+prototype object/false/false/false
+prototype.constructor true function/true/false/true
+[[Prototype]] is Function.prototype true
+instance true true
+tag [object FinalizationRegistry]
+subclass true true true
+subclass source names FR true
+Reflect.construct newTarget true
+register undefined unregister false
+new FR(1) TypeError clean true
+new FR() TypeError clean true
+FR(fn) TypeError clean true
+Reflect.construct(FR, [1]) TypeError clean true

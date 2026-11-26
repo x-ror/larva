@@ -11,6 +11,7 @@ import "core:sys/linux"
 import "core:testing"
 import "core:thread"
 import "core:time"
+import jsc "lava:pkg/jsc"
 import lava "lava:pkg/runtime"
 import eventloop "lava:pkg/runtime/eventloop"
 
@@ -215,7 +216,7 @@ churn_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Re
 
 // Acceptance (#4): /proc/self/fd stays flat over 10k pages — every page's loop
 // descriptors close with the page, and the runner's fixed pool keeps the VM count
-// (and so the permanent per-VM timerfd count) at its capacity. 8 pages in flight.
+// (and so the per-VM timerfd count) at its capacity. 8 pages in flight.
 // The full 10k runs only on one runner thread (`make test-odin-serial`), where the
 // census means something; otherwise a short run still exercises the churn path.
 // The count includes pages that closed with a blocked worker, leaving their job an
@@ -876,6 +877,77 @@ runner_heap_sample_grows_with_the_page :: proc(t: ^testing.T) {
 		"heap not attributed per page: light %d, heavy %d",
 		out[0].heap,
 		out[1].heap,
+	)
+}
+
+// A sampled heap at or above lava.HEAP_COLLECT_BYTES gets its VM a full collection
+// before the next page's first entry (page_create), standing in for the GC activity
+// timers the RunLoop drive turns off: a page keeping 400k objects, then a trivial page
+// on the same VM. What shows the collection is JSC's `heapSize`, the bytes the last
+// collection marked live, read after the trivial page: that collection saw only the
+// trivial page. The sample itself (heapCapacity) cannot show it — a full collection
+// keeps the heap's blocks for reuse, so capacity barely moves.
+//
+// A trivial page runs first: the heavy one must not be the VM's first. A VM's first
+// realm was seen to outlive its page through several full collections — every run on
+// `.Node`, master included, some runs on `.Web` (a scratch probe, 2026-11-26) — a JSC
+// effect this test does not pin; it would make the collection here look absent.
+@(test)
+runner_collects_a_vm_whose_sampled_heap_was_large :: proc(t: ^testing.T) {
+	runner: lava.Page_Runner
+
+	if !lava.page_runner_init(&runner, 1, record_heap, context.allocator) {
+		testing.fail_now(t, "page_runner_init failed")
+	}
+
+	defer lava.page_runner_destroy(&runner)
+	runner.heap_sample_every = 1
+	out: [3]Heap_Outcome
+	lava.page_runner_open(&runner, "1", "<warm>", LIMITS, &out[2], .Web)
+	lava.page_runner_run(&runner)
+	lava.page_runner_open(
+		&runner,
+		"globalThis.keep = Array.from({ length: 400000 }, (_, i) => ({ i, s: 'x' + i }));",
+		"<heavy>",
+		LIMITS,
+		&out[0],
+		.Web,
+	)
+	lava.page_runner_run(&runner)
+	lava.page_runner_open(&runner, "1", "<light>", LIMITS, &out[1], .Web)
+	lava.page_runner_run(&runner)
+	testing.expectf(
+		t,
+		out[0].heap >= lava.HEAP_COLLECT_BYTES,
+		"the heavy page's heap (%d) is under the threshold: the case proves nothing",
+		out[0].heap,
+	)
+
+	if len(runner.pool.vms) != 1 {
+		testing.fail_now(t, "the pages left no VM to read")
+	}
+
+	probe := jsc.JSGlobalContextCreateInGroup(runner.pool.vms[0].group, nil)
+	defer jsc.JSGlobalContextRelease(probe)
+	stats := jsc_memory_stats(cast(jsc.JSContextRef)probe)
+
+	if stats == nil {
+		testing.fail_now(t, "JSGetMemoryUsageStatistics returned nothing")
+	}
+
+	key := jsc.JSStringCreateWithUTF8CString("heapSize")
+	defer jsc.JSStringRelease(key)
+	live := jsc.JSValueToNumber(
+		cast(jsc.JSContextRef)probe,
+		jsc.JSObjectGetProperty(cast(jsc.JSContextRef)probe, stats, key, nil),
+		nil,
+	)
+	testing.expectf(
+		t,
+		live > 0 && live < 4 << 20,
+		"the last collection marked %.0f bytes live: the VM was not collected after a %d-byte page",
+		live,
+		out[0].heap,
 	)
 }
 

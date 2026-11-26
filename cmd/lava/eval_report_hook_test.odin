@@ -41,7 +41,7 @@ eval_reported :: proc(t: ^testing.T, src: string, echo: bool, seen: ^Seen) -> la
 	loop := eventloop.init()
 	seen.loop = &loop
 	defer seen.loop = nil
-	return lava.eval(src, "<report-hook-test>", &loop, echo, nil, record_report, seen)
+	return lava.eval(src, "<report-hook-test>", &loop, echo, nil, nil, nil, record_report, seen)
 }
 
 @(test)

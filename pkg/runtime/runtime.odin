@@ -104,8 +104,8 @@ result_destroy :: proc(res: ^Result) {
 }
 
 // create_eval_context makes eval's global context in a VM from `pool`, or the calling
-// thread's implicit pool when nil (vm_pool.odin), so repeated evals reuse a warm VM instead of paying for — and
-// permanently leaking a timerfd with — a new one each time. On Windows the context
+// thread's implicit pool when nil (vm_pool.odin), so repeated evals reuse a warm VM instead of paying for a new
+// one each time. On Windows the context
 // is never released (see release_global_context_after_eval), so its VM could never
 // be reused: there, eval keeps the one-VM-per-context path and returns a nil VM.
 //
@@ -169,13 +169,24 @@ create_eval_context :: proc(
 // Contexts are now created in pooled VMs (create_eval_context), so the fd is paid
 // once per pooled VM, not once per eval: repeated evals on one thread reuse one VM
 // and the fd count stays flat. Remeasured in bench/jsc-vm (2026-11-13): the fd
-// survives even JSContextGroupRelease and a full GC, while the VM's memory does
-// come back — so VMs are pooled for the life of the thread, never churned.
+// survived even JSContextGroupRelease and a full GC. The cause, found since (#91): the
+// timer's GSource is finalized, and the fd closed, only when the thread's RunLoop
+// context is next iterated, and nothing iterated it. With the RunLoop driven
+// (pkg/jsc/runloop_linux.odin) a released VM's fd closes at the next iteration, which
+// vm_pool_destroy runs (vm_pool_releases_its_timerfds).
 release_global_context_after_eval :: proc(ctx: jsc.JSGlobalContextRef) {
 	when ODIN_OS != .Windows {
 		jsc.JSGlobalContextRelease(ctx)
 	}
 }
+
+// Pre_Run_Hook fires once per eval, after top-level evaluation has succeeded (listeners bound,
+// context up) and BEFORE the event loop starts. It returns whether the loop should run; false
+// skips the loop and falls through to the normal teardown. nil (the default) means "just run".
+// Lava's multi-worker supervisor used it as its startup barrier; since that went with the Node
+// profile its caller is cmd/lava/runloop_drive_test.odin, which collects garbage between the
+// top-level script and the first tick.
+Pre_Run_Hook :: proc(user_data: rawptr) -> bool
 
 // Result_Hook receives eval's final Result once, BEFORE eval tears down its loop and
 // releases its JS context — the `report` parameter of eval and run_file.
@@ -252,6 +263,8 @@ eval :: proc(
 	loop: ^eventloop.Loop = nil,
 	echo_result := false,
 	script_args: []string = nil,
+	pre_run: Pre_Run_Hook = nil,
+	pre_run_data: rawptr = nil,
 	report: Result_Hook = nil,
 	report_data: rawptr = nil,
 	surface: Global_Surface = .Node,
@@ -273,11 +286,14 @@ eval :: proc(
 
 	if page_open(&page, source, source_name, loop, echo_result, script_args, limits, surface = surface) &&
 	   loop != nil {
-		for {
-			alive, _ := page_tick(&page)
+		// nil hook: just run. false: skip the loop; the teardown below still runs.
+		if pre_run == nil || pre_run(pre_run_data) {
+			for {
+				alive, _ := page_tick(&page)
 
-			if !alive {
-				break
+				if !alive {
+					break
+				}
 			}
 		}
 	}
