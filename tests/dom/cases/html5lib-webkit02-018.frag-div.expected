@@ -1,0 +1,23 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs html5lib-webkit02-018.frag-div
+# ---
+#tree
+| <b>
+|   <em>
+|     <foo>
+|       <foob>
+|         <foob>
+|           <foob>
+|             <foob>
+|               <fooc>
+|                 <fooc>
+|                   <fooc>
+|                     <fooc>
+|                       <food>
+| <aside>
+|   <b>
+#serialize
+<b><em><foo><foob><foob><foob><foob><fooc><fooc><fooc><fooc><food></food></fooc></fooc></fooc></fooc></foob></foob></foob></foob></foo></em></b><aside><b></b></aside>

@@ -1,0 +1,72 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs html5lib-tests11-001
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       attributeName=""
+|       attributeType=""
+|       baseFrequency=""
+|       baseProfile=""
+|       calcMode=""
+|       clipPathUnits=""
+|       diffuseConstant=""
+|       edgeMode=""
+|       filterUnits=""
+|       glyphRef=""
+|       gradientTransform=""
+|       gradientUnits=""
+|       kernelMatrix=""
+|       kernelUnitLength=""
+|       keyPoints=""
+|       keySplines=""
+|       keyTimes=""
+|       lengthAdjust=""
+|       limitingConeAngle=""
+|       markerHeight=""
+|       markerUnits=""
+|       markerWidth=""
+|       maskContentUnits=""
+|       maskUnits=""
+|       numOctaves=""
+|       pathLength=""
+|       patternContentUnits=""
+|       patternTransform=""
+|       patternUnits=""
+|       pointsAtX=""
+|       pointsAtY=""
+|       pointsAtZ=""
+|       preserveAlpha=""
+|       preserveAspectRatio=""
+|       primitiveUnits=""
+|       refX=""
+|       refY=""
+|       repeatCount=""
+|       repeatDur=""
+|       requiredExtensions=""
+|       requiredFeatures=""
+|       specularConstant=""
+|       specularExponent=""
+|       spreadMethod=""
+|       startOffset=""
+|       stdDeviation=""
+|       stitchTiles=""
+|       surfaceScale=""
+|       systemLanguage=""
+|       tableValues=""
+|       targetX=""
+|       targetY=""
+|       textLength=""
+|       viewBox=""
+|       viewTarget=""
+|       xChannelSelector=""
+|       yChannelSelector=""
+|       zoomAndPan=""
+#serialize
+<!DOCTYPE html><html><head></head><body><svg attributeName="" attributeType="" baseFrequency="" baseProfile="" calcMode="" clipPathUnits="" diffuseConstant="" edgeMode="" filterUnits="" glyphRef="" gradientTransform="" gradientUnits="" kernelMatrix="" kernelUnitLength="" keyPoints="" keySplines="" keyTimes="" lengthAdjust="" limitingConeAngle="" markerHeight="" markerUnits="" markerWidth="" maskContentUnits="" maskUnits="" numOctaves="" pathLength="" patternContentUnits="" patternTransform="" patternUnits="" pointsAtX="" pointsAtY="" pointsAtZ="" preserveAlpha="" preserveAspectRatio="" primitiveUnits="" refX="" refY="" repeatCount="" repeatDur="" requiredExtensions="" requiredFeatures="" specularConstant="" specularExponent="" spreadMethod="" startOffset="" stdDeviation="" stitchTiles="" surfaceScale="" systemLanguage="" tableValues="" targetX="" targetY="" textLength="" viewBox="" viewTarget="" xChannelSelector="" yChannelSelector="" zoomAndPan=""></svg></body></html>

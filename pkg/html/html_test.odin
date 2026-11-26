@@ -10,7 +10,7 @@ import "core:testing"
 // recorded Chrome oracle exists for the DOM (#2).
 
 // Capped is an allocator that refuses any single request above `limit` bytes.
-@(private = "file")
+@(private)
 Capped :: struct {
 	backing: runtime.Allocator,
 	limit:   int,
@@ -294,7 +294,7 @@ a_fragment_parses_in_its_context :: proc(t: ^testing.T) {
 	testing.expectf(t, inner_ok && inner == "a", "under a div: %q", inner)
 }
 
-@(private = "file")
+@(private)
 capped :: proc(c: ^Capped) -> runtime.Allocator {
 	return {capped_proc, c}
 }
@@ -323,13 +323,13 @@ capped_proc :: proc(
 	return c.backing.procedure(c.backing.data, mode, size, alignment, old_memory, old_size, loc)
 }
 
-@(private = "file")
+@(private)
 parse :: proc(t: ^testing.T, p: ^Parser, src: string, on_script: Script_Proc = nil, user: rawptr = nil) {
 	ok := init(p) && parse_all(p, transmute([]byte)src, on_script, user)
 	testing.expectf(t, ok, "parse failed: %s", error_message(p))
 }
 
-@(private = "file")
+@(private)
 first :: proc(t: ^testing.T, s: ^Selectors, p: ^Parser, css: string) -> Node {
 	sel, ok := compile(s, css)
 	testing.expectf(t, ok, "selector %q did not compile", css)

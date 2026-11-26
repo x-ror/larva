@@ -1,0 +1,50 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs html5lib-tests11-012
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math altglyph>
+|       <math altglyphdef>
+|       <math altglyphitem>
+|       <math animatecolor>
+|       <math animatemotion>
+|       <math animatetransform>
+|       <math clippath>
+|       <math feblend>
+|       <math fecolormatrix>
+|       <math fecomponenttransfer>
+|       <math fecomposite>
+|       <math feconvolvematrix>
+|       <math fediffuselighting>
+|       <math fedisplacementmap>
+|       <math fedistantlight>
+|       <math feflood>
+|       <math fefunca>
+|       <math fefuncb>
+|       <math fefuncg>
+|       <math fefuncr>
+|       <math fegaussianblur>
+|       <math feimage>
+|       <math femerge>
+|       <math femergenode>
+|       <math femorphology>
+|       <math feoffset>
+|       <math fepointlight>
+|       <math fespecularlighting>
+|       <math fespotlight>
+|       <math fetile>
+|       <math feturbulence>
+|       <math foreignobject>
+|       <math glyphref>
+|       <math lineargradient>
+|       <math radialgradient>
+|       <math textpath>
+#serialize
+<!DOCTYPE html><html><head></head><body><math><altglyph></altglyph><altglyphdef></altglyphdef><altglyphitem></altglyphitem><animatecolor></animatecolor><animatemotion></animatemotion><animatetransform></animatetransform><clippath></clippath><feblend></feblend><fecolormatrix></fecolormatrix><fecomponenttransfer></fecomponenttransfer><fecomposite></fecomposite><feconvolvematrix></feconvolvematrix><fediffuselighting></fediffuselighting><fedisplacementmap></fedisplacementmap><fedistantlight></fedistantlight><feflood></feflood><fefunca></fefunca><fefuncb></fefuncb><fefuncg></fefuncg><fefuncr></fefuncr><fegaussianblur></fegaussianblur><feimage></feimage><femerge></femerge><femergenode></femergenode><femorphology></femorphology><feoffset></feoffset><fepointlight></fepointlight><fespecularlighting></fespecularlighting><fespotlight></fespotlight><fetile></fetile><feturbulence></feturbulence><foreignobject></foreignobject><glyphref></glyphref><lineargradient></lineargradient><radialgradient></radialgradient><textpath></textpath></math></body></html>

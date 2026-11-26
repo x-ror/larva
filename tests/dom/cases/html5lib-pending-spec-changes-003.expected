@@ -1,0 +1,20 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs html5lib-pending-spec-changes-003
+# ---
+#tree
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <tbody>
+|         <tr>
+|           <td>
+|             <svg svg>
+|               <svg desc>
+|           <td>
+|             <circle>
+#serialize
+<html><head></head><body><table><tbody><tr><td><svg><desc></desc></svg></td><td><circle></circle></td></tr></tbody></table></body></html>

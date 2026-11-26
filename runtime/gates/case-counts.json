@@ -16,8 +16,13 @@
     "tests/dom/cases": {
       "globs": ["*.html"],
       "min": 60
+    },
+    "tests/dom/html5lib": {
+      "globs": ["*.dat"],
+      "min": 57
     }
   },
+  "//dom": "tests/dom/cases: run-dom-oracle.mjs holds the 60 to the hand-written cases only (scripts/lib/dom-oracle.mjs FLOOR_KEY). The 1784 generated html5lib-* cases are held to exactly what the vendored tests/dom/html5lib/*.dat generate by scripts/gen-html5lib-cases.test.mjs, which also holds those inputs to the tests/dom/html5lib floor.",
   "//removed": "S3 of the Node-profile removal (docs/LARVA.md decision 1) deleted node:fs and node:sqlite outright, so tests/std/fs/cases (min 4) and tests/std/sqlite/cases (min 8) went with their runners, and bench/macro/fs.js went with node:fs, lowering bench min_files 6 -> 5 (buffer, encoding, json, require, url in bench/micro). node-compat (79 cases after 12 needing a deleted module were dropped) and eventloop (14 after 08-io-before-immediate, which needed node:fs) still clear their floors unchanged.",
   "bench": {
     "dirs": ["bench/micro"],

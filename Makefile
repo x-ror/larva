@@ -25,7 +25,7 @@ endif
 SOURCE ?= console.log('hello from Lava')
 FILE ?=
 
-.PHONY: gates test-stdio test-web record-web test-dom record-dom help env sdk-diff test-one bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-html-odin test-http-odin test-sqlite-odin test-odin-green test-eventloop-node test-eventloop-lava test-fetch-smoke bench bench-gate fmt clean test-bench-pages-smoke bench-pages
+.PHONY: gates test-stdio test-web record-web test-dom record-dom help env sdk-diff test-one bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-html-odin test-http-odin test-sqlite-odin test-odin-green test-eventloop-node test-eventloop-lava test-fetch-smoke bench bench-gate fmt clean test-bench-pages-smoke bench-pages bench-html
 
 help:
 	@printf '%s\n' 'Lava commands'
@@ -94,6 +94,7 @@ help:
 	@printf '%s\n' '  make bench              node-vs-Lava ratio table (report-only)'
 	@printf '%s\n' '  make bench-gate         Fail if any ratio exceeds bench/thresholds.json'
 	@printf '%s\n' '  make bench-pages        Pages per thread: start-up, RSS, pages/s (not in CI)'
+	@printf '%s\n' '  make bench-html         HTML serializer, pkg/html vs lexbor, ns per KB (not in CI)'
 	@printf '%s\n' '  make api-surface        Buffer/Crypto surface diff vs Node (report-only)'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Env knobs (oracle runners):'
@@ -145,6 +146,7 @@ check: check-cli check-runtime
 	# bench/pages is report-only and nothing else compiles it; without this a runtime
 	# API change breaks it silently (#26 did, by making the CPU budget mandatory).
 	$(ODIN) check bench/pages -collection:lava=.
+	$(ODIN) check bench/html -collection:lava=.
 
 check-cli:
 	$(ODIN) check cmd/lava -collection:lava=.
@@ -164,6 +166,11 @@ check-runtime:
 	$(ODIN) check pkg/http -no-entry-point -collection:lava=.
 	$(ODIN) check pkg/http -no-entry-point -collection:lava=. -target:windows_amd64
 	$(ODIN) check pkg/http -no-entry-point -collection:lava=. -target:darwin_arm64
+	# pkg/html's !linux stubs (lexbor_other.odin) and the layout mirror, which every
+	# target compiles, the same way.
+	$(ODIN) check pkg/html -no-entry-point -collection:lava=.
+	$(ODIN) check pkg/html -no-entry-point -collection:lava=. -target:windows_amd64
+	$(ODIN) check pkg/html -no-entry-point -collection:lava=. -target:darwin_arm64
 
 # Compile vendored C deps (picohttpparser) Odin links into the runtime. Idempotent;
 # `odin check` does not need it, but every link of cmd/lava (build, test-odin) does.
@@ -397,6 +404,12 @@ bench-gate: build
 # of LAUNCHES (default 5) processes per N. Report-only; needs native-deps, not lava.
 bench-pages: native-deps
 	./bench/pages/run.sh
+
+# The HTML serializer (stage 3b): pkg/html's against lexbor's on a 1.2 MB page and on the
+# tests/dom documents, ns per KB, medians of LAUNCHES (default 7) launches that each
+# alternate the two. Report-only; needs native-deps, not lava.
+bench-html: native-deps
+	./bench/html/run.sh
 
 # test-lava runs every oracle suite the platform supports through one entry point
 # (scripts/run-oracles.sh) — the same script the Windows CI job runs against

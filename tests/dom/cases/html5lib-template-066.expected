@@ -1,0 +1,17 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs html5lib-template-066
+# ---
+#tree
+| <html>
+|   a="b"
+|   <head>
+|     <template>
+|       content
+|         <col>
+|         <col>
+|   <body>
+#serialize
+<html a="b"><head><template><col><col></template></head><body></body></html>

@@ -1,0 +1,50 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs html5lib-tests11-011
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg altGlyph>
+|       <svg altGlyphDef>
+|       <svg altGlyphItem>
+|       <svg animateColor>
+|       <svg animateMotion>
+|       <svg animateTransform>
+|       <svg clipPath>
+|       <svg feBlend>
+|       <svg feColorMatrix>
+|       <svg feComponentTransfer>
+|       <svg feComposite>
+|       <svg feConvolveMatrix>
+|       <svg feDiffuseLighting>
+|       <svg feDisplacementMap>
+|       <svg feDistantLight>
+|       <svg feFlood>
+|       <svg feFuncA>
+|       <svg feFuncB>
+|       <svg feFuncG>
+|       <svg feFuncR>
+|       <svg feGaussianBlur>
+|       <svg feImage>
+|       <svg feMerge>
+|       <svg feMergeNode>
+|       <svg feMorphology>
+|       <svg feOffset>
+|       <svg fePointLight>
+|       <svg feSpecularLighting>
+|       <svg feSpotLight>
+|       <svg feTile>
+|       <svg feTurbulence>
+|       <svg foreignObject>
+|       <svg glyphRef>
+|       <svg linearGradient>
+|       <svg radialGradient>
+|       <svg textPath>
+#serialize
+<!DOCTYPE html><html><head></head><body><svg><altGlyph></altGlyph><altGlyphDef></altGlyphDef><altGlyphItem></altGlyphItem><animateColor></animateColor><animateMotion></animateMotion><animateTransform></animateTransform><clipPath></clipPath><feBlend></feBlend><feColorMatrix></feColorMatrix><feComponentTransfer></feComponentTransfer><feComposite></feComposite><feConvolveMatrix></feConvolveMatrix><feDiffuseLighting></feDiffuseLighting><feDisplacementMap></feDisplacementMap><feDistantLight></feDistantLight><feFlood></feFlood><feFuncA></feFuncA><feFuncB></feFuncB><feFuncG></feFuncG><feFuncR></feFuncR><feGaussianBlur></feGaussianBlur><feImage></feImage><feMerge></feMerge><feMergeNode></feMergeNode><feMorphology></feMorphology><feOffset></feOffset><fePointLight></fePointLight><feSpecularLighting></feSpecularLighting><feSpotLight></feSpotLight><feTile></feTile><feTurbulence></feTurbulence><foreignObject></foreignObject><glyphRef></glyphRef><linearGradient></linearGradient><radialGradient></radialGradient><textPath></textPath></svg></body></html>

@@ -49,6 +49,10 @@ test('a fragment case names its context element; a document case has none', () =
   assert.equal(fragmentContext('frag-cell.frag-tr'), 'tr');
   assert.equal(fragmentContext('void-elements'), null);
   assert.equal(fragmentContext('a.frag-'), null);
+  // A foreign context comes back in html5lib's notation, a dash in its name kept.
+  assert.equal(fragmentContext('m.frag-math-annotation-xml'), 'math annotation-xml');
+  assert.equal(fragmentContext('s.frag-svg-foreignObject'), 'svg foreignObject');
+  assert.equal(fragmentContext('h.frag-Div'), null);
   assert.equal(areaOf('frag-cell.frag-tr'), 'frag');
   assert.equal(areaOf('void-elements'), 'void');
   assert.deepEqual(lavaArgs('tree', null, 'f.html'), ['html', '--tree', 'f.html']);
@@ -75,6 +79,7 @@ const XLINK = 'http://www.w3.org/1999/xlink';
 
 const text = (data) => ({ nodeType: 3, data });
 const comment = (data) => ({ nodeType: 8, data });
+const pi = (target, data) => ({ nodeType: 7, target, data });
 const doctype = (name, publicId = '', systemId = '') => ({
   nodeType: 10,
   name,
@@ -156,12 +161,20 @@ test("dumpTree prints a template's content under it and a doctype's ids when it 
 
 test('dumpTree refuses what an HTML parser does not produce', () => {
   assert.throws(() => dumpTree([el('x', [], [], 'urn:other')]), /namespace urn:other/);
-  assert.throws(() => dumpTree([{ nodeType: 7 }]), /node type 7/);
+  assert.throws(() => dumpTree([{ nodeType: 4, data: 'x' }]), /node type 4/);
+});
+
+// Chrome 158 parses `<?php echo 1 ?>` in a body as a processing instruction (target
+// `php`, data `echo 1 `), where older parsers made a bogus comment of it.
+test("dumpTree prints a processing instruction in html5lib's form", () => {
+  assert.equal(dumpTree([pi('php', 'echo 1 '), pi('x', '')]), '| <?php echo 1 >\n| <?x >\n');
 });
 
 test('serializeDocument is the doctype, the comments and the elements, then a newline', () => {
-  const doc = { childNodes: [doctype('html', 'pub', 'sys'), comment('x'), el('html')] };
-  assert.equal(serializeDocument(doc), '<!DOCTYPE html><!--x--><html>\n');
+  const doc = {
+    childNodes: [doctype('html', 'pub', 'sys'), comment('x'), el('html'), pi('y', 'z')],
+  };
+  assert.equal(serializeDocument(doc), '<!DOCTYPE html><!--x--><html><?y z?>\n');
 });
 
 // The harness page, run for real: its inline script executes in a vm against a
@@ -178,8 +191,12 @@ function runPage(input, context) {
       seen.parsed = s;
       return {
         childNodes: [doctype('html'), el('html', [], [text(s)])],
-        createElement(name) {
-          seen.context = name;
+        createElementNS(ns, name) {
+          seen.contextNS = [ns, name];
+          return this.createElement(name, true);
+        },
+        createElement(name, foreign = false) {
+          if (!foreign) seen.context = name;
           const node = el(name);
           Object.defineProperty(node, 'innerHTML', {
             set(v) {
@@ -232,6 +249,13 @@ test('the harness page parses a fragment case as its context element innerHTML',
   // The context element lives in a no-quirks document.
   assert.equal(r.seen.parsed, '<!DOCTYPE html>');
   assert.deepEqual(splitViews(r.out), { tree: '| "<td>a"\n', serialize: '[<td>a]\n' });
+});
+
+test('the harness page makes a foreign context element in its namespace', () => {
+  const r = runPage('<p>', 'svg foreignObject');
+  assert.equal(r.err, '');
+  assert.deepEqual(r.seen.contextNS, ['http://www.w3.org/2000/svg', 'foreignObject']);
+  assert.equal(r.seen.context, undefined);
 });
 
 // --- the runner, through the CLI ------------------------------------------------------
@@ -380,6 +404,19 @@ test('a suite below the case-count floor fails before running anything', () => {
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stdout + r.stderr, /case-count/);
   assert.doesNotMatch(r.stdout, /pass, 0 known/);
+});
+
+// Generated cases do not make up for deleted hand-written ones: they are held to their
+// .dat inputs by the generator's own test, not by this floor.
+test('generated cases do not count toward the floor', () => {
+  const r = runSuite(FLOOR - 1, (dir) => {
+    for (const n of ['html5lib-x-001', 'html5lib-x-002']) {
+      writeFileSync(join(dir, 'cases', `${n}.html`), '<p>x');
+      writeFileSync(join(dir, 'cases', `${n}.expected`), formatExpected(META, RIGHT));
+    }
+  });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout + r.stderr, /case-count: .* has \d+ hand-written cases/);
 });
 
 test('--update-known pins only the listed view of a case', () => {

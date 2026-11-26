@@ -2,6 +2,7 @@
 #include <lexbor/dom/dom.h>
 #include <lexbor/html/html.h>
 #include <lexbor/selectors/selectors.h>
+#include <stddef.h>
 #include <stdlib.h>
 
 typedef struct {
@@ -106,41 +107,95 @@ const lxb_char_t *larva_html_attr(lxb_dom_node_t *node, const lxb_char_t *name, 
 	return v != NULL ? v : &empty;
 }
 
-// The tree read accessors behind node.odin (stage 3a). Each is a field read or a lexbor
-// inline, which Odin cannot call; each answers NULL/0 for a node of the wrong kind
-// rather than reading through the wrong struct. Strings are owned by the document.
+// The layout of the lexbor structs pkg/html/layout.odin mirrors, as this compiler lays
+// them out from lexbor's own headers, plus the constants the mirror compares against.
+// Odin reads the hot fields (next, parent, type, an attribute's value…) with plain
+// loads through that mirror; its test compares every entry here with the mirror's,
+// both ways, so a lexbor bump that moves a field fails there rather than in a walk.
+typedef struct {
+	const char *name;
+	size_t value;
+} larva_html_layout_entry;
 
-int larva_html_node_type(lxb_dom_node_t *node) {
-	return node != NULL ? (int)node->type : LXB_DOM_NODE_TYPE_UNDEF;
+#define LARVA_OFF(key, type, field) {key, offsetof(type, field)}
+#define LARVA_VAL(key, v) {key, (size_t)(v)}
+
+static const larva_html_layout_entry larva_layout[] = {
+	LARVA_VAL("node.size", sizeof(lxb_dom_node_t)),
+	LARVA_OFF("node.local_name", lxb_dom_node_t, local_name),
+	LARVA_OFF("node.prefix", lxb_dom_node_t, prefix),
+	LARVA_OFF("node.ns", lxb_dom_node_t, ns),
+	LARVA_OFF("node.next", lxb_dom_node_t, next),
+	LARVA_OFF("node.prev", lxb_dom_node_t, prev),
+	LARVA_OFF("node.parent", lxb_dom_node_t, parent),
+	LARVA_OFF("node.first_child", lxb_dom_node_t, first_child),
+	LARVA_OFF("node.last_child", lxb_dom_node_t, last_child),
+	LARVA_OFF("node.user", lxb_dom_node_t, user),
+	LARVA_OFF("node.type", lxb_dom_node_t, type),
+	LARVA_VAL("node.type.size", sizeof(lxb_dom_node_type_t)),
+	LARVA_VAL("str.size", sizeof(lexbor_str_t)),
+	LARVA_OFF("str.data", lexbor_str_t, data),
+	LARVA_OFF("str.length", lexbor_str_t, length),
+	LARVA_OFF("element.first_attr", lxb_dom_element_t, first_attr),
+	LARVA_OFF("element.last_attr", lxb_dom_element_t, last_attr),
+	LARVA_VAL("attr.size", sizeof(lxb_dom_attr_t)),
+	LARVA_OFF("attr.value", lxb_dom_attr_t, value),
+	LARVA_OFF("attr.next", lxb_dom_attr_t, next),
+	LARVA_OFF("attr.prev", lxb_dom_attr_t, prev),
+	LARVA_VAL("character_data.size", sizeof(lxb_dom_character_data_t)),
+	LARVA_OFF("character_data.data", lxb_dom_character_data_t, data),
+	LARVA_VAL("ns.html", LXB_NS_HTML),
+	LARVA_VAL("ns.math", LXB_NS_MATH),
+	LARVA_VAL("ns.svg", LXB_NS_SVG),
+	LARVA_VAL("ns.xlink", LXB_NS_XLINK),
+	LARVA_VAL("ns.xml", LXB_NS_XML),
+	LARVA_VAL("ns.xmlns", LXB_NS_XMLNS),
+	LARVA_VAL("tag.area", LXB_TAG_AREA),
+	LARVA_VAL("tag.base", LXB_TAG_BASE),
+	LARVA_VAL("tag.basefont", LXB_TAG_BASEFONT),
+	LARVA_VAL("tag.bgsound", LXB_TAG_BGSOUND),
+	LARVA_VAL("tag.br", LXB_TAG_BR),
+	LARVA_VAL("tag.col", LXB_TAG_COL),
+	LARVA_VAL("tag.embed", LXB_TAG_EMBED),
+	LARVA_VAL("tag.frame", LXB_TAG_FRAME),
+	LARVA_VAL("tag.hr", LXB_TAG_HR),
+	LARVA_VAL("tag.iframe", LXB_TAG_IFRAME),
+	LARVA_VAL("tag.img", LXB_TAG_IMG),
+	LARVA_VAL("tag.input", LXB_TAG_INPUT),
+	LARVA_VAL("tag.keygen", LXB_TAG_KEYGEN),
+	LARVA_VAL("tag.link", LXB_TAG_LINK),
+	LARVA_VAL("tag.meta", LXB_TAG_META),
+	LARVA_VAL("tag.noembed", LXB_TAG_NOEMBED),
+	LARVA_VAL("tag.noframes", LXB_TAG_NOFRAMES),
+	LARVA_VAL("tag.param", LXB_TAG_PARAM),
+	LARVA_VAL("tag.plaintext", LXB_TAG_PLAINTEXT),
+	LARVA_VAL("tag.script", LXB_TAG_SCRIPT),
+	LARVA_VAL("tag.source", LXB_TAG_SOURCE),
+	LARVA_VAL("tag.style", LXB_TAG_STYLE),
+	LARVA_VAL("tag.template", LXB_TAG_TEMPLATE),
+	LARVA_VAL("tag.track", LXB_TAG_TRACK),
+	LARVA_VAL("tag.wbr", LXB_TAG_WBR),
+	LARVA_VAL("tag.xmp", LXB_TAG_XMP),
+	LARVA_VAL("type.undef", LXB_DOM_NODE_TYPE_UNDEF),
+	LARVA_VAL("type.element", LXB_DOM_NODE_TYPE_ELEMENT),
+	LARVA_VAL("type.attribute", LXB_DOM_NODE_TYPE_ATTRIBUTE),
+	LARVA_VAL("type.text", LXB_DOM_NODE_TYPE_TEXT),
+	LARVA_VAL("type.cdata_section", LXB_DOM_NODE_TYPE_CDATA_SECTION),
+	LARVA_VAL("type.processing_instruction", LXB_DOM_NODE_TYPE_PROCESSING_INSTRUCTION),
+	LARVA_VAL("type.comment", LXB_DOM_NODE_TYPE_COMMENT),
+	LARVA_VAL("type.document", LXB_DOM_NODE_TYPE_DOCUMENT),
+	LARVA_VAL("type.document_type", LXB_DOM_NODE_TYPE_DOCUMENT_TYPE),
+	LARVA_VAL("type.document_fragment", LXB_DOM_NODE_TYPE_DOCUMENT_FRAGMENT),
+};
+
+const larva_html_layout_entry *larva_html_layout(size_t *count) {
+	*count = sizeof(larva_layout) / sizeof(larva_layout[0]);
+	return larva_layout;
 }
 
-lxb_dom_node_t *larva_html_first_child(lxb_dom_node_t *node) {
-	return node != NULL ? node->first_child : NULL;
-}
-
-lxb_dom_node_t *larva_html_next_sibling(lxb_dom_node_t *node) {
-	return node != NULL ? node->next : NULL;
-}
-
-// lexbor's namespace id: LXB_NS_* for the namespaces the parser knows (ns/const.h),
-// a hash entry's address for any other.
-uintptr_t larva_html_ns(lxb_dom_node_t *node) {
-	return node != NULL ? node->ns : LXB_NS__UNDEF;
-}
-
-// The element's name as the tree builder wrote it. Not lxb_dom_element_local_name:
-// lexbor folds that one to lowercase even where the parser adjusts the case of an SVG
-// name (`foreignObject`), and DOM's localName keeps the adjusted case. The qualified
-// name is the same string with any prefix, and the HTML parser never gives an element
-// a prefix.
-const lxb_char_t *larva_html_element_name(lxb_dom_node_t *node, size_t *len) {
-	*len = 0;
-	if (node == NULL || node->type != LXB_DOM_NODE_TYPE_ELEMENT) {
-		return NULL;
-	}
-
-	return lxb_dom_element_qualified_name(lxb_dom_interface_element(node), len);
-}
+// The accessors behind node.odin that are not a mirrored field: each answers NULL for
+// a node of the wrong kind rather than reading through the wrong struct. Strings are
+// owned by the document.
 
 // A template's content fragment, which holds what the parser put "inside" it; the
 // element itself has no children.
@@ -152,27 +207,6 @@ lxb_dom_node_t *larva_html_template_content(lxb_dom_node_t *node) {
 
 	lxb_dom_document_fragment_t *content = lxb_html_interface_template(node)->content;
 	return content != NULL ? lxb_dom_interface_node(content) : NULL;
-}
-
-// The data of a text, comment, CDATA section or processing instruction.
-const lxb_char_t *larva_html_char_data(lxb_dom_node_t *node, size_t *len) {
-	*len = 0;
-	if (node == NULL) {
-		return NULL;
-	}
-
-	switch (node->type) {
-	case LXB_DOM_NODE_TYPE_TEXT:
-	case LXB_DOM_NODE_TYPE_CDATA_SECTION:
-	case LXB_DOM_NODE_TYPE_COMMENT:
-	case LXB_DOM_NODE_TYPE_PROCESSING_INSTRUCTION: {
-		lxb_dom_character_data_t *cd = lxb_dom_interface_character_data(node);
-		*len = cd->data.length;
-		return cd->data.data != NULL ? cd->data.data : (const lxb_char_t *)"";
-	}
-	default:
-		return NULL;
-	}
 }
 
 // One part of a doctype: 0 its name, 1 its public id, 2 its system id. NULL when the
@@ -201,65 +235,18 @@ const lxb_char_t *larva_html_doctype_part(lxb_dom_node_t *node, int part, size_t
 	return s != NULL ? s : (const lxb_char_t *)"";
 }
 
-lxb_dom_attr_t *larva_html_first_attr(lxb_dom_node_t *node) {
-	if (node == NULL || node->type != LXB_DOM_NODE_TYPE_ELEMENT) {
-		return NULL;
-	}
-
-	return lxb_dom_interface_element(node)->first_attr;
-}
-
-lxb_dom_attr_t *larva_html_next_attr(lxb_dom_attr_t *attr) {
-	return attr != NULL ? attr->next : NULL;
-}
-
-// The tree builder gives an attribute its element's namespace (html/tree.c,
-// lxb_html_tree_append_attributes) and replaces it only for the ones foreign content
-// adjusts (xlink:href, xml:lang, xmlns…). DOM puts every other attribute in no
-// namespace, so an element namespace here means none.
-static bool larva_attr_in_no_ns(const lxb_dom_attr_t *attr) {
-	uintptr_t ns = attr->node.ns;
-	return ns == LXB_NS__UNDEF || ns == LXB_NS_HTML || ns == LXB_NS_SVG || ns == LXB_NS_MATH;
-}
-
-// The attribute's DOM namespace: LXB_NS__UNDEF for none.
-uintptr_t larva_html_attr_ns(lxb_dom_attr_t *attr) {
-	if (attr == NULL || larva_attr_in_no_ns(attr)) {
-		return LXB_NS__UNDEF;
-	}
-
-	return attr->node.ns;
-}
-
-// The attribute's DOM localName. Without a namespace that is the qualified name, which
-// keeps the case the parser adjusted for SVG and MathML (`viewBox`, `definitionURL`)
-// where lexbor's local name is folded; with one (`xlink:href`) it is the part after
-// the prefix, lexbor's local name.
-const lxb_char_t *larva_html_attr_local_name(lxb_dom_attr_t *attr, size_t *len) {
-	*len = 0;
-	if (attr == NULL) {
-		return NULL;
-	}
-
-	return larva_attr_in_no_ns(attr) ? lxb_dom_attr_qualified_name(attr, len) : lxb_dom_attr_local_name(attr, len);
-}
-
-// The attribute's value; "" for a valueless one, for which lexbor answers NULL (see
-// larva_html_attr).
-const lxb_char_t *larva_html_attr_value_of(lxb_dom_attr_t *attr, size_t *len) {
-	*len = 0;
-	if (attr == NULL) {
-		return NULL;
-	}
-
-	const lxb_char_t *value = lxb_dom_attr_value(attr, len);
-	return value != NULL ? value : (const lxb_char_t *)"";
-}
-
 // Parses `html` as the children of an HTML `context` element (the fragment parsing
 // algorithm, as innerHTML runs it) into `doc`, a fresh document no chunked parse has
-// begun on. Returns the html element the fragment's nodes are children of, owned by
-// `doc`; NULL on failure.
+// begun on. Returns the context element, owned by `doc`, holding the fragment's nodes
+// as innerHTML leaves them: as its children, or as its content for a template; NULL on
+// failure.
+//
+// lexbor parses under a root `html` element of its own and returns that. The nodes are
+// moved to the context element because their parent is observable: the serializer
+// writes a `<style>` or `<script>` context's text unescaped, as Chrome does, only when
+// the text's parent is that element (tests/dom html5lib-tests4-004.frag-style). The
+// moves go through lexbor's `_wo_events` list operations: this document has no
+// mutation observers, and nothing is destroyed (docs/LARVA.md D2).
 lxb_dom_node_t *larva_html_parse_fragment(lxb_html_document_t *doc, const lxb_char_t *context, size_t context_len,
 										  const lxb_char_t *html, size_t len) {
 	lxb_dom_element_t *ctx =
@@ -269,7 +256,26 @@ lxb_dom_node_t *larva_html_parse_fragment(lxb_html_document_t *doc, const lxb_ch
 		return NULL;
 	}
 
-	return lxb_html_document_parse_fragment(doc, ctx, html, len);
+	lxb_dom_node_t *root = lxb_html_document_parse_fragment(doc, ctx, html, len);
+
+	if (root == NULL) {
+		return NULL;
+	}
+
+	lxb_dom_node_t *to = lxb_dom_interface_node(ctx);
+	lxb_dom_node_t *content = larva_html_template_content(to);
+
+	if (content != NULL) {
+		to = content;
+	}
+
+	while (root->first_child != NULL) {
+		lxb_dom_node_t *n = root->first_child;
+		lxb_dom_node_remove_wo_events(n);
+		lxb_dom_node_insert_child_wo_events(to, n);
+	}
+
+	return lxb_dom_interface_node(ctx);
 }
 
 larva_css *larva_css_create(void) {

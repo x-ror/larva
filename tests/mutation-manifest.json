@@ -3148,12 +3148,12 @@
       "expect_detail": "query_all reported success with 32 of 500 matches"
     },
     {
-      "name": "outer_html_reports_a_refused_allocation dies when collect_markup swallows the allocation error",
-      "why": "lexbor stops serializing only on a non-OK status from the callback; returning OK after a failed append yields truncated markup with ok true.",
-      "source": "pkg/html/parser.odin",
-      "find": "\t\treturn LXB_STATUS_ERROR_MEMORY_ALLOCATION\n",
-      "replace": "\t\treturn LXB_STATUS_OK\n",
-      "gate": "make:test-html-odin",
+      "name": "outer_html_reports_a_refused_allocation dies when serialize_markup returns what a refused grow left",
+      "why": "A refused append leaves the markup written so far; returning it with ok true is truncated markup the caller cannot tell from the whole.",
+      "source": "pkg/html/serialize.odin",
+      "find": "\tif o.failed {\n\t\tdelete(o.buf)\n\t\treturn \"\", false\n\t}",
+      "replace": "\tif false {\n\t\tdelete(o.buf)\n\t\treturn \"\", false\n\t}",
+      "gate": "odin:pkg/html:larva_html.outer_html_reports_a_refused_allocation",
       "expect_detail": "outer_html returned"
     },
     {
@@ -4897,7 +4897,7 @@
       "name": "the DOM oracle runner enforces the case-count floor",
       "why": "A deleted case must not turn the suite green by vanishing.",
       "source": "scripts/run-dom-oracle.mjs",
-      "find": "if (all.length < caseFloor(FLOOR_KEY)) {",
+      "find": "if (hand.length < caseFloor(FLOOR_KEY)) {",
       "replace": "if (false) {",
       "gate": "node-test:scripts/run-dom-oracle.test.mjs",
       "test": "a suite below the case-count floor fails before running anything",
@@ -4985,9 +4985,9 @@
     {
       "name": "test-dom dies when local_name folds the case the parser adjusted in SVG",
       "why": "lexbor's own local name is lowercase even for foreignObject/linearGradient; DOM's localName keeps the adjusted case.",
-      "source": "pkg/html/shim/larva_html.c",
-      "find": "\treturn lxb_dom_element_qualified_name(lxb_dom_interface_element(node), len);",
-      "replace": "\treturn lxb_dom_element_local_name(lxb_dom_interface_element(node), len);",
+      "source": "pkg/html/node.odin",
+      "find": "\ts := lxb_dom_element_qualified_name(node, &n)\n\treturn string(s[:n]) if s != nil else \"\"",
+      "replace": "\ts := lxb_dom_element_qualified_name(node, &n)\n\treturn strings.to_lower(string(s[:n]), context.temp_allocator) if s != nil else \"\"",
       "gate": "make:test-dom",
       "expect_detail": "FAIL foreign-svg.tree"
     },
@@ -5001,29 +5001,29 @@
       "expect_detail": "FAIL frag-cell.frag-tr"
     },
     {
-      "name": "attributes_are_in_no_namespace_unless_adjusted dies when the shim reports lexbor's element namespace for an attribute",
+      "name": "attributes_are_in_no_namespace_unless_adjusted dies when attr_namespace reports lexbor's element namespace for an attribute",
       "why": "lexbor stores an unadjusted attribute under its element's namespace; passed through, every attribute of every element reads as namespaced and the dump refuses it.",
-      "source": "pkg/html/shim/larva_html.c",
-      "find": "\treturn ns == LXB_NS__UNDEF || ns == LXB_NS_HTML || ns == LXB_NS_SVG || ns == LXB_NS_MATH;",
-      "replace": "\treturn ns == LXB_NS__UNDEF;",
+      "source": "pkg/html/node.odin",
+      "find": "\tcase NS_UNDEF, NS_HTML, NS_SVG, NS_MATH:\n\t\treturn .None",
+      "replace": "\tcase NS_UNDEF:\n\t\treturn .None",
       "gate": "make:test-html-odin",
       "expect_detail": "data-x on <p> is in HTML"
     },
     {
       "name": "attributes_are_in_no_namespace_unless_adjusted dies when attr_local_name folds an adjusted SVG name",
       "why": "lexbor's attribute local name is lowercase; DOM's localName is the parser-adjusted `viewBox`.",
-      "source": "pkg/html/shim/larva_html.c",
-      "find": "\treturn larva_attr_in_no_ns(attr) ? lxb_dom_attr_qualified_name(attr, len) : lxb_dom_attr_local_name(attr, len);",
-      "replace": "\treturn lxb_dom_attr_local_name(attr, len);",
-      "gate": "make:test-html-odin",
+      "source": "pkg/html/node.odin",
+      "find": "\tif attr_namespace(attr) == .None {\n\t\treturn attr_qualified_name(attr)\n\t}\n\n\tn: c.size_t\n\ts := lxb_dom_attr_local_name(attr, &n)",
+      "replace": "\tn: c.size_t\n\ts := lxb_dom_attr_local_name(attr, &n)",
+      "gate": "odin:pkg/html:larva_html.attributes_are_in_no_namespace_unless_adjusted",
       "expect_detail": "viewbox adjusted to \"viewbox\""
     },
     {
       "name": "tree_read_on_the_wrong_node_kind_is_empty dies when first_attr reads a non-element as an element",
-      "why": "A text node has no attribute list; reading one through lxb_dom_element_t is a wild read past the node.",
-      "source": "pkg/html/shim/larva_html.c",
-      "find": "lxb_dom_attr_t *larva_html_first_attr(lxb_dom_node_t *node) {\n\tif (node == NULL || node->type != LXB_DOM_NODE_TYPE_ELEMENT) {",
-      "replace": "lxb_dom_attr_t *larva_html_first_attr(lxb_dom_node_t *node) {\n\tif (node == NULL) {",
+      "why": "A text node has no attribute list; reading one through the Lxb_Element mirror is a wild read past the node.",
+      "source": "pkg/html/node.odin",
+      "find": "\tif node_type(node) != .Element {\n\t\treturn nil\n\t}\n\n\treturn Attr((cast(^Lxb_Element)node).first_attr)",
+      "replace": "\treturn Attr((cast(^Lxb_Element)node).first_attr)",
       "gate": "make:test-html-odin",
       "expect_detail": [
         "a text node answered an attribute list",
@@ -5038,6 +5038,154 @@
       "replace": "\t// The parse is over before this returns: pump answers .Done and write refuses.\n\tp.ended = false",
       "gate": "make:test-html-odin",
       "expect_detail": "write accepted after a fragment parse"
+    },
+    {
+      "name": "layout_mirror_matches_the_shim dies when the mirror swaps two lexbor fields",
+      "why": "The mirror is read with plain loads; a field order that no longer matches lexbor reads a sibling as the other sibling, and only the shim-exported offsets can see it.",
+      "source": "pkg/html/layout.odin",
+      "find": "\tnext:           ^Lxb_Node,\n\tprev:           ^Lxb_Node,",
+      "replace": "\tprev:           ^Lxb_Node,\n\tnext:           ^Lxb_Node,",
+      "gate": "odin:pkg/html:larva_html.layout_mirror_matches_the_shim",
+      "expect_detail": "node.next: lexbor"
+    },
+    {
+      "name": "layout_mirror_matches_the_shim dies when the shim stops exporting a field the mirror reads",
+      "why": "The check runs both ways: a mirrored field the shim does not lay out is a field nothing verifies. make:, not odin:, so the shim archive is rebuilt with the mutation.",
+      "source": "pkg/html/shim/larva_html.c",
+      "find": "\tLARVA_OFF(\"node.user\", lxb_dom_node_t, user),\n",
+      "replace": "",
+      "gate": "make:test-html-odin",
+      "expect_detail": "node.user: the mirror has it, the shim does not check it"
+    },
+    {
+      "name": "element_reads_on_other_kinds_are_empty dies when char_data reads an element as character data",
+      "why": "An element's words after the node are name ids; read as a (pointer, length) pair they are a wild string.",
+      "source": "pkg/html/node.odin",
+      "find": "\tcase .Text, .Comment, .CDATA_Section, .Processing_Instruction:\n\t\treturn lxb_string(",
+      "replace": "\tcase .Text, .Comment, .CDATA_Section, .Processing_Instruction, .Element:\n\t\treturn lxb_string(",
+      "gate": "odin:pkg/html:larva_html.element_reads_on_other_kinds_are_empty",
+      "expect_detail": "an element answered character data"
+    },
+    {
+      "name": "attribute_names_split_only_when_namespaced dies when attr_prefix takes a prefix from a name without a colon",
+      "why": "`xmlns` is in the XMLNS namespace with no prefix; DOM says prefix null, and the serializer would write `xmlns:xmlns`.",
+      "source": "pkg/html/node.odin",
+      "find": "\treturn prefix if colon != \"\" else \"\"",
+      "replace": "\treturn prefix",
+      "gate": "odin:pkg/html:larva_html.attribute_names_split_only_when_namespaced",
+      "expect_detail": "want Want{ns = \"XMLNS\", prefix = \"\", local = \"xmlns\", qname = \"xmlns\"} got Want{ns = \"XMLNS\", prefix = \"xmlns\""
+    },
+    {
+      "name": "test-dom dies when the serializer stops escaping `<` in attribute values",
+      "why": "Chrome 158 escapes `<` and `>` in attribute values; the escaping is the serializer's, not the parser's, and only the recordings know it.",
+      "source": "pkg/html/serialize.odin",
+      "find": "ESCAPE_ATTR := #partial [256]Escape {\n\t'&'  = .Amp,\n\t'<'  = .Lt,\n",
+      "replace": "ESCAPE_ATTR := #partial [256]Escape {\n\t'&'  = .Amp,\n",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL attr-escaping.serialize"
+    },
+    {
+      "name": "test-dom dies when the serializer stops escaping U+00A0",
+      "why": "Chrome writes a no-break space as &nbsp; in text and attributes; written raw it is invisible in the markup and differs byte for byte.",
+      "source": "pkg/html/serialize.odin",
+      "find": "ESCAPE_TEXT := #partial [256]Escape {\n\t'&'  = .Amp,\n\t'<'  = .Lt,\n\t'>'  = .Gt,\n\t0xC2 = .Nbsp_Lead,\n",
+      "replace": "ESCAPE_TEXT := #partial [256]Escape {\n\t'&'  = .Amp,\n\t'<'  = .Lt,\n\t'>'  = .Gt,\n",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL attr-text-escaping.serialize"
+    },
+    {
+      "name": "test-dom dies when the serializer escapes raw-text elements",
+      "why": "A script's or style's text is written as it is; escaped, `a < b` in an inline script no longer round-trips.",
+      "source": "pkg/html/serialize.odin",
+      "find": "\tcase TAG_STYLE, TAG_SCRIPT, TAG_XMP, TAG_IFRAME, TAG_NOEMBED, TAG_NOFRAMES, TAG_PLAINTEXT:\n\t\treturn true",
+      "replace": "\tcase TAG_STYLE, TAG_SCRIPT, TAG_XMP, TAG_IFRAME, TAG_NOEMBED, TAG_NOFRAMES, TAG_PLAINTEXT:\n\t\treturn false",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL rawtext-script.serialize"
+    },
+    {
+      "name": "test-dom dies when the serializer writes end tags for void elements",
+      "why": "`<br></br>` re-parses as two line breaks; void elements serialize with no end tag.",
+      "source": "pkg/html/serialize.odin",
+      "find": "\tcase TAG_AREA, TAG_BASE, TAG_BASEFONT, TAG_BGSOUND, TAG_BR, TAG_COL, TAG_EMBED, TAG_FRAME, TAG_HR, TAG_IMG, TAG_INPUT, TAG_KEYGEN, TAG_LINK, TAG_META, TAG_PARAM, TAG_SOURCE, TAG_TRACK, TAG_WBR:\n\t\treturn true",
+      "replace": "\tcase TAG_AREA, TAG_BASE, TAG_BASEFONT, TAG_BGSOUND, TAG_BR, TAG_COL, TAG_EMBED, TAG_FRAME, TAG_HR, TAG_IMG, TAG_INPUT, TAG_KEYGEN, TAG_LINK, TAG_META, TAG_PARAM, TAG_SOURCE, TAG_TRACK, TAG_WBR:\n\t\treturn false",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL void-elements.serialize"
+    },
+    {
+      "name": "inner_html_of_a_template_is_its_content dies when the serializer walks the template element instead of its content",
+      "why": "A template's parsed children are in its content fragment; its own child list is empty, so innerHTML would be ''.",
+      "source": "pkg/html/serialize.odin",
+      "find": "\tif is_html(root, TAG_TEMPLATE) {\n\t\tcontainer = template_content(root)\n\t}",
+      "replace": "",
+      "gate": "odin:pkg/html:larva_html.inner_html_of_a_template_is_its_content",
+      "expect_detail": "template innerHTML"
+    },
+    {
+      "name": "serialize_allocates_only_through_the_callers_allocator dies when a refused serialize keeps its buffer",
+      "why": "ok false must leave nothing allocated; the buffer is the caller's allocator's, and nobody else will free it.",
+      "source": "pkg/html/serialize.odin",
+      "find": "\tif o.failed {\n\t\tdelete(o.buf)\n",
+      "replace": "\tif o.failed {\n",
+      "gate": "odin:pkg/html:larva_html.serialize_allocates_only_through_the_callers_allocator",
+      "expect_detail": "a refused serialize left"
+    },
+    {
+      "name": "test-dom dies when a fragment parse leaves its nodes under lexbor's html root",
+      "why": "innerHTML's raw-text rule looks at the text's parent: under lexbor's root `html`, a `<style>` context's text is escaped where Chrome writes it raw.",
+      "source": "pkg/html/shim/larva_html.c",
+      "find": "\treturn lxb_dom_interface_node(ctx);\n}",
+      "replace": "\treturn root;\n}",
+      "gate": "make:test-dom",
+      "expect_detail": "html5lib-tests4-004.frag-style.serialize"
+    },
+    {
+      "name": "test-dom dies when lava html takes a foreign fragment context for an HTML element",
+      "why": "`svg desc` is html5lib's notation for a context in another namespace; parsed as an HTML element named that, the output silently answers a different question than Chrome recorded.",
+      "source": "pkg/html/parser.odin",
+      "find": "\tif strings.contains_rune(context_name, ' ') {",
+      "replace": "\tif false {",
+      "gate": "make:test-dom",
+      "expect_detail": "frag-svg-"
+    },
+    {
+      "name": "the generator drift check fails when the generated input keeps the newline before #errors",
+      "why": "The data loses its final newline; a generator that keeps it records a different input than html5lib wrote, and the drift test is what notices.",
+      "source": "scripts/gen-html5lib-cases.mjs",
+      "find": "      data: cur.data.join('\\n'),",
+      "replace": "      data: cur.data.join('\\n') + '\\n',",
+      "gate": "node-test:scripts/gen-html5lib-cases.test.mjs",
+      "test": "the committed corpus cases are exactly what the vendored .dat files generate",
+      "expect_detail": "the committed corpus cases are exactly what the vendored .dat files generate"
+    },
+    {
+      "name": "the DOM oracle floor does not count generated cases",
+      "why": "Generated cases are held to their inputs elsewhere; counted here they would hide deleted hand-written cases.",
+      "source": "scripts/run-dom-oracle.mjs",
+      "find": "const hand = handCases(all);",
+      "replace": "const hand = all;",
+      "gate": "node-test:scripts/run-dom-oracle.test.mjs",
+      "test": "generated cases do not count toward the floor",
+      "expect_detail": "generated cases do not count toward the floor"
+    },
+    {
+      "name": "the Chrome walker prints a processing instruction",
+      "why": "Chrome 158 parses `<?php x ?>` into a processing instruction; a walker that throws on one cannot record those html5lib cases.",
+      "source": "scripts/lib/dom-oracle.mjs",
+      "find": "      case 7:\n        return line(depth, '<?' + node.target + ' ' + node.data + '>');\n",
+      "replace": "",
+      "gate": "node-test:scripts/run-dom-oracle.test.mjs",
+      "test": "dumpTree prints a processing instruction in html5lib's form",
+      "expect_detail": "dumpTree prints a processing instruction in html5lib's form"
+    },
+    {
+      "name": "the harness page makes a foreign context element in its namespace",
+      "why": "createElement makes an HTML element whatever the name; an `svg desc` context recorded that way is not the fragment html5lib means.",
+      "source": "scripts/lib/dom-oracle.mjs",
+      "find": "      const el = foreign ? doc.createElementNS(NS[foreign[1]], foreign[2]) : doc.createElement(context);",
+      "replace": "      const el = doc.createElement(context);",
+      "gate": "node-test:scripts/run-dom-oracle.test.mjs",
+      "test": "the harness page makes a foreign context element in its namespace",
+      "expect_detail": "the harness page makes a foreign context element in its namespace"
     }
   ]
 }

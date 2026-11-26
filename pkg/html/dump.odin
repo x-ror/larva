@@ -93,6 +93,12 @@ walk :: proc(d: ^Dump, node: Node, depth: int) -> bool {
 	case .Comment:
 		data, _ := char_data(node)
 		line(d, depth, "<!-- ", data, " -->")
+	case .Processing_Instruction:
+		// html5lib's `<?target data>`. lexbor's parser makes a bogus comment of
+		// `<?php x ?>` where Chrome 158's makes a processing instruction; printed, so
+		// the difference shows in the tree view as one line.
+		data, _ := char_data(node)
+		line(d, depth, "<?", pi_target(node), " ", data, ">")
 	case .CDATA_Section:
 		// Not in html5lib's format: Chrome's parser makes a CDATA section in foreign
 		// content a Text node. Printed rather than refused, so a parser that keeps the

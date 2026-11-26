@@ -14,7 +14,8 @@
 // parses as markup, as in `lava html`, whose lexbor tree also has scripting off. The
 // harness itself runs script; nothing in the case does. A case named
 // `<topic>.frag-<context>.html` is a fragment instead: the input is set as the
-// innerHTML of a `<context>` element created in a no-quirks DOMParser document
+// innerHTML of a `<context>` element (an SVG or MathML one for `frag-svg-<local>` and
+// `frag-math-<local>`) created in a no-quirks DOMParser document
 // (`<!DOCTYPE html>`, so the context's quirks mode does not differ from lexbor's
 // fresh document), and the views are of that element's children.
 //
@@ -36,8 +37,21 @@ export const CASES_DIR = join(SUITE_DIR, 'cases');
 export const KNOWN_FILE = join(SUITE_DIR, 'known-gaps.txt');
 export const KNOWN_DIR = join(SUITE_DIR, 'known');
 
-// The case-counts.json entry holding this suite's floor.
+// The case-counts.json entry holding this suite's floor. It counts the hand-written
+// cases only: the generated ones (GENERATED_PREFIX) are held to exactly what the
+// vendored html5lib inputs generate by scripts/gen-html5lib-cases.test.mjs, and those
+// inputs to their own floor ('tests/dom/html5lib'), which is the stronger guard for
+// them — and a runner test suite at a floor of ~1800 cases would spawn ~3700 stand-in
+// runs per test.
 export const FLOOR_KEY = 'tests/dom/cases';
+
+// The name prefix of the cases scripts/gen-html5lib-cases.mjs generates.
+export const GENERATED_PREFIX = 'html5lib-';
+
+/** The cases written by hand: every case but the generated ones. */
+export function handCases(cases) {
+  return cases.filter((c) => !c.startsWith(GENERATED_PREFIX));
+}
 
 // The stages of the DOM plan (docs/LARVA.md roadmap stage 3) a known gap may wait
 // on; tests/dom/README.md says what each one changes. `unplanned` is a gap no stage
@@ -70,11 +84,14 @@ export function unitsOf(cases) {
 
 /**
  * The context element of a fragment case, from its name: `<topic>.frag-<context>`
- * (`cell.frag-tr` parses as `tr.innerHTML`). null for a document case.
+ * (`cell.frag-tr` parses as `tr.innerHTML`). A foreign context is named
+ * `frag-svg-<local>` or `frag-math-<local>` and answered in html5lib's notation,
+ * `svg desc`, `math annotation-xml`. null for a document case.
  */
 export function fragmentContext(name) {
-  const m = /\.frag-([a-z][a-z0-9]*)$/.exec(name);
-  return m ? m[1] : null;
+  const m = /\.frag-(?:(svg|math)-([A-Za-z][A-Za-z0-9-]*)|([a-z][a-z0-9]*))$/.exec(name);
+  if (!m) return null;
+  return m[3] ?? `${m[1]} ${m[2]}`;
 }
 
 /** The area a case reports under: its name up to the first '-' or '.'. */
@@ -160,6 +177,8 @@ export function lavaArgs(view, context, file) {
  *                                             its children one more
  *   "data"                                    a text node, its data verbatim
  *   <!-- data -->                             a comment
+ *   <?target data>                            a processing instruction: Chrome 158
+ *                                             parses `<?php x ?>` in a body as one
  *
  * One departure from html5lib, on purpose: attributes print in the element's
  * attribute order, not sorted, because the order is observable (serialization,
@@ -202,6 +221,8 @@ export function dumpTree(nodes) {
         return line(depth, '"' + node.data + '"');
       case 8:
         return line(depth, '<!-- ' + node.data + ' -->');
+      case 7:
+        return line(depth, '<?' + node.target + ' ' + node.data + '>');
       case 10: {
         const ids = node.publicId || node.systemId ? ` "${node.publicId}" "${node.systemId}"` : '';
         return line(depth, '<!DOCTYPE ' + node.name + ids + '>');
@@ -218,7 +239,8 @@ export function dumpTree(nodes) {
  * The serialization of a document, defined as the HTML fragment serialization
  * algorithm applied to the Document node (what `lava html` prints): its children in
  * order, a doctype as `<!DOCTYPE name>` (the ids are never serialized), a comment as
- * `<!--data-->`, an element as its outerHTML; then one '\n'. For a fragment case it
+ * `<!--data-->`, a processing instruction as `<?target data?>`, an element as its
+ * outerHTML; then one '\n'. For a fragment case it
  * is the context element's innerHTML and '\n'.
  */
 export function serializeDocument(doc) {
@@ -227,6 +249,8 @@ export function serializeDocument(doc) {
     if (n.nodeType === 10) out += '<!DOCTYPE ' + n.name + '>';
     else if (n.nodeType === 8) out += '<!--' + n.data + '-->';
     else if (n.nodeType === 1) out += n.outerHTML;
+    // As Chrome 158 serializes one inside an element: `<?php x ?>` round-trips.
+    else if (n.nodeType === 7) out += '<?' + n.target + ' ' + n.data + '?>';
     else throw new Error(`node type ${n.nodeType} at the document level`);
   }
   return out + '\n';
@@ -264,7 +288,9 @@ ${serializeDocument.toString()}
       markup = serializeDocument(doc);
     } else {
       const doc = new DOMParser().parseFromString('<!DOCTYPE html>', 'text/html');
-      const el = doc.createElement(context);
+      const foreign = /^(svg|math) (.+)$/.exec(context);
+      const NS = { svg: 'http://www.w3.org/2000/svg', math: 'http://www.w3.org/1998/Math/MathML' };
+      const el = foreign ? doc.createElementNS(NS[foreign[1]], foreign[2]) : doc.createElement(context);
       el.innerHTML = text;
       tree = dumpTree(el.childNodes);
       markup = el.innerHTML + '\\n';
