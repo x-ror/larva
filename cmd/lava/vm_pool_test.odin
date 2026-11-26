@@ -33,12 +33,12 @@ repeated_eval_reuses_pooled_vm :: proc(t: ^testing.T) {
 		testing.expect_value(t, result.status, lava.Status.Ok)
 	}
 	run_one(t)
-	_, created_before := lava.vm_pool_stats(lava.thread_vm_pool())
+	_, created_before, _ := lava.vm_pool_stats(lava.thread_vm_pool())
 	fds_before := fd_census(timerfds_only = true)
 	for _ in 0 ..< 40 {
 		run_one(t)
 	}
-	busy, created_after := lava.vm_pool_stats(lava.thread_vm_pool())
+	busy, created_after, _ := lava.vm_pool_stats(lava.thread_vm_pool())
 	testing.expect_value(t, created_after, created_before)
 	testing.expect_value(t, busy, 0)
 	// The pool counters above hold under any runner; the fd census needs one thread
@@ -101,7 +101,7 @@ vm_pool_respects_capacity :: proc(t: ^testing.T) {
 	d, err2 := lava.vm_acquire(&pool)
 	testing.expect_value(t, err2, lava.VM_Pool_Error.None)
 	testing.expect(t, d == a, "released VM was not reused")
-	busy, created := lava.vm_pool_stats(&pool)
+	busy, created, _ := lava.vm_pool_stats(&pool)
 	testing.expect_value(t, busy, 2)
 	testing.expect_value(t, created, 2)
 	lava.vm_release(b)
@@ -181,7 +181,7 @@ eval_reports_exhausted_vm_pool :: proc(t: ^testing.T) {
 			lava.vm_release(vm)
 		}
 		lava.thread_vm_pool_destroy()
-		busy, _ := lava.vm_pool_stats(lava.thread_vm_pool())
+		busy, _, _ := lava.vm_pool_stats(lava.thread_vm_pool())
 		testing.expect_value(t, busy, 0)
 	}
 

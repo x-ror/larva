@@ -736,6 +736,7 @@ page_close :: proc(
 	   page.result.kill == .None {
 		if bytes, ok := jsc.heap_size_bytes(ctx); ok {
 			page.result.heap_bytes = bytes
+			page.vm.heap_bytes = bytes
 			page.vm.collect_pending = bytes >= HEAP_COLLECT_BYTES
 		}
 	}

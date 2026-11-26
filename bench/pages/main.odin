@@ -20,6 +20,9 @@
 //        first to last of the K callbacks), and the runner `max_round_ms=`. slice_us is
 //        Page_Runner.slice_us (default RUNNER_SLICE_US; 0 = no slicing). M = 0 times
 //        the hog alone, for what slicing costs it.
+// Retirement: BENCH_RETIRE=off turns VM retirement off for the runner (VM_Pool.
+//        retire_after_pages and retire_heap_bytes 0); BENCH_RETIRE=<n> retires every
+//        n pages instead of VM_RETIRE_AFTER_PAGES. The churn line reports `retired=`.
 // Smoke: make test-bench-pages-smoke (CI) — a small run must report no failed page,
 //        and a run with budget 0 must report every page failed and exit 1.
 //
@@ -163,6 +166,14 @@ main :: proc() {
 		os.exit(1)
 	}
 	defer lava.page_runner_destroy(&runner)
+	if v, ok := os.lookup_env("BENCH_RETIRE", context.temp_allocator); ok {
+		if v == "off" {
+			runner.pool.retire_after_pages = 0
+			runner.pool.retire_heap_bytes = 0
+		} else if every, parsed := strconv.parse_int(v); parsed {
+			runner.pool.retire_after_pages = every
+		}
+	}
 
 	rss_base := rss_kb()
 	// Round 1: every page gets a VM that has never run anything.
@@ -196,9 +207,9 @@ main :: proc() {
 	secs := time.duration_seconds(time.tick_since(start))
 	rss_end := rss_kb()
 
-	_, created := lava.vm_pool_stats(&runner.pool)
+	_, created, retired := lava.vm_pool_stats(&runner.pool)
 	fmt.printf(
-		"N=%d cold_ms=%.2f warm_ms=%.2f rss_growth_kb_per_live_page=%d rss_growth_kb_per_vm=%d pages_per_s=%.0f total=%d cold_failed=%d warm_failed=%d churn_failed=%d vms=%d heap_every=%d sampled=%d\n",
+		"N=%d cold_ms=%.2f warm_ms=%.2f rss_growth_kb_per_live_page=%d rss_growth_kb_per_vm=%d pages_per_s=%.0f total=%d cold_failed=%d warm_failed=%d churn_failed=%d vms=%d heap_every=%d sampled=%d retired=%d rss_growth_kb=%d\n",
 		n,
 		cold_ms,
 		warm_ms,
@@ -212,6 +223,8 @@ main :: proc() {
 		created,
 		heap_every,
 		churn.sampled,
+		retired,
+		rss_end - rss_base,
 	)
 	if cold.failed + warm.failed + churn.failed > 0 do os.exit(1)
 }
