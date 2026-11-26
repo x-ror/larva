@@ -5,13 +5,13 @@
 (function (require, module) {
   'use strict';
 
-  // The public Web Streams implementation (js/node/stream/web.js). fetch builds
+  // The public Web Streams implementation (internal/webstreams/index.js). fetch builds
   // response bodies and consumes request bodies through this same ReadableStream
   // type, so `response.body` is a real, standard ReadableStream — not a fetch-only
   // fork. The `_internal` helpers let the transport drive a stream's controller
   // (enqueue/close/error + desiredSize backpressure) without re-implementing the
   // controller plumbing here.
-  var webStreams = require('node:stream/web');
+  var webStreams = require('internal/webstreams/index');
   var ReadableStream = webStreams.ReadableStream;
   var streamInternal = webStreams._internal;
 

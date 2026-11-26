@@ -1,12 +1,14 @@
 /**
  * @fileoverview Blob (WHATWG File API) and the `blob:` object-URL registry —
  * node's lib/internal/blob.js. Re-exported from node:buffer (`Blob`,
- * `resolveObjectURL`); node/buffer.js also installs the `Blob` global and the
- * `URL.createObjectURL`/`revokeObjectURL` statics, so the order of every global
- * install stays where it was before this file was split out of it.
+ * `resolveObjectURL`). This file installs the `Blob` global and the
+ * `URL.createObjectURL`/`revokeObjectURL` statics itself, at the end of module-eval,
+ * so the Window surface has them without a node/ module; internal/url.js copies the
+ * statics onto the URL class when it replaces the stub.
  *
  * Instantiated eagerly: node/buffer.js requires it at its top level, before user
- * code runs, so the module-eval captures below are pristine.
+ * code runs, so the module-eval captures below are pristine (the loader also names
+ * it as a root of its own).
  *
  * @module lava/internal/blob
  */
@@ -200,7 +202,7 @@
 
     stream() {
       var parts = this._parts;
-      var ReadableStream = require('node:stream/web').ReadableStream;
+      var ReadableStream = require('internal/webstreams/index').ReadableStream;
       return new ReadableStream({
         start: function (controller) {
           for (var i = 0; i < parts.length; i++) controller.enqueue(new Uint8ArrayG(parts[i]));
@@ -289,6 +291,25 @@
     var blob = objectUrlRegistry[`${id}`];
     if (blob === undefined) return;
     return new Blob([blob], { type: blob.type });
+  }
+
+  // The first web globals installed, in the order node/buffer.js installed them before
+  // they moved here: the URL statics (on a stub object, which internal/url.js replaces
+  // with the class later in the loader's eager list), then Blob. File, atob and btoa
+  // follow from internal/file.js and internal/base64.js, which node/buffer.js requires
+  // next. The one name whose place moved is Node-only: `Buffer` is installed at the end
+  // of node/buffer.js, so it now follows these five in the global object's property
+  // order instead of following URL. `.Web` deletes Buffer, so its order is unchanged.
+  if (globalThis.URL === undefined) {
+    globalThis.URL = { createObjectURL: createObjectURL, revokeObjectURL: revokeObjectURL };
+  } else {
+    if (typeof globalThis.URL.createObjectURL !== 'function')
+      globalThis.URL.createObjectURL = createObjectURL;
+    if (typeof globalThis.URL.revokeObjectURL !== 'function')
+      globalThis.URL.revokeObjectURL = revokeObjectURL;
+  }
+  if (globalThis.Blob === undefined) {
+    globalThis.Blob = Blob;
   }
 
   module.exports = {

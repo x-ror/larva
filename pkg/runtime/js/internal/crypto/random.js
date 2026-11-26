@@ -1,5 +1,7 @@
 // The CSPRNG surface — randomBytes, randomFill/randomFillSync, randomInt, randomUUID and
-// getRandomValues — where node keeps it: lib/internal/crypto/random.js.
+// getRandomValues — where node keeps it: lib/internal/crypto/random.js. It also installs
+// the WHATWG `globalThis.crypto` (below), so the Window surface gets it without
+// instantiating node/crypto.js.
 //
 // @param {{ randomFill: Function, randomInt: Function }} native node:crypto's bindings
 //   (the loader hands this file the same object as node/crypto.js).
@@ -213,6 +215,18 @@
       return;
     }
     return sample();
+  }
+
+  // WHATWG Web Crypto global. Only the random surface is provided here;
+  // crypto.subtle is a follow-up. The loader instantiates this file before user code
+  // on both surfaces, as the last module that installs a global — the slot
+  // node/crypto.js held when the install lived there — and node/crypto.js exports
+  // these same two functions.
+  if (globalThis.crypto === undefined) {
+    globalThis.crypto = {
+      randomUUID: randomUUID,
+      getRandomValues: getRandomValues,
+    };
   }
 
   module.exports = {
