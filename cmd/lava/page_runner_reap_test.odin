@@ -29,6 +29,15 @@ import eventloop "lava:pkg/runtime/eventloop"
 // opens the FIFO's write end after `delay`. It is the red phase's way out — a close
 // that joins the worker would otherwise hang the test binary — so these tests fail on
 // a timing assertion rather than time out.
+//
+// No testing.fail_now once an Unblocker, the stub resolver or a runner is up: fail_now
+// traps, and core:testing parks the test thread until it is killed, so no `defer`
+// runs. The Unblocker lives on that thread's stack and is joined only by its deferred
+// unblocker_stop; skipped, it wakes after its delay and reads a dead stack, faulting
+// after the run reports — "A thread started by a test has caught an unrecoverable
+// error (signal 11)", which is how runner_destroy_does_not_wait_for_blocked_workers,
+// red once node:fs was gone, crashed run-odin-green.sh's still-red check. Fail with
+// testing.expect and `return` instead, so the defers join and free what the test made.
 
 @(private = "file")
 LIMITS :: lava.Page_Limits {
@@ -190,8 +199,10 @@ runner_close_does_not_wait_for_a_worker_blocked_on_a_fifo :: proc(t: ^testing.T)
 	defer unblocker_stop(&u)
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 2, record_page_outcome, context.allocator) {
-		testing.fail_now(t, "page_runner_init failed")
+	inited := lava.page_runner_init(&runner, 2, record_page_outcome, context.allocator)
+
+	if !testing.expect(t, inited, "page_runner_init failed") {
+		return
 	}
 
 	defer lava.page_runner_destroy(&runner)
@@ -308,8 +319,8 @@ runner_close_does_not_wait_for_a_hanging_dns_lookup :: proc(t: ^testing.T) {
 	defer stub_resolver_end()
 	arena: virtual.Arena
 
-	if virtual.arena_init_growing(&arena) != nil {
-		testing.fail_now(t, "arena_init_growing failed")
+	if !testing.expect(t, virtual.arena_init_growing(&arena) == nil, "arena_init_growing failed") {
+		return
 	}
 
 	arena_live := true
@@ -318,8 +329,10 @@ runner_close_does_not_wait_for_a_hanging_dns_lookup :: proc(t: ^testing.T) {
 	}
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 3, record_page_outcome, virtual.arena_allocator(&arena)) {
-		testing.fail_now(t, "page_runner_init failed")
+	inited := lava.page_runner_init(&runner, 3, record_page_outcome, virtual.arena_allocator(&arena))
+
+	if !testing.expect(t, inited, "page_runner_init failed") {
+		return
 	}
 
 	f, d, b: Page_Outcome
@@ -347,11 +360,10 @@ runner_close_does_not_wait_for_a_hanging_dns_lookup :: proc(t: ^testing.T) {
 	expect_exit(t, b, 7, "sibling")
 	testing.expectf(t, wall < 1, "the runner took %.2fs: page_close waited for a DNS lookup", wall)
 
-	if lava.page_runner_orphans(&runner) != 2 {
-		lava.page_runner_destroy(&runner)
-		testing.fail_now(t, "the lookups are not orphans of the runner's pool")
-	}
-
+	// Not fatal, and no early destroy: whatever the count, the pool is kept and waited
+	// on below, so no lookup outlives the test into stub_resolver_end's frees of the
+	// paths core:net re-reads (see the fail_now note at the top of the file).
+	testing.expect_value(t, lava.page_runner_orphans(&runner), 2)
 	pool := runner.workers
 	eventloop.pool_retain(pool)
 	defer eventloop.pool_release(pool)
@@ -403,8 +415,10 @@ runner_page_with_stalled_lookups_does_not_starve_a_sibling :: proc(t: ^testing.T
 	defer stub_resolver_end()
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 2, stall_done, context.allocator) {
-		testing.fail_now(t, "page_runner_init failed")
+	inited := lava.page_runner_init(&runner, 2, stall_done, context.allocator)
+
+	if !testing.expect(t, inited, "page_runner_init failed") {
+		return
 	}
 
 	s: Stall
@@ -492,8 +506,10 @@ runner_second_page_in_a_reused_vm_gets_no_callback_from_the_first_pages_job :: p
 	defer unblocker_stop(&r.release)
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 1, reuse_done, context.allocator) {
-		testing.fail_now(t, "page_runner_init failed")
+	inited := lava.page_runner_init(&runner, 1, reuse_done, context.allocator)
+
+	if !testing.expect(t, inited, "page_runner_init failed") {
+		return
 	}
 
 	defer lava.page_runner_destroy(&runner)
@@ -530,8 +546,10 @@ runner_refuses_pages_at_its_orphan_bound :: proc(t: ^testing.T) {
 	defer unblocker_stop(&u)
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 4, record_page_outcome, context.allocator) {
-		testing.fail_now(t, "page_runner_init failed")
+	inited := lava.page_runner_init(&runner, 4, record_page_outcome, context.allocator)
+
+	if !testing.expect(t, inited, "page_runner_init failed") {
+		return
 	}
 
 	defer lava.page_runner_destroy(&runner)
@@ -594,8 +612,10 @@ runner_destroy_does_not_wait_for_blocked_workers :: proc(t: ^testing.T) {
 		warm: lava.Page_Runner
 		w: Page_Outcome
 
-		if !lava.page_runner_init(&warm, 1, record_page_outcome, context.allocator) {
-			testing.fail_now(t, "page_runner_init failed")
+		inited := lava.page_runner_init(&warm, 1, record_page_outcome, context.allocator)
+
+		if !testing.expect(t, inited, "page_runner_init failed") {
+			return
 		}
 
 		lava.page_runner_open(&warm, QUICK_PAGE, "<warm>", LIMITS, &w)
@@ -606,8 +626,8 @@ runner_destroy_does_not_wait_for_blocked_workers :: proc(t: ^testing.T) {
 
 	arena: virtual.Arena
 
-	if virtual.arena_init_growing(&arena) != nil {
-		testing.fail_now(t, "arena_init_growing failed")
+	if !testing.expect(t, virtual.arena_init_growing(&arena) == nil, "arena_init_growing failed") {
+		return
 	}
 
 	arena_live := true
@@ -616,8 +636,10 @@ runner_destroy_does_not_wait_for_blocked_workers :: proc(t: ^testing.T) {
 	}
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 2, record_page_outcome, virtual.arena_allocator(&arena)) {
-		testing.fail_now(t, "page_runner_init failed")
+	inited := lava.page_runner_init(&runner, 2, record_page_outcome, virtual.arena_allocator(&arena))
+
+	if !testing.expect(t, inited, "page_runner_init failed") {
+		return
 	}
 
 	closed_src := fifo_page(fifos[0])
@@ -630,9 +652,9 @@ runner_destroy_does_not_wait_for_blocked_workers :: proc(t: ^testing.T) {
 	lava.page_runner_run(&runner)
 	expect_exit(t, closed, 4, "closed page")
 
-	if lava.page_runner_orphans(&runner) != 1 {
+	if !testing.expect_value(t, lava.page_runner_orphans(&runner), 1) {
 		lava.page_runner_destroy(&runner)
-		testing.fail_now(t, "the closed page's job is not an orphan of the runner's pool")
+		return
 	}
 
 	lava.page_runner_open(&runner, live_src, "<live>", LIMITS, &live)
@@ -689,8 +711,10 @@ runner_orphans_free_through_matching_allocators :: proc(t: ^testing.T) {
 
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 2, record_page_outcome, mem.tracking_allocator(&track)) {
-		testing.fail_now(t, "page_runner_init failed")
+	inited := lava.page_runner_init(&runner, 2, record_page_outcome, mem.tracking_allocator(&track))
+
+	if !testing.expect(t, inited, "page_runner_init failed") {
+		return
 	}
 
 	src := fifo_page(fifo)
