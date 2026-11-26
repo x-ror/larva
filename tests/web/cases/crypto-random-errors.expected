@@ -1,0 +1,33 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs crypto-random-errors
+# ---
+no argument: TypeError TypeError code undefined own code false [object Error]
+  "Failed to execute 'getRandomValues' on 'Crypto': 1 argument required, but only 0 present."
+undefined: TypeError TypeError code undefined own code false [object Error]
+  "Failed to execute 'getRandomValues' on 'Crypto': parameter 1 is not of type 'ArrayBufferView'."
+null: TypeError TypeError code undefined own code false [object Error]
+  "Failed to execute 'getRandomValues' on 'Crypto': parameter 1 is not of type 'ArrayBufferView'."
+array: TypeError TypeError code undefined own code false [object Error]
+  "Failed to execute 'getRandomValues' on 'Crypto': parameter 1 is not of type 'ArrayBufferView'."
+ArrayBuffer: TypeError TypeError code undefined own code false [object Error]
+  "Failed to execute 'getRandomValues' on 'Crypto': parameter 1 is not of type 'ArrayBufferView'."
+Float32Array: DOMException TypeMismatchError code 17 own code false [object DOMException]
+  "Failed to execute 'getRandomValues' on 'Crypto': The provided ArrayBufferView is of type 'Float32', which is not an integer array type."
+Float64Array: DOMException TypeMismatchError code 17 own code false [object DOMException]
+  "Failed to execute 'getRandomValues' on 'Crypto': The provided ArrayBufferView is of type 'Float64', which is not an integer array type."
+DataView: DOMException TypeMismatchError code 17 own code false [object DOMException]
+  "Failed to execute 'getRandomValues' on 'Crypto': The provided ArrayBufferView is of type 'DataView', which is not an integer array type."
+Uint8Array 65537: QuotaExceededError QuotaExceededError code 22 own code false [object QuotaExceededError]
+  "Failed to execute 'getRandomValues' on 'Crypto': The ArrayBufferView's byte length (65537) exceeds the number of bytes of entropy available via this API (65536)."
+  quota null requested null
+Uint32Array 16385: QuotaExceededError QuotaExceededError code 22 own code false [object QuotaExceededError]
+  "Failed to execute 'getRandomValues' on 'Crypto': The ArrayBufferView's byte length (65540) exceeds the number of bytes of entropy available via this API (65536)."
+  quota null requested null
+Float32Array 20000: DOMException TypeMismatchError code 17 own code false [object DOMException]
+  "Failed to execute 'getRandomValues' on 'Crypto': The provided ArrayBufferView is of type 'Float32', which is not an integer array type."
+BigInt64Array: no throw
+Uint8ClampedArray: no throw
+Uint16Array 32768: no throw

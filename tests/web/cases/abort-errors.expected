@@ -1,0 +1,12 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs abort-errors
+# ---
+new AbortSignal(): TypeError TypeError "Failed to construct 'AbortSignal': Illegal constructor" own code false
+AbortController(): TypeError TypeError "Failed to construct 'AbortController': Please use the 'new' operator, this DOM object constructor cannot be called as a function." own code false
+AbortSignal.any(1): TypeError TypeError "Failed to execute 'any' on 'AbortSignal': The provided value cannot be converted to a sequence." own code false
+AbortSignal.any({}): TypeError TypeError "Failed to execute 'any' on 'AbortSignal': The object must have a callable @@iterator property." own code false
+throwIfAborted: DOMException AbortError "signal is aborted without reason" own code false
+throwIfAborted custom: String undefined undefined own code false

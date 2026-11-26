@@ -27,13 +27,13 @@
     "method": 6,
     "invoke": 2,
     "accessor": 0,
-    "global": 9
+    "global": 7
   },
   "internal/base64.js": {
     "method": 2,
     "invoke": 0,
     "accessor": 0,
-    "global": 3
+    "global": 2
   },
   "internal/blob.js": {
     "method": 0,
@@ -50,14 +50,26 @@
   "internal/crypto/random.js": {
     "method": 0,
     "invoke": 0,
-    "accessor": 12,
-    "global": 24
+    "accessor": 4,
+    "global": 17
   },
   "internal/crypto/util.js": {
     "method": 2,
     "invoke": 0,
     "accessor": 4,
     "global": 12
+  },
+  "internal/deferred.js": {
+    "method": 0,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 0
+  },
+  "internal/domexception.js": {
+    "method": 0,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 0
   },
   "internal/encoding.js": {
     "method": 0,
@@ -250,6 +262,12 @@
     "invoke": 3,
     "accessor": 2,
     "global": 22
+  },
+  "internal/web_errors.js": {
+    "method": 0,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 0
   },
   "internal/webstreams/adapters.js": {
     "method": 7,

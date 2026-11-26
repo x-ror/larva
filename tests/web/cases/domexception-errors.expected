@@ -1,0 +1,19 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs domexception-errors
+# ---
+Symbol message: TypeError "Failed to construct 'DOMException': Cannot convert a Symbol value to a string" own code false
+Symbol name: TypeError "Failed to construct 'DOMException': Cannot convert a Symbol value to a string" own code false
+name on the prototype: TypeError "Illegal invocation" own code false
+code on an Error: TypeError "Illegal invocation" own code false
+message on a plain object: TypeError "Illegal invocation" own code false
+quota on a DOMException: TypeError "Illegal invocation" own code false
+quota NaN: TypeError "Failed to construct 'QuotaExceededError': Failed to read the 'quota' property from 'QuotaExceededErrorOptions': The provided double value is non-finite." own code false
+requested Infinity: TypeError "Failed to construct 'QuotaExceededError': Failed to read the 'requested' property from 'QuotaExceededErrorOptions': The provided double value is non-finite." own code false
+options 5: TypeError "Failed to construct 'QuotaExceededError': The provided value is not of type 'QuotaExceededErrorOptions'." own code false
+options string: TypeError "Failed to construct 'QuotaExceededError': The provided value is not of type 'QuotaExceededErrorOptions'." own code false
+options function: no throw
+negative quota: no throw
+requested below quota: no throw

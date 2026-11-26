@@ -1,0 +1,36 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs base64-errors
+# ---
+atob !: DOMException InvalidCharacterError code 5 own code false [object DOMException]
+  "Failed to execute 'atob' on 'Window': The string to be decoded is not correctly encoded."
+atob VT: DOMException InvalidCharacterError code 5 own code false [object DOMException]
+  "Failed to execute 'atob' on 'Window': The string to be decoded is not correctly encoded."
+atob Z: DOMException InvalidCharacterError code 5 own code false [object DOMException]
+  "Failed to execute 'atob' on 'Window': The string to be decoded is not correctly encoded."
+atob a=: DOMException InvalidCharacterError code 5 own code false [object DOMException]
+  "Failed to execute 'atob' on 'Window': The string to be decoded is not correctly encoded."
+atob ab=: DOMException InvalidCharacterError code 5 own code false [object DOMException]
+  "Failed to execute 'atob' on 'Window': The string to be decoded is not correctly encoded."
+atob =ab: DOMException InvalidCharacterError code 5 own code false [object DOMException]
+  "Failed to execute 'atob' on 'Window': The string to be decoded is not correctly encoded."
+atob ab===: DOMException InvalidCharacterError code 5 own code false [object DOMException]
+  "Failed to execute 'atob' on 'Window': The string to be decoded is not correctly encoded."
+atob Zm9v=: DOMException InvalidCharacterError code 5 own code false [object DOMException]
+  "Failed to execute 'atob' on 'Window': The string to be decoded is not correctly encoded."
+atob ok: "foobar"
+btoa U+0100: DOMException InvalidCharacterError code 5 own code false [object DOMException]
+  "Failed to execute 'btoa' on 'Window': The string to be encoded contains characters outside of the Latin1 range."
+btoa ok: "/w=="
+atob(): TypeError TypeError code undefined own code false [object Error]
+  "Failed to execute 'atob' on 'Window': 1 argument required, but only 0 present."
+btoa(): TypeError TypeError code undefined own code false [object Error]
+  "Failed to execute 'btoa' on 'Window': 1 argument required, but only 0 present."
+atob Symbol: TypeError TypeError code undefined own code false [object Error]
+  "Failed to execute 'atob' on 'Window': Cannot convert a Symbol value to a string"
+btoa Symbol: TypeError TypeError code undefined own code false [object Error]
+  "Failed to execute 'btoa' on 'Window': Cannot convert a Symbol value to a string"
+atob null: "ée"
+btoa undefined: "dW5kZWZpbmVk"

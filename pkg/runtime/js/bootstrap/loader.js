@@ -37,6 +37,11 @@
   // node:buffer's codecs and numeric accessors live in internal/buffer.js (node's
   // lib/internal/buffer seam); it decodes through node:buffer's own bindings object.
   natives['internal/buffer'] = natives['node/buffer'];
+  // The surface, for the one module shared Web API code takes its error text from
+  // (internal/web_errors: Chrome's on `.Web`, node's on `.Node`). Handed in as that
+  // module's factory argument — set here, before any module runs, from the flag Odin
+  // passed — rather than read off anything user code could reach or replace.
+  natives['internal/web_errors'] = Object.freeze({ __proto__: null, web: web === true });
 
   // Prefix test by code unit. The specifier comes from user code on the public path,
   // so a String.prototype method here would be a live, replaceable read deciding
@@ -172,6 +177,9 @@
   req('internal/webstreams/index');
   if (!web) req('stream/web');
   req('internal/fetch');
+  // DOMException/QuotaExceededError: required by internal/abort at its top level, named
+  // here because it installs the two globals.
+  req('internal/domexception');
   req('internal/abort');
   req('internal/encoding');
   req('internal/url');

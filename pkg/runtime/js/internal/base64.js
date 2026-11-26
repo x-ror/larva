@@ -24,15 +24,54 @@
   var P = require('internal/primordials');
   var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;
   var ERR_MISSING_ARGS = require('internal/errors').ERR_MISSING_ARGS;
+  var DOMException = require('internal/domexception').DOMException;
+  var webErrors = require('internal/web_errors');
+  var web = webErrors.web;
+  var argumentsRequired = webErrors.argumentsRequired;
+  var context = webErrors.context;
+  var toDOMString = webErrors.toDOMString;
+  var typeError = webErrors.typeError;
 
-  // Node throws a DOMException here; Lava has no DOMException (same gap as
-  // structured_clone.js's DataCloneError), so this is an Error carrying the
-  // DOMException's name and legacy numeric code.
-  function errInvalidCharacter(message) {
-    var e = new Error(message);
-    e.name = 'InvalidCharacterError';
-    e.code = 5;
-    return e;
+  // An InvalidCharacterError DOMException (legacy code 5) on both surfaces — node's and
+  // Chrome's shape alike. `nodeMessage` is node's text, which tells the bad-character
+  // and bad-length cases apart; Chrome has one sentence per function for every reason
+  // (tests/web/cases/base64-errors.expected). `op` defaults to atob, whose call sites
+  // pass node's text alone.
+  function errInvalidCharacter(nodeMessage, op) {
+    if (op === undefined) {
+      op = 'atob';
+    }
+
+    if (!web) {
+      return new DOMException(nodeMessage, 'InvalidCharacterError');
+    }
+
+    return new DOMException(
+      context('Window', op) +
+        (op === 'btoa'
+          ? 'The string to be encoded contains characters outside of the Latin1 range.'
+          : 'The string to be decoded is not correctly encoded.'),
+      'InvalidCharacterError',
+    );
+  }
+
+  // The argument check and DOMString conversion both share: Chrome's arity TypeError
+  // and Symbol refusal on the Window surface, node's ERR_MISSING_ARGS and a template
+  // literal (whose own TypeError a Symbol raises) on the Node one.
+  function toInput(args, op) {
+    if (!web) {
+      if (args.length === 0) {
+        throw ERR_MISSING_ARGS('input');
+      }
+
+      return `${args[0]}`;
+    }
+
+    if (args.length === 0) {
+      throw typeError('Window', op, argumentsRequired(1, 0));
+    }
+
+    return toDOMString(args[0], 'Window', op);
   }
 
   // One native regex scan instead of a per-char StringPrototypeCharCodeAt loop
@@ -53,19 +92,19 @@
    * atob are the same function, as in Node).
    * @param {*} input Stringified with a template literal, like Node (`${input}`).
    * @returns {string}
-   * @throws {TypeError} ERR_MISSING_ARGS — called with no argument.
-   * @throws {Error} name InvalidCharacterError, code 5 — a character outside
+   * @throws {TypeError} called with no argument (node: ERR_MISSING_ARGS), or a Symbol.
+   * @throws {DOMException} InvalidCharacterError (5) — a character outside
    *         A-Za-z0-9+/= and ASCII whitespace, '=' not at the end or more than two,
    *         '=' when the length is not a multiple of 4, or a lone trailing character.
-   * @node Mirrors lib/buffer.js atob: whitespace is TAB LF FF CR SPACE (not VT); the
+   * @node Mirrors lib/buffer.js atob: whitespace is TAB LF FF CR SPACE (not VT); node's
    *       messages are 'Invalid character' and 'The string to be decoded is not
    *       correctly encoded.' (node 26.13.0, tests/node-compat/cases/03-buffer.js).
-   * @deviates The error is an Error, not a DOMException (Lava has none); name, code
-   *           and message match. Pinned by cmd/lava/atob_invalid_character_test.odin.
+   *       Window surface: Chrome 158's one message for every decode failure and its
+   *       WebIDL TypeErrors, tests/web/cases/base64-errors.expected.
+   * @deviates none
    */
   function atob(input) {
-    if (arguments.length === 0) throw ERR_MISSING_ARGS('input');
-    input = `${input}`;
+    input = toInput(arguments, 'atob');
     var nonWhitespace = 0;
     var equals = 0;
     if (!P.RegExpMatches(ATOB_SLOW_RE, input)) {
@@ -105,16 +144,16 @@
    * latin1 → Base64 (global btoa and node:buffer's btoa are the same function).
    * @param {*} input Stringified with a template literal, like Node.
    * @returns {string}
-   * @throws {TypeError} ERR_MISSING_ARGS — called with no argument.
-   * @throws {Error} name InvalidCharacterError, code 5 — a code unit above 0xFF.
-   * @node lib/buffer.js btoa (node 26.13.0, tests/node-compat/cases/03-buffer.js).
-   * @deviates Not a DOMException, as for atob; pinned by
-   *           cmd/lava/atob_invalid_character_test.odin.
+   * @throws {TypeError} called with no argument (node: ERR_MISSING_ARGS), or a Symbol.
+   * @throws {DOMException} InvalidCharacterError (5) — a code unit above 0xFF.
+   * @node lib/buffer.js btoa (node 26.13.0, tests/node-compat/cases/03-buffer.js);
+   *       Window surface as for atob.
+   * @deviates none
    */
   function btoa(input) {
-    if (arguments.length === 0) throw ERR_MISSING_ARGS('input');
-    input = `${input}`;
-    if (P.RegExpMatches(NON_LATIN1_RE, input)) throw errInvalidCharacter('Invalid character');
+    input = toInput(arguments, 'btoa');
+    if (P.RegExpMatches(NON_LATIN1_RE, input))
+      throw errInvalidCharacter('Invalid character', 'btoa');
     var Buffer = require.pristineBuffer.Buffer;
     return Buffer.from(input, 'latin1').toString('base64');
   }
