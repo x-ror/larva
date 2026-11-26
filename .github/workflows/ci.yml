@@ -155,6 +155,22 @@ jobs:
       - name: Build
         run: make build
 
+      # The known-red skip list and its runner may only change with a human. Widening the
+      # list is how a new red would hide in the step below, and the gate-integrity hook
+      # (runtime/gates/integrity.mjs) does not cover these two files, so they are pinned
+      # here instead: .github/workflows/ is protected, and any edit to either file —
+      # shrinking the list included — fails until a human updates the hashes below.
+      - name: Skip list unchanged (cmd/lava/known-node-red.txt, scripts/run-odin-green.sh)
+        run: |
+          if ! sha256sum --check --strict --quiet <<'SUMS'
+          70c30752926b78cd40097c1246e639718e048454e7fe5ce47e9e5b40d29c0f1b  cmd/lava/known-node-red.txt
+          8d2ffbc8646f82381de2ec0ee44d1f609243d4f653cc9786d6cc430fba477475  scripts/run-odin-green.sh
+          SUMS
+          then
+            echo "::error::cmd/lava/known-node-red.txt or scripts/run-odin-green.sh changed. The known-red list may only shrink and needs a human: review the change, then update the sha256 values in .github/workflows/ci.yml (test job, 'Skip list unchanged')."
+            exit 1
+          fi
+
       # cmd/lava minus cmd/lava/known-node-red.txt: the 14 tests whose pages still
       # require a Node module the build no longer has (node:fs/os/net/dns/http), each
       # listed with what it needs. S5a rewrites them onto the Window surface; until then

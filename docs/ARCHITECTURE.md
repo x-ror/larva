@@ -204,14 +204,11 @@ helpers), `request` and `response` (each requiring `headers` and `body`), while
 `internal/fetch` keeps the driver — body collection, redirects, the hand-off to
 `native.request` — because the loader keys natives by module id, and installs the globals.
 All five are eager through `internal/fetch`. Crypto follows node's `lib/internal/crypto`
-seams, so its frames read `node:internal/crypto/pbkdf2` exactly as node's do:
-`internal/crypto/util` (validators, byte coercion, the digest table and `getHashes`),
-`hash` (`Hash`, `Hmac`, one-shot `hash`), `random`, `pbkdf2`, `hkdf` and `scrypt`, each
-requiring only `util`. `node/crypto` keeps `createHash`/`createHmac` and `timingSafeEqual`
-where node's `lib/crypto.js` has them, assembles the exports in their old order and
-installs `globalThis.crypto`; the five files that call into Odin get the `node/crypto`
-bindings through the same `loader.js` aliasing as http. All seven are eager through the one
-`req('crypto')` root. Util follows node's `lib/internal/util` seams the same way:
+seams: `internal/crypto/util` (validators and byte coercion) and `random` (the CSPRNG and the
+WHATWG `globalThis.crypto`), `random` requiring only `util`. `node/crypto` keeps
+`timingSafeEqual` where node's `lib/crypto.js` has it and assembles the exports; `random`
+gets the `node/crypto` bindings through `loader.js` aliasing. Hashing, HMAC and the KDFs
+(`hash`, `pbkdf2`, `hkdf`, `scrypt`, `getHashes`) went with the Node profile (stage S3). Util follows node's `lib/internal/util` seams the same way:
 `internal/util/inspect` (`inspect`, `format`/`formatWithOptions`,
 `stripVTControlCharacters`, the `inspect.colors` table), `internal/util/comparisons`
 (`isDeepStrictEqual`), `internal/util/debuglog` (requiring `inspect` for its formatting)
@@ -227,11 +224,7 @@ the statics, the pool, the `lib/buffer.js` prototype methods and `atob`/`btoa`, 
 installer where those methods were always assigned (the prototype's key order is
 unchanged), and captures the codecs once at module-eval, so a `toString` pays the same
 closure call as before. `internal/buffer` decodes through `node/buffer`'s bindings via the
-same `loader.js` aliasing, and is eager through `req('buffer')`. `os` moves only its
-data: `internal/os/constants` holds the signal, errno, priority and dlopen tables, which
-node reads from its C++ constants binding rather than `lib/os.js`. The tables throw
-nothing, so no frame moves; they call no native, so there is no alias, and the file stays
-lazy behind `require('os')`. URL takes node's `lib/internal/url` seam: `internal/url` holds
+same `loader.js` aliasing, and is eager through `req('buffer')`. URL takes node's `lib/internal/url` seam: `internal/url` holds
 the URL Standard parser, `URL`, `URLSearchParams`, `fileURLToPath`, `urlToHttpOptions` and
 `domainToASCII`/`domainToUnicode`, so an invalid URL or a bad `fileURLToPath` argument frames
 `node:internal/url` as node's does. `node/url` keeps `pathToFileURL` and `format`, which
@@ -441,7 +434,7 @@ operation vs `fetch_destroy_pending` at teardown; a pool job disposed by a worke
 the loop thread), which a "rebind `context.allocator` at the callback entry" approach
 cannot cover. Dynamic-array fields (`response`/`carry`/`body_out`, `results`) carry their
 own bound allocator, so `delete()` already frees them correctly. Guarded by
-`module_cache_alloc_test`, `dns_alloc_test` and `timer_binding_frees_through_its_own_allocator`
+`module_cache_alloc_test`, `fetch_dns_alloc_test` and `timer_binding_frees_through_its_own_allocator`
 (eval under a tracking allocator asserts no bad frees; the timer test also asserts the
 bindings were routed through it and none leaked).
 

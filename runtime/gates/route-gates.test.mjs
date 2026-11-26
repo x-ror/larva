@@ -22,10 +22,26 @@ test('buffer path routes bun-buffer + api-surface (non-CI)', () => {
   assert.ok(r.targets.includes('make api-surface'));
 });
 
-test('bench path routes bench-gate', () => {
+test('bench path routes bench-gate, reported as non-CI during the Node-profile removal', () => {
   const r = routePaths(['bench/micro/url.js']);
   assert.ok(r.targets.includes('make bench-gate'));
-  assert.ok(!r.nonCi.includes('make bench-gate'));
+  assert.ok(r.nonCi.includes('make bench-gate'));
+});
+
+test('the always-set runs the green cmd/lava gate, not the red-by-design ones', () => {
+  const t = routePaths(['pkg/runtime/page.odin']).targets;
+  for (const g of ['make test-odin-green', 'make test-odin-green SERIAL=1', 'make test-web'])
+    assert.ok(t.includes(g), g);
+  for (const g of ['make test', 'make test-odin-serial']) assert.ok(!t.includes(g), g);
+});
+
+test('the known-red skip list and its runner route the green gate and the workflow lint', () => {
+  for (const p of ['cmd/lava/known-node-red.txt', 'scripts/run-odin-green.sh']) {
+    const r = routePaths([p]);
+    assert.ok(r.matched.length > 0, p + ' matched no route');
+    for (const g of ['make test-odin-green SERIAL=1', 'make check-actions'])
+      assert.ok(r.targets.includes(g), p + ' ' + g);
+  }
 });
 
 test('fetch internals route the fetch smoke, entry and split files alike', () => {
@@ -41,11 +57,12 @@ test('fetch internals route the fetch smoke, entry and split files alike', () =>
 test('crypto internals route the crypto gates, entry and split files alike', () => {
   for (const p of [
     'pkg/runtime/js/node/crypto.js',
-    'pkg/runtime/js/internal/crypto/hash.js',
-    'pkg/runtime/js/internal/crypto/scrypt.js',
+    'pkg/runtime/js/internal/crypto/random.js',
+    'pkg/runtime/js/internal/crypto/util.js',
   ]) {
     const t = routePaths([p]).targets;
-    for (const g of ['make test-odin', 'make api-surface']) assert.ok(t.includes(g), p + ' ' + g);
+    for (const g of ['make test-odin-green', 'make api-surface'])
+      assert.ok(t.includes(g), p + ' ' + g);
   }
 });
 

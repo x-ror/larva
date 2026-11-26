@@ -8,6 +8,12 @@
 # origin) and deletes this file. Do not add an entry for any other reason: a test red
 # for its stated reason gets its code fixed.
 #
+# The list may only shrink. scripts/run-odin-green.sh fails on a listed test that now
+# passes, and CI's "Skip list unchanged" step (.github/workflows/ci.yml, test job) pins
+# the sha256 of this file and of run-odin-green.sh: ANY edit here, shrinking included,
+# fails CI until a human updates the two hashes in ci.yml. That is deliberate — adding a
+# name is how a new red would hide, and ci.yml is a file agents may not change on their own.
+#
 # <test name>  <what it needs that is gone>
 builtin_factories_compile_on_first_require                                  node:os as the lazy module it requires
 eval_host_native_names_use_consistent_allocator                             node:fs to reach the host-native path

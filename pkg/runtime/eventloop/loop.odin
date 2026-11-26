@@ -125,7 +125,10 @@ Loop :: struct {
 	pool:               ^Worker_Pool,
 	pool_client:        ^Pool_Client,
 	owns_pool:          bool,
-	// Graceful-shutdown state machine (Slice 3a): Running (stop_requested false) -> Draining
+	// Graceful-shutdown state machine (Slice 3a). Its two callers — net.odin's drain hook and
+	// Lava's worker supervisor — were deleted with the Node profile (S3), so nothing in the
+	// runtime drives it today; it stays, pinned by eventloop_shutdown_test.odin, until the
+	// loop's server-only machinery is pruned in its own change. Running (stop_requested false) -> Draining
 	// (stop_requested true: stop accepting + let in-flight work finish) -> Forced (force_exit true:
 	// run() returns and the deferred hard teardown reclaims the rest).
 	//   - stop_requested is set CROSS-THREAD (the worker supervisor) so it is accessed atomically; the
@@ -169,7 +172,8 @@ Loop :: struct {
 }
 
 // Shutdown_Hook runs ONCE on the loop thread the first time run_once observes a stop request. The net
-// layer registers it (set_shutdown_hook) to stop accepting and begin draining in-flight connections.
+// layer registered it (set_shutdown_hook) to stop accepting and begin draining in-flight
+// connections; that layer is gone (Node-profile removal S3) and no runtime code registers one now.
 Shutdown_Hook :: proc(loop: ^Loop, user_data: rawptr)
 
 Poll_Mode :: enum {
@@ -1833,8 +1837,8 @@ wakeup :: proc(loop: ^Loop) {
 	platform_wakeup(loop)
 }
 
-// set_shutdown_hook registers the loop-thread drain-start callback (the net layer's "stop accepting +
-// drain"). Loop-thread only, before run().
+// set_shutdown_hook registers the loop-thread drain-start callback (the deleted net layer's "stop
+// accepting + drain"; no runtime caller since S3). Loop-thread only, before run().
 set_shutdown_hook :: proc(loop: ^Loop, hook: Shutdown_Hook, user_data: rawptr) {
 	loop.on_shutdown = hook
 	loop.on_shutdown_data = user_data
@@ -1843,7 +1847,7 @@ set_shutdown_hook :: proc(loop: ^Loop, hook: Shutdown_Hook, user_data: rawptr) {
 // request_shutdown asks a (possibly other-thread) loop to begin graceful shutdown: set stop_requested
 // and wake the loop so run_once observes it. CROSS-THREAD SAFE against destroy() — the shutdown_mutex
 // serializes with destroy's `destroyed` mark, so this never writes the wakeup pipe of a torn-down loop.
-// Idempotent. Called by the worker supervisor.
+// Idempotent. Was called by the worker supervisor; no runtime caller since S3.
 request_shutdown :: proc(loop: ^Loop) {
 	sync.lock(&loop.shutdown_mutex)
 	defer sync.unlock(&loop.shutdown_mutex)

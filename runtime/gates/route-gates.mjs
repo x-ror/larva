@@ -26,11 +26,15 @@ export const TIERS = {
     'make fmt',
     'make test-scripts',
     'make check-js',
-    'make test-odin-serial',
+    'make test-odin-green',
+    'make test-odin-green SERIAL=1',
   ],
   L1: [
     'make check',
-    'make test',
+    'make test-web',
+    // Out of CI during the Node-profile removal: red by design on the default build
+    // (node-compat and eventloop oracles assert deleted Node modules), so a local run is
+    // read against master's red set, not as pass/fail (gates.md).
     'make test-lava',
     'make bench-gate',
     // Non-CI routed (must run locally — plan F1/F4)
@@ -41,13 +45,18 @@ export const TIERS = {
   L2: ['make test-mutation', 'make test-lava-nohostfn'],
 };
 
-/** Always-run mechanical set for any non-empty diff. */
+/**
+ * Always-run mechanical set for any non-empty diff. Since S3 of the Node-profile removal
+ * the cmd/lava gate is test-odin-green (cmd/lava minus cmd/lava/known-node-red.txt, what CI
+ * runs), threaded and on one runner thread; `make test`, `make test-odin-serial` and
+ * `make test-lava` are red by design on the default build and are no longer always-gates.
+ */
 export const ALWAYS = [
   'make check',
   'make build',
-  'make test',
-  'make test-lava',
-  'make test-odin-serial',
+  'make test-odin-green',
+  'make test-odin-green SERIAL=1',
+  'make test-web',
 ];
 
 /**
@@ -91,16 +100,26 @@ function globToRe(pat) {
 const ROUTES = [
   {
     re: globToRe('pkg/runtime/buffer*.odin'),
-    targets: ['make test-odin', 'make bun-buffer-tests', 'make api-surface', 'make bench-gate'],
+    targets: [
+      'make test-odin-green',
+      'make bun-buffer-tests',
+      'make api-surface',
+      'make bench-gate',
+    ],
   },
   {
     re: globToRe('pkg/runtime/typed_array.odin'),
-    targets: ['make test-odin', 'make bun-buffer-tests', 'make api-surface', 'make bench-gate'],
+    targets: [
+      'make test-odin-green',
+      'make bun-buffer-tests',
+      'make api-surface',
+      'make bench-gate',
+    ],
   },
   {
     re: globToRe('pkg/jsc/**'),
     targets: [
-      'make test-odin',
+      'make test-odin-green',
       'make bun-buffer-tests',
       'make api-surface',
       'make bench-gate',
@@ -160,15 +179,15 @@ const ROUTES = [
   },
   {
     re: globToRe('pkg/runtime/crypto.odin'),
-    targets: ['make test-odin', 'make test-compat-lava', 'make api-surface'],
+    targets: ['make test-odin-green', 'make test-compat-lava', 'make api-surface'],
   },
   {
     re: globToRe('**/js/node/crypto.js'),
-    targets: ['make test-odin', 'make test-compat-lava', 'make api-surface'],
+    targets: ['make test-odin-green', 'make test-compat-lava', 'make api-surface'],
   },
   {
     re: globToRe('**/js/internal/crypto/*.js'),
-    targets: ['make test-odin', 'make test-compat-lava', 'make api-surface'],
+    targets: ['make test-odin-green', 'make test-compat-lava', 'make api-surface'],
   },
   {
     re: globToRe('pkg/runtime/js/**/*.js'),
@@ -193,6 +212,12 @@ const ROUTES = [
   {
     re: globToRe('**/js/internal/buffer.js'),
     targets: ['make test-property'],
+  },
+  {
+    // The known-red skip list and its runner: CI pins both by sha256 (ci.yml), so a change
+    // here also needs ci.yml, and a human.
+    re: globToRe('{cmd/lava/known-node-red.txt,scripts/run-odin-green.sh}'),
+    targets: ['make test-odin-green', 'make test-odin-green SERIAL=1', 'make check-actions'],
   },
   {
     re: globToRe('scripts/**'),
@@ -228,7 +253,7 @@ const ROUTES = [
   },
   {
     re: globToRe('pkg/runtime/globals.odin'),
-    targets: ['make test-odin', 'make test-compat-lava', 'make test-web'],
+    targets: ['make test-odin-green', 'make test-compat-lava', 'make test-web'],
   },
   {
     // The Window-profile oracle (tests/web): every shared Web API module, the
@@ -328,6 +353,12 @@ export function routePaths(paths) {
     'make bun-buffer-tests',
     'make api-surface',
     'make test-compat-lava-strict',
+    // Out of CI during the Node-profile removal (gates.md).
+    'make test-lava',
+    'make test-lava-nohostfn',
+    'make test-property',
+    'make test-stdio',
+    'make bench-gate',
   ].filter((t) => targets.has(t));
 
   return { targets: [...targets], matched, nonCi };

@@ -173,9 +173,8 @@ is_data_view :: proc(ctx: jsc.JSContextRef, obj: jsc.JSObjectRef) -> bool {
 //     comparison) instead of reaching an undefined float->int conversion.
 //   - string (and anything non-object, coerced to string): its UTF-8 bytes.
 //   - a bare ArrayBuffer (or any non-DataView object that is not coercible): rejected
-//     (ok=false) — Node throws ERR_INVALID_ARG_TYPE, where the previous code silently
-//     wrote an empty file.
-// Returns a nil slice for an empty payload (a zero-length file). Must run on the loop
+//     (ok=false) — Node throws ERR_INVALID_ARG_TYPE.
+// Returns a nil slice for an empty payload (a zero-length write). Must run on the loop
 // thread (it reads JSC); the caller must consume a borrowed result before its next JSC
 // call (a later call may move the backing store).
 stdio_resolve_write_payload :: proc(
@@ -188,7 +187,7 @@ stdio_resolve_write_payload :: proc(
 ) {
 	t := jsc.JSValueGetTypedArrayType(ctx, value, nil)
 
-	// A bare ArrayBuffer is not a valid fs write payload (Node: ERR_INVALID_ARG_TYPE).
+	// A bare ArrayBuffer is not a valid write payload (Node: ERR_INVALID_ARG_TYPE).
 	if t == .ArrayBuffer {
 		return nil, false, false
 	}
@@ -255,6 +254,6 @@ stdio_resolve_write_payload :: proc(
 	// owned on context.allocator, so hand it back as-is (owned=true) — no extra copy.
 	str, salloc := jsc_value_to_string_or_default(ctx, value)
 
-	if !salloc {return nil, false, true} 	// empty/unconvertible -> zero-length file
+	if !salloc {return nil, false, true} 	// empty/unconvertible -> zero-length write
 	return transmute([]byte)str, true, true
 }

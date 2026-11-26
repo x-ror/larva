@@ -34,7 +34,7 @@ you skipped.
   free? A `proc "c"` callback resets `context` to `runtime.default_context()`, so
   "allocated inside a callback, freed at teardown under another context" is the
   established failure mode here (see `docs/ARCHITECTURE.md` §4.1,
-  `module_cache_alloc_test`, `dns_alloc_test`).
+  `module_cache_alloc_test`, `fetch_dns_alloc_test`).
 - **Temp arena.** `context.temp_allocator` is freed per tick / per require / per
   eval. Anything crossing a loop turn or handed to a worker must not live there.
 - **Slice/pointer lifetime.** A slice aliasing a buffer that is reallocated,

@@ -77,3 +77,18 @@ if (want ? seen !== 0 : seen !== types.length) throw new Error((want ? 'web sees
 	check(t, "web", "var WANT_WEB = 1;\n" + SCRIPT, .Web)
 	check(t, "node", SCRIPT, .Node)
 }
+
+// LAVA_WORKERS selected Lava's multi-worker supervisor, deleted with the Node profile.
+// A script started with LAVA_WORKERS=4 must be refused rather than silently run on one
+// page, which is what an ignored variable would do; unset, empty and "1" (the
+// single-page run it always meant) stay accepted.
+@(test)
+run_refuses_lava_workers :: proc(t: ^testing.T) {
+	testing.expect_value(t, workers_env_error("", false), "")
+	testing.expect_value(t, workers_env_error("", true), "")
+	testing.expect_value(t, workers_env_error("1", true), "")
+
+	for v in ([]string{"2", "auto", "0", "1 ", "x"}) {
+		testing.expectf(t, workers_env_error(v, true) != "", "LAVA_WORKERS=%q must be refused", v)
+	}
+}

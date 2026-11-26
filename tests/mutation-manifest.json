@@ -4494,6 +4494,45 @@
       "replace": "\tif state.loop == nil || state.loop.destroyed || state.fr_engine == nil {",
       "gate": "odin:cmd/lava:main.deferred_enqueue_refuses_a_closed_page",
       "expect_detail": "exited"
+    },
+    {
+      "name": "run-odin-green dies when a skip-listed test that now passes is let through",
+      "why": "The known-red list may only shrink: a listed test that turns green but stays skipped is coverage CI silently stops running.",
+      "source": "scripts/run-odin-green.sh",
+      "find": "\t\tpassing=\"$passing $name\"",
+      "replace": "\t\t:",
+      "gate": "node-test:scripts/run-odin-green.test.mjs",
+      "test": "a listed test that now passes fails the run and is named",
+      "expect_detail": "now PASSING: goes_green"
+    },
+    {
+      "name": "run-odin-green dies when discovery is not cross-checked against the @(test) count",
+      "why": "core:testing only warns on an unknown name and cannot list its tests, so a test the parser misses would never be selected and never fail.",
+      "source": "scripts/run-odin-green.sh",
+      "find": "if [ \"$attrs\" != \"$found\" ]; then",
+      "replace": "if false; then",
+      "gate": "node-test:scripts/run-odin-green.test.mjs",
+      "test": "an attribute discovery cannot pair with a name fails the run",
+      "expect_detail": "@(test) attributes"
+    },
+    {
+      "name": "run-odin-green dies when discovery only accepts a bare @(test) line",
+      "why": "A test written as `@(test) name :: proc`, among other attributes or indented in a `when` block is a real test that an exact-line match never selects.",
+      "source": "scripts/run-odin-green.sh",
+      "find": "\t\t\tif (match(line, /@[ \\t]*\\(([^)]*[, \\t])?test[ \\t]*[,)]/)) {",
+      "replace": "\t\t\tif (match(line, /^@\\(test\\)$/)) {",
+      "gate": "node-test:scripts/run-odin-green.test.mjs",
+      "test": "runs every discovered form and passes while each listed test still fails",
+      "expect_detail": "test names discovered"
+    },
+    {
+      "name": "run_refuses_lava_workers dies when LAVA_WORKERS is silently ignored",
+      "why": "The multi-worker supervisor is gone; accepting LAVA_WORKERS=4 would run one page where four were asked for, with no diagnostic, where an invalid value used to exit 2.",
+      "source": "cmd/lava/main.odin",
+      "find": "\tif !set || raw == \"\" || raw == \"1\" {",
+      "replace": "\tif true {",
+      "gate": "odin:cmd/lava:main.run_refuses_lava_workers",
+      "expect_detail": "must be refused"
     }
   ]
 }
