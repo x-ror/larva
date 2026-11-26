@@ -149,10 +149,11 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
      page must carry a CPU budget (`page_runner_open` refuses one without), and a
      page that spins is killed alone. A tick also has a CPU **quantum**
      (`Page_Runner.slice_us`, 1 ms by default, #35): once a tick has spent it, the
-     page's timers phase suspends before its next due timer — the whole turn pauses,
+     page's timers phase suspends before its next timer task — the whole turn pauses,
      no later phase runs — and the runner ticks the siblings before resuming it with
-     the same turn `now` and sequence limit, so node's order within the turn holds
-     (oracle case 14, run sliced by `runner_slicing_keeps_event_loop_order`). The
+     the same sequence limit, so the order within the turn holds (eventloop case 14
+     and the Chrome-recorded timer orders, run sliced by
+     `runner_slicing_keeps_event_loop_order`). The
      check reuses the per-callback CPU clock read of the budget, so it adds one
      compare per callback. A sibling then waits at most about the quantum plus one
      callback behind a page with a pile of due timers, instead of up to that page's

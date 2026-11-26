@@ -1,0 +1,8 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs timers-delay-coercion
+# ---
+valueOf,after,throwing valueOf RangeError,Symbol TypeError,BigInt TypeError,setInterval BigInt TypeError
+2^31,-1,NaN,Infinity,-4.9,undefined,null,2^32-1,1,true,valueOf,3,4.9,2^32+5,"6",[7]

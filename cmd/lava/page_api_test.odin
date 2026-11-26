@@ -324,10 +324,11 @@ page_run_until_returns_at_the_deadline :: proc(t: ^testing.T) {
 	}
 }
 
-// Deadline holds even when page JS cancels the deadline timer: clearTimeout reaches
-// any handle id (clear_timer_cb, globals.odin), and ids come from one counter per loop
-// that only grows (next_handle_id, loop.odin), so clearing every id up to a fresh
-// probe's covers every timer armed before it — the deadline timer included. Two shapes:
+// Deadline holds even when page JS tries to cancel the deadline timer by clearing every
+// id up to a fresh probe's (ids come from one counter per loop that only grows,
+// next_handle_id, loop.odin). Since #92 clearTimeout reaches only the timers the JS
+// globals made, so the wake-up survives these; its re-arm after a clear is pinned by
+// page_run_until_deadline_survives_a_native_clear_of_its_wake. Two shapes:
 // an interval that does it every turn and burns CPU (with the deadline timer as the
 // only signal, the run never ends; the 2 s budget turns that into a kill, so the case
 // fails instead of hanging), and one timer that does it once and leaves only a far
@@ -363,6 +364,52 @@ page_run_until_deadline_survives_page_js_clearing_it :: proc(t: ^testing.T) {
 		testing.expectf(t, elapsed < 1.5, "%s: Deadline after %.3fs, want ~0.1s", c.name, elapsed)
 		close_page(&page)
 	}
+}
+
+// cond_clear_unreffed_timers is a page_run_until condition that is never met and, between
+// ticks, clears every unreffed timer waiting on the page's loop — natively, as an embedder
+// or a runtime timer of the same loop could, since page JS cannot (#92: clearTimeout only
+// reaches the timers the JS globals made). The deadline wake-up is the one unreffed timer
+// there. user_data counts the timers it cleared.
+@(private = "file")
+cond_clear_unreffed_timers :: proc(page: ^lava.Page, user_data: rawptr) -> bool {
+	loop := page.loop
+	ids := make([dynamic]eventloop.Timer_ID, context.temp_allocator)
+
+	for id, idx in loop.timer_index {
+		if loop.timers[idx].unreffed {
+			append(&ids, id)
+		}
+	}
+
+	for id in ids {
+		if eventloop.clear_timeout(loop, id) {
+			(cast(^int)user_data)^ += 1
+		}
+	}
+
+	return false
+}
+
+// The re-arm of the deadline wake-up, reached the only way left since #92: the wake is
+// cleared natively between ticks (cond_clear_unreffed_timers), after every tick. The page
+// leaves a 10 ms timer, so the first tick returns well before the deadline, and a far
+// timer behind it: a wake that is not re-armed for the second tick lets it sleep 3 s, to
+// the far timer, instead of returning at the 100 ms deadline.
+@(test)
+page_run_until_deadline_survives_a_native_clear_of_its_wake :: proc(t: ^testing.T) {
+	page: lava.Page
+	loop: eventloop.Loop
+	open_web_page(t, &page, &loop, `setTimeout(() => {}, 3000); setTimeout(() => {}, 10);`)
+	defer close_page(&page)
+
+	cleared := 0
+	start := time.tick_now()
+	stop := lava.page_run_until(&page, cond_clear_unreffed_timers, &cleared, 100)
+	elapsed := time.duration_seconds(time.tick_since(start))
+	testing.expect_value(t, stop, lava.Run_Stop.Deadline)
+	testing.expectf(t, cleared >= 1, "the condition cleared no wake-up timer: the case tested nothing")
+	testing.expectf(t, elapsed < 1.5, "Deadline after %.3fs, want ~0.1s: the cleared wake-up was not re-armed", elapsed)
 }
 
 // Finished: a limit kill inside a timer ends the page; the run reports it rather than
