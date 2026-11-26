@@ -1,0 +1,46 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs url-webidl
+# ---
+URL(Symbol): TypeError: Failed to construct 'URL': Cannot convert a Symbol value to a string code=undefined
+URL(x, Symbol): TypeError: Failed to construct 'URL': Cannot convert a Symbol value to a string code=undefined
+URL(x, null): TypeError: Failed to construct 'URL': Invalid base URL code=undefined
+URL(x, undefined): no throw "http://a/"
+URL order: TypeError: Failed to construct 'URL': Invalid base URL code=undefined
+order: input,base
+URL.canParse(Symbol): TypeError: Failed to execute 'canParse' on 'URL': Cannot convert a Symbol value to a string code=undefined
+URL.canParse(x, null): no throw "false"
+URL.parse(Symbol): TypeError: Failed to execute 'parse' on 'URL': Cannot convert a Symbol value to a string code=undefined
+URL.parse(x, null): no throw "null"
+href = Symbol: TypeError: Failed to set the 'href' property on 'URL': Cannot convert a Symbol value to a string code=undefined
+search = Symbol: TypeError: Failed to set the 'search' property on 'URL': Cannot convert a Symbol value to a string code=undefined
+href getter on {}: TypeError: Illegal invocation code=undefined
+href setter on {}: TypeError: Illegal invocation code=undefined
+URL toString on {}: TypeError: Illegal invocation code=undefined
+URL toJSON on {}: TypeError: Illegal invocation code=undefined
+USP(Symbol): TypeError: Failed to construct 'URLSearchParams': Cannot convert a Symbol value to a string code=undefined
+USP([[Symbol, 1]]): TypeError: Failed to construct 'URLSearchParams': Cannot convert a Symbol value to a string code=undefined
+USP({a: Symbol}): TypeError: Failed to construct 'URLSearchParams': Cannot convert a Symbol value to a string code=undefined
+USP([[1,2,3]]): TypeError: Failed to construct 'URLSearchParams': Failed to construct 'URLSearchParams': Sequence initializer must only contain pair elements code=undefined
+USP([{}]): TypeError: Failed to construct 'URLSearchParams': The object must have a callable @@iterator property. code=undefined
+searchParams on {}: TypeError: Illegal invocation code=undefined
+host = Symbol on opaque: TypeError: Failed to set the 'host' property on 'URL': Cannot convert a Symbol value to a string code=undefined
+append(): TypeError: Failed to execute 'append' on 'URLSearchParams': 2 arguments required, but only 0 present. code=undefined
+append(a): TypeError: Failed to execute 'append' on 'URLSearchParams': 2 arguments required, but only 1 present. code=undefined
+append(Symbol, 1): TypeError: Failed to execute 'append' on 'URLSearchParams': Cannot convert a Symbol value to a string code=undefined
+set(a): TypeError: Failed to execute 'set' on 'URLSearchParams': 2 arguments required, but only 1 present. code=undefined
+get(): TypeError: Failed to execute 'get' on 'URLSearchParams': 1 argument required, but only 0 present. code=undefined
+getAll(): TypeError: Failed to execute 'getAll' on 'URLSearchParams': 1 argument required, but only 0 present. code=undefined
+has(): TypeError: Failed to execute 'has' on 'URLSearchParams': 1 argument required, but only 0 present. code=undefined
+delete(): TypeError: Failed to execute 'delete' on 'URLSearchParams': 1 argument required, but only 0 present. code=undefined
+get(Symbol): TypeError: Failed to execute 'get' on 'URLSearchParams': Cannot convert a Symbol value to a string code=undefined
+forEach(): TypeError: Failed to execute 'forEach' on 'URLSearchParams': 1 argument required, but only 0 present. code=undefined
+forEach(1): TypeError: Failed to execute 'forEach' on 'URLSearchParams': parameter 1 is not of type 'Function'. code=undefined
+get on {}: TypeError: Illegal invocation code=undefined
+append on {}: TypeError: Illegal invocation code=undefined
+USP toString on {}: TypeError: Illegal invocation code=undefined
+sort on {}: TypeError: Illegal invocation code=undefined
+entries on {}: TypeError: Illegal invocation code=undefined
+size on {}: TypeError: Illegal invocation code=undefined
