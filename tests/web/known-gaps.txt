@@ -22,6 +22,7 @@ robust-console-poisoned unplanned: bootstrap/console.js reads Array.prototype.sl
 robust-resizable-views unplanned: Chrome refuses a view over a resizable ArrayBuffer in every WebIDL byte argument (no [AllowResizable]); Lava reads the view's current bytes. Closes with WebIDL conversions (#12)
 robust-view-probe unplanned: as robust-resizable-views: Chrome refuses the resizable-backed window, Lava decodes it as empty (it never reads the stale bytes this case guards against)
 streams-byte unplanned: no readable byte streams (ReadableByteStreamController, type 'bytes', BYOB reads)
+timers-string-handler unplanned: a non-function handler is ignored (no timer, the delay not converted) where Chrome converts it to a string and runs it as a script when the timer fires; needs a native that evaluates source in the page's global scope
 url-errors S4e: node's ERR_INVALID_URL/ERR_INVALID_ARG_TYPE with node's messages where Chrome has WebIDL text and no code
 url-host-space unplanned: Chrome percent-encodes a space in a special URL's host and accepts it; Lava follows the WHATWG parser and throws. Deciding whether to follow Chrome here is parser work, not message work
 wasm-streaming unplanned: no WebAssembly.compileStreaming/instantiateStreaming (Blink's, over a Response; JSC GTK has none) — a fingerprint; not stubbed, since a stub that rejects breaks loaders that would take their ArrayBuffer path; the implementation over Response needs an issue of its own

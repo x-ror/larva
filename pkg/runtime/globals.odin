@@ -668,11 +668,21 @@ set_timeout_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
+
 	// One state lookup serves both the loop and the binding allocator (see
 	// JS_Callback.allocator); get_loop_from_ctx would repeat the two FFI crossings.
+	// The handler is required: Chrome's binding throws its arity TypeError, no `code`
+	// ("Failed to execute 'setTimeout' on 'Window': 1 argument required, but only 0 present.",
+	// Chrome 158, tests/web/cases/timers-errors). Before the state lookup, so a context
+	// without a loop answers the same.
+	if argument_count < 1 {
+		web_throw_type_error(ctx, "setTimeout", "1 argument required, but only 0 present.", exception)
+		return nil
+	}
+
 	state := get_state_from_ctx(ctx)
 
-	if state == nil || state.loop == nil || argument_count < 1 {
+	if state == nil || state.loop == nil {
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
@@ -706,11 +716,21 @@ set_interval_cb :: proc "c" (
 	exception: ^jsc.JSValueRef,
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
+
 	// One state lookup serves both the loop and the binding allocator (see
 	// JS_Callback.allocator); get_loop_from_ctx would repeat the two FFI crossings.
+	// The handler is required: Chrome's binding throws its arity TypeError, no `code`
+	// ("Failed to execute 'setInterval' on 'Window': 1 argument required, but only 0 present.",
+	// Chrome 158, tests/web/cases/timers-errors). Before the state lookup, so a context
+	// without a loop answers the same.
+	if argument_count < 1 {
+		web_throw_type_error(ctx, "setInterval", "1 argument required, but only 0 present.", exception)
+		return nil
+	}
+
 	state := get_state_from_ctx(ctx)
 
-	if state == nil || state.loop == nil || argument_count < 1 {
+	if state == nil || state.loop == nil {
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
