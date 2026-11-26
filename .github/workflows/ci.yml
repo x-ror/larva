@@ -100,7 +100,7 @@ jobs:
       # that job is paused and this suite is the gate the Node-profile removal stages
       # merge on; it needs only what this job already installs (JSC, Odin, node), and
       # the build plus the run is ~30 s (Build was 23 s in the test job's last manual
-      # run, the suite 4 s locally for 44 cases). No Chrome: recording is local.
+      # run, the suite 4 s locally for 45 cases). No Chrome: recording is local.
       - name: Web oracle (Chrome recordings)
         if: needs.scope.outputs.scope == 'code' || needs.scope.outputs.scope == 'full'
         run: make test-web

@@ -19,7 +19,7 @@
     },
     "tests/web/cases": {
       "globs": ["*.js"],
-      "min": 44
+      "min": 45
     }
   },
   "bench": {

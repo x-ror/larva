@@ -127,7 +127,7 @@ try {
       chrome: chromeVersion,
       date,
       runs,
-      command: `node scripts/record-chrome.mjs ${name}`,
+      command: `node scripts/record-chrome.mjs ${runs === 3 ? '' : `--runs ${runs} `}${name}`,
     };
     writeFileSync(join(CASES_DIR, `${name}.expected`), formatExpected(meta, res.output));
     console.log(`recorded ${name} (${res.output.split('\n').length - 1} lines)`);

@@ -4648,74 +4648,6 @@
       "expect_detail": "in the temp arena"
     },
     {
-      "name": "the web oracle runner fails a case with no Chrome recording",
-      "why": "A missing recording that reads as a pass turns a deleted or never-recorded expectation into a green case: the suite would vouch for output nobody compared with Chrome.",
-      "source": "scripts/lib/web-oracle.mjs",
-      "find": "      verdict: 'fail',\n      detail: `no Chrome recording; run: node scripts/record-chrome.mjs ${name}`,",
-      "replace": "      verdict: 'pass',\n      detail: `no Chrome recording; run: node scripts/record-chrome.mjs ${name}`,",
-      "gate": "node-test:scripts/run-web-oracle.test.mjs",
-      "test": "a missing recording fails rather than skipping",
-      "expect_detail": "a missing recording fails rather than skipping"
-    },
-    {
-      "name": "the web oracle runner fails a case whose output differs from Chrome",
-      "why": "The byte comparison is the whole gate; a mismatch outside the known list that passes makes every case vacuous.",
-      "source": "scripts/lib/web-oracle.mjs",
-      "find": "  if (!known) return { verdict: 'fail', detail: describeMismatch(expected, actual) };",
-      "replace": "  if (!known) return { verdict: 'pass', detail: describeMismatch(expected, actual) };",
-      "gate": "node-test:scripts/run-web-oracle.test.mjs",
-      "test": "a mismatch fails and names the first differing line",
-      "expect_detail": "a mismatch fails and names the first differing line"
-    },
-    {
-      "name": "the web oracle runner fails a case that printed the recording and then threw",
-      "why": "A case that prints everything and then throws uncaught would be a page error in Chrome; without the exit check a late throw (an unhandled rejection after the last print) passes.",
-      "source": "scripts/lib/web-oracle.mjs",
-      "find": "  const matches = actual.stdout === expected && actual.code === 0;",
-      "replace": "  const matches = actual.stdout === expected;",
-      "gate": "node-test:scripts/run-web-oracle.test.mjs",
-      "test": "matching output with a non-zero exit fails: the throw would be a page error",
-      "expect_detail": "matching output with a non-zero exit fails"
-    },
-    {
-      "name": "the web oracle runner fails a known gap whose Lava output drifted",
-      "why": "A known gap held only by its name would excuse any later change to the case, regressions included; the pinned output is what keeps a gap from becoming a skip.",
-      "source": "scripts/lib/web-oracle.mjs",
-      "find": "  if (actual.stdout === pinned.stdout && actual.code === pinned.code) {",
-      "replace": "  if (true) {",
-      "gate": "node-test:scripts/run-web-oracle.test.mjs",
-      "test": "a known gap whose Lava output drifts fails",
-      "expect_detail": "a known gap whose Lava output drifts fails"
-    },
-    {
-      "name": "the web oracle runner exits non-zero on a failing case",
-      "why": "make test-web is read by its exit status (CI, make gates); a summary that prints fails and exits 0 is a green gate.",
-      "source": "scripts/run-web-oracle.mjs",
-      "find": "process.exit(failed ? 1 : 0);",
-      "replace": "process.exit(0);",
-      "gate": "node-test:scripts/run-web-oracle.test.mjs",
-      "test": "the runner exits non-zero when a case does not match its recording",
-      "expect_detail": "the runner exits non-zero when a case does not match its recording"
-    },
-    {
-      "name": "run_args_surface_flag dies when --surface=web selects the Node surface",
-      "why": "The web oracle suite runs every case under this flag; a flag that silently keeps the Node globals makes the Chrome comparison run on the wrong profile.",
-      "source": "cmd/lava/main.odin",
-      "find": "\t\tcase \"web\":\n\t\t\tsurface = .Web\n",
-      "replace": "\t\tcase \"web\":\n\t\t\tsurface = .Node\n",
-      "gate": "odin:cmd/lava:main.run_args_surface_flag",
-      "expect_detail": "expected web to be Web"
-    },
-    {
-      "name": "run_file_threads_surface dies when run_file drops its surface",
-      "why": "run_file is the CLI path to eval; losing the parameter there leaves require/process/Buffer reachable under --surface=web.",
-      "source": "pkg/runtime/runtime.odin",
-      "find": "\t\treport_data = report_data,\n\t\tsurface = surface,\n\t)",
-      "replace": "\t\treport_data = report_data,\n\t)",
-      "gate": "odin:cmd/lava:main.run_file_threads_surface",
-      "expect_detail": "web sees"
-    },
-    {
       "name": "suspended_timers_phase_resumes_the_same_turn dies when a yield breaks out of the timers phase",
       "why": "A slice that falls through to the later phases runs this turn's setImmediate (and any completion) ahead of the timers still due in it: t1,micro,imm,t2 where node prints t1,micro,t2,imm.",
       "source": "pkg/runtime/eventloop/loop.odin",
@@ -4805,6 +4737,74 @@
       "replace": "",
       "gate": "odin:cmd/lava:main.runner_sibling_ticks_between_slices_of_a_timer_heavy_page",
       "expect_detail": "waited out the hog's turn"
+    },
+    {
+      "name": "the web oracle runner fails a case with no Chrome recording",
+      "why": "A missing recording that reads as a pass turns a deleted or never-recorded expectation into a green case: the suite would vouch for output nobody compared with Chrome.",
+      "source": "scripts/lib/web-oracle.mjs",
+      "find": "      verdict: 'fail',\n      detail: `no Chrome recording; run: node scripts/record-chrome.mjs ${name}`,",
+      "replace": "      verdict: 'pass',\n      detail: `no Chrome recording; run: node scripts/record-chrome.mjs ${name}`,",
+      "gate": "node-test:scripts/run-web-oracle.test.mjs",
+      "test": "a missing recording fails rather than skipping",
+      "expect_detail": "a missing recording fails rather than skipping"
+    },
+    {
+      "name": "the web oracle runner fails a case whose output differs from Chrome",
+      "why": "The byte comparison is the whole gate; a mismatch outside the known list that passes makes every case vacuous.",
+      "source": "scripts/lib/web-oracle.mjs",
+      "find": "  if (!known) return { verdict: 'fail', detail: describeMismatch(expected, actual) };",
+      "replace": "  if (!known) return { verdict: 'pass', detail: describeMismatch(expected, actual) };",
+      "gate": "node-test:scripts/run-web-oracle.test.mjs",
+      "test": "a mismatch fails and names the first differing line",
+      "expect_detail": "a mismatch fails and names the first differing line"
+    },
+    {
+      "name": "the web oracle runner fails a case that printed the recording and then threw",
+      "why": "A case that prints everything and then throws uncaught would be a page error in Chrome; without the exit check a late throw (an unhandled rejection after the last print) passes.",
+      "source": "scripts/lib/web-oracle.mjs",
+      "find": "  const matches = actual.stdout === expected && actual.code === 0;",
+      "replace": "  const matches = actual.stdout === expected;",
+      "gate": "node-test:scripts/run-web-oracle.test.mjs",
+      "test": "matching output with a non-zero exit fails: the throw would be a page error",
+      "expect_detail": "matching output with a non-zero exit fails"
+    },
+    {
+      "name": "the web oracle runner fails a known gap whose Lava output drifted",
+      "why": "A known gap held only by its name would excuse any later change to the case, regressions included; the pinned output is what keeps a gap from becoming a skip.",
+      "source": "scripts/lib/web-oracle.mjs",
+      "find": "  if (actual.stdout === pinned.stdout && actual.code === pinned.code) {",
+      "replace": "  if (true) {",
+      "gate": "node-test:scripts/run-web-oracle.test.mjs",
+      "test": "a known gap whose Lava output drifts fails",
+      "expect_detail": "a known gap whose Lava output drifts fails"
+    },
+    {
+      "name": "the web oracle runner exits non-zero on a failing case",
+      "why": "make test-web is read by its exit status (CI, make gates); a summary that prints fails and exits 0 is a green gate.",
+      "source": "scripts/run-web-oracle.mjs",
+      "find": "process.exit(failed ? 1 : 0);",
+      "replace": "process.exit(0);",
+      "gate": "node-test:scripts/run-web-oracle.test.mjs",
+      "test": "the runner exits non-zero when a case does not match its recording",
+      "expect_detail": "the runner exits non-zero when a case does not match its recording"
+    },
+    {
+      "name": "run_args_surface_flag dies when --surface=web selects the Node surface",
+      "why": "The web oracle suite runs every case under this flag; a flag that silently keeps the Node globals makes the Chrome comparison run on the wrong profile.",
+      "source": "cmd/lava/main.odin",
+      "find": "\t\tcase \"web\":\n\t\t\tsurface = .Web\n",
+      "replace": "\t\tcase \"web\":\n\t\t\tsurface = .Node\n",
+      "gate": "odin:cmd/lava:main.run_args_surface_flag",
+      "expect_detail": "expected web to be Web"
+    },
+    {
+      "name": "run_file_threads_surface dies when run_file drops its surface",
+      "why": "run_file is the CLI path to eval; losing the parameter there leaves require/process/Buffer reachable under --surface=web.",
+      "source": "pkg/runtime/runtime.odin",
+      "find": "\t\treport_data = report_data,\n\t\tsurface = surface,\n\t)",
+      "replace": "\t\treport_data = report_data,\n\t)",
+      "gate": "odin:cmd/lava:main.run_file_threads_surface",
+      "expect_detail": "web sees"
     }
   ]
 }
