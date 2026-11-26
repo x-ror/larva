@@ -36,6 +36,9 @@
   var StringP = P.String;
   var ObjectDefineProperty = P.ObjectDefineProperty;
   var ObjectHasOwn = P.ObjectHasOwn;
+  var ObjectGetOwnPropertyDescriptor = P.ObjectGetOwnPropertyDescriptor;
+  // Error.isError: a brand check that runs no page code. Captured at this eager eval.
+  var ErrorIsError = ErrorP.isError;
   var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;
   var StringPrototypeIndexOf = P.StringPrototypeIndexOf;
   var StringPrototypeSlice = P.StringPrototypeSlice;
@@ -71,47 +74,153 @@
   }
 
   // Where the embedded sources run (globals.odin names internal modules
-  // `node:internal/<id>`), and JSC's location for a host or builtin frame.
+  // `node:internal/<id>` and the bootstrap scripts `lava:<name>`), and JSC's location
+  // for a host or builtin frame.
   var INTERNAL_URL = 'node:internal/';
+  var BOOTSTRAP_URL = 'lava:';
   var NATIVE_LOCATION = '[native code]';
+  var NATIVE_SUFFIX = '@' + NATIVE_LOCATION;
 
-  // 0 for a page frame, 1 for one of ours, 2 for a native one. A JSC frame is
-  // `name@location:line:column` or a bare location; the location is what follows
-  // the LAST '@', since a function name may itself hold one.
-  function frameKind(stack, start, end) {
-    var at = -1;
+  // The '@' that ends a frame's function name: the LAST one, since a name may itself
+  // hold one. -1 for a frame that is a bare location.
+  function frameAt(stack, start, end) {
     for (var i = end - 1; i >= start; i--) {
-      if (StringPrototypeCharCodeAt(stack, i) === 0x40) {
-        at = i;
-        break;
-      }
+      if (StringPrototypeCharCodeAt(stack, i) === 0x40) return i;
     }
 
-    var location = StringPrototypeSlice(stack, at + 1, end);
+    return -1;
+  }
+
+  // 0 for a page frame, 1 for one of ours, 2 for a native one. A JSC frame is
+  // `name@location:line:column` or a bare location.
+  function frameKind(stack, start, end) {
+    var location = StringPrototypeSlice(stack, frameAt(stack, start, end) + 1, end);
     if (StringPrototypeStartsWith(location, INTERNAL_URL, 0)) return 1;
+    if (StringPrototypeStartsWith(location, BOOTSTRAP_URL, 0)) return 1;
     if (location === NATIVE_LOCATION) return 2;
     return 0;
   }
 
-  // `stack` without its leading run of our own frames. A native frame inside that run
-  // goes with it (Reflect.construct under DOMException's constructor); one after the
-  // last of ours stays, since it is the page's (`[x].forEach(atob)` keeps forEach).
+  // `stack` without our frames, which a page must never see (#114):
+  //   - the leading run, up to the page's first frame, goes: the error was made or
+  //     thrown inside the platform. A native frame inside that run goes with it
+  //     (Reflect.construct under DOMException's constructor); one after the last of
+  //     ours stays, since it is the page's (`[x].forEach(atob)` keeps forEach);
+  //   - a run between two page frames — a page callback the platform called — becomes
+  //     ONE frame, `NAME@[native code]`, named after the outermost of ours (the entry
+  //     point the page called): the line JSC itself writes for a native caller, as
+  //     `forEach@[native code]` above;
+  //   - the trailing run, below the page's last frame (the loop's dispatch), goes.
   // A code-unit scan, not split('\n'): a string separator still consults
   // String.prototype[Symbol.split], which a page can define.
   function scrubStack(stack) {
-    var cut = 0;
-    var start = 0;
     var n = stack.length;
+    var out = '';
+    var seenPage = false;
+    // The current run of non-page frames: where it starts, where its last frame of
+    // ours ends, and that frame's function name.
+    var runStart = 0;
+    var oursStart = -1;
+    var oursEnd = -1;
+    var oursName = '';
+    var start = 0;
     while (start < n) {
       var end = StringPrototypeIndexOf(stack, '\n', start);
       if (end === -1) end = n;
       var kind = frameKind(stack, start, end);
-      if (kind === 0) break;
+      if (kind === 1) {
+        if (oursStart === -1) oursStart = start;
+        oursEnd = end;
+        var at = frameAt(stack, start, end);
+        oursName = at === -1 ? '' : StringPrototypeSlice(stack, start, at);
+      } else if (kind === 0) {
+        out = flushRun(out, stack, runStart, start, oursStart, oursEnd, seenPage ? oursName : null);
+        out = appendFrame(out, StringPrototypeSlice(stack, start, end));
+        seenPage = true;
+        runStart = end + 1;
+        oursStart = -1;
+      }
       start = end + 1;
-      if (kind === 1) cut = start;
     }
 
-    return cut === 0 ? stack : StringPrototypeSlice(stack, cut, n);
+    // The trailing run: our frames and everything between them go.
+    if (oursStart !== -1) {
+      out = appendFrame(
+        out,
+        StringPrototypeSlice(stack, runStart, oursStart > runStart ? oursStart - 1 : runStart),
+      );
+    } else if (runStart < n) {
+      out = appendFrame(out, StringPrototypeSlice(stack, runStart, n));
+    }
+
+    return out;
+  }
+
+  // Appends the run [runStart, runEnd) to `out` with its frames of ours, from the first
+  // (oursStart) to the last (ending at oursEnd), dropped with everything above them
+  // (name === null: the leading run) or replaced by one native frame named `name`.
+  function flushRun(out, stack, runStart, runEnd, oursStart, oursEnd, name) {
+    if (oursStart === -1) {
+      return runEnd > runStart
+        ? appendFrame(out, StringPrototypeSlice(stack, runStart, runEnd - 1))
+        : out;
+    }
+
+    // The leading run loses everything up to its last frame of ours, natives above it
+    // included; a later run keeps the natives around its span of ours.
+    if (name !== null && oursStart > runStart) {
+      out = appendFrame(out, StringPrototypeSlice(stack, runStart, oursStart - 1));
+    }
+    if (name !== null) out = appendFrame(out, name + NATIVE_SUFFIX);
+    if (oursEnd + 1 < runEnd)
+      out = appendFrame(out, StringPrototypeSlice(stack, oursEnd + 1, runEnd - 1));
+    return out;
+  }
+
+  function appendFrame(out, frames) {
+    if (frames === '') return out;
+    return out === '' ? frames : out + '\n' + frames;
+  }
+
+  /**
+   * Scrubs an error on its way out of a Web API entry point (internal/native_shape's
+   * wrappers) — one the platform made, the engine threw inside our code, or the page
+   * threw from a callback we called: its `stack` loses our frames (scrubStack), and an
+   * error the engine raised inside our sources loses its `line`/`column`/`sourceURL`,
+   * which point there. A page's own error keeps everything but our frames.
+   * @param {*} e The thrown value; only a real Error (Error.isError, which runs no page
+   *   code — a Proxy's traps are never consulted) is touched.
+   * @returns {*} `e`.
+   * @node n/a — Chrome 158 names no internal frame (tests/web/cases/shape-stacks).
+   * @deviates The frames are JSC's format, and a page callback's caller reads
+   *   `NAME@[native code]`, JSC's line for a native caller, where V8 writes
+   *   `at NAME (<anonymous>)` — an engine trait.
+   */
+  function scrubThrown(e, _name) {
+    if (ErrorIsError === undefined || !ErrorIsError(e)) return e;
+    var desc = ObjectGetOwnPropertyDescriptor(e, 'stack');
+    if (desc === undefined || typeof desc.value !== 'string') return e;
+    var stack = desc.value;
+    if (
+      StringPrototypeIndexOf(stack, INTERNAL_URL, 0) === -1 &&
+      StringPrototypeIndexOf(stack, BOOTSTRAP_URL, 0) === -1
+    ) {
+      return e;
+    }
+
+    var source = ObjectGetOwnPropertyDescriptor(e, 'sourceURL');
+    if (
+      source !== undefined &&
+      typeof source.value === 'string' &&
+      StringPrototypeStartsWith(source.value, INTERNAL_URL, 0)
+    ) {
+      delete e.line;
+      delete e.column;
+      delete e.sourceURL;
+    }
+
+    if (desc.writable) e.stack = scrubStack(stack);
+    return e;
   }
 
   /**
@@ -216,5 +325,6 @@
     toDOMString: toDOMString,
     illegalInvocation: illegalInvocation,
     pageError: pageError,
+    scrubThrown: scrubThrown,
   });
 });

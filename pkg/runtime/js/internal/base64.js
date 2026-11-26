@@ -158,12 +158,11 @@
     return Buffer.from(input, 'latin1').toString('base64');
   }
 
-  if (globalThis.atob === undefined) {
-    globalThis.atob = atob;
-  }
-  if (globalThis.btoa === undefined) {
-    globalThis.btoa = btoa;
-  }
-
-  module.exports = { atob: atob, btoa: btoa };
+  // The globals a page sees: internal/native_shape's operations around these two
+  // (native toString, no `prototype`, length 1; tests/web/cases/shape-operations).
+  var nativeShape = require('internal/native_shape');
+  module.exports = {
+    atob: nativeShape.defineOperation('atob', atob, 1),
+    btoa: nativeShape.defineOperation('btoa', btoa, 1),
+  };
 });

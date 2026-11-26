@@ -155,7 +155,7 @@
 
   function writableStreamFinishErroring(stream) {
     stream._state = 'errored';
-    stream._controller._errorSteps();
+    resetQueue(stream._controller); // the controller's error steps
     var storedError = stream._storedError;
     var requests = stream._writeRequests;
     stream._writeRequests = [];
@@ -171,7 +171,10 @@
       writableStreamRejectCloseAndClosedPromiseIfNeeded(stream);
       return;
     }
-    var promise = stream._controller._abortSteps(abortRequest.reason);
+    var promise = writableStreamDefaultControllerAbortSteps(
+      stream._controller,
+      abortRequest.reason,
+    );
     uponPromise(
       promise,
       function () {
@@ -390,16 +393,14 @@
       if (this._controlledWritableStream._state !== 'writable') return;
       writableStreamDefaultControllerError(this, e);
     }
+  }
 
-    _abortSteps(reason) {
-      var result = this._abortAlgorithm(reason);
-      writableStreamDefaultControllerClearAlgorithms(this);
-      return result;
-    }
-
-    _errorSteps() {
-      resetQueue(this);
-    }
+  // The controller's abstract "steps", as functions: Chrome's prototype has no such
+  // members (tests/web/cases/shape-streams.expected).
+  function writableStreamDefaultControllerAbortSteps(controller, reason) {
+    var result = controller._abortAlgorithm(reason);
+    writableStreamDefaultControllerClearAlgorithms(controller);
+    return result;
   }
 
   function setUpWritableStreamDefaultController(

@@ -1,0 +1,46 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs shape-blob
+# ---
+== Blob
+global Blob data -cw fn name="Blob" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Blob() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Failed to construct 'Blob': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static prototype data --- object [object Blob]
+prototype [[Prototype]] Object.prototype
+proto size accessor ec
+  get name="get size" length=0 own=[length,name] prototype=false ctor=false src="function get size() { [native code] }"
+  set undefined
+proto type accessor ec
+  get name="get type" length=0 own=[length,name] prototype=false ctor=false src="function get type() { [native code] }"
+  set undefined
+proto arrayBuffer data ecw fn name="arrayBuffer" length=0 own=[length,name] prototype=false ctor=false src="function arrayBuffer() { [native code] }"
+proto slice data ecw fn name="slice" length=0 own=[length,name] prototype=false ctor=false src="function slice() { [native code] }"
+proto stream data ecw fn name="stream" length=0 own=[length,name] prototype=false ctor=false src="function stream() { [native code] }"
+proto text data ecw fn name="text" length=0 own=[length,name] prototype=false ctor=false src="function text() { [native code] }"
+proto bytes data ecw fn name="bytes" length=0 own=[length,name] prototype=false ctor=false src="function bytes() { [native code] }"
+proto textStream data ecw fn name="textStream" length=0 own=[length,name] prototype=false ctor=false src="function textStream() { [native code] }"
+proto constructor data -cw fn name="Blob" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Blob() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "Blob"
+== File
+global File data -cw fn name="File" length=2 own=[length,name,prototype] prototype=true ctor=true src="function File() { [native code] }"
+[[Prototype]] function Blob
+call: TypeError: Failed to construct 'File': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static prototype data --- object [object File]
+prototype [[Prototype]] Blob.prototype
+proto name accessor ec
+  get name="get name" length=0 own=[length,name] prototype=false ctor=false src="function get name() { [native code] }"
+  set undefined
+proto lastModified accessor ec
+  get name="get lastModified" length=0 own=[length,name] prototype=false ctor=false src="function get lastModified() { [native code] }"
+  set undefined
+proto lastModifiedDate accessor ec
+  get name="get lastModifiedDate" length=0 own=[length,name] prototype=false ctor=false src="function get lastModifiedDate() { [native code] }"
+  set undefined
+proto webkitRelativePath accessor ec
+  get name="get webkitRelativePath" length=0 own=[length,name] prototype=false ctor=false src="function get webkitRelativePath() { [native code] }"
+  set undefined
+proto constructor data -cw fn name="File" length=2 own=[length,name,prototype] prototype=true ctor=true src="function File() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "File"

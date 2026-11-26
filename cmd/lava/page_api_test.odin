@@ -309,6 +309,17 @@ page_run_until_returns_at_the_deadline :: proc(t: ^testing.T) {
 		page: lava.Page
 		loop: eventloop.Loop
 		open_web_page(t, &page, &loop, source)
+		// Quiesce the heap first. A page whose install allocates past the eden threshold
+		// is collected while it starts, and the incremental sweeper then runs on the
+		// thread's RunLoop every few ms; each run wakes the page loop (its RunLoop
+		// watcher), so a tick that should block on the far timer returns at once and
+		// reaches the deadline check without the deadline timer this case pins (#114:
+		// the shaped Web API install crossed that threshold). A synchronous collection
+		// sweeps everything, leaving the sweeper nothing to schedule.
+		jsc.collect_garbage_now(page.ctx)
+
+		for jsc.runloop_dispatch() {
+		}
 
 		start := time.tick_now()
 		stop := lava.page_run_until(&page, cond_never, nil, 100)

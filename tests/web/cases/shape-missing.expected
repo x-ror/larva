@@ -1,0 +1,20 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs shape-missing
+# ---
+TextEncoderStream function
+TextDecoderStream function
+FormData function
+FileReader function
+ReadableByteStreamController function
+ReadableStreamBYOBRequest function
+CompressionStream function
+DecompressionStream function
+EventTarget function
+Event function
+SubtleCrypto function
+CryptoKey function
+Performance function
+reportError function

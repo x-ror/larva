@@ -24,6 +24,7 @@
   // through the variadic ArrayPrototypePush measured 1.43x on the JS decode
   // path (callerN's arguments switch is ~7x a direct call).
   var P = require('internal/primordials');
+  var defineInterface = require('internal/native_shape').defineInterface;
   var StringPrototypeSlice = P.StringPrototypeSlice;
   var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;
   var StringPrototypeCodePointAt = P.StringPrototypeCodePointAt;
@@ -720,8 +721,20 @@
     return result;
   };
 
-  if (globalThis.TextEncoder === undefined) globalThis.TextEncoder = TextEncoder;
-  if (globalThis.TextDecoder === undefined) globalThis.TextDecoder = TextDecoder;
+  // The interface objects a page sees (internal/native_shape), in Blink's member order
+  // and lengths (Chrome 158, tests/web/cases/shape-encoding.expected).
+  var PublicTextEncoder = defineInterface({
+    name: 'TextEncoder',
+    impl: TextEncoder,
+    length: 0,
+    members: ['encoding', 'encode:0', 'encodeInto:2', 'constructor', '@@toStringTag'],
+  });
+  var PublicTextDecoder = defineInterface({
+    name: 'TextDecoder',
+    impl: TextDecoder,
+    length: 0,
+    members: ['encoding', 'fatal', 'ignoreBOM', 'decode:0', 'constructor', '@@toStringTag'],
+  });
 
-  module.exports = { TextEncoder: TextEncoder, TextDecoder: TextDecoder };
+  module.exports = { TextEncoder: PublicTextEncoder, TextDecoder: PublicTextDecoder };
 });

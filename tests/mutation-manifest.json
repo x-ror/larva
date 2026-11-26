@@ -2869,15 +2869,6 @@
       "expect_detail": "node: blob 6 \"text/plain\""
     },
     {
-      "name": "blob_class_engine_traits dies when Blob.prototype methods lose their enumerability",
-      "why": "Class methods are non-enumerable; Blob's were enumerable as a function constructor, and the class conversion keeps that set by re-marking them.",
-      "source": "pkg/runtime/js/internal/blob.js",
-      "find": "    ObjectDefineProperty(Blob.prototype, ENUMERABLE_METHODS[m], { enumerable: true });",
-      "replace": "    ObjectDefineProperty(Blob.prototype, ENUMERABLE_METHODS[m], { enumerable: false });",
-      "gate": "odin:cmd/lava:main.blob_class_engine_traits",
-      "expect_detail": "keys: got , want arrayBuffer"
-    },
-    {
       "name": "78-blob-pristine-reads dies when createObjectURL mints its id from the live globalThis.crypto",
       "why": "A replaced crypto.randomUUID then chooses every blob: URL id, so user code can make them predictable; node mints them from its binding and is immune.",
       "source": "pkg/runtime/js/internal/blob.js",
@@ -4170,8 +4161,8 @@
       "name": "js_clear_globals_read_an_id_like_chrome dies when .Web reads the id the node way",
       "why": "A page's clearTimeout(\"N.0\") or clearTimeout(id + 0.5) cancels timer N in Chrome (WebIDL long); the node reading leaves it running.",
       "source": "pkg/runtime/globals.odin",
-      "find": "\t\tinject_native_function(ctx, global, \"clearTimeout\", clear_timeout_web_cb)\n",
-      "replace": "\t\tinject_native_function(ctx, global, \"clearTimeout\", clear_timer_cb)\n",
+      "find": "\t\tinject_native_function(ctx, global, \"clearTimeout\", clear_timeout_web_cb, arity = 0, constructible = false)\n",
+      "replace": "\t\tinject_native_function(ctx, global, \"clearTimeout\", clear_timer_cb, arity = 0, constructible = false)\n",
       "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
       "expect_detail": "\"N.0\":fired"
     },
@@ -4806,15 +4797,6 @@
       "expect_detail": "FAIL domexception-class"
     },
     {
-      "name": "domexception-class dies when DOMException.prototype keeps constructor first",
-      "why": "Chrome lists code, name, message, the 25 constants, then constructor; a class puts constructor first, an order getOwnPropertyNames shows.",
-      "source": "pkg/runtime/js/internal/domexception.js",
-      "find": "  reAppendConstructor(DOMException.prototype);\n",
-      "replace": "",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL domexception-class"
-    },
-    {
       "name": "clone-domexception dies when structuredClone loses the DOMException arm",
       "why": "Without it a DOMException clones through the Error arm as a plain Error: no brand, name Error, code undefined, and QuotaExceededError's quota/requested lost.",
       "source": "pkg/runtime/js/internal/structured_clone.js",
@@ -4831,17 +4813,6 @@
       "replace": "    if (false) {",
       "gate": "make:test-web",
       "expect_detail": "FAIL crypto-random-errors"
-    },
-    {
-      "name": "domexception_class_engine_traits dies when the DOMException global stops being the class",
-      "why": "The pin holds the call-without-new deviation to JSC's class text; a callable stand-in answers 'no throw', which is neither Chrome's nor the declared deviation.",
-      "source": "pkg/runtime/js/internal/domexception.js",
-      "find": "    value: DOMException,\n",
-      "replace": "    value: function DOMException() {},\n",
-      "gate": "odin:cmd/lava:main.domexception_class_engine_traits",
-      "expect_detail": [
-        "domexception: got no throw"
-      ]
     },
     {
       "name": "the DOM oracle refuses a recording whose views cannot be told apart",
@@ -5186,6 +5157,96 @@
       "gate": "node-test:scripts/run-dom-oracle.test.mjs",
       "test": "the harness page makes a foreign context element in its namespace",
       "expect_detail": "the harness page makes a foreign context element in its namespace"
+    },
+    {
+      "name": "shape-domexception dies when DOMException.prototype keeps constructor first",
+      "why": "Chrome lists code, name, message, the 25 constants, then constructor; a class puts constructor first, and native_shape moves it only when the member list names it.",
+      "source": "pkg/runtime/js/internal/domexception.js",
+      "find": "    members: P.ArrayPrototypeConcat(['code', 'name', 'message'], CONSTANT_NAMES, [\n      'constructor',\n",
+      "replace": "    members: P.ArrayPrototypeConcat(['code', 'name', 'message'], CONSTANT_NAMES, [\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL shape-domexception"
+    },
+    {
+      "name": "blob_class_node_surface_shape dies when native_shape leaves operations non-enumerable",
+      "why": "WebIDL operations are enumerable on the prototype; a class method is not, so without native_shape's redefinition Object.keys(Blob.prototype) loses every operation.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "            value: fn,\n            writable: true,\n            enumerable: true,\n",
+      "replace": "            value: fn,\n            writable: true,\n            enumerable: false,\n",
+      "gate": "odin:cmd/lava:main.blob_class_node_surface_shape",
+      "expect_detail": "keys: got size,type, want size,type,arrayBuffer"
+    },
+    {
+      "name": "shape-url dies when Function.prototype.toString is left the intrinsic",
+      "why": "Without the mask every JS-implemented Web API prints its source where Chrome prints `function URL() { [native code] }` — the one-call crawler fingerprint #114 closes.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "  ObjectDefineProperty(FunctionProto, 'toString', { __proto__: null, value: maskedToString });\n",
+      "replace": "",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL shape-url"
+    },
+    {
+      "name": "shape-operations dies when an operation wrapper is an ordinary function",
+      "why": "A function expression has a `prototype` and a [[Construct]]; Chrome's operations have neither, and `new atob()` constructing is a fingerprint.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "    var fn = {\n      op() {\n",
+      "replace": "    var fn = {\n      op: function () {\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL shape-operations"
+    },
+    {
+      "name": "shape-stacks dies when an error leaving an entry point keeps our frames",
+      "why": "An engine error raised inside our code, or a page error thrown through a callback we called, would carry node:internal/* frames to the page; Chrome's carry none.",
+      "source": "pkg/runtime/js/internal/web_errors.js",
+      "find": "    if (desc.writable) e.stack = scrubStack(stack);\n",
+      "replace": "",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL shape-stacks"
+    },
+    {
+      "name": "shape-url dies when an interface called without new loses Blink's text",
+      "why": "Chrome's interfaces answer a call without `new` with Blink's \"Please use the 'new' operator\" text; anything else names the implementation.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "  var NEW_TEXT =\n    \"Please use the 'new' operator, this DOM object constructor cannot be called as a function.\";\n",
+      "replace": "  var NEW_TEXT = 'Class constructor cannot be invoked without new';\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL shape-url"
+    },
+    {
+      "name": "shape-tostring dies when Function.prototype keeps JSC's own key order",
+      "why": "JSC lists toString third and constructor last; V8 lists constructor third — one Reflect.ownKeys(Function.prototype) away from naming the engine.",
+      "source": "pkg/runtime/js/internal/primordials.js",
+      "find": "      delete FunctionProto[FUNCTION_PROTOTYPE_ORDER[i]];\n",
+      "replace": "",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL shape-tostring"
+    },
+    {
+      "name": "shape-tostring dies when a bound function or a Proxy keeps a name",
+      "why": "V8 prints `function () { [native code] }` for both; JSC names the bound target and `ProxyObject`.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "        if (name === PROXY_NAME || isBoundName(this, name)) name = '';\n",
+      "replace": "",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL shape-tostring"
+    },
+    {
+      "name": "shape-tostring dies when the mask lets a non-callable receiver reach the intrinsic",
+      "why": "JSC's intrinsic answers `Type error` where Chrome says Function.prototype.toString requires that 'this' be a Function.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "      if (typeof this !== 'function') {\n",
+      "replace": "      if (false) {\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL shape-tostring"
+    },
+    {
+      "name": "native_shape_mask_is_per_page dies when a page in a reused VM keeps the intrinsic toString",
+      "why": "The mask is installed per realm at the loader's eval; a second page on the pooled VM that skipped it would print every Web API's source.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "  ObjectDefineProperty(FunctionProto, 'toString', { __proto__: null, value: maskedToString });\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.native_shape_mask_is_per_page",
+      "expect_detail": "atob: got op() {"
     }
   ]
 }

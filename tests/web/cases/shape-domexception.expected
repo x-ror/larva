@@ -1,0 +1,87 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs shape-domexception
+# ---
+== DOMException
+global DOMException data -cw fn name="DOMException" length=0 own=[length,name,prototype,INDEX_SIZE_ERR,DOMSTRING_SIZE_ERR,HIERARCHY_REQUEST_ERR,WRONG_DOCUMENT_ERR,INVALID_CHARACTER_ERR,NO_DATA_ALLOWED_ERR,NO_MODIFICATION_ALLOWED_ERR,NOT_FOUND_ERR,NOT_SUPPORTED_ERR,INUSE_ATTRIBUTE_ERR,INVALID_STATE_ERR,SYNTAX_ERR,INVALID_MODIFICATION_ERR,NAMESPACE_ERR,INVALID_ACCESS_ERR,VALIDATION_ERR,TYPE_MISMATCH_ERR,SECURITY_ERR,NETWORK_ERR,ABORT_ERR,URL_MISMATCH_ERR,QUOTA_EXCEEDED_ERR,TIMEOUT_ERR,INVALID_NODE_TYPE_ERR,DATA_CLONE_ERR] prototype=true ctor=true src="function DOMException() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Failed to construct 'DOMException': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static INDEX_SIZE_ERR data e-- number 1
+static DOMSTRING_SIZE_ERR data e-- number 2
+static HIERARCHY_REQUEST_ERR data e-- number 3
+static WRONG_DOCUMENT_ERR data e-- number 4
+static INVALID_CHARACTER_ERR data e-- number 5
+static NO_DATA_ALLOWED_ERR data e-- number 6
+static NO_MODIFICATION_ALLOWED_ERR data e-- number 7
+static NOT_FOUND_ERR data e-- number 8
+static NOT_SUPPORTED_ERR data e-- number 9
+static INUSE_ATTRIBUTE_ERR data e-- number 10
+static INVALID_STATE_ERR data e-- number 11
+static SYNTAX_ERR data e-- number 12
+static INVALID_MODIFICATION_ERR data e-- number 13
+static NAMESPACE_ERR data e-- number 14
+static INVALID_ACCESS_ERR data e-- number 15
+static VALIDATION_ERR data e-- number 16
+static TYPE_MISMATCH_ERR data e-- number 17
+static SECURITY_ERR data e-- number 18
+static NETWORK_ERR data e-- number 19
+static ABORT_ERR data e-- number 20
+static URL_MISMATCH_ERR data e-- number 21
+static QUOTA_EXCEEDED_ERR data e-- number 22
+static TIMEOUT_ERR data e-- number 23
+static INVALID_NODE_TYPE_ERR data e-- number 24
+static DATA_CLONE_ERR data e-- number 25
+static prototype data --- object [object DOMException]
+prototype [[Prototype]] Error.prototype
+proto code accessor ec
+  get name="get code" length=0 own=[length,name] prototype=false ctor=false src="function get code() { [native code] }"
+  set undefined
+proto name accessor ec
+  get name="get name" length=0 own=[length,name] prototype=false ctor=false src="function get name() { [native code] }"
+  set undefined
+proto message accessor ec
+  get name="get message" length=0 own=[length,name] prototype=false ctor=false src="function get message() { [native code] }"
+  set undefined
+proto INDEX_SIZE_ERR data e-- number 1
+proto DOMSTRING_SIZE_ERR data e-- number 2
+proto HIERARCHY_REQUEST_ERR data e-- number 3
+proto WRONG_DOCUMENT_ERR data e-- number 4
+proto INVALID_CHARACTER_ERR data e-- number 5
+proto NO_DATA_ALLOWED_ERR data e-- number 6
+proto NO_MODIFICATION_ALLOWED_ERR data e-- number 7
+proto NOT_FOUND_ERR data e-- number 8
+proto NOT_SUPPORTED_ERR data e-- number 9
+proto INUSE_ATTRIBUTE_ERR data e-- number 10
+proto INVALID_STATE_ERR data e-- number 11
+proto SYNTAX_ERR data e-- number 12
+proto INVALID_MODIFICATION_ERR data e-- number 13
+proto NAMESPACE_ERR data e-- number 14
+proto INVALID_ACCESS_ERR data e-- number 15
+proto VALIDATION_ERR data e-- number 16
+proto TYPE_MISMATCH_ERR data e-- number 17
+proto SECURITY_ERR data e-- number 18
+proto NETWORK_ERR data e-- number 19
+proto ABORT_ERR data e-- number 20
+proto URL_MISMATCH_ERR data e-- number 21
+proto QUOTA_EXCEEDED_ERR data e-- number 22
+proto TIMEOUT_ERR data e-- number 23
+proto INVALID_NODE_TYPE_ERR data e-- number 24
+proto DATA_CLONE_ERR data e-- number 25
+proto constructor data -cw fn name="DOMException" length=0 own=[length,name,prototype,INDEX_SIZE_ERR,DOMSTRING_SIZE_ERR,HIERARCHY_REQUEST_ERR,WRONG_DOCUMENT_ERR,INVALID_CHARACTER_ERR,NO_DATA_ALLOWED_ERR,NO_MODIFICATION_ALLOWED_ERR,NOT_FOUND_ERR,NOT_SUPPORTED_ERR,INUSE_ATTRIBUTE_ERR,INVALID_STATE_ERR,SYNTAX_ERR,INVALID_MODIFICATION_ERR,NAMESPACE_ERR,INVALID_ACCESS_ERR,VALIDATION_ERR,TYPE_MISMATCH_ERR,SECURITY_ERR,NETWORK_ERR,ABORT_ERR,URL_MISMATCH_ERR,QUOTA_EXCEEDED_ERR,TIMEOUT_ERR,INVALID_NODE_TYPE_ERR,DATA_CLONE_ERR] prototype=true ctor=true src="function DOMException() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "DOMException"
+== QuotaExceededError
+global QuotaExceededError data -cw fn name="QuotaExceededError" length=0 own=[length,name,prototype] prototype=true ctor=true src="function QuotaExceededError() { [native code] }"
+[[Prototype]] function DOMException
+call: TypeError: Failed to construct 'QuotaExceededError': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static prototype data --- object [object QuotaExceededError]
+prototype [[Prototype]] DOMException.prototype
+proto quota accessor ec
+  get name="get quota" length=0 own=[length,name] prototype=false ctor=false src="function get quota() { [native code] }"
+  set undefined
+proto requested accessor ec
+  get name="get requested" length=0 own=[length,name] prototype=false ctor=false src="function get requested() { [native code] }"
+  set undefined
+proto constructor data -cw fn name="QuotaExceededError" length=0 own=[length,name,prototype] prototype=true ctor=true src="function QuotaExceededError() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "QuotaExceededError"

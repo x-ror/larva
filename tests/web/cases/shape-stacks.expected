@@ -1,0 +1,23 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs shape-stacks
+# ---
+URL href on {}: internal false page true
+URL toString on {}: internal false page true
+new URL invalid: internal false page true
+new URL page toString: internal false page true
+URLSearchParams bad pair: internal false page true
+URLSearchParams forEach page: internal false page true
+Headers get on {}: internal false page true
+Blob bad parts: internal false page true
+TextDecoder bad label: internal false page true
+TextDecoder decode on {}: internal false page true
+ReadableStream getReader on {}: internal false page true
+CountQueuingStrategy no init: internal false page true
+queueMicrotask(1): internal false page true
+getRandomValues on {}: internal false page true
+toString on {}: internal false page true
+URL() without new: internal false page true
+new AbortSignal: internal false page true

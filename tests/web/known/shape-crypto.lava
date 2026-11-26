@@ -1,0 +1,20 @@
+# exit 0
+== crypto
+global crypto accessor ec
+  get name="get crypto" length=0 own=[length,name] prototype=false ctor=false src="function get crypto() { [native code] }"
+  set undefined
+object [object Crypto] [[Prototype]] Crypto.prototype
+proto getRandomValues data ecw fn name="getRandomValues" length=1 own=[length,name] prototype=false ctor=false src="function getRandomValues() { [native code] }"
+proto constructor data -cw fn name="Crypto" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Crypto() { [native code] }"
+proto randomUUID data ecw fn name="randomUUID" length=0 own=[length,name] prototype=false ctor=false src="function randomUUID() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "Crypto"
+== Crypto
+global Crypto data -cw fn name="Crypto" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Crypto() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object Crypto]
+prototype [[Prototype]] Object.prototype
+proto getRandomValues data ecw fn name="getRandomValues" length=1 own=[length,name] prototype=false ctor=false src="function getRandomValues() { [native code] }"
+proto constructor data -cw fn name="Crypto" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Crypto() { [native code] }"
+proto randomUUID data ecw fn name="randomUUID" length=0 own=[length,name] prototype=false ctor=false src="function randomUUID() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "Crypto"

@@ -32,6 +32,7 @@
   // decodeURIComponent, or String.prototype.normalize otherwise silently
   // substitutes hosts / disables IPv4 normalization; see the URL vector audit).
   var P = require('internal/primordials');
+  var defineInterface = require('internal/native_shape').defineInterface;
   // Every regex below runs over a caller-supplied URL, so none may go through
   // `re.test(...)`: `RegExp.prototype.exec` is a writable data property and the
   // spec's RegExpExec re-reads it off the receiver, so a plain assignment steers
@@ -1384,7 +1385,7 @@
     var urlObj = sp[kURLObject];
     if (urlObj === null) return;
     var serialized = formUrlencodedSerialize(sp[kList]);
-    urlObj._url.query = serialized === '' ? null : serialized;
+    urlObj[kRecord].query = serialized === '' ? null : serialized;
   }
 
   ObjectDefineProperty(URLSearchParams.prototype, 'append', {
@@ -1599,7 +1600,7 @@
   // Build a URLSearchParams bound to a URL record (no constructor side effects).
   function newBoundSearchParams(urlObj) {
     var sp = ObjectCreate(URLSearchParams.prototype);
-    sp[kList] = urlObj._url.query === null ? [] : formUrlencodedParse(urlObj._url.query);
+    sp[kList] = urlObj[kRecord].query === null ? [] : formUrlencodedParse(urlObj[kRecord].query);
     sp[kURLObject] = urlObj;
     return sp;
   }
@@ -1625,16 +1626,9 @@
   function refreshSearchParams(url) {
     if (url[kSearchParams] !== null) {
       var sp = url[kSearchParams];
-      sp[kList] = url._url.query === null ? [] : formUrlencodedParse(url._url.query);
+      sp[kList] = url[kRecord].query === null ? [] : formUrlencodedParse(url[kRecord].query);
     }
   }
-
-  ObjectDefineProperty(URL.prototype, '_url', {
-    configurable: true,
-    get: function () {
-      return this[kRecord];
-    },
-  });
 
   ObjectDefineProperty(URL.prototype, 'href', {
     configurable: true,
@@ -1982,16 +1976,60 @@
     }
   }
 
-  if (typeof globalThis.URL !== 'function') {
-    globalThis.URL = URL;
-  }
-  if (globalThis.URLSearchParams === undefined) {
-    globalThis.URLSearchParams = URLSearchParams;
-  }
+  // The interface objects a page sees (internal/native_shape): Blink's member order
+  // and lengths, recorded from Chrome 158 in tests/web/cases/shape-url.expected. Both
+  // surfaces export the same objects, so require('url').URL is the global.
+  var PublicURL = defineInterface({
+    name: 'URL',
+    impl: URL,
+    length: 1,
+    statics: ['canParse:1', 'parse:1', 'createObjectURL:1', 'revokeObjectURL:1'],
+    members: [
+      'origin',
+      'protocol',
+      'username',
+      'password',
+      'host',
+      'hostname',
+      'port',
+      'pathname',
+      'search',
+      'searchParams',
+      'hash',
+      'href',
+      'toJSON:0',
+      'toString:0',
+      'constructor',
+      '@@toStringTag',
+    ],
+  });
+  var PublicURLSearchParams = defineInterface({
+    name: 'URLSearchParams',
+    impl: URLSearchParams,
+    length: 0,
+    members: [
+      'size',
+      'append:2',
+      'delete:1',
+      'get:1',
+      'getAll:1',
+      'has:1',
+      'set:2',
+      'sort:0',
+      'toString:0',
+      'entries:0',
+      'forEach:1',
+      'keys:0',
+      'values:0',
+      'constructor',
+      '@@toStringTag',
+      '@@iterator=entries',
+    ],
+  });
 
   module.exports = {
-    URL: URL,
-    URLSearchParams: URLSearchParams,
+    URL: PublicURL,
+    URLSearchParams: PublicURLSearchParams,
     fileURLToPath: fileURLToPath,
     urlToHttpOptions: urlToHttpOptions,
     // Node's domainToASCII/domainToUnicode validate their input as a host (the
