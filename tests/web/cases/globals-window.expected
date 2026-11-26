@@ -1,0 +1,44 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs globals-window
+# ---
+process undefined
+require undefined
+module undefined
+exports undefined
+__filename undefined
+__dirname undefined
+Buffer undefined
+global undefined
+setImmediate undefined
+clearImmediate undefined
+typeof require undefined
+typeof process undefined
+fetch function
+Request function
+Response function
+Headers function
+URL function
+URLSearchParams function
+ReadableStream function
+WritableStream function
+TransformStream function
+TextEncoder function
+TextDecoder function
+Blob function
+File function
+AbortController function
+AbortSignal function
+structuredClone function
+atob function
+btoa function
+queueMicrotask function
+setTimeout function
+setInterval function
+clearTimeout function
+clearInterval function
+crypto object function
+performance object function
+console object function

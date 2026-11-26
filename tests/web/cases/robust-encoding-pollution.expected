@@ -1,0 +1,42 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs robust-encoding-pollution
+# ---
+I1 http://xn--ber-goa.example/
+I2 "€é"
+J1 "😀A"
+J2 "Aü€😀"
+J3 "A��A�"
+J4 "A€é"
+J5 "�A|�A|A�|�"
+K1 "AB"
+K2 "AB"
+L {"read":4,"written":6} 97,240,159,152,128,98,0,0
+M1 utf-16le
+M2 utf-16le
+N1 THREW:RangeError
+N2 THREW:RangeError
+N3 THREW:RangeError
+O1 false
+O2 "AB"
+O3 THREW:TypeError
+O4 utf-16le/false/xn--ber-goa.example
+O5 {}
+P1 65,66/{"read":2,"written":2}
+P2 "AB"
+P3 "AB"
+P4 TypeError,TypeError,TypeError,TypeError
+P5 RangeError
+P6 utf-16le/false/A
+Q1 9000:65:67:68
+Q3 9000:65:67:68
+R3 65,66/"AB"
+R4 65,66/"AB"
+R5 65,66
+S AB|A€|BC intercepted=0
+T AB|AB
+ok
+U mine|mine|mine (n=32)
+W UFu8=hi UFab=hi UFdv=mine UFi8=mine UTu8=hi UTab=hi UTdv=mine UTi8=mine AFu8=hi AFab=hi AFdv=mine AFi8=mine ATu8=hi ATab=hi ATdv=mine ATi8=mine DFu8=hi DFab=hi DFdv=mine DFi8=mine DTu8=hi DTab=hi DTdv=mine DTi8=mine

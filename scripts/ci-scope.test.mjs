@@ -34,6 +34,14 @@ test('a shell script under scripts/ is code, not tooling', () => {
   assert.equal(classify(['scripts/run-http-smoke.sh']), 'code');
 });
 
+test("the web oracle's runner and print shim are code, its recorder tooling", () => {
+  // They decide what `make test-web` compares; the recorder only writes recordings.
+  assert.equal(classify(['scripts/run-web-oracle.mjs']), 'code');
+  assert.equal(classify(['scripts/lib/web-oracle.mjs']), 'code');
+  assert.equal(classify(['scripts/record-chrome.mjs']), 'tooling');
+  assert.equal(classify(['tests/web/cases/url-parse.js']), 'code');
+});
+
 test('the Makefile and the workflows are code', () => {
   assert.equal(classify(['Makefile']), 'code');
   assert.equal(classify(['.github/workflows/ci.yml']), 'code');

@@ -1,0 +1,31 @@
+# exit 0
+made-up label: RangeError: The "made-up" encoding is not supported code=ERR_ENCODING_NOT_SUPPORTED
+nbsp label: RangeError: The " utf-8" encoding is not supported code=ERR_ENCODING_NOT_SUPPORTED
+ideographic space label: RangeError: The "　utf-8" encoding is not supported code=ERR_ENCODING_NOT_SUPPORTED
+zero-width label: RangeError: The "​utf-8" encoding is not supported code=ERR_ENCODING_NOT_SUPPORTED
+replacement label: RangeError: The "replacement" encoding is not supported code=ERR_ENCODING_NOT_SUPPORTED
+label coerced once: RangeError: The "zz-bogus" encoding is not supported code=ERR_ENCODING_NOT_SUPPORTED
+label toString calls 1
+fatal 0xff: TypeError: The encoded data was not valid for encoding utf-8 code=ERR_ENCODING_INVALID_ENCODED_DATA
+fatal utf-16le lone: TypeError: The encoded data was not valid for encoding utf-16le code=ERR_ENCODING_INVALID_ENCODED_DATA
+fatal odd mid-stream: no throw ""
+fatal odd flushed: TypeError: The encoded data was not valid for encoding utf-16le code=ERR_ENCODING_INVALID_ENCODED_DATA
+fatal tail mid-stream: no throw ""
+fatal tail flushed: TypeError: The encoded data was not valid for encoding utf-8 code=ERR_ENCODING_INVALID_ENCODED_DATA
+ctor options 5: TypeError: The "options" argument must be of type object. Received type number (5) code=ERR_INVALID_ARG_TYPE
+decode options 5: TypeError: The "options" argument must be of type object. Received type number (5) code=ERR_INVALID_ARG_TYPE
+ctor options 0: TypeError: The "options" argument must be of type object. Received type number (-0) code=ERR_INVALID_ARG_TYPE
+decode options 0: TypeError: The "options" argument must be of type object. Received type number (-0) code=ERR_INVALID_ARG_TYPE
+ctor options "x": TypeError: The "options" argument must be of type object. Received type string ('x') code=ERR_INVALID_ARG_TYPE
+decode options "x": TypeError: The "options" argument must be of type object. Received type string ('x') code=ERR_INVALID_ARG_TYPE
+ctor options true: TypeError: The "options" argument must be of type object. Received type boolean (true) code=ERR_INVALID_ARG_TYPE
+decode options true: TypeError: The "options" argument must be of type object. Received type boolean (true) code=ERR_INVALID_ARG_TYPE
+ctor options 1n: TypeError: The "options" argument must be of type object. Received type bigint (1n) code=ERR_INVALID_ARG_TYPE
+decode options 1n: TypeError: The "options" argument must be of type object. Received type bigint (1n) code=ERR_INVALID_ARG_TYPE
+ctor options Symbol: TypeError: The "options" argument must be of type object. Received type symbol (Symbol(s)) code=ERR_INVALID_ARG_TYPE
+decode options Symbol: TypeError: The "options" argument must be of type object. Received type symbol (Symbol(s)) code=ERR_INVALID_ARG_TYPE
+options before label: TypeError: The "options" argument must be of type object. Received type number (5) code=ERR_INVALID_ARG_TYPE
+label coerced before options: RangeError: coerced first code=undefined
+decode options before input: TypeError: The "options" argument must be of type object. Received type number (5) code=ERR_INVALID_ARG_TYPE
+decode non-buffer input: TypeError: The "list" argument must be an instance of SharedArrayBuffer, ArrayBuffer or ArrayBufferView. code=ERR_INVALID_ARG_TYPE
+encodeInto non-Uint8Array: TypeError: The "dest" argument must be an instance of Uint8Array. Received an instance of Uint16Array code=ERR_INVALID_ARG_TYPE

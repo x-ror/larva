@@ -1,0 +1,20 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs blob-basic
+# ---
+size 7 type text/plain
+text foobar!
+arrayBuffer 666f6f62617221
+bytes Uint8Array 666f6f62617221
+slice 3 x/y bar
+slice(-1) !
+non-printable type ""
+file true greeting.txt 42 5 hello
+File without name threw TypeError
+stream ReadableStream
+streamed 666f6f62617221 chunks Uint8Array true
+chunk is a copy true
+empty stream done true
+async iterated hello world

@@ -1,0 +1,7 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs timers-microtask-fifo
+# ---
+qm1,p1,qm2,p2

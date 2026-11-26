@@ -1,0 +1,20 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs blob-object-url
+# ---
+types function function
+shape true
+distinct true
+fetched 200 text/plain hello world
+file resolves to Blob 3 text/plain
+revoke returns undefined
+revoked fetch rejected TypeError
+createObjectURL([object Object]) threw TypeError code undefined
+createObjectURL(str) threw TypeError code undefined
+createObjectURL(123) threw TypeError code undefined
+createObjectURL(undefined) threw TypeError code undefined
+createObjectURL(null) threw TypeError code undefined
+revokeObjectURL() threw TypeError code undefined
+junk revokes ,

@@ -1,0 +1,55 @@
+# exit 0
+global: function true
+length: 2
+primitives: true:number,true:string,true:boolean,true:object,true:undefined,true:bigint,true:number
+deep: {"a":1,"nested":{"b":[99,2,3]}} true true 1
+array extra prop: bar 2
+holes: false 3
+class instance: false true 5
+symbol keys: 0
+non-enumerable: 0
+getter flattened: 42 undefined
+key order: 0,1,b,a
+date: true 1717689600000 true
+date shared: true
+regexp: ab+ gi 0
+map: true {"n":1} true
+set: 1,2,3
+boxed: [object Number]=1,[object String]=s,[object Boolean]=false,[object Object]=[object Object]
+arraybuffer: true 4 true
+views share their buffer: 9
+dataview: true 123456
+view Uint8Array: [object Uint8Array] 2 true
+view Uint8ClampedArray: [object Uint8ClampedArray] 2 true
+view Int8Array: [object Int8Array] 2 true
+view Uint16Array: [object Uint16Array] 2 true
+view Int16Array: [object Int16Array] 2 true
+view Uint32Array: [object Uint32Array] 2 true
+view Int32Array: [object Int32Array] 2 true
+view Float32Array: [object Float32Array] 2 true
+view Float64Array: [object Float64Array] 2 true
+view BigInt64Array: [object BigInt64Array] 2 true
+view BigUint64Array: [object BigUint64Array] 2 true
+view Float16Array: [object Float16Array] 2 true
+subclass: Uint8Array 7,8
+offset view: defgh 3 8
+error: true TypeError boom string true why
+error name toString: true Error boom
+error name valueOf: true Error boom
+error name constructor: true Error boom
+error name __proto__: true Error boom
+error name NotAnError: true Error boom
+error name EvalError: true EvalError boom
+error name URIError: true URIError boom
+error class TypeError: TypeError TypeError
+error class RangeError: RangeError RangeError
+error class SyntaxError: SyntaxError SyntaxError
+error class ReferenceError: ReferenceError ReferenceError
+cycle: true root
+uncloneable function: THREW Error DataCloneError
+uncloneable symbol: THREW Error DataCloneError
+uncloneable promise: THREW Error DataCloneError
+uncloneable weakmap: THREW Error DataCloneError
+uncloneable weakset: THREW Error DataCloneError
+no argument: THREW TypeError TypeError
+transfer: THREW Error DataCloneError

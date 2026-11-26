@@ -1,0 +1,21 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs abort-signal
+# ---
+types function function
+delay done
+aborted delay rejected AbortError
+pre-aborted rejected AbortError
+timeout aborted at first false
+timeout rejected TimeoutError
+aborted before false reason undefined
+aborted after true fired 101 event abort true
+reason AbortError
+throwIfAborted threw the reason true
+throwIfAborted on a live signal returns
+custom reason kept true custom
+AbortSignal.abort(reason) 7
+signal is EventTarget true
+tag [object AbortSignal]

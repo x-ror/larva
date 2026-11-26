@@ -142,7 +142,7 @@ const ROUTES = [
   },
   {
     re: globToRe('pkg/runtime/fetch*.odin'),
-    targets: ['make test-fetch-smoke'],
+    targets: ['make test-fetch-smoke', 'make test-web'],
   },
   {
     re: globToRe('**/js/internal/fetch.js'),
@@ -154,7 +154,7 @@ const ROUTES = [
   },
   {
     re: globToRe('pkg/runtime/eventloop/**'),
-    targets: ['make test-eventloop-odin', 'make test-eventloop-lava'],
+    targets: ['make test-eventloop-odin', 'make test-eventloop-lava', 'make test-web'],
   },
   {
     re: globToRe('pkg/runtime/fs*.odin'),
@@ -269,7 +269,26 @@ const ROUTES = [
   },
   {
     re: globToRe('pkg/runtime/globals.odin'),
-    targets: ['make test-odin', 'make test-compat-lava'],
+    targets: ['make test-odin', 'make test-compat-lava', 'make test-web'],
+  },
+  {
+    // The Window-profile oracle (tests/web): every shared Web API module, the
+    // bootstrap a page runs through, the surface plumbing (Global_Surface, the CLI
+    // flag the suite runs under), and the suite's own runner, shim and cases.
+    re: globToRe('pkg/runtime/js/{internal,bootstrap}/**'),
+    targets: ['make test-web'],
+  },
+  {
+    re: globToRe('{pkg/runtime/runtime.odin,cmd/lava/main.odin}'),
+    targets: ['make test-web'],
+  },
+  {
+    re: globToRe('tests/web/**'),
+    targets: ['make test-web'],
+  },
+  {
+    re: globToRe('scripts/{run-web-oracle.mjs,lib/web-oracle.mjs}'),
+    targets: ['make test-web'],
   },
   {
     // Linux only, as the transport is; make check type-checks pkg/http but runs nothing.

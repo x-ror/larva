@@ -1,0 +1,16 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs robust-url-pollution
+# ---
+A http://a.b/x/y/c/d
+B http://192.168.0.1/
+C http://xn--ber-goa.example/
+F http://example.com/b
+G foo://h:8080/p
+X1 http://1.2.3.4x/
+X3 http://192.168.0.1/
+X4 http://1.2.3.4/
+X5 http://h/a
+ok

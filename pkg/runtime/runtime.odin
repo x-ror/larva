@@ -55,7 +55,8 @@ Result :: struct {
 //          `process`, `require`, `module`, `exports`, `__filename`, `__dirname`,
 //          `Buffer`, `global`, `setImmediate`/`clearImmediate`, and the internal
 //          `__lava_precache`/`__lavaDrainNextTicks`/`__lava_tl_drain` hooks.
-//          The default; `run_file` and the CLI never select anything else.
+//          The default; the CLI selects anything else only for
+//          `lava run --surface=web`, the Chrome-oracle suite's entry (tests/web).
 //   .Web   The web-platform subset only: fetch/Request/Response/Headers,
 //          URL/URLSearchParams, the Web Streams family and its queuing strategies,
 //          TextEncoder/TextDecoder, Blob/File, AbortController/AbortSignal,
@@ -359,12 +360,16 @@ process_exit_code :: proc(ctx: jsc.JSContextRef) -> int {
 	return int(n)
 }
 
+// run_file reads `path` and runs it through eval with echo off, as `lava run` does.
+// `surface` is passed through unchanged (Global_Surface); the CLI selects `.Web`
+// only for `lava run --surface=web` (cmd/lava/main.odin parse_run_args).
 run_file :: proc(
 	path: string,
 	loop: ^eventloop.Loop = nil,
 	script_args: []string = nil,
 	report: Result_Hook = nil,
 	report_data: rawptr = nil,
+	surface: Global_Surface = .Node,
 ) -> Result {
 	if len(path) == 0 {
 		if loop != nil {
@@ -394,7 +399,16 @@ run_file :: proc(
 
 	defer delete(data)
 
-	return eval(string(data), path, loop, false, script_args, report = report, report_data = report_data)
+	return eval(
+		string(data),
+		path,
+		loop,
+		false,
+		script_args,
+		report = report,
+		report_data = report_data,
+		surface = surface,
+	)
 }
 
 // build_process_argv assembles Node's process.argv: [execPath, scriptPath,

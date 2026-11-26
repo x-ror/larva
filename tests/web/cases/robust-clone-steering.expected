@@ -1,0 +1,13 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs robust-clone-steering
+# ---
+constructor: false [object Uint8Array] 1,2,3
+own toStringTag: Uint8Array 4,5
+getter toStringTag: Uint8Array 1,2,3
+dataview window: [object DataView] 2 "hi"
+typed array window: 2 "hi"
+hasInstance false: [object DataView] 4
+hasInstance true: [object Uint8Array] 1,2,3

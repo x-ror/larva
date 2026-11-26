@@ -1,0 +1,12 @@
+# exit 0
+types object function function
+uuid v4 true unique true
+returns its argument true filled true
+offset view filled true
+before untouched true
+after untouched true
+zero-length true
+Float32Array: TypeError TypeError
+65537 bytes: RangeError RangeError
+65536 bytes: no throw
+not a view: TypeError TypeError
