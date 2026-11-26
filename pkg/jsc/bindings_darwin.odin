@@ -72,6 +72,9 @@ foreign jsc_lib {
 
 	JSObjectCallAsFunction :: proc(ctx: JSContextRef, object: JSObjectRef, this_object: JSObjectRef, argument_count: c.size_t, arguments: [^]JSValueRef, exception: ^JSValueRef) -> JSValueRef ---
 	JSObjectCallAsConstructor :: proc(ctx: JSContextRef, object: JSObjectRef, argument_count: c.size_t, arguments: [^]JSValueRef, exception: ^JSValueRef) -> JSObjectRef ---
+	// A pending promise and its two resolving functions (JSObjectRef.h, public C API).
+	JSObjectMakeDeferredPromise :: proc(ctx: JSContextRef, resolve: ^JSObjectRef, reject: ^JSObjectRef, exception: ^JSValueRef) -> JSObjectRef ---
+	JSValueIsInstanceOfConstructor :: proc(ctx: JSContextRef, value: JSValueRef, constructor: JSObjectRef, exception: ^JSValueRef) -> bool ---
 	JSObjectIsFunction :: proc(ctx: JSContextRef, object: JSObjectRef) -> bool ---
 	JSObjectIsConstructor :: proc(ctx: JSContextRef, object: JSObjectRef) -> bool ---
 

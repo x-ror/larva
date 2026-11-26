@@ -66,7 +66,7 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
      be attributed and capped. Pools are fixed-size. A VM's `timerfd` (its timer
      on the thread's `WTF::RunLoop`) used to stay open for the life of the thread;
      the timer's source closes it only when the RunLoop's GLib context is iterated,
-     and Lava now drives that context (#91, #97: `pkg/jsc/runloop_linux.odin`), so
+     and Lava now drives that context (#91: `pkg/jsc/runloop_linux.odin`), so
      destroying a pool's VMs closes their fds (`vm_pool_releases_its_timerfds`) and
      retiring a VM costs no descriptor. A runner samples every Nth page's heap per
      VM into `Result.heap_bytes`
@@ -109,14 +109,18 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
      that reuses the VM. No page loop blocks on its own; when no page can
      progress the runner blocks on every page loop's descriptor at once,
      bounded by the nearest timer;
-   - **JSC's own deferred work** (a `FinalizationRegistry` cleanup, a
-     `WebAssembly.compile` settlement) is queued on the thread's `WTF::RunLoop`,
-     one per thread whatever its VM count. Lava drives it at thread level, never
-     inside a page's tick: the runner between rounds, and a page that drives its
-     own thread (eval, `lava run`, workers) before each tick.
+   - **JSC's own deferred work** (a `FinalizationRegistry` cleanup) is queued on
+     the thread's `WTF::RunLoop`, one per thread whatever its VM count. Lava drives
+     it at thread level, never inside a page's tick: the runner between rounds, and
+     a page that drives its own thread (eval, `lava run`, workers) before each tick.
      What runs there for a page is a shim that posts to the page's own loop
-     (`js/internal/deferred.js`), so the callback runs in the page's tick, charged
-     to its budget, and a closed page's runs nowhere;
+     (`js/internal/deferred.js`; the registry holds the shim through a native
+     `FinalizationRegistry` constructor), so the callback runs in the page's tick,
+     charged to its budget, and a closed page's runs nowhere. `WebAssembly.compile`
+     and `instantiate` stay off the RunLoop: the engine's settlement there runs page
+     code (a start function, a `then` getter) outside every window, so Lava compiles
+     in the caller's entry and settles a task later on the page's loop
+     (`pkg/runtime/wasm.odin`);
    - one worker pool per runner thread (#36), not one per page: every page
      loop is a client of the runner's `eventloop.Worker_Pool`, four core
      threads shared by all its pages instead of four per page that touched

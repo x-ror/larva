@@ -11,12 +11,11 @@ import jsc "lava:pkg/jsc"
 import lava "lava:pkg/runtime"
 import eventloop "lava:pkg/runtime/eventloop"
 
-// JSC's WTF::RunLoop, driven (#91, #97): FinalizationRegistry cleanups run and
-// WebAssembly.compile/instantiate settle, each in its own page's tick. What no oracle
-// can see is pinned here: which thread adopts the drive, that a page's cleanup is
-// charged to that page, that a page is kept alive for a pending compile and woken when it
-// finishes, that a released VM leaves no timerfd once the RunLoop is iterated, and that
-// the drive does not crash a churn of heavy pages. Isolation between two pages in a
+// JSC's WTF::RunLoop, driven (#91): FinalizationRegistry cleanups run, each in its own
+// page's tick. What no oracle can see is pinned here: which thread adopts the drive, that
+// a page's cleanup is charged to that page, that a released VM leaves no timerfd once
+// the RunLoop is iterated, and that the drive does not crash a churn of heavy pages.
+// WebAssembly settles without the RunLoop (wasm_page_test.odin). Isolation between two pages in a
 // reused VM is page_lifecycle_test's runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first.
 //
 // Every case runs on a thread of its own (on_fresh_thread). WTF binds a thread's RunLoop
@@ -33,10 +32,6 @@ import eventloop "lava:pkg/runtime/eventloop"
 DRIVE_LIMITS :: lava.Page_Limits {
 	cpu_budget = 30,
 }
-
-// WASM_EMPTY_MODULE is the smallest valid module: the magic and version 1, no sections.
-@(private = "file")
-WASM_EMPTY_MODULE :: "new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0])"
 
 // runner_drive_until runs page_runner_step until no page is live or `seconds` pass,
 // collecting every VM of the runner's pool before each step, so the GC that makes a
@@ -207,98 +202,6 @@ runner_charges_a_cleanup_to_its_own_page :: proc(t: ^testing.T) {
 	})
 }
 
-// A runner page whose only work is a pending WebAssembly.compile or instantiate stays
-// alive until it settles (#97), and the settlement reaches the page. The page reads it
-// back through its exit code: the handler throws once it holds the Module (an unhandled
-// rejection, exit 1), and a rejection is caught, so exit 1 means "settled with a Module
-// while the page lived" and exit 0 means the page ended first.
-@(test)
-runner_holds_a_page_until_its_wasm_settles :: proc(t: ^testing.T) {
-	on_fresh_thread(t, proc(t: ^testing.T) {
-		runner: lava.Page_Runner
-
-		if !lava.page_runner_init(&runner, 2, record_page_outcome, context.allocator) {
-			testing.expect(t, false, "page_runner_init failed")
-			return
-		}
-
-		defer lava.page_runner_destroy(&runner)
-		compiled, instantiated: Page_Outcome
-		lava.page_runner_open(
-			&runner,
-			"WebAssembly.compile(" +
-			WASM_EMPTY_MODULE +
-			").then((m) => { if (m instanceof WebAssembly.Module) throw new Error('settled'); }, () => {});",
-			"<wasm-compile>",
-			DRIVE_LIMITS,
-			&compiled,
-			.Web,
-		)
-		lava.page_runner_open(
-			&runner,
-			"WebAssembly.instantiate(" +
-			WASM_EMPTY_MODULE +
-			").then((r) => { if (r.instance instanceof WebAssembly.Instance) throw new Error('settled'); }, () => {});",
-			"<wasm-instantiate>",
-			DRIVE_LIMITS,
-			&instantiated,
-			.Web,
-		)
-		testing.expect(t, runner_drive_until(t, &runner, 10), "the pages never finished")
-		testing.expectf(t, compiled.done && compiled.exit == 1, "compile: %s", describe_outcome(compiled))
-		testing.expectf(
-			t,
-			instantiated.done && instantiated.exit == 1,
-			"instantiate: %s",
-			describe_outcome(instantiated),
-		)
-	})
-}
-
-// eval's page blocks in its own poll, and a compile finishes on a JSC worker thread, so
-// the wake must come through the RunLoop descriptor the page loop watches. Twenty
-// compiles in a chain — each started from the previous one's handler, so at least the
-// later ones finish while the tick is blocked — must all land well before the 5 s timer
-// that would fail the page. That timer spins into the page's 1 s entry limit rather than
-// throwing: a page held for a compile whose completion never wakes it would otherwise
-// block in its poll for good, and the test would hang instead of failing.
-@(test)
-eval_wakes_for_wasm_completions :: proc(t: ^testing.T) {
-	on_fresh_thread(t, proc(t: ^testing.T) {
-		loop := eventloop.init(real_time = true)
-		start := time.tick_now()
-		result := lava.eval(
-			"const bytes = " +
-			WASM_EMPTY_MODULE +
-			`;
-			let left = 20;
-			const fail = setTimeout(() => { while (true) {} }, 5000);
-			(function next() {
-				WebAssembly.compile(bytes).then((m) => {
-					if (!(m instanceof WebAssembly.Module)) throw new Error('not a Module');
-					if (--left > 0) next(); else clearTimeout(fail);
-				});
-			})();`,
-			"<wasm-eval>",
-			&loop,
-			surface = .Web,
-			limits = {entry_limit = 1, cpu_budget = 30},
-		)
-		defer lava.result_destroy(&result)
-		elapsed := time.duration_seconds(time.tick_since(start))
-		testing.expectf(
-			t,
-			result.status == .Ok && result.exit_code == 0 && result.kill == .None,
-			"eval: %v exit %d kill %v %q",
-			result.status,
-			result.exit_code,
-			result.kill,
-			result.message,
-		)
-		testing.expectf(t, elapsed < 2.5, "20 compiles took %.2f s: the page slept through their completions", elapsed)
-	})
-}
-
 // A released VM's RunLoop timer source closes its timerfd only when the thread's context
 // is next iterated (session probe p4), and vm_pool_destroy iterates once after its
 // releases. Before the drive this descriptor outlived the VM for the life of the thread.
@@ -455,16 +358,15 @@ cond_reported :: proc(page: ^lava.Page, user_data: rawptr) -> bool {
 	return ok && jsc.JSValueToBoolean(cast(jsc.JSContextRef)page.ctx, v)
 }
 
-// A `.Web` page sees FinalizationRegistry and WebAssembly.compile/instantiate as Chrome
-// does (testdata/deferred-chrome: case.js, Chrome 158's expected.txt, record-chrome.py):
-// the wrapped constructor and functions keep the engine's name, length, attributes,
-// prototype, subclassing and TypeErrors; compile and instantiate settle with a Module and
-// an Instance, and reject a bad buffer with CompileError; every dead target gets one
-// cleanup, called with its held value alone and `this` undefined, and one registry's
-// cleanups run as one task, before the microtasks they queue. Byte for byte, on a page
-// driven by page_run_until — a single page whose loop is its thread's driver.
+// A `.Web` page's FinalizationRegistry cleanups run as Chrome runs them
+// (testdata/deferred-chrome: case.js, Chrome 158's expected.txt, record-chrome.py): every
+// dead target gets one cleanup, called with its held value alone and `this` undefined;
+// one registry's cleanups run as one task, before the microtasks they queue; and two
+// registries are two tasks, each one's microtasks before the other's cleanups. Byte for
+// byte, on a page driven by page_run_until — a single page whose loop is its thread's
+// driver. (A collection is what makes a target dead, so this cannot be a tests/web case.)
 @(test)
-web_page_sees_finalization_and_wasm_as_chrome_does :: proc(t: ^testing.T) {
+page_sees_finalization_cleanups_as_chrome_does :: proc(t: ^testing.T) {
 	on_fresh_thread(t, proc(t: ^testing.T) {
 		page: lava.Page
 		loop := eventloop.init(real_time = true)

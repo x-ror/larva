@@ -61,11 +61,26 @@ Runtime_State :: struct {
 	// well-known symbol cannot be replaced, but globalThis.Symbol can, so it is not
 	// read at call time.
 	symbol_to_primitive: jsc.JSValueRef,
-	// js/internal/deferred.js's flush, GC-protected, and the context it belongs to: the
-	// loop task its `schedule` native posts (deferred.odin) runs it in the page's tick.
-	// A loop task has no context of its own to call through, hence the second field.
+	// The context this state belongs to, for a loop task that must call into it and has
+	// no JS caller to take one from (deferred.odin's flush, wasm.odin's jobs). Set by
+	// page_create.
+	ctx:               jsc.JSContextRef,
+	// js/internal/deferred.js's flush, GC-protected: the loop task its `schedule` native
+	// posts (deferred.odin) runs it in the page's tick.
 	deferred_flush:    jsc.JSValueRef,
-	deferred_ctx:      jsc.JSContextRef,
+	// FinalizationRegistry's routing (deferred.odin): the engine's constructor, the
+	// module's cleanup wrapper and Reflect.construct, captured before page code and
+	// GC-protected; and the two TypeError messages the engine gives for misuse, so the
+	// native constructor throws its words.
+	fr_engine:         jsc.JSValueRef,
+	fr_wrap:           jsc.JSValueRef,
+	fr_construct:      jsc.JSValueRef,
+	// WebAssembly (wasm.odin): the engine's Module and Instance constructors, captured
+	// before page code and GC-protected, and the settlements the page is still owed.
+	wasm_module:       jsc.JSValueRef,
+	wasm_instance:     jsc.JSValueRef,
+	wasm_jobs:         [dynamic]Wasm_Job,
+	wasm_scheduled:    bool,
 	// The page loop's watcher on the thread's RunLoop descriptor (deferred_service_page),
 	// for a page whose loop blocks on its own; the loop holds a pointer to it while it is
 	// watched, which deferred_unwatch_loop ends in page_close.
@@ -184,6 +199,7 @@ new_runtime_state :: proc(loop: ^eventloop.Loop) -> ^Runtime_State {
 	state.net_conns = make(map[u64]^Net_Connection)
 	state.tls_server_ctxs = make(map[u64]rawptr)
 	state.next_net_id = 1
+	state.wasm_jobs = make([dynamic]Wasm_Job, state.allocator)
 	return state
 }
 
@@ -216,6 +232,10 @@ destroy_runtime_state :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) {
 	unprotect_before_eval_exit(ctx, state.next_tick_drain)
 	unprotect_before_eval_exit(ctx, state.symbol_to_primitive)
 	unprotect_before_eval_exit(ctx, state.deferred_flush)
+	unprotect_before_eval_exit(ctx, state.fr_engine)
+	unprotect_before_eval_exit(ctx, state.fr_wrap)
+	unprotect_before_eval_exit(ctx, state.fr_construct)
+	wasm_release_jobs(ctx, state)
 	// Clear the global's private slot BEFORE the free, so get_state_from_ctx can
 	// never hand out a dangling ^Runtime_State. The reachable path is the one the
 	// fail-closed dispatcher defines: host_dispatch_fail -> make_js_error ->
@@ -1774,6 +1794,8 @@ install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef)
 	set_named(ctx, natives, "internal/fetch", cast(jsc.JSValueRef)make_fetch_bindings(ctx))
 	set_named(ctx, natives, "internal/stdio", cast(jsc.JSValueRef)make_stdio_bindings(ctx))
 	set_named(ctx, natives, "internal/deferred", cast(jsc.JSValueRef)make_deferred_bindings(ctx))
+	// Native, not a module: nothing of it is JS a page could see in a stack (wasm.odin).
+	install_wasm(ctx, state)
 	// The Node-only subsystems: built in only with -define:LAVA_NODE_MODULES=true.
 	when LAVA_NODE_MODULES {
 		set_named(ctx, natives, "node/sqlite", cast(jsc.JSValueRef)make_sqlite_bindings(ctx))

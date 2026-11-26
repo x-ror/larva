@@ -5,14 +5,17 @@ import "core:sync"
 import "core:sys/linux"
 import "core:time"
 
-// Driving JavaScriptCore's WTF::RunLoop (#91, #97).
+// Driving JavaScriptCore's WTF::RunLoop (#91).
 //
 // JSC hands some of its work to a timer or a task on the thread's WTF::RunLoop rather
 // than doing it inside an API call: a FinalizationRegistry's cleanup (DeferredWorkTimer),
-// the settlement of WebAssembly.compile/instantiate (a JSC worker compiles, then posts
-// the result back to the RunLoop), the incremental sweeper. On WebKitGTK the RunLoop is
-// a GLib GMainContext, and nothing in Lava ever iterated it — so those cleanups never
-// ran and those promises never settled. Measured with standalone C probes against
+// the settlement of its own asynchronous WebAssembly.compile/instantiate, the
+// incremental sweeper. On WebKitGTK the RunLoop is a GLib GMainContext, and nothing in
+// Lava ever iterated it — so those cleanups never ran and those promises never settled.
+// Pages no longer reach the engine's asynchronous WebAssembly at all: its settlement
+// runs page code from the RunLoop (pkg/runtime/wasm.odin says why, and replaces it).
+// What the drive delivers to a page is cleanups only, through a shim that runs no page
+// code (pkg/runtime/deferred.odin). Measured with standalone C probes against
 // libjavascriptcoregtk-6.0 2.52.6 (session notes "runloop-verify", q1-q9; summarised
 // where each fact is used below).
 //
@@ -370,8 +373,8 @@ runloop_due :: proc() -> bool {
 
 // runloop_dispatch runs what is ready on the thread's RunLoop: one non-blocking
 // g_main_context_iteration. Thread level only — never from inside a VM entry or a
-// page's CPU window: what it runs (a FinalizationRegistry cleanup task, a wasm
-// completion) enters JS in whichever VM posted it. Nor between a limit kill and the
+// page's CPU window: what it runs (a FinalizationRegistry cleanup task) enters JS in
+// whichever VM posted it. Nor between a limit kill and the
 // VM's release: it would enter the VM with the kill still armed (page_close says what
 // that cost).
 //
@@ -456,6 +459,15 @@ runloop_self_test :: proc(group: JSContextGroupRef) -> bool {
 	}
 
 	defer JSGlobalContextRelease(ctx)
+
+	// FinalizationRegistry is routed through a host-function constructor
+	// (pkg/runtime/deferred.odin); without the host-call path the engine's own
+	// constructor stays, and a driven RunLoop would run page cleanups at thread level,
+	// outside every page's window. So no host path, no drive.
+	if !host_calls_active(cast(JSContextRef)ctx) {
+		return false
+	}
+
 	SETUP :: "globalThis.ran = 0; globalThis.fr = new FinalizationRegistry(function () { ran = 1; });" +
 		" (function () { for (var i = 0; i < 4; i++) fr.register({}, i); })(); 0"
 	src := JSStringCreateWithUTF8CString(SETUP)

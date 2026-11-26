@@ -4675,42 +4675,6 @@
       "expect_detail": "no FinalizationRegistry cleanup within 3 s"
     },
     {
-      "name": "runner_charges_a_cleanup_to_its_own_page dies when the shim runs the cleanup at the RunLoop dispatch",
-      "why": "The RunLoop is dispatched outside every page's CPU window, so a cleanup run there is charged to nobody and a page can move unbounded work into cleanups past its budget.",
-      "source": "pkg/runtime/js/internal/deferred.js",
-      "find": "          enqueue(cleanup, heldValue);",
-      "replace": "          ReflectApply(cleanup, undefined, [heldValue]);",
-      "gate": "odin:cmd/lava:main.runner_charges_a_cleanup_to_its_own_page",
-      "expect_detail": "were not charged to A"
-    },
-    {
-      "name": "runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first dies when the shim runs the cleanup at the RunLoop dispatch",
-      "why": "A cleanup that runs from the RunLoop instead of its page's own loop outlives its page: it ran in the closed page's realm on the VM the next page now holds, under that page's watchdog, and killed it.",
-      "source": "pkg/runtime/js/internal/deferred.js",
-      "find": "          enqueue(cleanup, heldValue);",
-      "replace": "          ReflectApply(cleanup, undefined, [heldValue]);",
-      "gate": "odin:cmd/lava:main.runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first",
-      "expect_detail": "kill=Cpu_Budget"
-    },
-    {
-      "name": "runner_holds_a_page_until_its_wasm_settles dies when a pending compile takes no hold on the loop",
-      "why": "A page whose only work is a pending WebAssembly.compile ends before the compile settles, so its handlers never run (#97's keep-alive half).",
-      "source": "pkg/runtime/js/internal/deferred.js",
-      "find": "    if (!hold()) return inner;",
-      "replace": "    return inner;",
-      "gate": "odin:cmd/lava:main.runner_holds_a_page_until_its_wasm_settles",
-      "expect_detail": "exit=0"
-    },
-    {
-      "name": "eval_wakes_for_wasm_completions dies when the page loop neither watches the RunLoop descriptor nor caps its poll at GLib's deadline",
-      "why": "A compile finishes on a JSC worker thread; a page held for it that is told nothing of the RunLoop blocks in its poll until something else wakes it, forever if nothing does. Either the watcher or the cap alone wakes it (measured), so the entry removes both.",
-      "source": "pkg/runtime/deferred.odin",
-      "find": "\tif !state.deferred_watch.watched {\n\t\tstate.deferred_watch = eventloop.IO_Watcher {\n\t\t\tfd       = uintptr(fd),\n\t\t\tmode     = .Read,\n\t\t\tcallback = deferred_wake,\n\t\t\tunref    = true,\n\t\t}\n\t\teventloop.watch_fd(state.loop, &state.deferred_watch)\n\t}\n\n\ttimeout, _ := jsc.runloop_sync()\n\t// A 0 deadline (a source ready right now) caps at 1 ms rather than making the tick\n\t// non-blocking: the dispatch above has just run what was ready.\n\tstate.loop.poll_cap_ms = timeout >= 0 ? max(timeout, 1) : 0\n",
-      "replace": "\t_ = fd\n\tstate.loop.poll_cap_ms = 0\n",
-      "gate": "odin:cmd/lava:main.eval_wakes_for_wasm_completions",
-      "expect_detail": "kill Entry_Limit"
-    },
-    {
       "name": "vm_pool_releases_its_timerfds dies when vm_pool_destroy no longer iterates the RunLoop after its releases",
       "why": "A released VM's timer source closes its timerfd only at the next iteration, so every retired VM would again cost a descriptor for the life of its thread.",
       "source": "pkg/runtime/vm_pool.odin",
@@ -4737,24 +4701,6 @@
       "replace": "",
       "gate": "odin:cmd/lava:main.runner_collects_a_vm_whose_sampled_heap_was_large",
       "expect_detail": "was not collected"
-    },
-    {
-      "name": "web_page_sees_finalization_and_wasm_as_chrome_does dies when a wrapped built-in loses the engine's attributes",
-      "why": "WebAssembly.compile and instantiate are enumerable in Chrome and in JSC; a wrapper that redefines them non-enumerable changes what Object.keys(WebAssembly) shows a page.",
-      "source": "pkg/runtime/js/internal/deferred.js",
-      "find": "      enumerable: d.enumerable,",
-      "replace": "      enumerable: false,",
-      "gate": "odin:cmd/lava:main.web_page_sees_finalization_and_wasm_as_chrome_does",
-      "expect_detail": "wasm compile function compile 1 function/true/false/true"
-    },
-    {
-      "name": "web_page_sees_finalization_and_wasm_as_chrome_does dies when FinalizationRegistry.prototype.constructor is not the wrapper",
-      "why": "Chrome answers FinalizationRegistry.prototype.constructor === FinalizationRegistry with true; a wrapper that leaves the engine's constructor there makes the identity a page can test false.",
-      "source": "pkg/runtime/js/internal/deferred.js",
-      "find": "    replaceValue(FinalizationRegistryCtor.prototype, 'constructor', registryProxy);\n",
-      "replace": "",
-      "gate": "odin:cmd/lava:main.web_page_sees_finalization_and_wasm_as_chrome_does",
-      "expect_detail": "FR proto.constructor false"
     },
     {
       "name": "suspended_timers_phase_resumes_the_same_turn dies when a yield breaks out of the timers phase",
@@ -4983,6 +4929,87 @@
       "gate": "node-test:scripts/run-web-oracle.test.mjs",
       "test": "a suite below the case-count floor fails before running anything",
       "expect_detail": "a suite below the case-count floor fails before running anything"
+    },
+    {
+      "name": "runner_charges_a_cleanup_to_its_own_page dies when the shim runs the cleanup at the RunLoop dispatch",
+      "why": "The RunLoop is dispatched outside every page's CPU window, so a cleanup run there is charged to nobody and a page can move unbounded work into cleanups past its budget.",
+      "source": "pkg/runtime/js/internal/deferred.js",
+      "find": "      enqueue(cleanup, heldValue, registry);",
+      "replace": "      ReflectApply(cleanup, undefined, [heldValue]);",
+      "gate": "odin:cmd/lava:main.runner_charges_a_cleanup_to_its_own_page",
+      "expect_detail": "were not charged to A"
+    },
+    {
+      "name": "page_sees_finalization_cleanups_as_chrome_does dies when one task flushes every registry's cleanups",
+      "why": "HTML queues a cleanup task per registry, so Chrome drains one registry's microtasks before the next registry's cleanups run (AAmmBBmm); one flush for all of them prints AABBmmmm (#91 review F4).",
+      "source": "pkg/runtime/js/internal/deferred.js",
+      "find": "      while (head < tail && items[head + 2] === registry) {",
+      "replace": "      while (head < tail) {",
+      "gate": "odin:cmd/lava:main.page_sees_finalization_cleanups_as_chrome_does",
+      "expect_detail": "two registries, one task each false"
+    },
+    {
+      "name": "finalization-shape dies when FinalizationRegistry's native constructor drops new.target",
+      "why": "Constructing the engine registry with its own new.target gives a subclass instance, or one made through Reflect.construct, FinalizationRegistry.prototype instead of its own prototype.",
+      "source": "pkg/runtime/deferred.odin",
+      "find": "\t\t\targs := [3]jsc.JSValueRef{state.fr_engine, cast(jsc.JSValueRef)list, new_target}",
+      "replace": "\t\t\targs := [3]jsc.JSValueRef{state.fr_engine, cast(jsc.JSValueRef)list, state.fr_engine}",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL finalization-shape"
+    },
+    {
+      "name": "finalization-shape dies when FinalizationRegistry is constructed through its call native",
+      "why": "Without a constructor native of its own, `new FinalizationRegistry(cb)` runs the call path and throws the without-new TypeError, so no page can make a registry.",
+      "source": "pkg/runtime/deferred.odin",
+      "find": "jsc.host_function_create(ctx, \"FinalizationRegistry\", fr_call_host, 1, ctor = fr_construct_host)",
+      "replace": "jsc.host_function_create(ctx, \"FinalizationRegistry\", fr_call_host, 1)",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL finalization-shape"
+    },
+    {
+      "name": "wasm-async dies when WebAssembly.compile becomes constructible",
+      "why": "Chrome's WebAssembly.compile is a built-in method: `new` throws TypeError; a host function that keeps its call native as constructor returns a promise instead.",
+      "source": "pkg/runtime/wasm.odin",
+      "find": "\tcompile := host_native_create(ctx, \"compile\", wasm_compile_cb, 1, constructible = false)",
+      "replace": "\tcompile := host_native_create(ctx, \"compile\", wasm_compile_cb, 1)",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL wasm-async"
+    },
+    {
+      "name": "wasm-errors dies when a non-buffer source rejects with the engine's TypeError",
+      "why": "JSC words it 'first argument must be an ArrayBufferView or an ArrayBuffer'; a page on Chrome reads 'WebAssembly.compile(): Argument 0 must be a buffer source'.",
+      "source": "pkg/runtime/wasm.odin",
+      "find": "\t\treturn nil, make_native_error(ctx, \"TypeError\", message), nil",
+      "replace": "\t\treturn nil, exc, nil",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL wasm-errors"
+    },
+    {
+      "name": "wasm_start_function_is_charged_to_its_page dies when the engine's WebAssembly.instantiate is kept",
+      "why": "The engine settles an instantiate from the thread's RunLoop, so the start function and imports run outside the page's CPU window and a page escapes its budget through them (#97 review, safety F2).",
+      "source": "pkg/runtime/wasm.odin",
+      "find": "\tset_named(ctx, ns, \"instantiate\", cast(jsc.JSValueRef)instantiate)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.wasm_start_function_is_charged_to_its_page",
+      "expect_detail": "the start functions were not charged"
+    },
+    {
+      "name": "runner_holds_a_page_until_its_wasm_settles dies when a settlement job takes no hold on the loop",
+      "why": "A page whose only work is a pending compile then has nothing pending, ends at its next tick, and never sees the settlement (#97's keep-alive half).",
+      "source": "pkg/runtime/wasm.odin",
+      "find": "\tstate.wasm_scheduled = true\n\teventloop.async_begin(state.loop)\n",
+      "replace": "\tstate.wasm_scheduled = true\n",
+      "gate": "odin:cmd/lava:main.runner_holds_a_page_until_its_wasm_settles",
+      "expect_detail": "exit=0"
+    },
+    {
+      "name": "eval_settles_a_chain_of_wasm_compiles dies when a settlement job is never posted",
+      "why": "Without the task on the page's loop the promise never settles: a chained compile hangs the page until something kills it.",
+      "source": "pkg/runtime/wasm.odin",
+      "find": "\teventloop.post_async(state.loop, wasm_job_task, state)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.eval_settles_a_chain_of_wasm_compiles",
+      "expect_detail": "kill Entry_Limit"
     }
   ]
 }

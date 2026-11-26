@@ -243,6 +243,7 @@ page_create :: proc(
 	}
 
 	state := new_runtime_state(loop)
+	state.ctx = cast(jsc.JSContextRef)ctx
 	state.vm = vm
 	state.page_runner = runner_page
 	page.state = state

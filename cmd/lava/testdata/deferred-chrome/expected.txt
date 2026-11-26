@@ -1,22 +1,4 @@
-FR function FinalizationRegistry 1
-FR global function/true/false/true
-FR proto.constructor true
-FR proto.constructor desc function/true/false/true
-FR instance true true [object FinalizationRegistry]
-FR subclass true true true
-FR non-callable TypeError
-FR no new TypeError
-FR no args TypeError
-FR register undefined unregister false
-wasm compile function compile 1 function/true/true/true
-wasm instantiate function instantiate 1 function/true/true/true
-wasm validate function validate 1 function/true/true/true
-wasm compile returns true true
-wasm compile -> true
-wasm instantiate(bytes) -> module,instance true true
-wasm instantiate(module) -> true
-wasm bad bytes -> CompileError true
-wasm non-buffer -> TypeError
 cleanups c0,c1,c2
 cleanup calls 1:true 1:true 1:true
 cleanups before their microtasks true
+two registries, one task each true

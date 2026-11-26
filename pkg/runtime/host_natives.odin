@@ -291,6 +291,8 @@ host_dispatch_fail :: #force_no_inline proc "c" (ctx: jsc.JSContextRef, why: str
 //   name   Binding name, cloned through the Runtime_State allocator.
 //   cb     C-API-shaped callback the shared trampoline dispatches to.
 //   arity  Becomes the function's `.length`.
+//   constructible  false for a function `new` must refuse, as a built-in method
+//          does (jsc.host_function_create).
 // Returns:
 //   The cached-or-new function object; nil when the host-call path is
 //   unavailable or the registry declined, and the caller must fall back to
@@ -315,6 +317,7 @@ host_native_create :: proc(
 	name: string,
 	cb: jsc.JSObjectCallAsFunctionCallback,
 	arity: int = 1,
+	constructible := true,
 ) -> jsc.JSObjectRef {
 	key := Host_Native_Key{rawptr(ctx), transmute(rawptr)cb, name}
 
@@ -344,7 +347,7 @@ host_native_create :: proc(
 		return nil
 	}
 
-	fn, ok := jsc.host_function_create(ctx, name, generic_native_host_cb, arity)
+	fn, ok := jsc.host_function_create(ctx, name, generic_native_host_cb, arity, constructible = constructible)
 
 	if !ok || fn == nil {
 		return nil
