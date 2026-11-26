@@ -1,0 +1,30 @@
+# Cases where `lava run --surface=web` does not print what Chrome recorded.
+#
+#   <case> <stage>: <reason>
+#
+# The stage is the step of the Node-profile removal that closes the gap
+# (tests/web/README.md lists them). Each listed case is held to its pinned Lava output
+# in tests/web/known/<case>.lava, so a gap that changes is a failure too; one that
+# starts matching Chrome fails until its line and pin are removed.
+# `unplanned` marks a gap no removal stage closes: it needs an issue of its own.
+
+abort-reason-shape S4a: no DOMException global; the abort and timeout reasons are Node-shaped Errors (code 'ABORT_ERR', node's messages) where Chrome has DOMExceptions with codes 20/23
+abort-signal unplanned: EventTarget is not a global on either surface, so `signal instanceof EventTarget` throws ReferenceError; the AbortSignal behavior before it matches Chrome
+blob-object-url S4c: createObjectURL mints blob:nodedata:<uuid> where Chrome mints blob:<origin>/<uuid>, and fetch() cannot read a blob: URL ("fetch: invalid URL")
+blob-pristine-reads S4c: the object URL is blob:nodedata:<uuid>; the spy log, size and type already match Chrome
+clone-structured S4c: structuredClone.length is 2 (Chrome 1), a boxed BigInt clones to a plain object, DataCloneError is an Error rather than a DOMException, and the transfer option is refused
+crypto-random S4a: getRandomValues throws TypeError/RangeError where Chrome throws the DOMExceptions TypeMismatchError/QuotaExceededError
+encoding-errors S4b: node's coded errors and messages (ERR_ENCODING_NOT_SUPPORTED, ERR_ENCODING_INVALID_ENCODED_DATA, ERR_INVALID_ARG_TYPE) where Chrome has plain TypeError/RangeError with its WebIDL text; decode() also checks options before its input
+fetch-body-utf8 S4d: a string body sets no content-type (Chrome: text/plain;charset=UTF-8)
+fetch-classes S4d: Headers/Request/Response are enumerable globals, headers iterate in insertion order instead of sorted, Request mode/credentials/cache are empty, Response.error().type is "default", and Body has no blob()
+fetch-errors S4d: undici-style messages where Chrome has WebIDL text, and five checks are missing (Headers pair length, Request method token and forbidden methods, Response status range, null-body status with a body)
+fetch-network S4d: fetch(request) sends no content-type for a string body the Request carries; the other network lines match Chrome
+perf-now unplanned: performance is a plain object (no Performance brand, no toJSON)
+robust-console-poisoned unplanned: bootstrap/console.js reads Array.prototype.slice live, so a page that replaces it can no longer log (print writes through console.log on Lava)
+robust-resizable-views unplanned: Chrome refuses a view over a resizable ArrayBuffer in every WebIDL byte argument (no [AllowResizable]); Lava reads the view's current bytes. Closes with WebIDL conversions (#12)
+robust-view-probe unplanned: as robust-resizable-views: Chrome refuses the resizable-backed window, Lava decodes it as empty (it never reads the stale bytes this case guards against)
+streams-byte unplanned: no readable byte streams (ReadableByteStreamController, type 'bytes', BYOB reads)
+timers-due-mid-callback unplanned: Lava orders due timers by deadline as node does (#98); Chrome runs a 0 ms timer created inside a long callback before an older timer that fell due during it
+timers-interval-rearm unplanned: Lava re-arms an interval from the clock read before its callback, as node does (#99); Chrome re-arms from the interval's scheduled time, so its second fire lands before the +200 ms sentinel
+url-errors S4e: node's ERR_INVALID_URL/ERR_INVALID_ARG_TYPE with node's messages where Chrome has WebIDL text and no code
+url-host-space unplanned: Chrome percent-encodes a space in a special URL's host and accepts it; Lava follows the WHATWG parser and throws. Deciding whether to follow Chrome here is parser work, not message work

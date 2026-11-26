@@ -1,0 +1,18 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs url-errors
+# ---
+new URL(): TypeError: Failed to construct 'URL': 1 argument required, but only 0 present. code=undefined
+relative without base: TypeError: Failed to construct 'URL': Invalid URL code=undefined
+empty host: TypeError: Failed to construct 'URL': Invalid URL code=undefined
+bad base: TypeError: Failed to construct 'URL': Invalid base URL code=undefined
+bad port: TypeError: Failed to construct 'URL': Invalid URL code=undefined
+bad IPv6: TypeError: Failed to construct 'URL': Invalid URL code=undefined
+URL.parse bad: no throw "null"
+URL.canParse bad: no throw "false"
+URLSearchParams bad pair: TypeError: Failed to construct 'URLSearchParams': Failed to construct 'URLSearchParams': Sequence initializer must only contain pair elements code=undefined
+URLSearchParams bad entry: TypeError: Failed to construct 'URLSearchParams': The provided value cannot be converted to a sequence. code=undefined
+href setter: TypeError: Failed to set the 'href' property on 'URL': Invalid URL code=undefined
+createObjectURL string: TypeError: Failed to execute 'createObjectURL' on 'URL': Overload resolution failed. code=undefined

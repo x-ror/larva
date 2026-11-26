@@ -25,7 +25,7 @@ endif
 SOURCE ?= console.log('hello from Lava')
 FILE ?=
 
-.PHONY: gates test-stdio help env sdk-diff test-one bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-html-odin test-http-odin test-sqlite-odin test-sqlite-node test-sqlite-lava test-fs-node test-fs-lava test-eventloop-node test-eventloop-lava test-fetch-smoke test-net-smoke test-http-smoke test-https-smoke test-multicore-smoke test-zerocopy-smoke bench bench-gate bench-http fmt clean test-bench-pages-smoke bench-pages
+.PHONY: gates test-stdio test-web record-web help env sdk-diff test-one bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-html-odin test-http-odin test-sqlite-odin test-sqlite-node test-sqlite-lava test-fs-node test-fs-lava test-eventloop-node test-eventloop-lava test-fetch-smoke test-net-smoke test-http-smoke test-https-smoke test-multicore-smoke test-zerocopy-smoke bench bench-gate bench-http fmt clean test-bench-pages-smoke bench-pages
 
 help:
 	@printf '%s\n' 'Lava commands'
@@ -77,6 +77,8 @@ help:
 	@printf '%s\n' '  make test-sqlite-node / test-sqlite-lava'
 	@printf '%s\n' '  make test-eventloop-node / test-eventloop-lava'
 	@printf '%s\n' '  make test-stdio         node:test over tests/stdio (needs bin/lava)'
+	@printf '%s\n' '  make test-web           Window-profile cases vs their Chrome recordings (tests/web)'
+	@printf '%s\n' '  make record-web [CASES=a b]  Re-record tests/web cases in headless Chrome'
 	@printf '%s\n' '  make test-property      Differential property tests (PROPERTY_RUNS=N)'
 	@printf '%s\n' '  make test-scripts       node:test over scripts/ only (also inside check-js)'
 	@printf '%s\n' '  make test-mutation      Mutation gate (CHANGED=1: only what the diff affects; FILTER=name)'
@@ -242,6 +244,18 @@ test-stdio: build
 
 test-property: build
 	LAVA_BIN="$(LAVA)" node --test 'tests/property/**/*.property.test.mjs'
+
+# The Window-profile oracle (tests/web, x-ror/larva#2): every case runs under
+# `lava run --surface=web` and its stdout must equal the output recorded from Chrome
+# byte for byte; tests/web/known-gaps.txt lists, with a stage and a reason, the cases
+# Lava does not match yet, each held to its pinned output. Needs bin/lava, not Chrome:
+# the recordings are committed. record-web re-records them (needs google-chrome;
+# CHROME_BIN overrides), CASES= for a subset.
+test-web: build
+	LAVA_BIN="$(LAVA)" node scripts/run-web-oracle.mjs
+
+record-web:
+	node scripts/record-chrome.mjs $(CASES)
 
 check-jsc:
 	$(RUNSCRIPT) ./scripts/check-jsc.sh

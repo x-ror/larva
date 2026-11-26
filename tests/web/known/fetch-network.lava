@@ -1,0 +1,12 @@
+# exit 0
+text 200 true /fx/text false
+text type text/plain; charset=utf-8 body hello from the fixture
+utf8 "héllo café ☕ 日本語"
+json {"ok":true,"list":[1,2,3]}
+bytes 5 0,1,2,254,255
+redirect 200 /fx/text true
+missing 404 false not here
+x-fixture one length 2
+echo {"method":"POST","contentType":"text/plain;charset=UTF-8","xTest":"yes","body":"café"}
+echo request {"method":"PUT","contentType":null,"xTest":null,"body":"from a Request"}
+aborted fetch rejected AbortError

@@ -1,0 +1,4 @@
+# exit 0
+"http://exa mple.com/" => throws TypeError
+"http://a%20b.com/" => throws TypeError
+"foo://exa mple/" => throws TypeError

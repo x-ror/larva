@@ -1,0 +1,17 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs crypto-random
+# ---
+types object function function
+uuid v4 true unique true
+returns its argument true filled true
+offset view filled true
+before untouched true
+after untouched true
+zero-length true
+Float32Array: DOMException TypeMismatchError
+65537 bytes: QuotaExceededError QuotaExceededError
+65536 bytes: no throw
+not a view: TypeError TypeError

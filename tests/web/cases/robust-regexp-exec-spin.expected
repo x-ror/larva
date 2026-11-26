@@ -1,0 +1,15 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs robust-regexp-exec-spin
+# ---
+plus=1
+noplus=2
+many=1 2 3
+edges=[[" a","1"],["b ","2"],["c  d","3"]]
+empty=[["a",""],["","b"]]
+serialize=a+b=c%2Bd
+url search=c d
+blob native=5
+done

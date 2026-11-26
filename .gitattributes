@@ -32,3 +32,8 @@
 # array. Driver: scripts/merge-mutation-manifest.mjs, registered per clone (see
 # CONTRIBUTING.md); without it git falls back to a normal text merge.
 tests/mutation-manifest.json merge=mutation-manifest
+
+# Recorded oracle output is compared byte for byte (tests/web): no eol conversion, or
+# a recorded CR would turn into a difference on checkout.
+tests/web/cases/*.expected -text
+tests/web/known/*.lava     -text

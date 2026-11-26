@@ -1,0 +1,35 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs robust-oversized-allocation
+# ---
+Uint8Array(2**53): RangeError
+Uint8Array(1e30): RangeError
+Int8Array(2**53): RangeError
+Int8Array(1e30): RangeError
+Uint8ClampedArray(2**53): RangeError
+Uint8ClampedArray(1e30): RangeError
+Uint16Array(2**53): RangeError
+Uint16Array(1e30): RangeError
+Int16Array(2**53): RangeError
+Int16Array(1e30): RangeError
+Uint32Array(2**53): RangeError
+Uint32Array(1e30): RangeError
+Int32Array(2**53): RangeError
+Int32Array(1e30): RangeError
+Float32Array(2**53): RangeError
+Float32Array(1e30): RangeError
+Float64Array(2**53): RangeError
+Float64Array(1e30): RangeError
+BigInt64Array(2**53): RangeError
+BigInt64Array(1e30): RangeError
+BigUint64Array(2**53): RangeError
+BigUint64Array(1e30): RangeError
+ArrayBuffer(2**53): RangeError
+ArrayBuffer(1e30): RangeError
+ArrayBuffer(-1): RangeError
+Blob of a huge sparse array: no throw Number
+small 8 255 true
+view 16 4 true
+fractional 3

@@ -1,0 +1,13 @@
+# exit 0
+new URL(): TypeError: Failed to construct 'URL': 1 argument required, but only 0 present. code=undefined
+relative without base: TypeError: Invalid URL code=ERR_INVALID_URL
+empty host: TypeError: Invalid URL code=ERR_INVALID_URL
+bad base: TypeError: Invalid URL code=ERR_INVALID_URL
+bad port: TypeError: Invalid URL code=ERR_INVALID_URL
+bad IPv6: TypeError: Invalid URL code=ERR_INVALID_URL
+URL.parse bad: no throw "null"
+URL.canParse bad: no throw "false"
+URLSearchParams bad pair: TypeError: Each query pair must be an iterable [name, value] tuple code=undefined
+URLSearchParams bad entry: TypeError: The provided value cannot be converted to a sequence. code=undefined
+href setter: TypeError: Invalid URL code=ERR_INVALID_URL
+createObjectURL string: TypeError: The "obj" argument must be an instance of Blob. Received type string ('x') code=ERR_INVALID_ARG_TYPE

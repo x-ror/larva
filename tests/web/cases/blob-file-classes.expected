@@ -1,0 +1,26 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs blob-file-classes
+# ---
+Blob prototype writable false
+Blob without new: TypeError
+File prototype writable false
+File without new: TypeError
+File extends Blob true
+subclass true true hello 3 ""
+subclass File true my.txt 7 1
+tags [object Blob] [object File] [object Blob]
+blob 6 "text/plain" "abcdé"
+arrayBuffer 61626364c3a9
+bytes 61626364c3a9
+slice 4 x/y "bcd�"
+slice neg "dé"
+nested "abcdé!"
+surrogates efbfbd61efbfbdf09f9880
+endings native 610a620a63
+endings transparent 610d0a620a63
+bad type ""
+file name.txt 42 2 text/plain "hi"
+file default lastModified is a number number

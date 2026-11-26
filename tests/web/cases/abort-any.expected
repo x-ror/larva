@@ -1,0 +1,14 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs abort-any
+# ---
+combined before false
+combined after true reason first events 1
+second abort keeps first events 1
+pre-aborted true pre
+empty false
+any(null) threw TypeError
+any(42) threw TypeError
+any([{}]) threw TypeError

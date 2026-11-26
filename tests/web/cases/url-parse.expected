@@ -1,0 +1,132 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs url-parse
+# ---
+typeof globalThis.URL => "function"
+typeof globalThis.URLSearchParams => "function"
+typeof URL.createObjectURL => "function"
+typeof URL.revokeObjectURL => "function"
+Object.prototype.toString.call(new URL('http://a.b/')) => "[object URL]"
+Object.prototype.toString.call(new URLSearchParams()) => "[object URLSearchParams]"
+u.href => "https://user:pass@example.com:8443/a/b?x=1&y=2#frag"
+u.protocol => "https:"
+u.username => "user"
+u.password => "pass"
+u.host => "example.com:8443"
+u.hostname => "example.com"
+u.port => "8443"
+u.pathname => "/a/b"
+u.search => "?x=1&y=2"
+u.hash => "#frag"
+u.origin => "https://example.com:8443"
+u.toString() => "https://user:pass@example.com:8443/a/b?x=1&y=2#frag"
+u.toJSON() => "https://user:pass@example.com:8443/a/b?x=1&y=2#frag"
+JSON.stringify({ u }) => "{\"u\":\"https://user:pass@example.com:8443/a/b?x=1&y=2#frag\"}"
+new URL('https://a.b/c?x=1').pathname => "/c"
+new URL('https://a.com:443/').port => ""
+new URL('http://a.com:80/').href => "http://a.com/"
+new URL('http://a.com/').pathname => "/"
+new URL('http://a.com').href => "http://a.com/"
+u.protocol => "http:"
+u.hostname => "example.com"
+u.pathname => "/PaTh"
+u.search => "?Q=V"
+u.hash => "#Frag"
+u.protocol => "mailto:"
+u.pathname => "hello@example.com"
+u.host => ""
+u.origin => "null"
+new URL('http://0x7f.1/').hostname => "127.0.0.1"
+new URL('http://192.168.000.1/').hostname => "192.168.0.1"
+new URL('http://[2001:db8::0:1]/').hostname => "[2001:db8::1]"
+new URL('http://[::1]/').host => "[::1]"
+new URL('https://a.com/p q').pathname => "/p%20q"
+new URL('https://a.com/ünïcödé').pathname => "/%C3%BCn%C3%AFc%C3%B6d%C3%A9"
+new URL('https://a.com/?q=ä').search => "?q=%C3%A4"
+new URL('https://例え.テスト/').hostname => "xn--r8jz45g.xn--zckzah"
+new URL('https://xn--r8jz45g.xn--zckzah/').href => "https://xn--r8jz45g.xn--zckzah/"
+new URL('http://a.com/x/y/../z/./w').pathname => "/x/z/w"
+new URL('http://a.com/a/b/c/../../').pathname => "/a/"
+new URL('http://a.com/../../x').pathname => "/x"
+() => new URL('not a url') => throws TypeError
+() => new URL('http://') => throws TypeError
+URL.canParse('http://a.com') => true
+URL.canParse('nope') => false
+URL.parse('nope') => null
+URL.parse('http://a.com').href => "http://a.com/"
+new URL('//cdn.com/lib.js', base).href => "https://cdn.com/lib.js"
+new URL('/abs', base).href => "https://base.com/abs"
+new URL('sibling', base).href => "https://base.com/dir/sibling"
+new URL('../up', base).href => "https://base.com/up"
+new URL('?q2', base).href => "https://base.com/dir/page?q2"
+new URL('#h2', base).href => "https://base.com/dir/page?old#h2"
+new URL('', base).href => "https://base.com/dir/page?old"
+new URL('x', new URL(base)).href => "https://base.com/dir/x"
+new URL(new URL(input).href).href => "https://a.com/p?x=1&y=2#z"
+new URL(new URL(input).href).href => "http://u:p@h.com:81/a/b/c?d=e#f"
+new URL(new URL(input).href).href => "ftp://ftp.example.com/pub/file.txt"
+new URL(new URL(input).href).href => "ws://socket.example.com/feed"
+new URL(new URL(input).href).href => "https://xn--r8jz45g.xn--zckzah/%E3%83%91%E3%82%B9?q=%E5%80%A4"
+u.href => "https://a.b/c?x=2"
+u.protocol => "https:"
+u.host => "b.com"
+u.host => "b.com:8080"
+u.href => "https://b.com:8080/p?q#h"
+u.port => ""
+u.pathname => "/new"
+u.href => "https://bob:secret@b.com/new?q#h"
+u.search => "?new=1"
+u.search => "?bare=2"
+u.search => ""
+u.href => "http://a.com/p#frag"
+u.hash => "#h2"
+u.hash => "#h3"
+u.hash => ""
+u.href => "http://a.com/p"
+u.hostname => "other.com"
+u.search => "?z=2"
+u.hash => ""
+u.searchParams.get('z') => "2"
+u.searchParams.get('x') => null
+u.search => "?x=1&y=2&x=3"
+u.href => "https://a.b/c?x=1&y=2&x=3"
+u.search => "?y=2"
+u.search => ""
+u.href => "https://a.b/c"
+u.searchParams.getAll('a') => ["1","2"]
+sp.get('a') => "1"
+sp.getAll('a') => ["1","3"]
+sp.get('missing') => null
+sp.has('a') => true
+sp.has('z') => false
+sp.has('a', '3') => true
+sp.has('a', '9') => false
+sp.size => 3
+sp.toString() => "a=1&b=2&a=3&c=4"
+sp.toString() => "a=X&b=2&c=4"
+sp.toString() => "a=X&c=4"
+sp2.getAll('k') => ["1","3"]
+new URLSearchParams([ ['a', '1'], ['b', '2'], ]).toString() => "a=1&b=2"
+new URLSearchParams({ a: '1', b: '2' }).toString() => "a=1&b=2"
+new URLSearchParams(new Map([['x', '1']])).toString() => "x=1"
+new URLSearchParams(new URLSearchParams('p=q')).toString() => "p=q"
+new URLSearchParams('?lead=1').toString() => "lead=1"
+new URLSearchParams('a=&b').toString() => "a=&b="
+new URLSearchParams('=v').get('') => "v"
+new URLSearchParams('a=1&&b=2').toString() => "a=1&b=2"
+new URLSearchParams('a+b=c+d').get('a b') => "c d"
+new URLSearchParams('x=%C3%A9').get('x') => "é"
+sp.toString() => "k=a+b%26c"
+sp.toString() => "a=2&a=4&m=3&z=1"
+[...sp] => [["a","1"],["b","2"],["c","3"]]
+[...sp.entries()] => [["a","1"],["b","2"],["c","3"]]
+[...sp.keys()] => ["a","b","c"]
+[...sp.values()] => ["1","2","3"]
+seen => ["a=1","b=2","c=3"]
+sp.get('k' + REPLACEMENT) => "v�"
+sp.toString() => "k%EF%BF%BD=v%EF%BF%BD"
+new URLSearchParams([['a', '😀']]).get('a') => "😀"
+u.hash => "#x%EF%BF%BDy"
+url ok

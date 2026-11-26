@@ -1,0 +1,9 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs url-host-space
+# ---
+"http://exa mple.com/" => http://exa%20mple.com/
+"http://a%20b.com/" => http://a%20b.com/
+"foo://exa mple/" => throws TypeError
