@@ -7,6 +7,7 @@
   'use strict';
 
   var util = require('internal/webstreams/util');
+  var illegalInvocation = require('internal/web_errors').illegalInvocation;
   var dequeueValue = util.dequeueValue;
   var enqueueMicrotask = util.enqueueMicrotask;
   var enqueueValueWithSize = util.enqueueValueWithSize;
@@ -161,7 +162,10 @@
     if (stream._state === 'closed') return promiseResolvedWith(undefined);
     if (stream._state === 'errored') return promiseRejectedWith(stream._storedError);
     readableStreamClose(stream);
-    var sourceCancelPromise = stream._controller._cancelSteps(reason);
+    var sourceCancelPromise = readableStreamDefaultControllerCancelSteps(
+      stream._controller,
+      reason,
+    );
     return sourceCancelPromise.then(noop);
   }
 
@@ -288,7 +292,7 @@
       reader._closedDeferred.reject(readerLockException('release a reader on'));
     }
     setPromiseIsHandled(reader._closedDeferred.promise);
-    stream._controller._releaseSteps();
+    // The default controller's release steps are empty: it keeps its queue.
     stream._reader = undefined;
     reader._ownerReadableStream = undefined;
   }
@@ -309,7 +313,7 @@
     } else if (stream._state === 'errored') {
       readRequest.errorSteps(stream._storedError);
     } else {
-      stream._controller._pullSteps(readRequest);
+      readableStreamDefaultControllerPullSteps(stream._controller, readRequest);
     }
   }
 
@@ -345,35 +349,32 @@
     error(e) {
       readableStreamDefaultControllerError(this, e);
     }
+  }
 
-    // ---- abstract control "steps" called by the stream/reader ----
+  // The controller's abstract "steps" the stream and reader call. Functions, not
+  // methods: a page reads every own key of ReadableStreamDefaultController.prototype,
+  // and Chrome's has none of these (tests/web/cases/shape-streams.expected).
+  function readableStreamDefaultControllerCancelSteps(controller, reason) {
+    resetQueue(controller);
+    var result = controller._cancelAlgorithm(reason);
+    readableStreamDefaultControllerClearAlgorithms(controller);
+    return result;
+  }
 
-    _cancelSteps(reason) {
-      resetQueue(this);
-      var result = this._cancelAlgorithm(reason);
-      readableStreamDefaultControllerClearAlgorithms(this);
-      return result;
-    }
-
-    _pullSteps(readRequest) {
-      var stream = this._controlledReadableStream;
-      if (this._queue.length > 0) {
-        var chunk = dequeueValue(this);
-        if (this._closeRequested && this._queue.length === 0) {
-          readableStreamDefaultControllerClearAlgorithms(this);
-          readableStreamClose(stream);
-        } else {
-          readableStreamDefaultControllerCallPullIfNeeded(this);
-        }
-        readRequest.chunkSteps(chunk);
+  function readableStreamDefaultControllerPullSteps(controller, readRequest) {
+    var stream = controller._controlledReadableStream;
+    if (controller._queue.length > 0) {
+      var chunk = dequeueValue(controller);
+      if (controller._closeRequested && controller._queue.length === 0) {
+        readableStreamDefaultControllerClearAlgorithms(controller);
+        readableStreamClose(stream);
       } else {
-        readableStreamAddReadRequest(stream, readRequest);
-        readableStreamDefaultControllerCallPullIfNeeded(this);
+        readableStreamDefaultControllerCallPullIfNeeded(controller);
       }
-    }
-
-    _releaseSteps() {
-      // Default controller keeps its queue across reader release.
+      readRequest.chunkSteps(chunk);
+    } else {
+      readableStreamAddReadRequest(stream, readRequest);
+      readableStreamDefaultControllerCallPullIfNeeded(controller);
     }
   }
 
@@ -936,6 +937,25 @@
       // Lava has no byte-stream sources yet, so there is never a valid byte
       // stream to attach to — report that explicitly rather than half-attaching.
       throw new TypeError('BYOB readers are not supported in Lava yet (no readable byte streams)');
+    }
+
+    // Blink's members (tests/web/cases/shape-streams.expected). No instance can exist
+    // without byte streams, so every call has a receiver that is not one, and Chrome
+    // answers that with "Illegal invocation" too.
+    get closed() {
+      throw illegalInvocation();
+    }
+
+    cancel() {
+      throw illegalInvocation();
+    }
+
+    read(_view) {
+      throw illegalInvocation();
+    }
+
+    releaseLock() {
+      throw illegalInvocation();
     }
   }
 

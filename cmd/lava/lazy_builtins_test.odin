@@ -129,6 +129,7 @@ STATIC_EAGER :: [?]string {
 	"internal/fetch/response",
 	"internal/file",
 	"internal/idna",
+	"internal/native_shape",
 	"internal/primordials",
 	"internal/punycode",
 	"internal/stdio",

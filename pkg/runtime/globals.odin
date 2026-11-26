@@ -1428,15 +1428,21 @@ install_globals :: proc(ctx: jsc.JSContextRef, loop: ^eventloop.Loop, surface: G
 	// (inject_native_function's default), which was a silent parity gap on the
 	// working path, not just on the fallback. Pinned by
 	// tests/node-compat/cases/56-native-function-arity.js.
-	inject_native_function(ctx, global, "setTimeout", set_timeout_cb, arity = 2)
-	inject_native_function(ctx, global, "setInterval", set_interval_cb, arity = 2)
+	//
+	// `.Web` takes Chrome's instead (Chrome 158, tests/web/cases/shape-operations): 1 for
+	// the two setters, 0 for the two cancels, and none of the four is a constructor, as
+	// no WebIDL operation is (#114). Node's are JS functions, so `new` is node's answer
+	// there.
+	web := surface == .Web
+	inject_native_function(ctx, global, "setTimeout", set_timeout_cb, arity = web ? 1 : 2, constructible = !web)
+	inject_native_function(ctx, global, "setInterval", set_interval_cb, arity = web ? 1 : 2, constructible = !web)
 	inject_native_function(ctx, global, "setImmediate", set_immediate_cb)
 
 	// One cancel, two readings of the id: each surface reads it the way its oracle
 	// does (clear_timer_cb, clear_timer_web_cb).
-	if surface == .Web {
-		inject_native_function(ctx, global, "clearTimeout", clear_timeout_web_cb)
-		inject_native_function(ctx, global, "clearInterval", clear_interval_web_cb)
+	if web {
+		inject_native_function(ctx, global, "clearTimeout", clear_timeout_web_cb, arity = 0, constructible = false)
+		inject_native_function(ctx, global, "clearInterval", clear_interval_web_cb, arity = 0, constructible = false)
 		capture_symbol_to_primitive(ctx, global)
 	} else {
 		inject_native_function(ctx, global, "clearTimeout", clear_timer_cb)
@@ -1454,7 +1460,7 @@ install_globals :: proc(ctx: jsc.JSContextRef, loop: ^eventloop.Loop, surface: G
 	install_process(ctx, global)
 	install_internal_modules(ctx, global, surface)
 
-	install_performance(ctx, global)
+	install_performance(ctx, global, surface)
 	// process.nextTick + queueMicrotask are a JS shim (needs `process` to exist).
 	install_microtasks(ctx, global, surface)
 
@@ -1494,11 +1500,16 @@ perf_init :: proc() {
 
 // install_performance installs the `performance` global with a monotonic now()
 // and a timeOrigin, matching the W3C High Resolution Time surface Node exposes.
-install_performance :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef) {
+//
+// `.Web` gives now() Chrome's length 0 and no [[Construct]], as a WebIDL operation
+// (tests/web/cases/shape-performance.js); the Performance interface itself is the
+// perf-now gap.
+install_performance :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef, surface: Global_Surface = .Node) {
 	sync.once_do(&perf_once, perf_init)
 
 	performance := jsc.JSObjectMake(ctx, nil, nil)
-	inject_native_function(ctx, performance, "now", performance_now_cb)
+	web := surface == .Web
+	inject_native_function(ctx, performance, "now", performance_now_cb, arity = web ? 0 : 1, constructible = !web)
 	set_named(ctx, performance, "timeOrigin", jsc.JSValueMakeNumber(ctx, perf_time_origin_ms))
 	set_named(ctx, global, "performance", cast(jsc.JSValueRef)performance)
 }
@@ -1556,9 +1567,19 @@ install_microtasks :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef, surfa
 		return
 	}
 
-	args := [3]jsc.JSValueRef{cast(jsc.JSValueRef)global, process, cast(jsc.JSValueRef)report}
+	// internal/native_shape, which queueMicrotask is defined through (#114): off the
+	// module resolver, which no user code reaches; undefined without the loader.
+	native_shape := jsc.JSValueMakeUndefined(ctx)
+
+	if rs := get_state_from_ctx(ctx); rs != nil && rs.builtin_require != nil {
+		if shape := get_named(ctx, cast(jsc.JSObjectRef)rs.builtin_require, "nativeShape"); shape != nil {
+			native_shape = shape
+		}
+	}
+
+	args := [4]jsc.JSValueRef{cast(jsc.JSValueRef)global, process, cast(jsc.JSValueRef)report, native_shape}
 	exception: jsc.JSValueRef
-	exports := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)factory, nil, 3, raw_data(args[:]), &exception)
+	exports := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)factory, nil, 4, raw_data(args[:]), &exception)
 
 	if exception != nil {
 		report_internal_exception(ctx, "lava:microtasks", exception)

@@ -878,69 +878,6 @@
       "expect_detail": "vm_pool_destroy leaked"
     },
     {
-      "name": "vm_pool_retires_a_vm_at_its_page_cap dies when the page cap stops retiring",
-      "why": "Without the page-cap trigger a pooled VM is reused forever, and its heap's leftovers grow without bound on a page runner that never samples heaps.",
-      "source": "pkg/runtime/vm_pool.odin",
-      "find": "\tif pool.retire_after_pages > 0 && vm.pages_hosted >= pool.retire_after_pages {",
-      "replace": "\tif false {",
-      "gate": "odin:cmd/lava:main.vm_pool_retires_a_vm_at_its_page_cap",
-      "expect_detail": "expected created to be 3, got 1"
-    },
-    {
-      "name": "runner_retires_a_vm_at_its_page_cap dies when page_close's release stops retiring at the cap",
-      "why": "The pool-level case does not show the runner's own release path retiring, nor the page after a retirement running on a fresh VM.",
-      "source": "pkg/runtime/vm_pool.odin",
-      "find": "\tif vm_retire_due(vm) {",
-      "replace": "\tif false {",
-      "gate": "odin:cmd/lava:main.runner_retires_a_vm_at_its_page_cap",
-      "expect_detail": "expected created to be 3, got 1"
-    },
-    {
-      "name": "runner_retires_a_vm_whose_sampled_heap_crossed_the_threshold dies when page_close stops recording the sample on the VM",
-      "why": "The heap trigger reads VM.heap_bytes; a sample that only reaches Result.heap_bytes never retires a VM however large its heap.",
-      "source": "pkg/runtime/page.odin",
-      "find": "\t\t\tpage.vm.heap_bytes = bytes\n",
-      "replace": "",
-      "gate": "odin:cmd/lava:main.runner_retires_a_vm_whose_sampled_heap_crossed_the_threshold",
-      "expect_detail": "expected created to be 2, got 1"
-    },
-    {
-      "name": "runner_does_not_retire_on_heap_without_a_sample dies when the heap trigger fires on an unsampled VM",
-      "why": "An unsampled VM's heap_bytes is 0, not a reading; a trigger that treats it as one retires VMs on no evidence.",
-      "source": "pkg/runtime/vm_pool.odin",
-      "find": "vm.heap_bytes >= pool.retire_heap_bytes",
-      "replace": "vm.heap_bytes >= 0",
-      "gate": "odin:cmd/lava:main.runner_does_not_retire_on_heap_without_a_sample",
-      "expect_detail": "expected created to be 1, got 3"
-    },
-    {
-      "name": "vm_pool_starts_with_the_retirement_defaults dies when vm_pool_init drops the page-cap default",
-      "why": "A pool without the default cap never retires a VM unless every embedder remembers to set one, eval's thread pool included.",
-      "source": "pkg/runtime/vm_pool.odin",
-      "find": "\tpool.retire_after_pages = VM_RETIRE_AFTER_PAGES\n",
-      "replace": "",
-      "gate": "odin:cmd/lava:main.vm_pool_starts_with_the_retirement_defaults",
-      "expect_detail": "expected pool.retire_after_pages to be 200, got 0"
-    },
-    {
-      "name": "vm_retirement_closes_the_retired_vms_timerfd dies when vm_retire stops iterating the RunLoop",
-      "why": "A released VM's timer source closes its timerfd only at the next RunLoop iteration; without one each retirement outside a runner leaves a descriptor open for the life of the thread.",
-      "source": "pkg/runtime/vm_pool.odin",
-      "find": "\tpool.retired += 1\n\tjsc.runloop_dispatch()",
-      "replace": "\tpool.retired += 1",
-      "gate": "odin:cmd/lava:main.vm_retirement_closes_the_retired_vms_timerfd",
-      "expect_detail": "timerfd(s) outlived the retired VM"
-    },
-    {
-      "name": "runner_churn_with_retirement_keeps_fds_flat_and_rss_bounded dies when a retired VM's group is never released",
-      "why": "A retirement that only drops the VM from the pool keeps its heap and timerfd alive: ~8 MB and one descriptor per retirement.",
-      "source": "pkg/runtime/vm_pool.odin",
-      "find": "\tjsc.JSContextGroupRelease(vm.group)\n\tfree(vm, pool.allocator)",
-      "replace": "\tfree(vm, pool.allocator)",
-      "gate": "odin:cmd/lava:main.runner_churn_with_retirement_keeps_fds_flat_and_rss_bounded",
-      "expect_detail": "descriptors grew from"
-    },
-    {
       "name": "eval_reports_exhausted_vm_pool dies when pool exhaustion is reported as a missing runtime",
       "why": "A busy VM pool would tell the user to install JavaScriptCoreGTK, hiding the real cause.",
       "source": "pkg/runtime/page.odin",
@@ -2215,6 +2152,116 @@
       ]
     },
     {
+      "name": "abort-reason-shape dies when the loader stops handing internal/web_errors the surface",
+      "why": "Without the profile every shared module takes node's text on the Window surface: the default abort reason reads 'This operation was aborted' where Chrome reads 'signal is aborted without reason'.",
+      "source": "pkg/runtime/js/bootstrap/loader.js",
+      "find": "  natives['internal/web_errors'] = Object.freeze({ __proto__: null, web: web === true });",
+      "replace": "  natives['internal/web_errors'] = Object.freeze({ __proto__: null, web: false });",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL abort-reason-shape"
+    },
+    {
+      "name": "crypto-random-errors dies when a Window-surface WebIDL TypeError carries a code",
+      "why": "A page's TypeError has no own `code` in Chrome; an ERR_*-style code leaking through the shared builder is the Node shape §5 forbids on the Window surface.",
+      "source": "pkg/runtime/js/internal/web_errors.js",
+      "find": "    return pageError(new TypeErrorP(context(iface, op) + detail));",
+      "replace": "    var e = pageError(new TypeErrorP(context(iface, op) + detail));\n    e.code = 'ERR_INVALID_ARG_TYPE';\n    return e;",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL crypto-random-errors"
+    },
+    {
+      "name": "domexception-errors dies when DOMException's accessors stop brand-checking their receiver",
+      "why": "Chrome answers Illegal invocation for DOMException.prototype.name; without the brand check the getter reads a private field off a foreign object and throws JSC's own TypeError text instead.",
+      "source": "pkg/runtime/js/internal/domexception.js",
+      "find": "        if (typeof o !== 'object' || o === null || !(#name in o)) {",
+      "replace": "        if (typeof o !== 'object' || o === null) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL domexception-errors"
+    },
+    {
+      "name": "domexception-class dies when the legacy codes table inherits from Object.prototype",
+      "why": "new DOMException('', 'constructor').code must be 0; an ordinary object literal answers Object for that name and '__proto__' for the other.",
+      "source": "pkg/runtime/js/internal/domexception.js",
+      "find": "  var CODES = {\n    __proto__: null,\n",
+      "replace": "  var CODES = {\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL domexception-class"
+    },
+    {
+      "name": "crypto-random dies when getRandomValues stops refusing non-integer views",
+      "why": "Chrome throws TypeMismatchError for a Float32Array; filling it would hand a page random float bit patterns (NaNs included) instead of the error.",
+      "source": "pkg/runtime/js/internal/crypto/random.js",
+      "find": "    if (kind === undefined || INTEGER_VIEWS[kind] !== true) {",
+      "replace": "    if (kind === undefined) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL crypto-random"
+    },
+    {
+      "name": "base64-errors dies when atob's Window-surface text falls back to node's",
+      "why": "Chrome has one sentence for every atob decode failure, prefixed with its WebIDL context; node's 'Invalid character' is the Node surface's text only.",
+      "source": "pkg/runtime/js/internal/base64.js",
+      "find": "    var message = nodeMessage;\n    if (web) {",
+      "replace": "    var message = nodeMessage;\n    if (false) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL base64-errors"
+    },
+    {
+      "name": "global_surface_web_coded_error_loads_no_node_util dies when internal/errors renders through node:util again",
+      "why": "A coded error raised on the Window surface then instantiates node:util and everything it requires — a node/ module `.Web` must never load.",
+      "source": "pkg/runtime/js/internal/errors.js",
+      "find": "    if (inspectFn === null) inspectFn = require('internal/util/inspect').inspect;",
+      "replace": "    if (inspectFn === null) inspectFn = require('util').inspect;",
+      "gate": "odin:cmd/lava:main.global_surface_web_coded_error_loads_no_node_util",
+      "expect_detail": [
+        "rendering the error loaded node:util"
+      ]
+    },
+    {
+      "name": "errors-stack dies when pageError stops dropping the leading internal frames",
+      "why": "A page's caught error then lists node:internal/web_errors, domexception and the thrower's own frames, which Chrome's stacks never show — and which name Node in every web error.",
+      "source": "pkg/runtime/js/internal/web_errors.js",
+      "find": "      e.stack = scrubStack(StringP(e.stack));",
+      "replace": "      e.stack = StringP(e.stack);",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL errors-stack"
+    },
+    {
+      "name": "domexception-class dies when a constructed DOMException keeps JSC's own line property",
+      "why": "Chrome's `new DOMException()` owns no property at all; JSC's Error constructor leaves line/column/sourceURL/stack pointing into internal/domexception.",
+      "source": "pkg/runtime/js/internal/domexception.js",
+      "find": "      delete self.line;\n",
+      "replace": "",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL domexception-class"
+    },
+    {
+      "name": "shape-domexception dies when DOMException.prototype keeps constructor first",
+      "why": "Chrome lists code, name, message, the 25 constants, then constructor; a class puts constructor first, and native_shape moves it only when the member list names it.",
+      "source": "pkg/runtime/js/internal/domexception.js",
+      "find": "    members: P.ArrayPrototypeConcat(['code', 'name', 'message'], CONSTANT_NAMES, [\n      'constructor',\n",
+      "replace": "    members: P.ArrayPrototypeConcat(['code', 'name', 'message'], CONSTANT_NAMES, [\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL shape-domexception"
+    },
+    {
+      "name": "clone-domexception dies when structuredClone loses the DOMException arm",
+      "why": "Without it a DOMException clones through the Error arm as a plain Error: no brand, name Error, code undefined, and QuotaExceededError's quota/requested lost.",
+      "source": "pkg/runtime/js/internal/structured_clone.js",
+      "find": "    var domException = cloneDOMException(value);",
+      "replace": "    var domException = undefined;",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL clone-domexception"
+    },
+    {
+      "name": "crypto-random-errors dies when getRandomValues stops brand-checking its receiver",
+      "why": "Chrome throws Illegal invocation for getRandomValues.call({}) and a detached call; without the check Lava fills the view.",
+      "source": "pkg/runtime/js/internal/crypto/random.js",
+      "find": "    if (web && this !== cryptoObject) {",
+      "replace": "    if (false) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL crypto-random-errors"
+    },
+    {
       "name": "03-buffer dies when the atob fast-path regex lets a non-alphabet character through",
       "why": "the regex fast path skips the per-char loop; if it admits '!' or VT, atob reports the length error instead of node's 'Invalid character'.",
       "source": "pkg/runtime/js/internal/base64.js",
@@ -2869,13 +2916,13 @@
       "expect_detail": "node: blob 6 \"text/plain\""
     },
     {
-      "name": "blob_class_engine_traits dies when Blob.prototype methods lose their enumerability",
-      "why": "Class methods are non-enumerable; Blob's were enumerable as a function constructor, and the class conversion keeps that set by re-marking them.",
-      "source": "pkg/runtime/js/internal/blob.js",
-      "find": "    ObjectDefineProperty(Blob.prototype, ENUMERABLE_METHODS[m], { enumerable: true });",
-      "replace": "    ObjectDefineProperty(Blob.prototype, ENUMERABLE_METHODS[m], { enumerable: false });",
-      "gate": "odin:cmd/lava:main.blob_class_engine_traits",
-      "expect_detail": "keys: got , want arrayBuffer"
+      "name": "blob_class_node_surface_shape dies when native_shape leaves operations non-enumerable",
+      "why": "WebIDL operations are enumerable on the prototype; a class method is not, so without native_shape's redefinition Object.keys(Blob.prototype) loses every operation.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "            value: fn,\n            writable: true,\n            enumerable: true,\n",
+      "replace": "            value: fn,\n            writable: true,\n            enumerable: false,\n",
+      "gate": "odin:cmd/lava:main.blob_class_node_surface_shape",
+      "expect_detail": "keys: got size,type, want size,type,arrayBuffer"
     },
     {
       "name": "78-blob-pristine-reads dies when createObjectURL mints its id from the live globalThis.crypto",
@@ -3885,15 +3932,6 @@
       "expect_detail": "want Deadline"
     },
     {
-      "name": "page_run_until_deadline_survives_a_native_clear_of_its_wake dies when a cleared wake-up timer is not re-armed",
-      "why": "Once the wake-up is cleared (natively: since #92 page JS cannot reach it), a tick blocked on a far timer sleeps through the deadline to it.",
-      "source": "pkg/runtime/page.odin",
-      "find": "\t\t\tif !eventloop.timer_is_live(loop, wake) {\n",
-      "replace": "\t\t\tif wake == 0 {\n",
-      "gate": "odin:cmd/lava:main.page_run_until_deadline_survives_a_native_clear_of_its_wake",
-      "expect_detail": "the cleared wake-up was not re-armed"
-    },
-    {
       "name": "page_run_script_runs_once dies when a second top-level script is accepted",
       "why": "A second run_script protects a second completion over the first, which is never unprotected, and runs a second entry on the page.",
       "source": "pkg/runtime/page.odin",
@@ -3948,189 +3986,6 @@
       "expect_detail": "expected q.fires to be 1"
     },
     {
-      "name": "cleared_timer_stays_cleared_when_its_dispose_arms_timers dies when a queued timer is marked after its dispose",
-      "why": "A dispose that arms timers can grow the ready queue into a new buffer; the cancel then writes through a stale pointer and the cleared timer fires on the binding its dispose released.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\tready_cancel_at(loop, timer)\n\t\trun_dispose(dispose, user_data)\n",
-      "replace": "\t\trun_dispose(dispose, user_data)\n\t\tready_cancel_at(loop, timer)\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.cleared_timer_stays_cleared_when_its_dispose_arms_timers",
-      "expect_detail": "delay 0: fires=1"
-    },
-    {
-      "name": "cleared_timer_stays_cleared_when_its_dispose_arms_timers dies when a heap timer is removed after its dispose",
-      "why": "A dispose that arms an earlier timer sifts it into the cleared timer's slot; removing that slot afterwards drops the new timer and leaves the cleared one to fire.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\ttimer := loop.timers[idx]\n\t\ttimer_heap_remove_at(loop, idx)\n\n\t\tif !timer.unreffed {\n\t\t\tloop.reffed_timer_count -= 1\n\t\t}\n\n\t\trun_dispose(timer.dispose, timer.user_data)\n",
-      "replace": "\t\ttimer := loop.timers[idx]\n\t\trun_dispose(timer.dispose, timer.user_data)\n\t\ttimer_heap_remove_at(loop, idx)\n\n\t\tif !timer.unreffed {\n\t\t\tloop.reffed_timer_count -= 1\n\t\t}\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.cleared_timer_stays_cleared_when_its_dispose_arms_timers",
-      "expect_detail": [
-        "the cleared timer is still live",
-        "delay 10: fires=1"
-      ]
-    },
-    {
-      "name": "ready_index_holds_only_live_queued_timers dies when a cleared queued timer stays indexed",
-      "why": "The index then keeps every tombstone a debounce leaves, growing with it until the turn drains them.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\tdelete_key(&loop.ready_index, timer.id)\n\n\tif !timer.unreffed {",
-      "replace": "\tif !timer.unreffed {",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.ready_index_holds_only_live_queued_timers",
-      "expect_detail": "expected value to be 1, got 1000"
-    },
-    {
-      "name": "zero_delay_timer_runs_before_a_timer_that_fell_due_during_its_creator dies when a 0 ms timer waits in the heap",
-      "why": "Chrome queues a 0 ms timer as a task when it is created; in the heap it is queued with B after A returns, by deadline, and prints A,B,C where Chrome prints A,C,B.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\tif delay == 0 {\n\t\tready_push(loop, timer)\n\t} else {\n\t\ttimer_heap_push(loop, timer)\n\t}\n",
-      "replace": "\ttimer_heap_push(loop, timer)\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.zero_delay_timer_runs_before_a_timer_that_fell_due_during_its_creator",
-      "expect_detail": "expected value to be 3, got 2"
-    },
-    {
-      "name": "timers-errors dies when setTimeout() returns quietly",
-      "why": "Chrome's binding throws its arity TypeError for a missing handler; returning undefined lets a page that feature-tests the throw see a different engine.",
-      "source": "pkg/runtime/globals.odin",
-      "find": "\tif argument_count < 1 {\n\t\tweb_throw_type_error(ctx, \"setTimeout\", ",
-      "replace": "\tif false {\n\t\tweb_throw_type_error(ctx, \"setTimeout\", ",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL timers-errors"
-    },
-    {
-      "name": "timers-delay-coercion dies when a 0 ms timer waits in the heap",
-      "why": "A 1 ms timer created first would still fire after every 0 ms one by deadline, so the case does not see this; it pins only that the delay is not raised to 1.",
-      "source": "pkg/runtime/globals.odin",
-      "find": "\treturn x > 0 ? u64(x) : 0, true\n",
-      "replace": "\treturn x > 0 ? u64(x) : 1, true\n",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL timers-delay-coercion"
-    },
-    {
-      "name": "timers-delay-coercion dies when the delay is not a WebIDL long",
-      "why": "Without the modulo-2^32 signed reading, 2^31 and 2^32 - 1 wait 24 days instead of 0 ms and 2^32 + 5 never fires.",
-      "source": "pkg/runtime/globals.odin",
-      "find": "\tx := webidl_long(n)\n",
-      "replace": "\tx := math.is_nan(n) || math.is_inf(n) ? 0 : math.trunc(n)\n",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL timers-delay-coercion"
-    },
-    {
-      "name": "timers-delay-coercion dies when a throwing conversion is swallowed",
-      "why": "Chrome's setTimeout throws what the delay's valueOf throws (and a TypeError for a Symbol or BigInt) and schedules nothing; JSValueToNumber with no exception slot turned it into NaN, a 0 ms timer.",
-      "source": "pkg/runtime/globals.odin",
-      "find": "\tn, ok := web_to_number(ctx, arguments[1], op, exception)\n",
-      "replace": "\tn, ok := jsc.JSValueToNumber(ctx, arguments[1], nil), true\n",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL timers-delay-coercion"
-    },
-    {
-      "name": "due_timer_is_queued_between_tasks dies when due timers are looked for once per turn",
-      "why": "T fell due while X ran; queued only at the next turn it lands behind W, which Y queued after, where Chrome prints X,Y,Z,T,W.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\trun_timer_task(loop, ready_pop(loop))\n\t\tqueue_due_timers(loop)\n",
-      "replace": "\t\trun_timer_task(loop, ready_pop(loop))\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.due_timer_is_queued_between_tasks",
-      "expect_detail": "expected value to be 4, got 5"
-    },
-    {
-      "name": "timers-ready-order dies when due timers are looked for once per turn",
-      "why": "The real-clock half of due_timer_is_queued_between_tasks: the per-task look reads the clock itself, which the virtual-clock test cannot see.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\trun_timer_task(loop, ready_pop(loop))\n\t\tqueue_due_timers(loop)\n",
-      "replace": "\t\trun_timer_task(loop, ready_pop(loop))\n",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL timers-ready-order"
-    },
-    {
-      "name": "interval_rearms_on_its_schedule_grid dies when an interval re-arms from the clock before its callback",
-      "why": "node's rule (#99): a 200 ms interval whose first fire ran 700 ms fires at 1100 instead of back on the grid at 1000.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\tdelay = next.repeat_ms - behind % next.repeat_ms\n",
-      "replace": "\t\tdelay = next.repeat_ms\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.interval_rearms_on_its_schedule_grid",
-      "expect_detail": "expected value to be 1000, got 1100"
-    },
-    {
-      "name": "timers-interval-overrun dies when an interval re-arms from the clock before its callback",
-      "why": "The real-clock half of interval_rearms_on_its_schedule_grid: I3 lands after the 1050 sentinel.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\tdelay = next.repeat_ms - behind % next.repeat_ms\n",
-      "replace": "\t\tdelay = next.repeat_ms\n",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL timers-interval-overrun"
-    },
-    {
-      "name": "interval_rearms_before_its_callback dies when an interval re-arms after its callback",
-      "why": "A 0 ms interval's next fire queued after its callback lands behind the 0 ms timer that callback created: I1,Z,I2 where Chrome prints I1,I2,Z.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\tif timer.repeating {\n\t\trearm_interval(loop, timer)\n\t}\n\n\tloop.running_id, loop.running_dispose, loop.running_nesting = timer.id, timer.dispose, timer.nesting\n\ttimer.callback(loop, timer.user_data)\n",
-      "replace": "\tloop.running_id, loop.running_dispose, loop.running_nesting = timer.id, timer.dispose, timer.nesting\n\ttimer.callback(loop, timer.user_data)\n\n\tif timer.repeating && !is_cancel_requested(loop, timer.id) {\n\t\trearm_interval(loop, timer)\n\t}\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.interval_rearms_before_its_callback",
-      "expect_detail": "expected value to be 1, got 3"
-    },
-    {
-      "name": "nested_timeouts_clamp_to_4ms_past_level_5 dies without the nesting clamp",
-      "why": "A chain of 0 ms timers then runs at once to any depth, where the HTML timer steps (and Chrome) wait 4 ms past level 5.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\tif parent > TIMER_NESTING_LEVEL_MAX {\n",
-      "replace": "\tif false {\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.nested_timeouts_clamp_to_4ms_past_level_5",
-      "expect_detail": "expected value to be 4, got 0"
-    },
-    {
-      "name": "timers-nesting-clamp dies without the nesting clamp",
-      "why": "The JS-visible half: from level 6 on the 0 ms timer would still fire ahead of the 4 ms one, where Chrome prints four,zero.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\tif parent > TIMER_NESTING_LEVEL_MAX {\n",
-      "replace": "\tif false {\n",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL timers-nesting-clamp"
-    },
-    {
-      "name": "nested_timeouts_clamp_to_4ms_past_level_5 dies when the clamp waits one level more",
-      "why": "Level 5 is the last unclamped one: Chrome clamps the timers a level-6 task creates (the 7th of a chain), not those of level 7.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\tif parent > TIMER_NESTING_LEVEL_MAX {\n",
-      "replace": "\tif parent > TIMER_NESTING_LEVEL_MAX + 1 {\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.nested_timeouts_clamp_to_4ms_past_level_5",
-      "expect_detail": "expected value to be 4, got 0"
-    },
-    {
-      "name": "nested_timeouts_clamp_to_4ms_past_level_5 dies when a timer task does not name its nesting level",
-      "why": "With running_nesting left 0 every timer is created at level 1 and none is ever clamped.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\tloop.running_id, loop.running_dispose, loop.running_nesting = timer.id, timer.dispose, timer.nesting\n",
-      "replace": "\tloop.running_id, loop.running_dispose, loop.running_nesting = timer.id, timer.dispose, 0\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.nested_timeouts_clamp_to_4ms_past_level_5",
-      "expect_detail": "expected value to be 4, got 0"
-    },
-    {
-      "name": "nested_intervals_clamp_to_4ms_past_level_5 dies when an interval does not clamp its own period",
-      "why": "Each fire of an interval is a level deeper; without the re-arm clamp a 0 ms interval fires at once forever.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\tif timer.nesting > TIMER_NESTING_LEVEL_MAX {\n",
-      "replace": "\tif false {\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.nested_intervals_clamp_to_4ms_past_level_5",
-      "expect_detail": "expected value to be 4, got 0"
-    },
-    {
-      "name": "nested_intervals_clamp_to_4ms_past_level_5 dies when an interval fire does not nest a level deeper",
-      "why": "An interval created outside a timer would then stay at level 1 and never reach the clamp.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\tnext.nesting = timer.nesting == max(u8) ? timer.nesting : timer.nesting + 1\n",
-      "replace": "\tnext.nesting = timer.nesting\n",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.nested_intervals_clamp_to_4ms_past_level_5",
-      "expect_detail": "expected value to be 4, got 0"
-    },
-    {
-      "name": "timers-interval-nesting-clamp dies when an interval does not clamp its own period",
-      "why": "The JS-visible half: fires 7 to 12 of a 0 ms interval run back to back instead of 4 ms apart.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\tif timer.nesting > TIMER_NESTING_LEVEL_MAX {\n",
-      "replace": "\tif false {\n",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL timers-interval-nesting-clamp"
-    },
-    {
       "name": "runner_churn_of_mixed_fates_frees_everything_it_allocates dies when destroy_runtime_state keeps the Runtime_State",
       "why": "Every page's Runtime_State is new'd through the runner allocator; without the free each closed page leaks it, whatever its fate.",
       "source": "pkg/runtime/globals.odin",
@@ -4170,8 +4025,8 @@
       "name": "js_clear_globals_read_an_id_like_chrome dies when .Web reads the id the node way",
       "why": "A page's clearTimeout(\"N.0\") or clearTimeout(id + 0.5) cancels timer N in Chrome (WebIDL long); the node reading leaves it running.",
       "source": "pkg/runtime/globals.odin",
-      "find": "\t\tinject_native_function(ctx, global, \"clearTimeout\", clear_timeout_web_cb)\n",
-      "replace": "\t\tinject_native_function(ctx, global, \"clearTimeout\", clear_timer_cb)\n",
+      "find": "\t\tinject_native_function(ctx, global, \"clearTimeout\", clear_timeout_web_cb, arity = 0, constructible = false)\n",
+      "replace": "\t\tinject_native_function(ctx, global, \"clearTimeout\", clear_timer_cb, arity = 0, constructible = false)\n",
       "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
       "expect_detail": "\"N.0\":fired"
     },
@@ -4723,125 +4578,331 @@
       "expect_detail": "must be refused"
     },
     {
-      "name": "abort-reason-shape dies when the loader stops handing internal/web_errors the surface",
-      "why": "Without the profile every shared module takes node's text on the Window surface: the default abort reason reads 'This operation was aborted' where Chrome reads 'signal is aborted without reason'.",
-      "source": "pkg/runtime/js/bootstrap/loader.js",
-      "find": "  natives['internal/web_errors'] = Object.freeze({ __proto__: null, web: web === true });",
-      "replace": "  natives['internal/web_errors'] = Object.freeze({ __proto__: null, web: false });",
+      "name": "shape-url dies when Function.prototype.toString is left the intrinsic",
+      "why": "Without the mask every JS-implemented Web API prints its source where Chrome prints `function URL() { [native code] }` — the one-call crawler fingerprint #114 closes.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "  ObjectDefineProperty(FunctionProto, 'toString', { __proto__: null, value: maskedToString });\n",
+      "replace": "",
       "gate": "make:test-web",
-      "expect_detail": "FAIL abort-reason-shape"
+      "expect_detail": "FAIL shape-url"
     },
     {
-      "name": "crypto-random-errors dies when a Window-surface WebIDL TypeError carries a code",
-      "why": "A page's TypeError has no own `code` in Chrome; an ERR_*-style code leaking through the shared builder is the Node shape §5 forbids on the Window surface.",
+      "name": "shape-operations dies when an operation wrapper is an ordinary function",
+      "why": "A function expression has a `prototype` and a [[Construct]]; Chrome's operations have neither, and `new atob()` constructing is a fingerprint.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "    var fn = {\n      op() {\n",
+      "replace": "    var fn = {\n      op: function () {\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL shape-operations"
+    },
+    {
+      "name": "shape-stacks dies when an error leaving an entry point keeps our frames",
+      "why": "An engine error raised inside our code, or a page error thrown through a callback we called, would carry node:internal/* frames to the page; Chrome's carry none.",
       "source": "pkg/runtime/js/internal/web_errors.js",
-      "find": "    return pageError(new TypeErrorP(context(iface, op) + detail));",
-      "replace": "    var e = pageError(new TypeErrorP(context(iface, op) + detail));\n    e.code = 'ERR_INVALID_ARG_TYPE';\n    return e;",
+      "find": "    if (desc.writable) e.stack = scrubStack(stack);\n",
+      "replace": "",
       "gate": "make:test-web",
-      "expect_detail": "FAIL crypto-random-errors"
+      "expect_detail": "FAIL shape-stacks"
     },
     {
-      "name": "domexception-errors dies when DOMException's accessors stop brand-checking their receiver",
-      "why": "Chrome answers Illegal invocation for DOMException.prototype.name; without the brand check the getter reads a private field off a foreign object and throws JSC's own TypeError text instead.",
-      "source": "pkg/runtime/js/internal/domexception.js",
-      "find": "        if (typeof o !== 'object' || o === null || !(#name in o)) {",
-      "replace": "        if (typeof o !== 'object' || o === null) {",
+      "name": "shape-url dies when an interface called without new loses Blink's text",
+      "why": "Chrome's interfaces answer a call without `new` with Blink's \"Please use the 'new' operator\" text; anything else names the implementation.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "  var NEW_TEXT =\n    \"Please use the 'new' operator, this DOM object constructor cannot be called as a function.\";\n",
+      "replace": "  var NEW_TEXT = 'Class constructor cannot be invoked without new';\n",
       "gate": "make:test-web",
-      "expect_detail": "FAIL domexception-errors"
+      "expect_detail": "FAIL shape-url"
     },
     {
-      "name": "domexception-class dies when the legacy codes table inherits from Object.prototype",
-      "why": "new DOMException('', 'constructor').code must be 0; an ordinary object literal answers Object for that name and '__proto__' for the other.",
-      "source": "pkg/runtime/js/internal/domexception.js",
-      "find": "  var CODES = {\n    __proto__: null,\n",
-      "replace": "  var CODES = {\n",
+      "name": "shape-tostring dies when Function.prototype keeps JSC's own key order",
+      "why": "JSC lists toString third and constructor last; V8 lists constructor third — one Reflect.ownKeys(Function.prototype) away from naming the engine.",
+      "source": "pkg/runtime/js/internal/primordials.js",
+      "find": "      delete FunctionProto[FUNCTION_PROTOTYPE_ORDER[i]];\n",
+      "replace": "",
       "gate": "make:test-web",
-      "expect_detail": "FAIL domexception-class"
+      "expect_detail": "FAIL shape-tostring"
     },
     {
-      "name": "crypto-random dies when getRandomValues stops refusing non-integer views",
-      "why": "Chrome throws TypeMismatchError for a Float32Array; filling it would hand a page random float bit patterns (NaNs included) instead of the error.",
-      "source": "pkg/runtime/js/internal/crypto/random.js",
-      "find": "    if (kind === undefined || INTEGER_VIEWS[kind] !== true) {",
-      "replace": "    if (kind === undefined) {",
+      "name": "shape-tostring dies when a bound function or a Proxy keeps a name",
+      "why": "V8 prints `function () { [native code] }` for both; JSC names the bound target and `ProxyObject`.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "        if (name === PROXY_NAME || isBoundName(this, name)) name = '';\n",
+      "replace": "",
       "gate": "make:test-web",
-      "expect_detail": "FAIL crypto-random"
+      "expect_detail": "FAIL shape-tostring"
     },
     {
-      "name": "base64-errors dies when atob's Window-surface text falls back to node's",
-      "why": "Chrome has one sentence for every atob decode failure, prefixed with its WebIDL context; node's 'Invalid character' is the Node surface's text only.",
-      "source": "pkg/runtime/js/internal/base64.js",
-      "find": "    var message = nodeMessage;\n    if (web) {",
-      "replace": "    var message = nodeMessage;\n    if (false) {",
+      "name": "shape-tostring dies when the mask lets a non-callable receiver reach the intrinsic",
+      "why": "JSC's intrinsic answers `Type error` where Chrome says Function.prototype.toString requires that 'this' be a Function.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "      if (typeof this !== 'function') {\n",
+      "replace": "      if (false) {\n",
       "gate": "make:test-web",
-      "expect_detail": "FAIL base64-errors"
+      "expect_detail": "FAIL shape-tostring"
     },
     {
-      "name": "global_surface_web_coded_error_loads_no_node_util dies when internal/errors renders through node:util again",
-      "why": "A coded error raised on the Window surface then instantiates node:util and everything it requires — a node/ module `.Web` must never load.",
-      "source": "pkg/runtime/js/internal/errors.js",
-      "find": "    if (inspectFn === null) inspectFn = require('internal/util/inspect').inspect;",
-      "replace": "    if (inspectFn === null) inspectFn = require('util').inspect;",
-      "gate": "odin:cmd/lava:main.global_surface_web_coded_error_loads_no_node_util",
+      "name": "native_shape_mask_is_per_page dies when a page in a reused VM keeps the intrinsic toString",
+      "why": "The mask is installed per realm at the loader's eval; a second page on the pooled VM that skipped it would print every Web API's source.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "  ObjectDefineProperty(FunctionProto, 'toString', { __proto__: null, value: maskedToString });\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.native_shape_mask_is_per_page",
+      "expect_detail": "atob: got op() {"
+    },
+    {
+      "name": "vm_pool_retires_a_vm_at_its_page_cap dies when the page cap stops retiring",
+      "why": "Without the page-cap trigger a pooled VM is reused forever, and its heap's leftovers grow without bound on a page runner that never samples heaps.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tif pool.retire_after_pages > 0 && vm.pages_hosted >= pool.retire_after_pages {",
+      "replace": "\tif false {",
+      "gate": "odin:cmd/lava:main.vm_pool_retires_a_vm_at_its_page_cap",
+      "expect_detail": "expected created to be 3, got 1"
+    },
+    {
+      "name": "runner_retires_a_vm_at_its_page_cap dies when page_close's release stops retiring at the cap",
+      "why": "The pool-level case does not show the runner's own release path retiring, nor the page after a retirement running on a fresh VM.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tif vm_retire_due(vm) {",
+      "replace": "\tif false {",
+      "gate": "odin:cmd/lava:main.runner_retires_a_vm_at_its_page_cap",
+      "expect_detail": "expected created to be 3, got 1"
+    },
+    {
+      "name": "runner_retires_a_vm_whose_sampled_heap_crossed_the_threshold dies when page_close stops recording the sample on the VM",
+      "why": "The heap trigger reads VM.heap_bytes; a sample that only reaches Result.heap_bytes never retires a VM however large its heap.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\t\tpage.vm.heap_bytes = bytes\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.runner_retires_a_vm_whose_sampled_heap_crossed_the_threshold",
+      "expect_detail": "expected created to be 2, got 1"
+    },
+    {
+      "name": "runner_does_not_retire_on_heap_without_a_sample dies when the heap trigger fires on an unsampled VM",
+      "why": "An unsampled VM's heap_bytes is 0, not a reading; a trigger that treats it as one retires VMs on no evidence.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "vm.heap_bytes >= pool.retire_heap_bytes",
+      "replace": "vm.heap_bytes >= 0",
+      "gate": "odin:cmd/lava:main.runner_does_not_retire_on_heap_without_a_sample",
+      "expect_detail": "expected created to be 1, got 3"
+    },
+    {
+      "name": "vm_pool_starts_with_the_retirement_defaults dies when vm_pool_init drops the page-cap default",
+      "why": "A pool without the default cap never retires a VM unless every embedder remembers to set one, eval's thread pool included.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tpool.retire_after_pages = VM_RETIRE_AFTER_PAGES\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.vm_pool_starts_with_the_retirement_defaults",
+      "expect_detail": "expected pool.retire_after_pages to be 200, got 0"
+    },
+    {
+      "name": "vm_retirement_closes_the_retired_vms_timerfd dies when vm_retire stops iterating the RunLoop",
+      "why": "A released VM's timer source closes its timerfd only at the next RunLoop iteration; without one each retirement outside a runner leaves a descriptor open for the life of the thread.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tpool.retired += 1\n\tjsc.runloop_dispatch()",
+      "replace": "\tpool.retired += 1",
+      "gate": "odin:cmd/lava:main.vm_retirement_closes_the_retired_vms_timerfd",
+      "expect_detail": "timerfd(s) outlived the retired VM"
+    },
+    {
+      "name": "runner_churn_with_retirement_keeps_fds_flat_and_rss_bounded dies when a retired VM's group is never released",
+      "why": "A retirement that only drops the VM from the pool keeps its heap and timerfd alive: ~8 MB and one descriptor per retirement.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tjsc.JSContextGroupRelease(vm.group)\n\tfree(vm, pool.allocator)",
+      "replace": "\tfree(vm, pool.allocator)",
+      "gate": "odin:cmd/lava:main.runner_churn_with_retirement_keeps_fds_flat_and_rss_bounded",
+      "expect_detail": "descriptors grew from"
+    },
+    {
+      "name": "page_run_until_deadline_survives_a_native_clear_of_its_wake dies when a cleared wake-up timer is not re-armed",
+      "why": "Once the wake-up is cleared (natively: since #92 page JS cannot reach it), a tick blocked on a far timer sleeps through the deadline to it.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\t\tif !eventloop.timer_is_live(loop, wake) {\n",
+      "replace": "\t\t\tif wake == 0 {\n",
+      "gate": "odin:cmd/lava:main.page_run_until_deadline_survives_a_native_clear_of_its_wake",
+      "expect_detail": "the cleared wake-up was not re-armed"
+    },
+    {
+      "name": "cleared_timer_stays_cleared_when_its_dispose_arms_timers dies when a queued timer is marked after its dispose",
+      "why": "A dispose that arms timers can grow the ready queue into a new buffer; the cancel then writes through a stale pointer and the cleared timer fires on the binding its dispose released.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\tready_cancel_at(loop, timer)\n\t\trun_dispose(dispose, user_data)\n",
+      "replace": "\t\trun_dispose(dispose, user_data)\n\t\tready_cancel_at(loop, timer)\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.cleared_timer_stays_cleared_when_its_dispose_arms_timers",
+      "expect_detail": "delay 0: fires=1"
+    },
+    {
+      "name": "cleared_timer_stays_cleared_when_its_dispose_arms_timers dies when a heap timer is removed after its dispose",
+      "why": "A dispose that arms an earlier timer sifts it into the cleared timer's slot; removing that slot afterwards drops the new timer and leaves the cleared one to fire.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\ttimer := loop.timers[idx]\n\t\ttimer_heap_remove_at(loop, idx)\n\n\t\tif !timer.unreffed {\n\t\t\tloop.reffed_timer_count -= 1\n\t\t}\n\n\t\trun_dispose(timer.dispose, timer.user_data)\n",
+      "replace": "\t\ttimer := loop.timers[idx]\n\t\trun_dispose(timer.dispose, timer.user_data)\n\t\ttimer_heap_remove_at(loop, idx)\n\n\t\tif !timer.unreffed {\n\t\t\tloop.reffed_timer_count -= 1\n\t\t}\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.cleared_timer_stays_cleared_when_its_dispose_arms_timers",
       "expect_detail": [
-        "rendering the error loaded node:util"
+        "the cleared timer is still live",
+        "delay 10: fires=1"
       ]
     },
     {
-      "name": "errors-stack dies when pageError stops dropping the leading internal frames",
-      "why": "A page's caught error then lists node:internal/web_errors, domexception and the thrower's own frames, which Chrome's stacks never show — and which name Node in every web error.",
-      "source": "pkg/runtime/js/internal/web_errors.js",
-      "find": "      e.stack = scrubStack(StringP(e.stack));",
-      "replace": "      e.stack = StringP(e.stack);",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL errors-stack"
+      "name": "ready_index_holds_only_live_queued_timers dies when a cleared queued timer stays indexed",
+      "why": "The index then keeps every tombstone a debounce leaves, growing with it until the turn drains them.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tdelete_key(&loop.ready_index, timer.id)\n\n\tif !timer.unreffed {",
+      "replace": "\tif !timer.unreffed {",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.ready_index_holds_only_live_queued_timers",
+      "expect_detail": "expected value to be 1, got 1000"
     },
     {
-      "name": "domexception-class dies when a constructed DOMException keeps JSC's own line property",
-      "why": "Chrome's `new DOMException()` owns no property at all; JSC's Error constructor leaves line/column/sourceURL/stack pointing into internal/domexception.",
-      "source": "pkg/runtime/js/internal/domexception.js",
-      "find": "      delete self.line;\n",
-      "replace": "",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL domexception-class"
+      "name": "zero_delay_timer_runs_before_a_timer_that_fell_due_during_its_creator dies when a 0 ms timer waits in the heap",
+      "why": "Chrome queues a 0 ms timer as a task when it is created; in the heap it is queued with B after A returns, by deadline, and prints A,B,C where Chrome prints A,C,B.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tif delay == 0 {\n\t\tready_push(loop, timer)\n\t} else {\n\t\ttimer_heap_push(loop, timer)\n\t}\n",
+      "replace": "\ttimer_heap_push(loop, timer)\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.zero_delay_timer_runs_before_a_timer_that_fell_due_during_its_creator",
+      "expect_detail": "expected value to be 3, got 2"
     },
     {
-      "name": "domexception-class dies when DOMException.prototype keeps constructor first",
-      "why": "Chrome lists code, name, message, the 25 constants, then constructor; a class puts constructor first, an order getOwnPropertyNames shows.",
-      "source": "pkg/runtime/js/internal/domexception.js",
-      "find": "  reAppendConstructor(DOMException.prototype);\n",
-      "replace": "",
+      "name": "timers-errors dies when setTimeout() returns quietly",
+      "why": "Chrome's binding throws its arity TypeError for a missing handler; returning undefined lets a page that feature-tests the throw see a different engine.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tif argument_count < 1 {\n\t\tweb_throw_type_error(ctx, \"setTimeout\", ",
+      "replace": "\tif false {\n\t\tweb_throw_type_error(ctx, \"setTimeout\", ",
       "gate": "make:test-web",
-      "expect_detail": "FAIL domexception-class"
+      "expect_detail": "FAIL timers-errors"
     },
     {
-      "name": "clone-domexception dies when structuredClone loses the DOMException arm",
-      "why": "Without it a DOMException clones through the Error arm as a plain Error: no brand, name Error, code undefined, and QuotaExceededError's quota/requested lost.",
-      "source": "pkg/runtime/js/internal/structured_clone.js",
-      "find": "    var domException = cloneDOMException(value);",
-      "replace": "    var domException = undefined;",
+      "name": "timers-delay-coercion dies when a 0 ms timer waits in the heap",
+      "why": "A 1 ms timer created first would still fire after every 0 ms one by deadline, so the case does not see this; it pins only that the delay is not raised to 1.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\treturn x > 0 ? u64(x) : 0, true\n",
+      "replace": "\treturn x > 0 ? u64(x) : 1, true\n",
       "gate": "make:test-web",
-      "expect_detail": "FAIL clone-domexception"
+      "expect_detail": "FAIL timers-delay-coercion"
     },
     {
-      "name": "crypto-random-errors dies when getRandomValues stops brand-checking its receiver",
-      "why": "Chrome throws Illegal invocation for getRandomValues.call({}) and a detached call; without the check Lava fills the view.",
-      "source": "pkg/runtime/js/internal/crypto/random.js",
-      "find": "    if (web && this !== cryptoObject) {",
-      "replace": "    if (false) {",
+      "name": "timers-delay-coercion dies when the delay is not a WebIDL long",
+      "why": "Without the modulo-2^32 signed reading, 2^31 and 2^32 - 1 wait 24 days instead of 0 ms and 2^32 + 5 never fires.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tx := webidl_long(n)\n",
+      "replace": "\tx := math.is_nan(n) || math.is_inf(n) ? 0 : math.trunc(n)\n",
       "gate": "make:test-web",
-      "expect_detail": "FAIL crypto-random-errors"
+      "expect_detail": "FAIL timers-delay-coercion"
     },
     {
-      "name": "domexception_class_engine_traits dies when the DOMException global stops being the class",
-      "why": "The pin holds the call-without-new deviation to JSC's class text; a callable stand-in answers 'no throw', which is neither Chrome's nor the declared deviation.",
-      "source": "pkg/runtime/js/internal/domexception.js",
-      "find": "    value: DOMException,\n",
-      "replace": "    value: function DOMException() {},\n",
-      "gate": "odin:cmd/lava:main.domexception_class_engine_traits",
-      "expect_detail": [
-        "domexception: got no throw"
-      ]
+      "name": "timers-delay-coercion dies when a throwing conversion is swallowed",
+      "why": "Chrome's setTimeout throws what the delay's valueOf throws (and a TypeError for a Symbol or BigInt) and schedules nothing; JSValueToNumber with no exception slot turned it into NaN, a 0 ms timer.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tn, ok := web_to_number(ctx, arguments[1], op, exception)\n",
+      "replace": "\tn, ok := jsc.JSValueToNumber(ctx, arguments[1], nil), true\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL timers-delay-coercion"
+    },
+    {
+      "name": "due_timer_is_queued_between_tasks dies when due timers are looked for once per turn",
+      "why": "T fell due while X ran; queued only at the next turn it lands behind W, which Y queued after, where Chrome prints X,Y,Z,T,W.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\trun_timer_task(loop, ready_pop(loop))\n\t\tqueue_due_timers(loop)\n",
+      "replace": "\t\trun_timer_task(loop, ready_pop(loop))\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.due_timer_is_queued_between_tasks",
+      "expect_detail": "expected value to be 4, got 5"
+    },
+    {
+      "name": "timers-ready-order dies when due timers are looked for once per turn",
+      "why": "The real-clock half of due_timer_is_queued_between_tasks: the per-task look reads the clock itself, which the virtual-clock test cannot see.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\trun_timer_task(loop, ready_pop(loop))\n\t\tqueue_due_timers(loop)\n",
+      "replace": "\t\trun_timer_task(loop, ready_pop(loop))\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL timers-ready-order"
+    },
+    {
+      "name": "interval_rearms_on_its_schedule_grid dies when an interval re-arms from the clock before its callback",
+      "why": "node's rule (#99): a 200 ms interval whose first fire ran 700 ms fires at 1100 instead of back on the grid at 1000.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\tdelay = next.repeat_ms - behind % next.repeat_ms\n",
+      "replace": "\t\tdelay = next.repeat_ms\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.interval_rearms_on_its_schedule_grid",
+      "expect_detail": "expected value to be 1000, got 1100"
+    },
+    {
+      "name": "timers-interval-overrun dies when an interval re-arms from the clock before its callback",
+      "why": "The real-clock half of interval_rearms_on_its_schedule_grid: I3 lands after the 1050 sentinel.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\tdelay = next.repeat_ms - behind % next.repeat_ms\n",
+      "replace": "\t\tdelay = next.repeat_ms\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL timers-interval-overrun"
+    },
+    {
+      "name": "interval_rearms_before_its_callback dies when an interval re-arms after its callback",
+      "why": "A 0 ms interval's next fire queued after its callback lands behind the 0 ms timer that callback created: I1,Z,I2 where Chrome prints I1,I2,Z.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tif timer.repeating {\n\t\trearm_interval(loop, timer)\n\t}\n\n\tloop.running_id, loop.running_dispose, loop.running_nesting = timer.id, timer.dispose, timer.nesting\n\ttimer.callback(loop, timer.user_data)\n",
+      "replace": "\tloop.running_id, loop.running_dispose, loop.running_nesting = timer.id, timer.dispose, timer.nesting\n\ttimer.callback(loop, timer.user_data)\n\n\tif timer.repeating && !is_cancel_requested(loop, timer.id) {\n\t\trearm_interval(loop, timer)\n\t}\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.interval_rearms_before_its_callback",
+      "expect_detail": "expected value to be 1, got 3"
+    },
+    {
+      "name": "nested_timeouts_clamp_to_4ms_past_level_5 dies without the nesting clamp",
+      "why": "A chain of 0 ms timers then runs at once to any depth, where the HTML timer steps (and Chrome) wait 4 ms past level 5.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tif parent > TIMER_NESTING_LEVEL_MAX {\n",
+      "replace": "\tif false {\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.nested_timeouts_clamp_to_4ms_past_level_5",
+      "expect_detail": "expected value to be 4, got 0"
+    },
+    {
+      "name": "timers-nesting-clamp dies without the nesting clamp",
+      "why": "The JS-visible half: from level 6 on the 0 ms timer would still fire ahead of the 4 ms one, where Chrome prints four,zero.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tif parent > TIMER_NESTING_LEVEL_MAX {\n",
+      "replace": "\tif false {\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL timers-nesting-clamp"
+    },
+    {
+      "name": "nested_timeouts_clamp_to_4ms_past_level_5 dies when the clamp waits one level more",
+      "why": "Level 5 is the last unclamped one: Chrome clamps the timers a level-6 task creates (the 7th of a chain), not those of level 7.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tif parent > TIMER_NESTING_LEVEL_MAX {\n",
+      "replace": "\tif parent > TIMER_NESTING_LEVEL_MAX + 1 {\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.nested_timeouts_clamp_to_4ms_past_level_5",
+      "expect_detail": "expected value to be 4, got 0"
+    },
+    {
+      "name": "nested_timeouts_clamp_to_4ms_past_level_5 dies when a timer task does not name its nesting level",
+      "why": "With running_nesting left 0 every timer is created at level 1 and none is ever clamped.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tloop.running_id, loop.running_dispose, loop.running_nesting = timer.id, timer.dispose, timer.nesting\n",
+      "replace": "\tloop.running_id, loop.running_dispose, loop.running_nesting = timer.id, timer.dispose, 0\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.nested_timeouts_clamp_to_4ms_past_level_5",
+      "expect_detail": "expected value to be 4, got 0"
+    },
+    {
+      "name": "nested_intervals_clamp_to_4ms_past_level_5 dies when an interval does not clamp its own period",
+      "why": "Each fire of an interval is a level deeper; without the re-arm clamp a 0 ms interval fires at once forever.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tif timer.nesting > TIMER_NESTING_LEVEL_MAX {\n",
+      "replace": "\tif false {\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.nested_intervals_clamp_to_4ms_past_level_5",
+      "expect_detail": "expected value to be 4, got 0"
+    },
+    {
+      "name": "nested_intervals_clamp_to_4ms_past_level_5 dies when an interval fire does not nest a level deeper",
+      "why": "An interval created outside a timer would then stay at level 1 and never reach the clamp.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tnext.nesting = timer.nesting == max(u8) ? timer.nesting : timer.nesting + 1\n",
+      "replace": "\tnext.nesting = timer.nesting\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.nested_intervals_clamp_to_4ms_past_level_5",
+      "expect_detail": "expected value to be 4, got 0"
+    },
+    {
+      "name": "timers-interval-nesting-clamp dies when an interval does not clamp its own period",
+      "why": "The JS-visible half: fires 7 to 12 of a 0 ms interval run back to back instead of 4 ms apart.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tif timer.nesting > TIMER_NESTING_LEVEL_MAX {\n",
+      "replace": "\tif false {\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL timers-interval-nesting-clamp"
     },
     {
       "name": "the DOM oracle refuses a recording whose views cannot be told apart",

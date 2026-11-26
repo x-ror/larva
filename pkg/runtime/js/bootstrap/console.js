@@ -362,6 +362,10 @@
       var extra = Array.prototype.slice.call(arguments, 1);
       emit(out, key + ': ' + duration(d) + (extra.length > 0 ? ' ' + formatArgs(extra) : ''));
     },
+    // Chrome's own are no-ops without DevTools attached, which a headless page never has.
+    profile: function () {},
+    profileEnd: function () {},
+    timeStamp: function () {},
     clear: function () {
       out('[2J[3J[H');
     },

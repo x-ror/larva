@@ -5,19 +5,16 @@ import "core:testing"
 import lava "lava:pkg/runtime"
 import eventloop "lava:pkg/runtime/eventloop"
 
-// Pins what the Blob/File class conversion deliberately leaves different from node,
-// which the oracle case (tests/node-compat/cases/77-blob-file-module.js) cannot express
-// because the two runtimes answer differently by construction:
+// Pins Blob's and File's interface shape on the NODE surface, which shares the Window
+// one's internal/native_shape (#114) and so deliberately answers as Chrome does where
+// node answers otherwise — no oracle case can express a node-vs-Chrome split:
 //
-//   - Calling either without `new` throws the ENGINE's class-constructor TypeError.
-//     JSC: `Cannot call a class constructor Blob without |new|`; node (V8):
-//     `Class constructor Blob cannot be invoked without 'new'`. A class constructor
-//     cannot customise it, so the text is an engine trait; the oracle case compares
-//     only the error's class. If this message changes, JSC changed — or Blob stopped
-//     being a class, which is the regression this guards.
-//   - Blob.prototype's methods stay ENUMERABLE, as they were while Blob was a function
-//     with an assigned prototype. Class methods are not, so internal/blob.js re-marks
-//     them; node's enumerable set differs (size/type/textStream in, toString out).
+//   - Calling either without `new` throws Blink's "Failed to construct 'Blob': Please
+//     use the 'new' operator, …" (node: `Class constructor Blob cannot be invoked
+//     without 'new'`; JSC's own class text before #114).
+//   - Blob.prototype's enumerable members are WebIDL's, in Blink's order: the size/type
+//     attributes and every operation (node lists toString and not textStream).
+// The Window surface is pinned against Chrome by tests/web/cases/shape-blob.js.
 BLOB_CLASS_SCRIPT :: `
 'use strict';
 const { Blob, File } = require('node:buffer');
@@ -29,10 +26,11 @@ function noNew(C) {
     return e.name + ': ' + e.message;
   }
 }
+const NEW = ": Please use the 'new' operator, this DOM object constructor cannot be called as a function.";
 const want = {
-  blob: 'TypeError: Cannot call a class constructor Blob without |new|',
-  file: 'TypeError: Cannot call a class constructor File without |new|',
-  keys: 'arrayBuffer,bytes,stream,text,slice,toString',
+  blob: "TypeError: Failed to construct 'Blob'" + NEW,
+  file: "TypeError: Failed to construct 'File'" + NEW,
+  keys: 'size,type,arrayBuffer,slice,stream,text,bytes,textStream',
 };
 const got = {
   blob: noNew(Blob),
@@ -46,7 +44,7 @@ console.log('blob-class ok');
 `
 
 @(test)
-blob_class_engine_traits :: proc(t: ^testing.T) {
+blob_class_node_surface_shape :: proc(t: ^testing.T) {
 	loop := eventloop.init()
 	// eval consumes (destroys) the loop on every path; do not destroy it here.
 	result := lava.eval(BLOB_CLASS_SCRIPT, "<blob-class-test>", &loop, false)

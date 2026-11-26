@@ -52,7 +52,7 @@
 //
 // The factory returns { drainNextTicks, dispatch } so install_microtasks can hand
 // them to native (see globals.odin install_microtasks / invoke_user_callback).
-(function (globalObject, process, reportUncaught) {
+(function (globalObject, process, reportUncaught, nativeShape) {
   'use strict';
 
   var PromiseCtor = Promise;
@@ -164,7 +164,15 @@
   }
 
   process.nextTick = nextTick;
-  globalObject.queueMicrotask = queueMicrotask;
+  // The global a page sees is internal/native_shape's operation around this one
+  // (native toString, no `prototype`, Chrome's length; tests/web/cases/shape-operations),
+  // handed in by install_microtasks from the module loader. An embedder without the
+  // loader gets the plain function.
+  if (nativeShape) {
+    nativeShape.defineOperation('queueMicrotask', queueMicrotask, 1);
+  } else {
+    globalObject.queueMicrotask = queueMicrotask;
+  }
 
   // The global hooks the native top-level drain shim (a trailing statement appended
   // to the entry source) reaches checkpoint 1 through — `__lavaDrainNextTicks` and

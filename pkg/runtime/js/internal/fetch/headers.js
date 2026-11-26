@@ -101,13 +101,39 @@
     return { name: key, value: text };
   }
 
+  // The two internal operations are functions, not methods: a page reads every own key
+  // of Headers.prototype, and Chrome's has neither (tests/web/cases/shape-fetch).
+  //
+  // appendRaw stores without validation — for response headers parsed off the wire,
+  // which the transport has already framed line-by-line. Set-Cookie is appended to its
+  // own list (never comma-joined) so getSetCookie() can return each cookie intact.
+  function appendRaw(headers, name, value) {
+    var key = normalizeName(name);
+    if (key === 'set-cookie') {
+      headers._cookies.push(String(value));
+      return;
+    }
+    var existing = headers._map.get(key);
+    headers._map.set(key, existing === undefined ? String(value) : existing + ', ' + value);
+  }
+
+  // entryList snapshots all header entries — the comma-joined _map values plus one
+  // entry per individual Set-Cookie — so iteration surfaces every cookie separately (the
+  // spec does not combine Set-Cookie in the iterator).
+  function entryList(headers) {
+    var out = [];
+    headers._map.forEach((value, key) => out.push([key, value]));
+    for (var i = 0; i < headers._cookies.length; i++) out.push(['set-cookie', headers._cookies[i]]);
+    return out;
+  }
+
   class Headers {
     constructor(init) {
       this._map = new Map();
       // Set-Cookie is the one header that must NOT be comma-joined: each
       // Set-Cookie is its own list entry (cookie Expires= values themselves
       // contain commas, so a join is lossy and corrupts them). It is held apart
-      // from _map and exposed individually via getSetCookie(). See _append.
+      // from _map and exposed individually via getSetCookie(). See appendRaw.
       this._cookies = [];
       if (init instanceof Headers) {
         init.forEach((value, key) => this.append(key, value));
@@ -120,20 +146,7 @@
     }
     append(name, value) {
       var header = normalizeAndValidate(name, value);
-      this._append(header.name, header.value);
-    }
-    // _append stores without validation — for response headers parsed off the
-    // wire, which the transport has already framed line-by-line. Set-Cookie is
-    // appended to its own list (never comma-joined) so getSetCookie() can return
-    // each cookie intact.
-    _append(name, value) {
-      var key = normalizeName(name);
-      if (key === 'set-cookie') {
-        this._cookies.push(String(value));
-        return;
-      }
-      var existing = this._map.get(key);
-      this._map.set(key, existing === undefined ? String(value) : existing + ', ' + value);
+      appendRaw(this, header.name, header.value);
     }
     set(name, value) {
       var header = normalizeAndValidate(name, value);
@@ -173,38 +186,29 @@
       }
       this._map.delete(key);
     }
-    // _entryList snapshots all header entries — the comma-joined _map values plus
-    // one entry per individual Set-Cookie — so iteration surfaces every cookie
-    // separately (the spec does not combine Set-Cookie in the iterator).
-    _entryList() {
-      var out = [];
-      this._map.forEach((value, key) => out.push([key, value]));
-      for (var i = 0; i < this._cookies.length; i++) out.push(['set-cookie', this._cookies[i]]);
-      return out;
-    }
     forEach(callback, thisArg) {
-      var entries = this._entryList();
+      var entries = entryList(this);
       for (var i = 0; i < entries.length; i++) {
         callback.call(thisArg, entries[i][1], entries[i][0], this);
       }
     }
     keys() {
-      return this._entryList()
+      return entryList(this)
         .map((e) => e[0])
         [Symbol.iterator]();
     }
     values() {
-      return this._entryList()
+      return entryList(this)
         .map((e) => e[1])
         [Symbol.iterator]();
     }
     entries() {
-      return this._entryList()[Symbol.iterator]();
+      return entryList(this)[Symbol.iterator]();
     }
     [Symbol.iterator]() {
-      return this._entryList()[Symbol.iterator]();
+      return entryList(this)[Symbol.iterator]();
     }
   }
 
-  module.exports = { Headers: Headers };
+  module.exports = { Headers: Headers, appendRaw: appendRaw };
 });

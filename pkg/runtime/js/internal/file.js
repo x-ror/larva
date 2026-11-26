@@ -10,6 +10,7 @@
   'use strict';
 
   var P = require('internal/primordials');
+  var defineInterface = require('internal/native_shape').defineInterface;
   var Blob = require('internal/blob').Blob;
   var StringG = P.String;
   var NumberG = P.Number;
@@ -18,17 +19,16 @@
   // Eager like internal/blob (node/buffer.js requires both before user code), so this
   // module-eval capture is pristine; primordials has no Date.
   var DateNow = Date.now;
+  var DateG = Date;
 
   /**
    * A Blob with a name and a lastModified stamp.
    * @extends Blob
-   * @node A class extending Blob, like node's: File.prototype is non-writable and
-   *   Object.getPrototypeOf(File) is Blob (node 26.13.0, verified).
-   * @deviates Calling it without `new` throws JSC's class-constructor TypeError —
-   *   `Cannot call a class constructor File without |new|` — where node says
-   *   `Class constructor File cannot be invoked without 'new'` (and Lava said
-   *   `Constructor File requires 'new'` before the class conversion). Pinned by
-   *   cmd/lava/blob_class_test.odin.
+   * @node Chrome 158's shape, built by internal/native_shape around this class
+   *   (tests/web/cases/shape-blob.expected): the interface object's [[Prototype]] is
+   *   Blob's, File.prototype's is Blob.prototype.
+   * @deviates none in shape. Instances carry non-enumerable `_name`/`_lastModified` own
+   *   properties (S4c).
    */
   class File extends Blob {
     /**
@@ -57,16 +57,34 @@
     get lastModified() {
       return this._lastModified;
     }
+
+    // HTML's legacy `new Date(lastModified)`, a fresh Date per read, as Chrome's.
+    get lastModifiedDate() {
+      return new DateG(this._lastModified);
+    }
+
+    // Always '' for a constructed File: only a directory upload sets it.
+    get webkitRelativePath() {
+      return '';
+    }
   }
 
-  ObjectDefineProperty(File.prototype, P.Symbol.toStringTag, {
-    value: 'File',
-    configurable: true,
+  // The interface object a page sees (internal/native_shape), in Blink's member order
+  // (Chrome 158, tests/web/cases/shape-blob.expected).
+  var PublicFile = defineInterface({
+    name: 'File',
+    impl: File,
+    length: 2,
+    parent: Blob,
+    members: [
+      'name',
+      'lastModified',
+      'lastModifiedDate',
+      'webkitRelativePath',
+      'constructor',
+      '@@toStringTag',
+    ],
   });
 
-  if (globalThis.File === undefined) {
-    globalThis.File = File;
-  }
-
-  module.exports = { File: File };
+  module.exports = { File: PublicFile };
 });

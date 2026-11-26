@@ -1,6 +1,6 @@
 # exit 0
 global: function true
-length: 2
+length: 1
 primitives: true:number,true:string,true:boolean,true:object,true:undefined,true:bigint,true:number
 deep: {"a":1,"nested":{"b":[99,2,3]}} true true 1
 array extra prop: bar 2

@@ -272,9 +272,13 @@
     return clone(value, new Map());
   }
 
-  if (globalThis.structuredClone === undefined) {
-    globalThis.structuredClone = structuredClone;
-  }
-
-  module.exports = { structuredClone: structuredClone };
+  // The global a page sees: internal/native_shape's operation around this one (native
+  // toString, no `prototype`, Chrome's length 1; tests/web/cases/shape-operations).
+  module.exports = {
+    structuredClone: require('internal/native_shape').defineOperation(
+      'structuredClone',
+      structuredClone,
+      1,
+    ),
+  };
 });

@@ -116,6 +116,38 @@
   // Only runtime code runs before this line (the
   // console prelude, install_process), so locking here leaves no window.
   req('internal/primordials').lockIntrinsics();
+  // Function.prototype.toString's mask and the helper every Web API global is defined
+  // through (#114): before the first module that installs one, and before user code.
+  // bootstrap/console.js ran before this loader and has no `require`, so its namespace is
+  // shaped here, still before user code: Blink's member order (Chrome 158,
+  // tests/web/cases/shape-console.expected; context, createTask and memory are the gap).
+  req('internal/native_shape').defineNamespace(globalThis.console, 'console', [
+    'debug',
+    'error',
+    'info',
+    'log',
+    'warn',
+    'dir',
+    'dirxml',
+    'table',
+    'trace',
+    'group',
+    'groupCollapsed',
+    'groupEnd',
+    'clear',
+    'count',
+    'countReset',
+    'assert',
+    'profile',
+    'profileEnd',
+    'time',
+    'timeLog',
+    'timeEnd',
+    'timeStamp',
+    '@@toStringTag',
+  ]);
+  // node's console.Console constructor: not a member of Chrome's console namespace.
+  if (web) delete globalThis.console.Console;
   // FinalizationRegistry cleanups and WebAssembly settlements back onto the page's own
   // loop (#91, #97). Before any module that could allocate a registry, and before user
   // code, which must only ever see the wrapped constructors.
@@ -237,6 +269,10 @@
   // code. What user code calls is the native require callback, which consults this
   // function through Runtime_State.builtin_require and returns only module exports.
   publicReq.primordials = req('internal/primordials');
+  // The same channel, for the bootstrap scripts that install a Web API global and have
+  // no `require` either: bootstrap/microtasks.js defines queueMicrotask through it
+  // (globals.odin install_microtasks), so it is shaped as every other one (#114).
+  publicReq.nativeShape = req('internal/native_shape');
 
   // stdio installs process.stdout/process.stderr. It cannot be eager-required here:
   // install_process runs before the loader (so natives['process'] can capture the

@@ -46,20 +46,96 @@
   var ByteLengthQueuingStrategy = strategies.ByteLengthQueuingStrategy;
   var CountQueuingStrategy = strategies.CountQueuingStrategy;
 
-  // ---- exports + globals -----------------------------------------------------
+  // ---- interface objects + exports -------------------------------------------
+
+  // The interface objects a page sees (internal/native_shape), in Blink's member order
+  // and lengths (Chrome 158, tests/web/cases/shape-streams.expected). The
+  // implementations above stay what this directory constructs internally.
+  var defineInterface = require('internal/native_shape').defineInterface;
+  var ArrayPrototypeConcat = require('internal/primordials').ArrayPrototypeConcat;
+  var TAIL = ['constructor', '@@toStringTag'];
+  function iface(name, impl, length, members, illegal) {
+    return defineInterface({
+      name: name,
+      impl: impl,
+      length: length,
+      illegal: illegal === true,
+      members: ArrayPrototypeConcat(members, TAIL),
+    });
+  }
 
   var api = {
-    ReadableStream: ReadableStream,
-    ReadableStreamDefaultReader: ReadableStreamDefaultReader,
-    ReadableStreamBYOBReader: ReadableStreamBYOBReader,
-    ReadableStreamDefaultController: ReadableStreamDefaultController,
-    WritableStream: WritableStream,
-    WritableStreamDefaultWriter: WritableStreamDefaultWriter,
-    WritableStreamDefaultController: WritableStreamDefaultController,
-    TransformStream: TransformStream,
-    TransformStreamDefaultController: TransformStreamDefaultController,
-    ByteLengthQueuingStrategy: ByteLengthQueuingStrategy,
-    CountQueuingStrategy: CountQueuingStrategy,
+    ReadableStream: defineInterface({
+      name: 'ReadableStream',
+      impl: ReadableStream,
+      length: 0,
+      members: [
+        'locked',
+        'cancel:0',
+        'getReader:0',
+        'pipeThrough:1',
+        'pipeTo:1',
+        'tee:0',
+        'values:0',
+        'constructor',
+        '@@toStringTag',
+        '@@asyncIterator=values',
+      ],
+    }),
+    ReadableStreamDefaultReader: iface(
+      'ReadableStreamDefaultReader',
+      ReadableStreamDefaultReader,
+      1,
+      ['closed', 'cancel:0', 'read:0', 'releaseLock:0'],
+    ),
+    ReadableStreamBYOBReader: iface('ReadableStreamBYOBReader', ReadableStreamBYOBReader, 1, [
+      'closed',
+      'cancel:0',
+      'read:1',
+      'releaseLock:0',
+    ]),
+    ReadableStreamDefaultController: iface(
+      'ReadableStreamDefaultController',
+      ReadableStreamDefaultController,
+      0,
+      ['desiredSize', 'close:0', 'enqueue:0', 'error:0'],
+      true,
+    ),
+    WritableStream: iface('WritableStream', WritableStream, 0, [
+      'locked',
+      'abort:0',
+      'close:0',
+      'getWriter:0',
+    ]),
+    WritableStreamDefaultWriter: iface(
+      'WritableStreamDefaultWriter',
+      WritableStreamDefaultWriter,
+      1,
+      ['closed', 'desiredSize', 'ready', 'abort:0', 'close:0', 'releaseLock:0', 'write:0'],
+    ),
+    WritableStreamDefaultController: iface(
+      'WritableStreamDefaultController',
+      WritableStreamDefaultController,
+      0,
+      ['signal', 'error:0'],
+      true,
+    ),
+    TransformStream: iface('TransformStream', TransformStream, 0, ['readable', 'writable']),
+    TransformStreamDefaultController: iface(
+      'TransformStreamDefaultController',
+      TransformStreamDefaultController,
+      0,
+      ['desiredSize', 'enqueue:0', 'error:0', 'terminate:0'],
+      true,
+    ),
+    ByteLengthQueuingStrategy: iface('ByteLengthQueuingStrategy', ByteLengthQueuingStrategy, 1, [
+      'highWaterMark',
+      'size',
+    ]),
+    CountQueuingStrategy: iface('CountQueuingStrategy', CountQueuingStrategy, 1, [
+      'highWaterMark',
+      'size',
+    ]),
   };
 
   // Internal helpers fetch.js uses to build/feed a response-body stream without
@@ -86,21 +162,6 @@
       return value instanceof ReadableStream;
     },
   };
-
-  function installGlobal(name, value) {
-    if (globalThis[name] === undefined) globalThis[name] = value;
-  }
-  installGlobal('ReadableStream', ReadableStream);
-  installGlobal('ReadableStreamDefaultReader', ReadableStreamDefaultReader);
-  installGlobal('ReadableStreamBYOBReader', ReadableStreamBYOBReader);
-  installGlobal('ReadableStreamDefaultController', ReadableStreamDefaultController);
-  installGlobal('WritableStream', WritableStream);
-  installGlobal('WritableStreamDefaultWriter', WritableStreamDefaultWriter);
-  installGlobal('WritableStreamDefaultController', WritableStreamDefaultController);
-  installGlobal('TransformStream', TransformStream);
-  installGlobal('TransformStreamDefaultController', TransformStreamDefaultController);
-  installGlobal('ByteLengthQueuingStrategy', ByteLengthQueuingStrategy);
-  installGlobal('CountQueuingStrategy', CountQueuingStrategy);
 
   module.exports = api;
 });

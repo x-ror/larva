@@ -1,0 +1,37 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs shape-encoding
+# ---
+== TextEncoder
+global TextEncoder data -cw fn name="TextEncoder" length=0 own=[length,name,prototype] prototype=true ctor=true src="function TextEncoder() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Failed to construct 'TextEncoder': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static prototype data --- object [object TextEncoder]
+prototype [[Prototype]] Object.prototype
+proto encoding accessor ec
+  get name="get encoding" length=0 own=[length,name] prototype=false ctor=false src="function get encoding() { [native code] }"
+  set undefined
+proto encode data ecw fn name="encode" length=0 own=[length,name] prototype=false ctor=false src="function encode() { [native code] }"
+proto encodeInto data ecw fn name="encodeInto" length=2 own=[length,name] prototype=false ctor=false src="function encodeInto() { [native code] }"
+proto constructor data -cw fn name="TextEncoder" length=0 own=[length,name,prototype] prototype=true ctor=true src="function TextEncoder() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "TextEncoder"
+== TextDecoder
+global TextDecoder data -cw fn name="TextDecoder" length=0 own=[length,name,prototype] prototype=true ctor=true src="function TextDecoder() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Failed to construct 'TextDecoder': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static prototype data --- object [object TextDecoder]
+prototype [[Prototype]] Object.prototype
+proto encoding accessor ec
+  get name="get encoding" length=0 own=[length,name] prototype=false ctor=false src="function get encoding() { [native code] }"
+  set undefined
+proto fatal accessor ec
+  get name="get fatal" length=0 own=[length,name] prototype=false ctor=false src="function get fatal() { [native code] }"
+  set undefined
+proto ignoreBOM accessor ec
+  get name="get ignoreBOM" length=0 own=[length,name] prototype=false ctor=false src="function get ignoreBOM() { [native code] }"
+  set undefined
+proto decode data ecw fn name="decode" length=0 own=[length,name] prototype=false ctor=false src="function decode() { [native code] }"
+proto constructor data -cw fn name="TextDecoder" length=0 own=[length,name,prototype] prototype=true ctor=true src="function TextDecoder() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "TextDecoder"

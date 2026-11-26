@@ -1,0 +1,80 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs shape-url
+# ---
+== URL
+global URL data -cw fn name="URL" length=1 own=[length,name,prototype,canParse,parse,createObjectURL,revokeObjectURL] prototype=true ctor=true src="function URL() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Failed to construct 'URL': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static canParse data ecw fn name="canParse" length=1 own=[length,name] prototype=false ctor=false src="function canParse() { [native code] }"
+static parse data ecw fn name="parse" length=1 own=[length,name] prototype=false ctor=false src="function parse() { [native code] }"
+static createObjectURL data ecw fn name="createObjectURL" length=1 own=[length,name] prototype=false ctor=false src="function createObjectURL() { [native code] }"
+static revokeObjectURL data ecw fn name="revokeObjectURL" length=1 own=[length,name] prototype=false ctor=false src="function revokeObjectURL() { [native code] }"
+static prototype data --- object [object URL]
+prototype [[Prototype]] Object.prototype
+proto origin accessor ec
+  get name="get origin" length=0 own=[length,name] prototype=false ctor=false src="function get origin() { [native code] }"
+  set undefined
+proto protocol accessor ec
+  get name="get protocol" length=0 own=[length,name] prototype=false ctor=false src="function get protocol() { [native code] }"
+  set name="set protocol" length=1 own=[length,name] prototype=false ctor=false src="function set protocol() { [native code] }"
+proto username accessor ec
+  get name="get username" length=0 own=[length,name] prototype=false ctor=false src="function get username() { [native code] }"
+  set name="set username" length=1 own=[length,name] prototype=false ctor=false src="function set username() { [native code] }"
+proto password accessor ec
+  get name="get password" length=0 own=[length,name] prototype=false ctor=false src="function get password() { [native code] }"
+  set name="set password" length=1 own=[length,name] prototype=false ctor=false src="function set password() { [native code] }"
+proto host accessor ec
+  get name="get host" length=0 own=[length,name] prototype=false ctor=false src="function get host() { [native code] }"
+  set name="set host" length=1 own=[length,name] prototype=false ctor=false src="function set host() { [native code] }"
+proto hostname accessor ec
+  get name="get hostname" length=0 own=[length,name] prototype=false ctor=false src="function get hostname() { [native code] }"
+  set name="set hostname" length=1 own=[length,name] prototype=false ctor=false src="function set hostname() { [native code] }"
+proto port accessor ec
+  get name="get port" length=0 own=[length,name] prototype=false ctor=false src="function get port() { [native code] }"
+  set name="set port" length=1 own=[length,name] prototype=false ctor=false src="function set port() { [native code] }"
+proto pathname accessor ec
+  get name="get pathname" length=0 own=[length,name] prototype=false ctor=false src="function get pathname() { [native code] }"
+  set name="set pathname" length=1 own=[length,name] prototype=false ctor=false src="function set pathname() { [native code] }"
+proto search accessor ec
+  get name="get search" length=0 own=[length,name] prototype=false ctor=false src="function get search() { [native code] }"
+  set name="set search" length=1 own=[length,name] prototype=false ctor=false src="function set search() { [native code] }"
+proto searchParams accessor ec
+  get name="get searchParams" length=0 own=[length,name] prototype=false ctor=false src="function get searchParams() { [native code] }"
+  set undefined
+proto hash accessor ec
+  get name="get hash" length=0 own=[length,name] prototype=false ctor=false src="function get hash() { [native code] }"
+  set name="set hash" length=1 own=[length,name] prototype=false ctor=false src="function set hash() { [native code] }"
+proto href accessor ec
+  get name="get href" length=0 own=[length,name] prototype=false ctor=false src="function get href() { [native code] }"
+  set name="set href" length=1 own=[length,name] prototype=false ctor=false src="function set href() { [native code] }"
+proto toJSON data ecw fn name="toJSON" length=0 own=[length,name] prototype=false ctor=false src="function toJSON() { [native code] }"
+proto toString data ecw fn name="toString" length=0 own=[length,name] prototype=false ctor=false src="function toString() { [native code] }"
+proto constructor data -cw fn name="URL" length=1 own=[length,name,prototype,canParse,parse,createObjectURL,revokeObjectURL] prototype=true ctor=true src="function URL() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "URL"
+== URLSearchParams
+global URLSearchParams data -cw fn name="URLSearchParams" length=0 own=[length,name,prototype] prototype=true ctor=true src="function URLSearchParams() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Failed to construct 'URLSearchParams': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static prototype data --- object [object URLSearchParams]
+prototype [[Prototype]] Object.prototype
+proto size accessor ec
+  get name="get size" length=0 own=[length,name] prototype=false ctor=false src="function get size() { [native code] }"
+  set undefined
+proto append data ecw fn name="append" length=2 own=[length,name] prototype=false ctor=false src="function append() { [native code] }"
+proto delete data ecw fn name="delete" length=1 own=[length,name] prototype=false ctor=false src="function delete() { [native code] }"
+proto get data ecw fn name="get" length=1 own=[length,name] prototype=false ctor=false src="function get() { [native code] }"
+proto getAll data ecw fn name="getAll" length=1 own=[length,name] prototype=false ctor=false src="function getAll() { [native code] }"
+proto has data ecw fn name="has" length=1 own=[length,name] prototype=false ctor=false src="function has() { [native code] }"
+proto set data ecw fn name="set" length=2 own=[length,name] prototype=false ctor=false src="function set() { [native code] }"
+proto sort data ecw fn name="sort" length=0 own=[length,name] prototype=false ctor=false src="function sort() { [native code] }"
+proto toString data ecw fn name="toString" length=0 own=[length,name] prototype=false ctor=false src="function toString() { [native code] }"
+proto entries data ecw fn name="entries" length=0 own=[length,name] prototype=false ctor=false src="function entries() { [native code] }"
+proto forEach data ecw fn name="forEach" length=1 own=[length,name] prototype=false ctor=false src="function forEach() { [native code] }"
+proto keys data ecw fn name="keys" length=0 own=[length,name] prototype=false ctor=false src="function keys() { [native code] }"
+proto values data ecw fn name="values" length=0 own=[length,name] prototype=false ctor=false src="function values() { [native code] }"
+proto constructor data -cw fn name="URLSearchParams" length=0 own=[length,name,prototype] prototype=true ctor=true src="function URLSearchParams() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "URLSearchParams"
+proto [Symbol(Symbol.iterator)] data -cw fn name="entries" length=0 own=[length,name] prototype=false ctor=false src="function entries() { [native code] }"

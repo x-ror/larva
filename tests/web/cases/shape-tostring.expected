@@ -1,0 +1,35 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs shape-tostring
+# ---
+descriptor function/true/false/true
+same true
+name toString length 0 own length,name
+prototype false undefined
+new: TypeError
+self "function toString() { [native code] }"
+self.self "function toString() { [native code] }"
+Function.prototype keys length,name,constructor,apply,bind,call,toString,arguments,caller,Symbol(Symbol.hasInstance)
+script "function f(a, b) {\n      return a + b;\n    }"
+arrow "(a) => a * 2"
+class "class A {\n        m() {}\n      }"
+method "m(x) {\n          return x;\n        }"
+native "function push() { [native code] }"
+native getter "function get size() { [native code] }"
+native setter "function set __proto__() { [native code] }"
+bound "function () { [native code] }"
+bound native "function () { [native code] }"
+proxy "function () { [native code] }"
+Symbol "function Symbol() { [native code] }" Promise "function Promise() { [native code] }"
+String(atob) "function atob() { [native code] }"
+template "function URL() { [native code] }"
+concat "function get() { [native code] }"
+a namesake script function "function atob() {}"
+subclass "class MyURL extends URL {}"
+receiver {} throws TypeError: Function.prototype.toString requires that 'this' be a Function
+receiver 1 throws TypeError: Function.prototype.toString requires that 'this' be a Function
+receiver undefined throws TypeError: Function.prototype.toString requires that 'this' be a Function
+receiver symbol throws TypeError: Function.prototype.toString requires that 'this' be a Function
+renamed atob "function atob() { [native code] }" name renamed

@@ -1,0 +1,27 @@
+# exit 0
+== console
+global console data -cw object [object console]
+object [object console] [[Prototype]] [object Object]
+own debug data ecw fn name="debug" length=0 own=[length,name] prototype=false ctor=false src="function debug() { [native code] }"
+own error data ecw fn name="error" length=0 own=[length,name] prototype=false ctor=false src="function error() { [native code] }"
+own info data ecw fn name="info" length=0 own=[length,name] prototype=false ctor=false src="function info() { [native code] }"
+own log data ecw fn name="log" length=0 own=[length,name] prototype=false ctor=false src="function log() { [native code] }"
+own warn data ecw fn name="warn" length=0 own=[length,name] prototype=false ctor=false src="function warn() { [native code] }"
+own dir data ecw fn name="dir" length=0 own=[length,name] prototype=false ctor=false src="function dir() { [native code] }"
+own dirxml data ecw fn name="dirxml" length=0 own=[length,name] prototype=false ctor=false src="function dirxml() { [native code] }"
+own table data ecw fn name="table" length=0 own=[length,name] prototype=false ctor=false src="function table() { [native code] }"
+own trace data ecw fn name="trace" length=0 own=[length,name] prototype=false ctor=false src="function trace() { [native code] }"
+own group data ecw fn name="group" length=0 own=[length,name] prototype=false ctor=false src="function group() { [native code] }"
+own groupCollapsed data ecw fn name="groupCollapsed" length=0 own=[length,name] prototype=false ctor=false src="function groupCollapsed() { [native code] }"
+own groupEnd data ecw fn name="groupEnd" length=0 own=[length,name] prototype=false ctor=false src="function groupEnd() { [native code] }"
+own clear data ecw fn name="clear" length=0 own=[length,name] prototype=false ctor=false src="function clear() { [native code] }"
+own count data ecw fn name="count" length=0 own=[length,name] prototype=false ctor=false src="function count() { [native code] }"
+own countReset data ecw fn name="countReset" length=0 own=[length,name] prototype=false ctor=false src="function countReset() { [native code] }"
+own assert data ecw fn name="assert" length=0 own=[length,name] prototype=false ctor=false src="function assert() { [native code] }"
+own profile data ecw fn name="profile" length=0 own=[length,name] prototype=false ctor=false src="function profile() { [native code] }"
+own profileEnd data ecw fn name="profileEnd" length=0 own=[length,name] prototype=false ctor=false src="function profileEnd() { [native code] }"
+own time data ecw fn name="time" length=0 own=[length,name] prototype=false ctor=false src="function time() { [native code] }"
+own timeLog data ecw fn name="timeLog" length=0 own=[length,name] prototype=false ctor=false src="function timeLog() { [native code] }"
+own timeEnd data ecw fn name="timeEnd" length=0 own=[length,name] prototype=false ctor=false src="function timeEnd() { [native code] }"
+own timeStamp data ecw fn name="timeStamp" length=0 own=[length,name] prototype=false ctor=false src="function timeStamp() { [native code] }"
+own [Symbol(Symbol.toStringTag)] data -c- string "console"

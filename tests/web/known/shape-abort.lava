@@ -1,0 +1,37 @@
+# exit 0
+== AbortController
+global AbortController data -cw fn name="AbortController" length=0 own=[length,name,prototype] prototype=true ctor=true src="function AbortController() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Failed to construct 'AbortController': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static prototype data --- object [object AbortController]
+prototype [[Prototype]] Object.prototype
+proto signal accessor ec
+  get name="get signal" length=0 own=[length,name] prototype=false ctor=false src="function get signal() { [native code] }"
+  set undefined
+proto abort data ecw fn name="abort" length=0 own=[length,name] prototype=false ctor=false src="function abort() { [native code] }"
+proto constructor data -cw fn name="AbortController" length=0 own=[length,name,prototype] prototype=true ctor=true src="function AbortController() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "AbortController"
+== AbortSignal
+global AbortSignal data -cw fn name="AbortSignal" length=0 own=[length,name,prototype,abort,any,timeout] prototype=true ctor=true src="function AbortSignal() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static abort data ecw fn name="abort" length=0 own=[length,name] prototype=false ctor=false src="function abort() { [native code] }"
+static any data ecw fn name="any" length=1 own=[length,name] prototype=false ctor=false src="function any() { [native code] }"
+static timeout data ecw fn name="timeout" length=1 own=[length,name] prototype=false ctor=false src="function timeout() { [native code] }"
+static prototype data --- object [object AbortSignal]
+prototype [[Prototype]] Object.prototype
+proto addEventListener data ecw fn name="addEventListener" length=2 own=[length,name] prototype=false ctor=false src="function addEventListener() { [native code] }"
+proto removeEventListener data ecw fn name="removeEventListener" length=2 own=[length,name] prototype=false ctor=false src="function removeEventListener() { [native code] }"
+proto dispatchEvent data ecw fn name="dispatchEvent" length=1 own=[length,name] prototype=false ctor=false src="function dispatchEvent() { [native code] }"
+proto aborted accessor ec
+  get name="get aborted" length=0 own=[length,name] prototype=false ctor=false src="function get aborted() { [native code] }"
+  set undefined
+proto reason accessor ec
+  get name="get reason" length=0 own=[length,name] prototype=false ctor=false src="function get reason() { [native code] }"
+  set undefined
+proto onabort accessor ec
+  get name="get onabort" length=0 own=[length,name] prototype=false ctor=false src="function get onabort() { [native code] }"
+  set name="set onabort" length=1 own=[length,name] prototype=false ctor=false src="function set onabort() { [native code] }"
+proto throwIfAborted data ecw fn name="throwIfAborted" length=0 own=[length,name] prototype=false ctor=false src="function throwIfAborted() { [native code] }"
+proto constructor data -cw fn name="AbortSignal" length=0 own=[length,name,prototype,abort,any,timeout] prototype=true ctor=true src="function AbortSignal() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "AbortSignal"
