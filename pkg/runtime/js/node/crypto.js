@@ -13,9 +13,10 @@
 // The implementation is split along node's lib/internal/crypto seams:
 // internal/crypto/{util,hash,random,pbkdf2,hkdf,scrypt}.js. This file stays the public
 // entry: it assembles the exports in their old order, keeps createHash/createHmac and
-// timingSafeEqual where node keeps them (lib/crypto.js), and installs the WHATWG
-// `globalThis.crypto`. The loader hands hash/random/pbkdf2/hkdf/scrypt this same
-// `native` object (see bootstrap/loader.js), so there is one binding set per context.
+// timingSafeEqual where node keeps them (lib/crypto.js). The WHATWG `globalThis.crypto`
+// is installed by internal/crypto/random.js, so the Window surface has it without this
+// file. The loader hands hash/random/pbkdf2/hkdf/scrypt this same `native` object (see
+// bootstrap/loader.js), so there is one binding set per context.
 //
 // Streaming (createHash().update()…digest()) is handled in internal/crypto/hash by
 // accumulating chunks and calling the one-shot native primitive once at digest time, so
@@ -275,16 +276,6 @@
       configurable: true,
     },
   });
-
-  // WHATWG Web Crypto global. Only the random surface is provided here;
-  // crypto.subtle is a follow-up. Eager-required by loader.js so it is present
-  // without an explicit require.
-  if (globalThis.crypto === undefined) {
-    globalThis.crypto = {
-      randomUUID: randomUUID,
-      getRandomValues: getRandomValues,
-    };
-  }
 
   module.exports = exported;
 });

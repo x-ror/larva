@@ -296,8 +296,10 @@ global_surface_alternates_on_one_thread :: proc(t: ^testing.T) {
 // the state outlives init and the counter can be read.
 @(test)
 global_surface_web_skips_stdio :: proc(t: ^testing.T) {
-	node_init, node_events := surface_events_compiles(t, .Node)
-	web_init, web_events := surface_events_compiles(t, .Web)
+	node_init, node_events, node_ok := surface_resolve_compiles(.Node, "events")
+	web_init, web_events, web_ok := surface_resolve_compiles(.Web, "events")
+	testing.expect(t, node_ok, "node: the builtin resolver did not answer 'events'")
+	testing.expect(t, web_ok, "web: the builtin resolver did not answer 'events'")
 
 	testing.expectf(
 		t,
@@ -315,14 +317,83 @@ global_surface_web_skips_stdio :: proc(t: ^testing.T) {
 	)
 }
 
-// surface_events_compiles inits a context on `surface` and returns how many builtin
-// factories init compiled, then how many one resolve of `events` compiled on top.
+// `.Web` installs every web global — Blob/File/atob/btoa and the URL object-URL statics,
+// the Web Streams family, URL/URLSearchParams, crypto — from internal/ modules, without
+// instantiating a js/node/ module beyond WEB_NODE_MODULES. The Node-profile removal
+// deletes js/node/ (docs/LARVA.md decision 1), and a web global whose installer still
+// lived in a node/ module would go with it. Lava-only: which factories init ran is
+// not observable from a page or from node.
+//
+// Read per module through Runtime_State.builtin_compiles on a FRESH `.Web` context:
+// resolving an id the loader already instantiated compiles nothing, resolving one it
+// did not compiles at least that factory. Fresh per id because a resolve instantiates
+// the module's own requires too, which would read as "loaded at init" for the next id
+// probed on the same context. A module this build excludes (LAVA_NODE_MODULES) is
+// not answered at all and so cannot have been loaded.
+@(test)
+global_surface_web_loads_no_node_module :: proc(t: ^testing.T) {
+	probed := 0
+
+	for dir in lava.EMBEDDED_JS_DIRS {
+		if dir.prefix != "node" && !strings.has_prefix(dir.prefix, "node/") {
+			continue
+		}
+
+		for file in dir.files {
+			if !strings.has_suffix(file.name, ".js") {
+				continue
+			}
+
+			// Not the temp allocator: surface_resolve_compiles frees it on return.
+			id := strings.concatenate({dir.prefix, "/", file.name[:len(file.name) - len(".js")]})
+			defer delete(id)
+			_, compiles, answered := surface_resolve_compiles(.Web, id[len("node/"):])
+			loaded := answered && compiles == 0
+			allowed := false
+
+			for keep in WEB_NODE_MODULES {
+				if keep == id {
+					allowed = true
+				}
+			}
+
+			probed += 1
+
+			if allowed {
+				testing.expectf(t, loaded, "%s is in WEB_NODE_MODULES but .Web init no longer loads it: drop it", id)
+			} else {
+				testing.expectf(t, !loaded, "%s was loaded by .Web init", id)
+			}
+		}
+	}
+
+	testing.expectf(t, probed > len(WEB_NODE_MODULES), "probed %d node/ modules — the embedded table is empty", probed)
+}
+
+// The node/ modules `.Web` init still instantiates, and why. Must only shrink.
+//   node/buffer  The shared Web API code is still Buffer-backed (internal/encoding,
+//                internal/crypto/random, structured_clone, the loader's pristineBuffer):
+//                `.Web` hands out Buffer-shaped bytes until stages S4b-S4d of the
+//                Node-profile removal take Buffer out of them.
 @(private = "file")
-surface_events_compiles :: proc(t: ^testing.T, surface: lava.Global_Surface) -> (at_init: int, events: int) {
+WEB_NODE_MODULES :: [?]string{"node/buffer"}
+
+// surface_resolve_compiles inits a context on `surface` and returns how many builtin
+// factories init compiled, then how many one resolve of `spec` compiled on top, and
+// whether the resolver answered it with exports (false for an unknown or excluded id
+// and for a factory that threw).
+@(private = "file")
+surface_resolve_compiles :: proc(
+	surface: lava.Global_Surface,
+	spec: string,
+) -> (
+	at_init: int,
+	compiles: int,
+	answered: bool,
+) {
 	jsc.lava_jsc_init()
 	gclass := lava.make_global_class()
 	gctx := jsc.JSGlobalContextCreate(gclass)
-	testing.expect(t, gctx != nil, "could not create a JSC global context")
 
 	if gctx == nil {
 		jsc.JSClassRelease(gclass)
@@ -338,13 +409,13 @@ surface_events_compiles :: proc(t: ^testing.T, surface: lava.Global_Surface) -> 
 	defer lava.destroy_runtime_state(ctx, state)
 	lava.capture_error_intrinsics(ctx, state)
 	jsc.prime_view_probe(ctx)
-	lava.setup_module_environment(ctx, "<global-surface-stdio-test>", nil, surface)
+	lava.setup_module_environment(ctx, "<global-surface-resolve-test>", nil, surface)
 	defer free_all(context.temp_allocator)
 
 	at_init = state.builtin_compiles
-	spec := lava.js_string_value(ctx, "events")
-	exports := lava.require_builtin(ctx, spec)
-	testing.expectf(t, exports != nil, "%v: the builtin resolver did not answer 'events'", surface)
-	events = state.builtin_compiles - at_init
+	exception: jsc.JSValueRef
+	exports := lava.require_builtin(ctx, lava.js_string_value(ctx, spec), &exception)
+	answered = exports != nil
+	compiles = state.builtin_compiles - at_init
 	return
 }

@@ -19,7 +19,13 @@
 // `node/stream/web`, `internal/primordials` — so the DIRECTORY decides visibility:
 // the public resolver answers `node/` ids only, and everything under `internal/`
 // is reachable solely through the `require` handed to the factories.
-(function (compile, natives) {
+//
+// `web` is true for the Window surface (Global_Surface `.Web`, runtime.odin). Every web
+// global is installed by an internal/ module, so `.Web` instantiates only those, plus
+// node:buffer, whose Buffer the shared code still hands out; the node:stream/web,
+// node:url and node:crypto entries are loaded on the Node surface only. Pinned by
+// cmd/lava/global_surface_test.odin global_surface_web_loads_no_node_module.
+(function (compile, natives, web) {
   'use strict';
 
   var cache = Object.create(null);
@@ -88,15 +94,19 @@
     return load(toId(name));
   }
 
-  // Eagerly instantiate modules that install globals (Buffer; the Web Streams
-  // ReadableStream/WritableStream/TransformStream family; fetch/Response/Headers/
-  // Request; crypto's WHATWG global; URL/URLSearchParams), so they are present
-  // even when user code never requires them explicitly. `stream/web` runs before
-  // `fetch` because fetch builds response bodies from the public ReadableStream.
-  // `url` runs after `buffer` (so it preserves the URL.createObjectURL/
-  // revokeObjectURL statics buffer attaches) and after `encoding` (which installs
-  // the TextEncoder/TextDecoder globals url uses); url also lazily creates its
-  // codecs, so the order is belt-and-suspenders rather than load-bearing.
+  // Eagerly instantiate modules that install globals (Buffer; Blob/File/atob/btoa and
+  // the URL object-URL statics; the Web Streams ReadableStream/WritableStream/
+  // TransformStream family; fetch/Response/Headers/Request; crypto's WHATWG global;
+  // URL/URLSearchParams), so they are present even when user code never requires them
+  // explicitly. Each web global is installed by the internal/ module that defines it,
+  // at its module-eval; the node/ entries that re-export them follow on the Node
+  // surface only, at the slot that used to install the global, so the order is the
+  // one it always was. internal/webstreams/index runs before `fetch` because fetch
+  // builds response bodies from the public ReadableStream. internal/url runs after
+  // internal/blob (so it preserves the URL.createObjectURL/revokeObjectURL statics
+  // blob attaches) and after `encoding` (which installs the TextEncoder/TextDecoder
+  // globals url uses); url also lazily creates its codecs, so the order is
+  // belt-and-suspenders rather than load-bearing.
   // primordials is eager-loaded FIRST, before any other internal module and well
   // before user code, so it captures pristine intrinsics (see primordials.js).
   // Other modules require('internal/primordials') and get this cached, pristine table.
@@ -171,15 +181,22 @@
     bufferSlice: req('internal/primordials').uncurryThis(PristineBufferCtor.prototype.slice),
   };
 
-  req('stream/web');
+  // Already instantiated by `buffer`, which requires all three at its top level; named
+  // here because they install the Blob/File/atob/btoa globals and the URL statics, and
+  // that must not hinge on node:buffer staying on the Window surface.
+  req('internal/blob');
+  req('internal/file');
+  req('internal/base64');
+  req('internal/webstreams/index');
+  if (!web) req('stream/web');
   req('internal/fetch');
   req('internal/abort');
   req('internal/encoding');
-  req('url');
+  req('internal/url');
+  if (!web) req('url');
   req('internal/structured_clone');
 
-  // crypto's ONE eager root (a second top-level req('crypto') would keep it eager even if
-  // this one moved, which is what the lazy_builtins mutation relies on not happening).
+  // internal/crypto/random installs the WHATWG `crypto` global at its module-eval.
   // internal/blob mints `blob:nodedata:` ids with crypto.randomUUID, but it is
   // instantiated by `buffer` above — before crypto exists — and cannot require crypto
   // back (crypto requires buffer at its top level: a cycle check-js-graph rejects). So it
@@ -187,7 +204,12 @@
   // still before user code: a replaced `globalThis.crypto.randomUUID` or
   // `require('crypto').randomUUID` no longer picks the id. Node mints it from its own
   // binding and is immune; pinned by tests/node-compat/cases/78-blob-pristine-reads.js.
-  req.pristineRandomUUID = req('crypto').randomUUID;
+  // node:crypto exports this same function.
+  req.pristineRandomUUID = req('internal/crypto/random').randomUUID;
+  // node:crypto's ONE eager root (a second top-level req('crypto') would keep it eager
+  // even if this one moved, which is what the lazy_builtins mutation relies on not
+  // happening).
+  if (!web) req('crypto');
 
   // The public resolver: what native require() consults. It answers `node/` ids only,
   // so nothing under internal/ is reachable from user code, for two reasons a module

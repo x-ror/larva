@@ -4,8 +4,9 @@
 // its throws frame `node:internal/url` the way node's do. This file keeps what node's
 // lib/url.js keeps and frames `node:url`: `pathToFileURL` and `format`.
 //
-// The module installs the `URL` and `URLSearchParams` globals (preserving the
-// `createObjectURL`/`revokeObjectURL` statics that node:buffer attaches) and is
+// The `URL` and `URLSearchParams` globals are installed by internal/url.js, which
+// this module requires at its top, so they appear at the moment they always did on
+// the Node surface and without this file on the Window one. The module is
 // exported by both `require('url')` and `require('node:url')`. It also keeps the
 // `fileURLToPath` the ESM loader and node:sqlite depend on, and adds
 // `pathToFileURL`, `urlToHttpOptions`, `format`, `domainToASCII`, `domainToUnicode`.
@@ -113,30 +114,6 @@
     if (search && url.query !== null) output += '?' + url.query;
     if (fragment && url.fragment !== null) output += '#' + url.fragment;
     return output;
-  }
-
-  // ------------------------------------------------------------------ //
-  // Global installation + module exports                               //
-  // ------------------------------------------------------------------ //
-
-  // Preserve the object-URL statics node:buffer attaches to globalThis.URL (it may
-  // have run first and stubbed URL, or may run after us). Copy any it already set
-  // onto the real class so `URL.createObjectURL`/`revokeObjectURL` keep working.
-  var priorURL = globalThis.URL;
-  if (priorURL && typeof priorURL === 'object') {
-    if (typeof priorURL.createObjectURL === 'function') {
-      URL.createObjectURL = priorURL.createObjectURL;
-    }
-    if (typeof priorURL.revokeObjectURL === 'function') {
-      URL.revokeObjectURL = priorURL.revokeObjectURL;
-    }
-  }
-
-  if (typeof globalThis.URL !== 'function') {
-    globalThis.URL = URL;
-  }
-  if (globalThis.URLSearchParams === undefined) {
-    globalThis.URLSearchParams = URLSearchParams;
   }
 
   module.exports = {

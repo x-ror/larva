@@ -10,8 +10,11 @@
 // no URL/URLSearchParams (those are WebCore APIs), so the whole surface lives here.
 //
 // node/url.js stays the public entry: it keeps `pathToFileURL` and `format`, whose
-// throws node frames in `node:url`, installs the `URL`/`URLSearchParams` globals and
-// assembles the exports. Everything thrown from this file frames
+// throws node frames in `node:url`, and assembles the exports. The `URL`/
+// `URLSearchParams` globals are installed HERE, at the end of module-eval, so the
+// Window surface gets them without a node/ module: the loader instantiates this file
+// at the slot node/url.js held (node/url.js requires it first thing on the Node
+// surface), so the install order is unchanged. Everything thrown from this file frames
 // `node:internal/url`, as node's does (pinned by
 // tests/node-compat/cases/87-url-internal-modules.js). Not publicly requireable.
 //
@@ -1964,6 +1967,26 @@
       }
     }
     return parseHost(input, true);
+  }
+
+  // Preserve the object-URL statics internal/blob.js attaches to globalThis.URL (it
+  // runs first and stubs URL). Copy any it already set onto the real class so
+  // `URL.createObjectURL`/`revokeObjectURL` keep working.
+  var priorURL = globalThis.URL;
+  if (priorURL && typeof priorURL === 'object') {
+    if (typeof priorURL.createObjectURL === 'function') {
+      URL.createObjectURL = priorURL.createObjectURL;
+    }
+    if (typeof priorURL.revokeObjectURL === 'function') {
+      URL.revokeObjectURL = priorURL.revokeObjectURL;
+    }
+  }
+
+  if (typeof globalThis.URL !== 'function') {
+    globalThis.URL = URL;
+  }
+  if (globalThis.URLSearchParams === undefined) {
+    globalThis.URLSearchParams = URLSearchParams;
   }
 
   module.exports = {

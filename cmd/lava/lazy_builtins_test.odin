@@ -113,6 +113,7 @@ builtin_factories_compile_on_first_require :: proc(t: ^testing.T) {
 @(private = "file")
 STATIC_EAGER :: [?]string {
 	"internal/abort",
+	"internal/base64",
 	"internal/blob",
 	"internal/buffer",
 	"internal/crypto/hash",
@@ -147,6 +148,7 @@ STATIC_EAGER :: [?]string {
 	"internal/streams/writable",
 	"internal/structured_clone",
 	"internal/url",
+	"internal/webstreams/index",
 	"internal/webstreams/queuingstrategies",
 	"internal/webstreams/readablestream",
 	"internal/webstreams/transformstream",
