@@ -4768,17 +4768,6 @@
       "expect_detail": "FAIL base64-errors"
     },
     {
-      "name": "global_surface_web_coded_error_loads_no_node_util dies when internal/errors renders through node:util again",
-      "why": "A coded error raised on the Window surface then instantiates node:util and everything it requires — a node/ module `.Web` must never load.",
-      "source": "pkg/runtime/js/internal/errors.js",
-      "find": "    if (inspectFn === null) inspectFn = require('internal/util/inspect').inspect;",
-      "replace": "    if (inspectFn === null) inspectFn = require('util').inspect;",
-      "gate": "odin:cmd/lava:main.global_surface_web_coded_error_loads_no_node_util",
-      "expect_detail": [
-        "rendering the error loaded node:util"
-      ]
-    },
-    {
       "name": "errors-stack dies when pageError stops dropping the leading internal frames",
       "why": "A page's caught error then lists node:internal/web_errors, domexception and the thrower's own frames, which Chrome's stacks never show — and which name Node in every web error.",
       "source": "pkg/runtime/js/internal/web_errors.js",
