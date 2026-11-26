@@ -1399,6 +1399,7 @@ install_globals :: proc(ctx: jsc.JSContextRef, loop: ^eventloop.Loop, surface: G
 	// reference — never a lazy global read — so a pre-first-require reassignment of
 	// globalThis.process / globalThis.console cannot poison the builtin (#247).
 	install_process(ctx, global)
+	install_performance(ctx, global)
 	install_internal_modules(ctx, global, surface)
 
 	install_performance(ctx, global, surface)

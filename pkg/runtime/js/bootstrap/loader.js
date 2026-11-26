@@ -28,6 +28,8 @@
 (function (compile, natives, web) {
   'use strict';
 
+  var __P = globalThis.performance, __m = [], __t0 = __P.now();
+  function __mk(l) { __m.push(l + '=' + (__P.now() - __t0).toFixed(3)); }
   var cache = Object.create(null);
   natives = natives || Object.create(null);
   // node:crypto is split along node's lib/internal/crypto seams; internal/crypto/random
@@ -116,11 +118,13 @@
   // Only runtime code runs before this line (the
   // console prelude, install_process), so locking here leaves no window.
   req('internal/primordials').lockIntrinsics();
+  __mk('internal/primordials');
   // Function.prototype.toString's mask and the helper every Web API global is defined
   // through (#114): before the first module that installs one, and before user code.
   // bootstrap/console.js ran before this loader and has no `require`, so its namespace is
   // shaped here, still before user code: Blink's member order (Chrome 158,
   // tests/web/cases/shape-console.expected; context, createTask and memory are the gap).
+  req('internal/native_shape'); __mk('native_shape');
   req('internal/native_shape').defineNamespace(globalThis.console, 'console', [
     'debug',
     'error',
@@ -146,11 +150,14 @@
     'timeStamp',
     '@@toStringTag',
   ]);
+  __mk('native_shape+console');
   // FinalizationRegistry cleanups and WebAssembly settlements back onto the page's own
   // loop (#91, #97). Before any module that could allocate a registry, and before user
   // code, which must only ever see the wrapped constructors.
   req('internal/deferred');
+  __mk('internal/deferred');
   req('buffer');
+  __mk('buffer');
 
   // Hand the LAZY internal modules a PRISTINE Buffer.
   //
@@ -202,19 +209,31 @@
   // here because they install the Blob/File/atob/btoa globals and the URL statics, and
   // that must not hinge on node:buffer staying on the Window surface.
   req('internal/blob');
+  __mk('internal/blob');
   req('internal/file');
+  __mk('internal/file');
   req('internal/base64');
+  __mk('internal/base64');
   req('internal/webstreams/index');
+  __mk('internal/webstreams/index');
   if (!web) req('stream/web');
+  __mk('stream/web');
   req('internal/fetch');
+  __mk('internal/fetch');
   // DOMException/QuotaExceededError: required by internal/abort at its top level, named
   // here because it installs the two globals.
   req('internal/domexception');
+  __mk('internal/domexception');
   req('internal/abort');
+  __mk('internal/abort');
   req('internal/encoding');
+  __mk('internal/encoding');
   req('internal/url');
+  __mk('internal/url');
   if (!web) req('url');
+  __mk('url');
   req('internal/structured_clone');
+  __mk('internal/structured_clone');
 
   // internal/crypto/random installs the WHATWG `crypto` global at its module-eval.
   // internal/blob mints `blob:nodedata:` ids with crypto.randomUUID, but it is
@@ -226,10 +245,12 @@
   // binding and is immune; pinned by tests/node-compat/cases/78-blob-pristine-reads.js.
   // node:crypto exports this same function.
   req.pristineRandomUUID = req('internal/crypto/random').randomUUID;
+  __mk('crypto/random');
   // node:crypto's ONE eager root (a second top-level req('crypto') would keep it eager
   // even if this one moved, which is what the lazy_builtins mutation relies on not
   // happening).
   if (!web) req('crypto');
+  __mk('crypto');
 
   // The public resolver: what native require() consults. It answers `node/` ids only,
   // so nothing under internal/ is reachable from user code, for two reasons a module
@@ -281,5 +302,6 @@
     req('internal/stdio').install(proc);
   };
 
+  __mk('end'); console.log('PH ' + __m.join(' ')); var __a = globalThis.__lavaNS; if (__a) console.log('NS ' + Object.keys(__a).map(function (k) { return k + '=' + (k[0]==='n' ? __a[k] : (__a[k]*1000).toFixed(0)); }).join(' '));
   return publicReq;
 });

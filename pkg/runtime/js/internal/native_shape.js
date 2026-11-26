@@ -55,6 +55,8 @@
   var webErrors = require('internal/web_errors');
 
   var ObjectDefineProperty = P.ObjectDefineProperty;
+  var ObjectDefineProperties = P.ObjectDefineProperties;
+  var ObjectGetOwnPropertyDescriptors = P.ObjectGetOwnPropertyDescriptors;
   var ObjectGetOwnPropertyDescriptor = P.ObjectGetOwnPropertyDescriptor;
   var ObjectHasOwn = P.ObjectHasOwn;
   var ObjectSetPrototypeOf = P.ObjectSetPrototypeOf;
@@ -272,106 +274,47 @@
   // object for a prototype; the implementation class for statics).
   function layMembers(iface, target, source, entries, constants, ctor) {
     var done = { __proto__: null };
-    var parsed = [];
-    for (var j = 0; j < entries.length; j++) parsed[j] = parseEntry(entries[j]);
-    var keep = inPlace(target, parsed);
-    for (var i = 0; i < parsed.length; i++) {
-      var e = parsed[i];
+    var own = ObjectGetOwnPropertyDescriptors(source);
+    var out = { __proto__: null };
+    for (var i = 0; i < entries.length; i++) {
+      var e = parseEntry(entries[i]);
       var key = wellKnown(e.key);
       var desc;
       if (e.key === 'constructor') {
-        desc = {
-          __proto__: null,
-          value: ctor,
-          writable: true,
-          enumerable: false,
-          configurable: true,
-        };
+        desc = { value: ctor, writable: true, enumerable: false, configurable: true };
       } else if (e.key === '@@toStringTag') {
-        desc = {
-          __proto__: null,
-          value: iface,
-          writable: false,
-          enumerable: false,
-          configurable: true,
-        };
+        desc = { value: iface, writable: false, enumerable: false, configurable: true };
       } else if (e.alias !== null) {
-        desc = {
-          __proto__: null,
-          value: done[e.alias],
-          writable: true,
-          enumerable: false,
-          configurable: true,
-        };
+        desc = { value: done[e.alias], writable: true, enumerable: false, configurable: true };
       } else if (constants !== null && e.key in constants) {
-        desc = {
-          __proto__: null,
-          value: constants[e.key],
-          writable: false,
-          enumerable: true,
-          configurable: false,
-        };
+        desc = { value: constants[e.key], writable: false, enumerable: true, configurable: false };
       } else {
-        var impl = findMember(source, key);
-        if (impl === undefined) {
+        desc = own[key];
+        if (desc === undefined) desc = findMember(source, key);
+        if (desc === undefined) {
           throw new TypeErrorP('native_shape: ' + iface + ' has no member ' + e.key);
         }
 
-        if (ObjectHasOwn(impl, 'value')) {
-          var fn = wrapOperation(e.key, impl.value, e.length !== -1 ? e.length : impl.value.length);
-          done[e.key] = fn;
-          desc = {
-            __proto__: null,
-            value: fn,
-            writable: true,
-            enumerable: true,
-            configurable: true,
-          };
+        if (ObjectHasOwn(desc, 'value')) {
+          desc.value = done[e.key] = wrapOperation(
+            e.key,
+            desc.value,
+            e.length !== -1 ? e.length : desc.value.length,
+          );
+          desc.writable = true;
         } else {
-          desc = {
-            __proto__: null,
-            get: impl.get === undefined ? undefined : wrapGetter(e.key, impl.get),
-            set: impl.set === undefined ? undefined : wrapSetter(e.key, impl.set),
-            enumerable: true,
-            configurable: true,
-          };
+          if (desc.get !== undefined) desc.get = wrapGetter(e.key, desc.get);
+          if (desc.set !== undefined) desc.set = wrapSetter(e.key, desc.set);
         }
+        desc.enumerable = true;
+        desc.configurable = true;
       }
 
-      if (!keep[i] && ObjectHasOwn(target, key)) delete target[key];
-      ObjectDefineProperty(target, key, desc);
-    }
-  }
-
-  // Which entries can be redefined where they are rather than taken off and appended:
-  // the longest run from the start of the list — strings and symbols separately, as
-  // Reflect.ownKeys orders them — that is already in the list's order on `target`.
-  // Everything after it moves. A delete is what costs here (it turns the object into a
-  // dictionary): a class prototype is already in Blink's order but for `constructor`,
-  // which a class puts first, so most members stay. Re-laying every member took 7.2 us
-  // a 14-member prototype against 1.1 us for the class itself (best of 300, bin/lava).
-  function inPlace(target, parsed) {
-    var own = ReflectOwnKeys(target);
-    var keep = [];
-    var lastString = -1;
-    var lastSymbol = -1;
-    var stringRun = true;
-    var symbolRun = true;
-    for (var i = 0; i < parsed.length; i++) {
-      var key = wellKnown(parsed[i].key);
-      var at = ArrayPrototypeIndexOf(own, key);
-      if (typeof key === 'symbol') {
-        symbolRun = symbolRun && at > lastSymbol;
-        if (symbolRun) lastSymbol = at;
-        keep[i] = symbolRun;
-      } else {
-        stringRun = stringRun && at > lastString;
-        if (stringRun) lastString = at;
-        keep[i] = stringRun;
-      }
+      if (ObjectHasOwn(target, key)) delete target[key];
+      out[key] = desc;
     }
 
-    return keep;
+    ObjectDefineProperties(target, out);
   }
 
   // The descriptor of `key` on `source` or the nearest object it inherits it from
