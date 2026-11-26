@@ -10,7 +10,7 @@ test('ALWAYS is included for any path', () => {
 test('loader.js routes strict + smokes (not silent drop of **.js)', () => {
   const r = routePaths(['pkg/runtime/js/bootstrap/loader.js']);
   assert.ok(r.targets.includes('make test-compat-lava-strict'));
-  assert.ok(r.targets.includes('make test-fs-lava'));
+  assert.ok(r.targets.includes('make test-stdio'));
   assert.ok(r.targets.includes('make check-js'));
 });
 
@@ -73,11 +73,14 @@ test('invalid **.js style is not required — **/* works', () => {
   assert.ok(r.targets.includes('make check-js'));
 });
 
-test('internal/http/** routes like node/http.js (the split must not drop the http smoke)', () => {
-  for (const f of ['common', 'incoming', 'outgoing', 'server']) {
-    const r = routePaths([`pkg/runtime/js/internal/http/${f}.js`]);
-    assert.ok(r.targets.includes('make test-http-smoke'), f);
-    assert.ok(r.targets.includes('make bench-http') || r.nonCi.includes('make bench-http'), f);
+test('the fetch transport routes its smoke (picohttpparser and the TLS client included)', () => {
+  for (const p of [
+    'pkg/runtime/fetch.odin',
+    'pkg/runtime/picohttpparser/picohttpparser.odin',
+    'pkg/tls/tls.odin',
+    'pkg/runtime/tls_darwin.odin',
+  ]) {
+    assert.ok(routePaths([p]).targets.includes('make test-fetch-smoke'), p);
   }
 });
 

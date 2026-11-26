@@ -27,7 +27,7 @@ printf '%s\n' '== Odin tests =='
 # race fix — the stale-wakeup defect this suite caught reproduces at one thread
 # too — it just stops CI from contradicting the documented requirement.)
 "$ODIN" test "$ROOT_DIR/pkg/runtime/eventloop" -define:ODIN_TEST_THREADS=1
-# pkg/runtime unit tests (links JSC like cmd/lava): the LAVA_WORKERS parser + the startup barrier.
+# pkg/runtime unit tests (links JSC like cmd/lava).
 "$ODIN" test "$ROOT_DIR/pkg/runtime" -collection:lava="$ROOT_DIR"
 # pkg/html links lexbor, which is built for Linux only (pkg/html/lexbor.odin). pkg/http's
 # tests are Linux only, as its transport is; the flags match `make test-http-odin`, so a
@@ -53,8 +53,6 @@ else
 	# shellcheck source=lib/parallel-suites.sh
 	. "$ROOT_DIR/scripts/lib/parallel-suites.sh"
 	suite node-compat "$ROOT_DIR/scripts/run-node-compat-all.sh"
-	suite sqlite "$ROOT_DIR/scripts/run-sqlite-oracle.sh"
-	suite fs "$ROOT_DIR/scripts/run-fs-oracle.sh"
 	suite eventloop "$ROOT_DIR/scripts/run-eventloop-oracle.sh"
 	run_suites || exit 1
 fi

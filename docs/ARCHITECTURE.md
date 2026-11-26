@@ -45,7 +45,7 @@ Two design decisions shape the whole system:
 │   globals.odin      global surface, Runtime_State, JS↔loop callbacks   │
 │   require.odin      CommonJS loader (cache, .js/.cjs/.mjs/.json)        │
 │   module_resolution native resolver (file/dir/node_modules/main)       │
-│   fs / buffer / crypto / dns / sqlite / fetch*  native primitives      │
+│   buffer / crypto / stdio / fetch*  native primitives                  │
 │                                                                        │
 │   js/node/**.js     public builtins; path == specifier (stream/web)    │
 │   js/internal/*.js  helpers only builtins may require (primordials, …) │
@@ -158,7 +158,7 @@ it; `scripts/check-js-graph.mjs` (`make check-js`) fails on an unembedded direct
 unresolvable or non-literal `require`, an unreachable file, or a top-level require
 cycle. Each factory receives `(require, module, exports,
 native)`; the native fourth argument carries Odin-backed bindings (crypto, buffer,
-fetch, sqlite, dns, fs, net, http(s), os, tty, stdio — twelve today, see
+fetch, stdio — four since the Node-only subsystems were deleted, see
 `install_internal_modules`) so **nothing transient lands on `globalThis`**
 (`install_internal_modules`, `globals.odin`). This is an elegant boundary:
 the spec surface is readable JS, the sharp edges are native, and the seam is one
@@ -172,7 +172,7 @@ attaches them to the `req` it passes each factory, so an internal module reads t
 `undefined` (verified) and cannot read or overwrite the table.
 It exists because a LAZY module's own `require('buffer').Buffer` runs on the user's first
 require of that module — after user code, and therefore steerable (#333). `fs`, `http`,
-`https`, `net` and `os` take it; `stream` and `stdio` do not need it because `installStdio`
+`https`, `net` and `os` took it until they were deleted with the Node profile; `stream` and `stdio` do not need it because `installStdio`
 instantiates them during bootstrap — and with them every `internal/streams/*` file `stream`
 requires at its top level. `internal/webstreams/adapters` is the exception: `Readable`/
 `Writable.fromWeb`/`toWeb` require it on first call (it requires `readable`/`writable` back
@@ -185,20 +185,15 @@ The JS layer is substantial and high quality: URL (~2400 across `node/url.js`,
 Web Streams (~2100 across `internal/webstreams/`), buffer (~1530 across `node/buffer.js` and
 `internal/buffer.js`; `Blob`, `File` and the `blob:` URL registry live in `internal/blob.js`
 and `internal/file.js`, as in node's `lib/internal`), fetch
-(~1160 across `internal/fetch.js` and `internal/fetch/`), crypto (~1070 across `node/crypto.js`
-and `internal/crypto/`). `node/stream.js` only assembles the public module; the classic
+(~1160 across `internal/fetch.js` and `internal/fetch/`), crypto (~520 across `node/crypto.js`
+and `internal/crypto/`: the CSPRNG and `timingSafeEqual`; hashing and the KDFs went with
+the Node profile). `node/stream.js` only assembles the public module; the classic
 streams live in `internal/streams/` (`legacy`, `readable`, `writable`, `duplex`,
 `transform`, `passthrough`, `destroy`, `add-abort-signal`, `end-of-stream`, `pipeline`,
 `utils`) and the Web Streams bridges in `internal/webstreams/adapters.js`, the files node
-keeps them in, so their frames read `node:internal/streams/readable`. `node/http.js` is
-likewise only the public entry (and `createServer`): the server lives in `internal/http/`
-(`common`, `incoming`, `outgoing`, `server`), split the way node splits `_http_common`,
-`_http_incoming`, `_http_outgoing` and `_http_server`. Unlike streams the names differ from
-node's — node publishes `require('_http_server')` and friends with a parser/agent surface
-Lava does not have, so a public file under that name would answer with the wrong keys —
-and frames read `node:internal/http/server` where node's read `node:_http_server`. Odin
-keys the http bindings by `node/http` only, so `loader.js` aliases that one object to
-`internal/http/outgoing` and `internal/http/server`. `node/stream/web.js` similarly
+keeps them in, so their frames read `node:internal/streams/readable`. (`node/http.js` and
+`internal/http/` were split the same way until node:http, node:https and node:net were
+deleted with the Node profile, stage S3.) `node/stream/web.js` similarly
 only assembles exports and installs the globals; the implementation is in
 `internal/webstreams/` (`util`, `queuingstrategies`, `readablestream` — with tee, async
 iteration and pipeTo, as in node — `writablestream`, `transformstream`), all eager through
@@ -320,14 +315,14 @@ three groups:
 values (Buffer-backed bytes, `ERR_*` codes), so `Buffer` stays reachable through a
 value's `.constructor`. Pinned by `cmd/lava/global_surface_test.odin`.
 
-### 3.5 I/O transports (`fetch_*`, `dns.odin`, `pkg/tls`)
+### 3.5 I/O transports (`fetch_*`, `pkg/tls`)
 
 `fetch_transport.odin` is a platform-agnostic connect→[TLS]→write→read state
 machine; each platform supplies only narrow socket primitives, and TLS is a
 swappable backend (OpenSSL, or a rejecting stub). The OpenSSL bindings live in
 their own package, `pkg/tls`, with no runtime or JSC dependency, so a JS-free client
-can share them. DNS — `fetch`'s and `node:dns`'s
-— resolves off-loop on the loop's own 4-worker pool (`threadpool.odin`). Streaming request _and_ response bodies are real
+can share them. DNS — `fetch`'s (`fetch_dns.odin`; `node:dns` is gone with the Node
+profile) — resolves off-loop on the loop's own 4-worker pool (`threadpool.odin`). Streaming request _and_ response bodies are real
 incremental `ReadableStream`s with backpressure. This is the second-strongest
 subsystem after the loop, and it validates the `post_async` design end to end.
 
@@ -399,7 +394,7 @@ The runtime's `fetch()` still has its own transport and chunked decoder, bound t
 callbacks; moving it onto `pkg/http` is stage-2 work.
 
 `pkg/tls` holds the OpenSSL bindings that used to live in `pkg/runtime/tls.odin`, so
-the client and the runtime's `fetch()` and `node:https` share one set without the
+the client and the runtime's `fetch()` share one set without the
 client importing the runtime.
 
 What it does not do yet, all stage 2 (docs/LARVA.md decision 3): connection reuse,
@@ -465,8 +460,9 @@ design ([LARVA.md](LARVA.md) decision 2) and is not built yet: no page object
 exists, and loop handles carry no per-page owner. Package-level state is audited
 for page isolation in [GLOBAL-STATE.md](GLOBAL-STATE.md).
 
-The generic per-loop worker pool (`threadpool.odin`) backs async `fs.readFile`/`writeFile`,
-`node:dns` (`dns.odin`) and fetch's resolver (`fetch_dns.odin`); the old
+The generic per-loop worker pool (`threadpool.odin`) backs fetch's resolver
+(`fetch_dns.odin`) — and backed `fs.readFile`/`writeFile` and `node:dns` until they were
+deleted with the Node profile; the old
 process-global `g_fetch_dns_pool` was folded into it. A worker touches only its own
 request; all JS-value work stays on the loop thread.
 

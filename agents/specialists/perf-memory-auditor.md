@@ -12,7 +12,7 @@ edit repo sources.
 ## The evidence rule
 
 A perf claim with no number is a finding, not a feature. Acceptable evidence:
-`make bench` / `make bench-http` output, a JSC sampling-profiler run
+`make bench` / `make bench-pages` output, a JSC sampling-profiler run
 (`JSC_useSamplingProfiler=1` plus a dump directory), `/usr/bin/time -v` RSS, or a
 measured before/after in the PR body. "Should be faster" is not evidence.
 When you cannot measure something yourself, say so and mark confidence low
@@ -26,7 +26,7 @@ standard.
 
 ```sh
 make bench            # node-vs-Lava ratio table (report-only)
-make bench-http       # server throughput, latency, memory per idle connection
+make bench-pages      # pages per thread: start-up, RSS growth, pages/s
 make bench-gate       # enforces bench/thresholds.json caps
 # VM costs (fresh vs warm pooled VM per page, RSS, fds); one scenario per process:
 odin build bench/jsc-vm -o:speed -out:"$TMP/jsc-vm" && "$TMP/jsc-vm" pkg/runtime/js/internal C

@@ -4,8 +4,8 @@ on:
   pull_request:
   push:
     branches: [master]
-  # The test and mutation jobs run ONLY from here while tests are paused (see those
-  # jobs): Actions → CI → Run workflow.
+  # The mutation job runs ONLY from here while it is paused (see that job): Actions →
+  # CI → Run workflow.
   workflow_dispatch:
 
 # Cancel superseded runs on the same ref (e.g. new pushes to a PR).
@@ -52,11 +52,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install JavaScriptCoreGTK (6.0), SQLite and OpenSSL
+      # No SQLite: nothing here links, and since node:sqlite went (Node-profile removal S3)
+      # the binary does not either; only the test job's pkg/std/sqlite tests do.
+      - name: Install JavaScriptCoreGTK (6.0) and OpenSSL
         if: needs.scope.outputs.scope != 'docs'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libjavascriptcoregtk-6.0-dev libsqlite3-dev libssl-dev libbrotli-dev libzstd-dev zlib1g-dev pkg-config
+          sudo apt-get install -y libjavascriptcoregtk-6.0-dev libssl-dev libbrotli-dev libzstd-dev zlib1g-dev pkg-config
 
       - uses: actions/setup-node@v7
         with:
@@ -96,11 +98,11 @@ jobs:
         run: make check-js
 
       # The Window-profile oracle (tests/web): every case under `lava run --surface=web`
-      # against its committed Chrome recording. Here and not in the test job because
-      # that job is paused and this suite is the gate the Node-profile removal stages
-      # merge on; it needs only what this job already installs (JSC, Odin, node), and
-      # the build plus the run is ~30 s (Build was 23 s in the test job's last manual
-      # run, the suite 4 s locally for 46 cases). No Chrome: recording is local.
+      # against its committed Chrome recording. Here rather than in the test job: it is
+      # the gate the Node-profile removal stages merge on, it needs only what this job
+      # already installs (JSC, Odin, node), and the build plus the run is ~30 s (Build
+      # was 23 s in the test job's last manual run, the suite 4 s locally for 46 cases).
+      # No Chrome: recording is local.
       - name: Web oracle (Chrome recordings)
         if: needs.scope.outputs.scope == 'code' || needs.scope.outputs.scope == 'full'
         run: make test-web
@@ -114,14 +116,19 @@ jobs:
   test:
     name: Linux (full build + tests)
     needs: scope
-    # PAUSED (owner's call, 2026-11-18): the Node-only modules are out of the default
-    # build (LAVA_NODE_MODULES) while the engine core is built, and the suites are not
-    # run until that work is done. Manual runs only; drop the event check to resume.
-    if: github.event_name == 'workflow_dispatch' && (needs.scope.outputs.scope == 'code' || needs.scope.outputs.scope == 'full')
+    # Back on push and pull_request after S3 of the Node-profile removal, with the steps
+    # that are meaningful and green on the default build. Left out until their suites are
+    # re-based on the Window profile (S4/S5): the node-vs-Lava oracles (test-lava,
+    # test-lava-nohostfn — the node-compat and event-loop suites still assert Node
+    # modules the build no longer has), test-property (its Lava-side driver reads the
+    # corpus with node:fs), test-stdio (its scripts use node:fs) and bench-gate (a
+    # node-vs-Lava ratio table over the Node surface; absolute numbers replace it).
+    if: needs.scope.outputs.scope == 'code' || needs.scope.outputs.scope == 'full'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
+      # SQLite only for pkg/std/sqlite's own tests: the binding is kept, nothing links it.
       - name: Install JavaScriptCoreGTK (6.0), SQLite and OpenSSL
         run: |
           sudo apt-get update
@@ -131,9 +138,8 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      # Bun runs the JS gates (`bun fmt`, `bun run js:*`) and installs the dev
-      # dependencies. The version comes from package.json's packageManager so CI
-      # formats with the same Bun as `make check-js` does locally.
+      # Bun installs the dev dependencies; the version comes from package.json's
+      # packageManager so CI uses the same Bun as `make check-js` does locally.
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
@@ -149,88 +155,49 @@ jobs:
       - name: Build
         run: make build
 
-      - name: Test
-        run: make test
-
-      # Differential property tests: fast-check generates the corpus and both
-      # runtimes answer it in one process pair per property. It was out of CI when
-      # it spawned a pair per input (64s for 200 inputs); batched it is ~1s for
-      # 5000, and at that size it found a real utf-16le divergence the hand-picked
-      # oracle cases missed.
-      - name: Test (differential property suite)
-        run: make test-property
-
-      # Runs AFTER build, deliberately: it spawns bin/lava through a parent-held
-      # non-blocking pipe, which is the only way to reproduce the truncation it pins
-      # (the O_NONBLOCK flag has to come from the parent). It lived under scripts/ at
-      # first, which put it in the buildless check-js step and made it fail on a fresh
-      # checkout for want of a binary.
-      - name: Test (stdio writer)
-        run: make test-stdio
-
-      - name: Test (Lava behavior)
-        run: make test-lava
-
-      # The same oracle suites with LAVA_HOSTFN_DISABLE=1, which forces every native
-      # onto the public-C-API fallback instead of JSC's private host-call ABI. Half of
-      # a documented fallback had been running nowhere since the macOS/Windows jobs
-      # were disabled, and it is the path a JSC upgrade renaming the dlsym'd mangled
-      # symbol drops the whole runtime onto.
-      - name: Test (Lava behavior, C-API fallback)
-        run: make test-lava-nohostfn
+      # cmd/lava minus cmd/lava/known-node-red.txt: the 14 tests whose pages still
+      # require a Node module the build no longer has (node:fs/os/net/dns/http), each
+      # listed with what it needs. S5a rewrites them onto the Window surface; until then
+      # a NEW red fails here, and a listed name that no longer exists fails too.
+      - name: Test (Odin, cmd/lava)
+        run: make test-odin-green
 
       # The Odin runner gives each test its own thread by default; on one thread the
       # eval call sites share the thread-local host-native registry and JSC's recycled
       # context addresses. That sharing is the shape of two already-fixed defects, and
-      # nothing else in CI produces it. Also the only run of the page runner's 10k-page
-      # /proc/self/fd census (#4), which is most of its ~75s.
-      - name: Test (Odin, single runner thread)
-        run: make test-odin-serial
+      # nothing else in CI produces it. Same skip list as above.
+      - name: Test (Odin, cmd/lava, single runner thread)
+        run: make test-odin-green SERIAL=1
+
+      - name: Test (Odin, event loop)
+        run: make test-eventloop-odin
+
+      - name: Test (Odin, pkg/runtime)
+        run: make test-runtime-odin
+
+      - name: Test (Odin, pkg/html)
+        run: make test-html-odin
+
+      # Content decoding against recorded Chrome output; a leak fails the run.
+      - name: Test (Odin, pkg/http)
+        run: make test-http-odin
+
+      # The SQLite binding has no caller since node:sqlite went; its own tests keep it
+      # honest until storage (#14) picks it up.
+      - name: Test (Odin, pkg/std/sqlite)
+        run: make test-sqlite-odin
 
       # Real socket transport: start a Node origin and require lava's fetch output
-      # to match Node's, over http://, https:// (TLS), and IPv6 loopback. Excluded
-      # from `make test` because it binds a local port; runs here as its own gate.
+      # to match Node's, over http://, https:// (TLS), and IPv6 loopback. Binds a
+      # local port, so it is its own gate.
       - name: Fetch transport smoke
         run: make test-fetch-smoke
-
-      # node:net TCP server: run the echo-server fixture under Node and under Lava,
-      # hit each with the same Node client, and require identical client output
-      # (server parity). Binds a local port, so it is its own gate like fetch smoke.
-      - name: Net server smoke
-        run: make test-net-smoke
-
-      # node:http server: run the echo HTTP server fixture under Node and under Lava,
-      # hit each with the same Node http client, and require identical deterministic
-      # response fields (server parity). Binds a local port — its own gate.
-      - name: HTTP server smoke
-        run: make test-http-smoke
-
-      # node:https server: a self-signed cert is generated, the Lava HTTPS server is hit by
-      # Lava's own TLS client (fetch) over both backends (proactor + readiness), and the
-      # synchronous cert/option error cases are asserted. Binds a local port — its own gate.
-      - name: HTTPS server smoke
-        run: make test-https-smoke
-
-      # Multi-core workers (Slice 3a): N workers share a port via SO_REUSEPORT, load distributes,
-      # listen(0) is rejected, SIGTERM drains gracefully. Binds a local port — its own gate.
-      - name: Multi-core workers smoke
-        run: make test-multicore-smoke
-
-      # MSG_ZEROCOPY (Slice 3b): a large body served via SEND_ZC must arrive byte-exact (the two-CQE
-      # buffer-lifetime guard against a kernel-side UAF). Binds a local port — its own gate.
-      - name: Zerocopy send smoke
-        run: make test-zerocopy-smoke
 
       # bench/pages is report-only, so this is the only place it runs: a small valid run
       # must report no failed page, and a budget-0 run must exit 1 with every page
       # counted failed — a refused page is never timed as a start-up again (#26 made it so).
       - name: Pages bench smoke
         run: make test-bench-pages-smoke
-
-      # Benchmarks: enforce the per-benchmark lava/node ratio caps in
-      # bench/thresholds.json (median of 3 launches per side via --gate, #362).
-      - name: Benchmark gate
-        run: make bench-gate
 
   # MUTATION GATE. Breaks the code each recorded test claims to pin and requires
   # the test to go red. It exists because three tests in #321 passed for the
@@ -247,7 +214,9 @@ jobs:
   mutation:
     name: Mutation gate (${{ matrix.shard }}/3)
     needs: scope
-    # PAUSED with the test job above; manual runs only.
+    # PAUSED until S5b of the Node-profile removal: most of its entries are gated on the
+    # node-compat and event-loop oracles, which the default build no longer passes.
+    # Manual runs only; drop the event check to resume.
     if: github.event_name == 'workflow_dispatch' && needs.scope.outputs.scope != 'docs'
     runs-on: ubuntu-latest
     strategy:

@@ -23,7 +23,7 @@ is commented, and the Lava-only test that pins it. -->
 ## Performance
 
 <!-- Required for perf(...) changes and any hot-path work: make bench / make
-bench-http output, or a profile. Delete this section only if nothing perf-relevant
+bench-pages output, or a profile. Delete this section only if nothing perf-relevant
 was touched. -->
 
 ## Gates run

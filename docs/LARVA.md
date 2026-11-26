@@ -159,8 +159,8 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
      back through `on_done` on that worker. Shutdown drains every accepted page
      or cancels them, between ticks — so a page inside one synchronous entry ends
      at its entry limit or budget, since stopping it sooner needs the VM lock its
-     thread holds. Not built on `workers.odin`: that is a process per worker
-     sharing a listen socket, which would put every VM pool behind IPC; a
+     thread holds. Not built on Lava's `workers.odin` (deleted with the Node
+     profile): that was a process per worker sharing a listen socket, which would put every VM pool behind IPC; a
      supervisor wanting process isolation runs one dispatcher per process.
      Throughput with 10 slots per worker, 2000 trivial pages submitted at once:
      122, 230 and 354 pages/s at 1, 2 and 4 workers (`bench/pages dispatch`,

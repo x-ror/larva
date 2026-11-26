@@ -31,7 +31,7 @@ test('one runtime file among docs makes the whole PR code', () => {
 test('a shell script under scripts/ is code, not tooling', () => {
   // build.sh and the oracle/smoke runners decide what the code gates see.
   assert.equal(classify(['scripts/build.sh']), 'code');
-  assert.equal(classify(['scripts/run-http-smoke.sh']), 'code');
+  assert.equal(classify(['scripts/run-fetch-smoke.sh']), 'code');
 });
 
 test("the web oracle's runner and print shim are code, its recorder tooling", () => {

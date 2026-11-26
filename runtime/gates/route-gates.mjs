@@ -37,9 +37,8 @@ export const TIERS = {
     'make bun-buffer-tests',
     'make api-surface',
     'make test-compat-lava-strict',
-    'make bench-http',
   ],
-  L2: ['make test-mutation', 'make bench-http', 'make test-lava-nohostfn'],
+  L2: ['make test-mutation', 'make test-lava-nohostfn'],
 };
 
 /** Always-run mechanical set for any non-empty diff. */
@@ -109,36 +108,19 @@ const ROUTES = [
     ],
   },
   {
-    re: globToRe('pkg/runtime/http.odin'),
-    targets: ['make test-http-smoke', 'make bench-http'],
-  },
-  {
-    re: globToRe('**/js/node/http.js'),
-    targets: ['make test-http-smoke', 'make bench-http'],
-  },
-  {
-    re: globToRe('**/js/internal/http/**'),
-    targets: ['make test-http-smoke', 'make bench-http'],
-  },
-  {
+    // The response-head parser both HTTP stacks import (fetch.odin and pkg/http).
     re: globToRe('**/picohttpparser/**'),
-    targets: ['make test-http-smoke', 'make bench-http'],
+    targets: ['make test-fetch-smoke', 'make test-http-odin'],
   },
   {
-    re: globToRe('pkg/runtime/net.odin'),
-    targets: ['make test-net-smoke', 'make test-zerocopy-smoke'],
-  },
-  {
-    re: globToRe('**/js/node/net.js'),
-    targets: ['make test-net-smoke', 'make test-zerocopy-smoke'],
-  },
-  {
+    // tls_darwin.odin: fetch's TLS on darwin.
     re: globToRe('pkg/runtime/tls*.odin'),
-    targets: ['make test-https-smoke'],
+    targets: ['make test-fetch-smoke'],
   },
   {
-    re: globToRe('**/js/node/https.js'),
-    targets: ['make test-https-smoke'],
+    // The OpenSSL client both HTTP stacks share (fetch and pkg/http).
+    re: globToRe('pkg/tls/**'),
+    targets: ['make test-fetch-smoke', 'make test-http-odin'],
   },
   {
     re: globToRe('pkg/runtime/fetch*.odin'),
@@ -157,20 +139,8 @@ const ROUTES = [
     targets: ['make test-eventloop-odin', 'make test-eventloop-lava', 'make test-web'],
   },
   {
-    re: globToRe('pkg/runtime/fs*.odin'),
-    targets: ['make test-fs-lava'],
-  },
-  {
-    re: globToRe('pkg/runtime/os_*.odin'),
-    targets: ['make test-fs-lava'],
-  },
-  {
-    re: globToRe('**/js/node/fs.js'),
-    targets: ['make test-fs-lava'],
-  },
-  {
     re: globToRe('**/js/node/stream.js'),
-    targets: ['make test-http-smoke', 'make test-net-smoke', 'make test-stdio'],
+    targets: ['make test-stdio'],
   },
   {
     re: globToRe('pkg/runtime/require.odin'),
@@ -182,14 +152,7 @@ const ROUTES = [
   },
   {
     re: globToRe('**/js/bootstrap/loader.js'),
-    targets: [
-      'make test-compat-lava-strict',
-      'make test-fs-lava',
-      'make test-http-smoke',
-      'make test-net-smoke',
-      'make test-https-smoke',
-      'make test-stdio',
-    ],
+    targets: ['make test-compat-lava-strict', 'make test-stdio'],
   },
   {
     re: globToRe('**/js/bootstrap/esm.js'),
@@ -252,10 +215,6 @@ const ROUTES = [
     targets: ['make check-actions', '__ALL__'],
   },
   {
-    re: globToRe('pkg/runtime/workers*.odin'),
-    targets: ['make test-multicore-smoke'],
-  },
-  {
     re: globToRe('pkg/runtime/stdio*.odin'),
     targets: ['make test-stdio'],
   },
@@ -303,7 +262,7 @@ const ROUTES = [
   },
   {
     re: globToRe('pkg/std/sqlite/**'),
-    targets: ['make test-sqlite-odin', 'make test-sqlite-lava'],
+    targets: ['make test-sqlite-odin'],
   },
   {
     // Predicate: mutation-manifest sources — loaded at route time
@@ -369,7 +328,6 @@ export function routePaths(paths) {
     'make bun-buffer-tests',
     'make api-surface',
     'make test-compat-lava-strict',
-    'make bench-http',
   ].filter((t) => targets.has(t));
 
   return { targets: [...targets], matched, nonCi };
