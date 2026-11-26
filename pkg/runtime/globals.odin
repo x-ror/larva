@@ -1843,13 +1843,12 @@ install_internal_modules :: proc(
 	// bindings without anything landing on globalThis (cf. install_console).
 	natives := jsc.JSObjectMake(ctx, nil, nil)
 	set_named(ctx, natives, "node/crypto", cast(jsc.JSValueRef)make_crypto_bindings(ctx))
-	// The SAME bindings object serves both `buffer` and `encoding`. encoding.js
-	// used to reach the utf-8 decoder as `Buffer.prototype.toString.call(bytes,
-	// 'utf8')`, which put a live `Function.prototype.call` read on the RETURN path
-	// of TextDecoder.prototype.decode: replacing `.call` made decode() hand back
-	// the replacement's value, so `decode()` returned a non-string. Handing
-	// encoding.js the codec directly removes the read, and skips toString's length
-	// getter, range clamp and encoding-name dispatch on the way.
+	// The SAME bindings object serves both `buffer` and `encoding`: it is a table of
+	// codec natives, not node:buffer, and encoding.js takes its utf-8 encoder and
+	// both decoders from it so it never touches Buffer (stage S4b). It used to reach
+	// the utf-8 decoder as `Buffer.prototype.toString.call(bytes, 'utf8')`, which put
+	// a live `Function.prototype.call` read on the RETURN path of decode(): replacing
+	// `.call` made decode() hand back the replacement's value.
 	buffer_bindings := make_buffer_bindings(ctx)
 	set_named(ctx, natives, "node/buffer", cast(jsc.JSValueRef)buffer_bindings)
 	set_named(ctx, natives, "internal/encoding", cast(jsc.JSValueRef)buffer_bindings)

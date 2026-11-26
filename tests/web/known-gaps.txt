@@ -12,7 +12,6 @@ abort-signal unplanned: EventTarget is not a global on either surface, so `signa
 blob-object-url S4c: createObjectURL mints blob:nodedata:<uuid> where Chrome mints blob:<origin>/<uuid>, and fetch() cannot read a blob: URL ("fetch: invalid URL")
 blob-pristine-reads S4c: the object URL is blob:nodedata:<uuid>; the spy log, size and type already match Chrome
 clone-structured S4c: a boxed BigInt clones to a plain object, DataCloneError is an Error rather than a DOMException, and the transfer option is refused
-encoding-errors S4b: node's coded errors and messages (ERR_ENCODING_NOT_SUPPORTED, ERR_ENCODING_INVALID_ENCODED_DATA, ERR_INVALID_ARG_TYPE) where Chrome has plain TypeError/RangeError with its WebIDL text; decode() also checks options before its input
 fetch-body-utf8 S4d: a string body sets no content-type (Chrome: text/plain;charset=UTF-8)
 fetch-classes S4d: headers iterate in insertion order instead of sorted, Request mode/credentials/cache are empty, Response.error().type is "default", and Body has no blob()
 fetch-errors S4d: undici-style messages where Chrome has WebIDL text, and five checks are missing (Headers pair length, Request method token and forbidden methods, Response status range, null-body status with a body)

@@ -32,7 +32,7 @@
       "name": "55-encoding-pollution U dies when toBytes reads the view window live",
       "why": "A poisoned byteOffset/byteLength pair selects a window across the shared allocUnsafe pool, so decode() returns a neighbouring Buffer's bytes.",
       "source": "pkg/runtime/js/internal/encoding.js",
-      "find": "      return new Uint8ArrayG(\n        TypedArrayPrototypeGetBuffer(input),\n        TypedArrayPrototypeGetByteOffset(input),\n        TypedArrayPrototypeGetByteLength(input),\n      );",
+      "find": "      return new Uint8ArrayG(\n        TypedArrayPrototypeGetBuffer(input),\n        TypedArrayPrototypeGetByteOffset(input),\n        bytesLength,\n      );",
       "replace": "      return new Uint8ArrayG(input.buffer, input.byteOffset, input.byteLength);",
       "gate": "compat:tests/node-compat/cases/55-encoding-pollution.js",
       "expect_detail": "node: U "
@@ -41,8 +41,8 @@
       "name": "55-encoding-pollution W dies when toBytes brands with instanceof",
       "why": "Ctor[Symbol.hasInstance] is a configurable own property, so the brand is forgeable in both directions and misroutes the input into the wrong arm.",
       "source": "pkg/runtime/js/internal/encoding.js",
-      "find": "    if (brandedAs(input, DataViewPrototype)) {",
-      "replace": "    if (input instanceof DataView) {",
+      "find": "    if (ArrayBufferIsView(input)) {\n      bytesLength = DataViewPrototypeGetByteLength(input);",
+      "replace": "    if (input instanceof DataView) {\n      bytesLength = DataViewPrototypeGetByteLength(input);",
       "gate": "compat:tests/node-compat/cases/55-encoding-pollution.js",
       "expect_detail": "node: W "
     },
@@ -5247,6 +5247,87 @@
       "replace": "",
       "gate": "odin:cmd/lava:main.native_shape_mask_is_per_page",
       "expect_detail": "atob: got op() {"
+    },
+    {
+      "name": "encoding-webidl dies when decode() skips the receiver brand check",
+      "why": "Without the private-field brand, decode on a foreign `this` fails inside the decoder with JSC's text where Chrome throws Illegal invocation.",
+      "source": "pkg/runtime/js/internal/encoding.js",
+      "find": "      if (!TextDecoder.#is(this)) throw invalidThis('TextDecoder');\n      var hasOptions = options !== undefined && options !== null;",
+      "replace": "      var hasOptions = options !== undefined && options !== null;",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL encoding-webidl"
+    },
+    {
+      "name": "encoding-webidl dies when encode() stringifies a Symbol",
+      "why": "String(symbol) does not throw, so encode(Symbol()) returned the bytes of \"Symbol(s)\" where Chrome's USVString conversion throws.",
+      "source": "pkg/runtime/js/internal/encoding.js",
+      "find": "      else if (web) text = toDOMString(input, 'TextEncoder', 'encode');",
+      "replace": "      else if (web) text = StringG(input);",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL encoding-webidl"
+    },
+    {
+      "name": "encoding-webidl dies when encodeInto() skips its argument count",
+      "why": "Chrome reports `2 arguments required` before converting anything; without the check a missing dest reads as a type mismatch.",
+      "source": "pkg/runtime/js/internal/encoding.js",
+      "find": "        if (arguments.length < 2) {",
+      "replace": "        if (false) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL encoding-webidl"
+    },
+    {
+      "name": "encoding-webidl dies when encodeInto() accepts any view as dest",
+      "why": "The [[TypedArrayName]] slot is the brand: without it a Uint8ClampedArray or DataView dest is written to where Chrome refuses it.",
+      "source": "pkg/runtime/js/internal/encoding.js",
+      "find": "    if (TypedArrayPrototypeGetSymbolToStringTag(dest) === 'Uint8Array') {\n      return TypedArrayPrototypeGetLength(dest);",
+      "replace": "    if (ArrayBufferIsView(dest)) {\n      return TypedArrayPrototypeGetLength(dest);",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL encoding-webidl"
+    },
+    {
+      "name": "encoding-webidl dies when the TextDecoder dictionary is not read before the label lookup",
+      "why": "Chrome converts the options dictionary (running fatal/ignoreBOM getters) before it looks the label up; node's order reads nothing for a bad label.",
+      "source": "pkg/runtime/js/internal/encoding.js",
+      "find": "        if (web) {\n          fatal = !!options.fatal;",
+      "replace": "        if (false) {\n          fatal = !!options.fatal;",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL encoding-webidl"
+    },
+    {
+      "name": "encoding-errors dies when decode() converts options before its input on .Web",
+      "why": "Chrome converts arguments left to right, so decode(5, 5) reports parameter 1; node's order reports the options.",
+      "source": "pkg/runtime/js/internal/encoding.js",
+      "find": "        bytes = toBytes(input);\n        len = bytesLength;\n        if (hasOptions && (bad = badOptions(options, 'decode')) !== null) throw bad;\n      } else {",
+      "replace": "        if (hasOptions && (bad = badOptions(options, 'decode')) !== null) throw bad;\n        bytes = toBytes(input);\n        len = bytesLength;\n      } else {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL encoding-errors"
+    },
+    {
+      "name": "encoding-errors dies when a fatal decode throws node's coded error on .Web",
+      "why": "A page would see ERR_ENCODING_INVALID_ENCODED_DATA and node's message where Chrome throws a plain TypeError with Blink's text.",
+      "source": "pkg/runtime/js/internal/encoding.js",
+      "find": "    if (web) return typeError('TextDecoder', 'decode', 'The encoded data was not valid.');\n",
+      "replace": "",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL encoding-errors"
+    },
+    {
+      "name": "encoding-errors dies when an unknown label keeps node's text on .Web",
+      "why": "Blink's RangeError names the label as `The encoding label provided ('x') is invalid.`; node's text and code are a fingerprint.",
+      "source": "pkg/runtime/js/internal/encoding.js",
+      "find": "context('TextDecoder') + \"The encoding label provided ('\" + text + \"') is invalid.\",",
+      "replace": "\"The \\\"\" + text + \"\\\" encoding is not supported\",",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL encoding-errors"
+    },
+    {
+      "name": "encoding-webidl dies when decode()'s fast path trusts the prototype as the brand",
+      "why": "The fast path's Reflect.getPrototypeOf check is a hint; returning the native's '' for an object that only inherits from Uint8Array.prototype decodes a fake as empty where Chrome throws.",
+      "source": "pkg/runtime/js/internal/encoding.js",
+      "find": "        if (fast !== '') return this.#stripBOM(fast);",
+      "replace": "        return this.#stripBOM(fast);",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL encoding-webidl"
     }
   ]
 }

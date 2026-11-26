@@ -623,7 +623,14 @@
     // the ratchet's ACCESSOR list because a poisoned length cannot WIDEN a view
     // (natives re-derive), but it does decide the range a JS-side reader asks
     // for: poisoned to 0 it made every Buffer#toString return "".
-    TypedArrayPrototypeGetLength: safeGetter(
+    //
+    // caller0, not safeGetter: the answer selects no memory window, and this one is
+    // per call on hot paths (TextEncoder.encodeInto's capacity, TextDecoder's JS
+    // decoders): 21.0-21.7 ns a read through Reflect.apply against 10.7-10.9 through
+    // `fn.call` (bin/lava -o:speed, Linux x86_64, a 2M-iteration loop over a 16-byte
+    // Uint8Array, three launches each). The held getter is tracked like every caller's,
+    // so lockIntrinsics() leaves it no own `call`.
+    TypedArrayPrototypeGetLength: caller0(
       Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), 'length').get,
     ),
 

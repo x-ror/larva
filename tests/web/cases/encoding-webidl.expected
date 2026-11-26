@@ -1,0 +1,60 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs encoding-webidl
+# ---
+ctor Symbol label: TypeError: Failed to construct 'TextDecoder': Cannot convert a Symbol value to a string code=undefined
+ctor null label: RangeError: Failed to construct 'TextDecoder': The encoding label provided ('null') is invalid. code=undefined
+encode Symbol: TypeError: Failed to execute 'encode' on 'TextEncoder': Cannot convert a Symbol value to a string code=undefined
+encode null: no throw 4
+encode number: no throw "49,50"
+encodeInto Symbol source: TypeError: Failed to execute 'encodeInto' on 'TextEncoder': Cannot convert a Symbol value to a string code=undefined
+encodeInto no args: TypeError: Failed to execute 'encodeInto' on 'TextEncoder': 2 arguments required, but only 0 present. code=undefined
+encodeInto one arg: TypeError: Failed to execute 'encodeInto' on 'TextEncoder': 2 arguments required, but only 1 present. code=undefined
+encodeInto undefined dest: TypeError: Failed to execute 'encodeInto' on 'TextEncoder': parameter 2 is not of type 'Uint8Array'. code=undefined
+encodeInto clamped dest: TypeError: Failed to execute 'encodeInto' on 'TextEncoder': parameter 2 is not of type 'Uint8Array'. code=undefined
+encodeInto DataView dest: TypeError: Failed to execute 'encodeInto' on 'TextEncoder': parameter 2 is not of type 'Uint8Array'. code=undefined
+encodeInto ArrayBuffer dest: TypeError: Failed to execute 'encodeInto' on 'TextEncoder': parameter 2 is not of type 'Uint8Array'. code=undefined
+encodeInto plain dest: TypeError: Failed to execute 'encodeInto' on 'TextEncoder': parameter 2 is not of type 'Uint8Array'. code=undefined
+encodeInto source before dest: TypeError: Failed to execute 'encodeInto' on 'TextEncoder': parameter 2 is not of type 'Uint8Array'. code=undefined
+encodeInto order source
+decode null: TypeError: Failed to execute 'decode' on 'TextDecoder': parameter 1 is not of type 'ArrayBuffer'. code=undefined
+decode undefined: no throw ""
+decode plain object: TypeError: Failed to execute 'decode' on 'TextDecoder': parameter 1 is not of type 'ArrayBuffer'. code=undefined
+decode number array: TypeError: Failed to execute 'decode' on 'TextDecoder': parameter 1 is not of type 'ArrayBuffer'. code=undefined
+decode Uint8Array.prototype heir: TypeError: Failed to execute 'decode' on 'TextDecoder': parameter 1 is not of type 'ArrayBuffer'. code=undefined
+decode re-pointed Uint8Array: no throw "hi"
+fatal decode Uint8Array.prototype heir: TypeError: Failed to execute 'decode' on 'TextDecoder': parameter 1 is not of type 'ArrayBuffer'. code=undefined
+encodeInto Uint8Array.prototype heir: TypeError: Failed to execute 'encodeInto' on 'TextEncoder': parameter 2 is not of type 'Uint8Array'. code=undefined
+encodeInto re-pointed Uint8Array: no throw [object Object]
+ctor bad label reads options: RangeError: Failed to construct 'TextDecoder': The encoding label provided ('bogus') is invalid. code=undefined
+ctor order fatal,ignoreBOM
+ctor good label: no throw "utf-8"
+ctor order fatal,ignoreBOM
+decode bad input reads options: TypeError: Failed to execute 'decode' on 'TextDecoder': parameter 1 is not of type 'ArrayBuffer'. code=undefined
+decode order 
+decode good input: no throw "A"
+decode order stream
+ctor fatal getter throws: RangeError: from fatal code=undefined
+decode stream getter throws: RangeError: from stream code=undefined
+ctor options function: no throw false
+ctor options array: no throw false
+ctor options truthy fatal: no throw true
+decode on plain object: TypeError: Illegal invocation code=undefined
+decode on encoder: TypeError: Illegal invocation code=undefined
+decode on prototype: TypeError: Illegal invocation code=undefined
+encoding getter on plain object: TypeError: Illegal invocation code=undefined
+fatal getter on plain object: TypeError: Illegal invocation code=undefined
+ignoreBOM getter on plain object: TypeError: Illegal invocation code=undefined
+encode on plain object: TypeError: Illegal invocation code=undefined
+encode on decoder: TypeError: Illegal invocation code=undefined
+encodeInto on plain object: TypeError: Illegal invocation code=undefined
+encoder encoding getter on plain object: TypeError: Illegal invocation code=undefined
+encoder encoding getter on decoder: TypeError: Illegal invocation code=undefined
+receiver before arguments: TypeError: Illegal invocation code=undefined
+encode result true 0 6 6
+encode empty result 0 0
+encode results distinct true
+encodeInto result true ["read","written"] {"value":2,"writable":true,"enumerable":true,"configurable":true}
+encodeInto subarray {"read":3,"written":3}

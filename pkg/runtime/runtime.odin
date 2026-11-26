@@ -89,9 +89,10 @@ Result :: struct {
 // Buffer-backed bytes, `ERR_*` codes — so `Buffer` stays reachable through a value's
 // `.constructor`. The NAMES are gone, nothing more (x-ror/larva#5). The loader hands
 // the surface to internal/web_errors, the one module shared code takes its error text
-// from; AbortSignal, crypto.getRandomValues and DOMException already throw Chrome's
-// shapes through it, and encoding, blob/structured clone, fetch/streams and url follow
-// (stages S4b-S4e of the Node-profile removal). And
+// from; AbortSignal, crypto.getRandomValues, DOMException and TextEncoder/TextDecoder
+// (whose bytes are plain Uint8Arrays) already throw Chrome's shapes through it, and
+// blob/structured clone, fetch/streams and url follow (stages S4c-S4e of the
+// Node-profile removal). And
 // internal/url.js reads `process.platform` live inside fileURLToPath/pathToFileURL;
 // those are node:url APIs, unreachable without `require`.
 Global_Surface :: enum {
