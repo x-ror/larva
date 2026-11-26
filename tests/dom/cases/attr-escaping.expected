@@ -1,0 +1,23 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs attr-escaping
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       title="a "q" & < >   b"
+|       data-x="it's"
+|       "x"
+|     <p>
+|       title="<script>&</script>"
+|       "y"
+|     "
+"
+#serialize
+<!DOCTYPE html><html><head></head><body><p title="a &quot;q&quot; &amp; &lt; &gt; &nbsp; b" data-x="it's">x</p><p title="&lt;script&gt;&amp;&lt;/script&gt;">y</p>
+</body></html>

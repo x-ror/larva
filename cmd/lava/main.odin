@@ -48,8 +48,10 @@ Usage:
   lava run [--surface=web] <file>
                         Run a JavaScript file; --surface=web exposes only the
                         Window-profile globals (no require/process/Buffer)
-  lava html [--scripts] [--chunk N] [--select CSS] <file|->
-                        Parse HTML and print the serialized document
+  lava html [--scripts] [--chunk N] [--select CSS] [--tree|--serialize]
+            [--fragment CTX] <file|->
+                        Parse HTML and print the serialized document (or its
+                        html5lib-format tree, or a CTX element's innerHTML parse)
   lava fetch <url>      Fetch a page without JS; status and headers on stderr,
                         the serialized HTML on stdout
   lava --version        Print version
@@ -187,9 +189,17 @@ print_result :: proc(result: lava_runtime.Result, user_data: rawptr) {
 // --chunk N feeds the input N bytes at a time, as network reads would, to exercise
 // the incremental path; by default it is fed at once. --select CSS prints the
 // outerHTML of each match, one per line, instead of the whole document.
+//
+// --tree prints the parsed tree in html5lib's format instead (html.dump_tree), and
+// --serialize names the default; they are the two views tests/dom compares with
+// Chrome. --fragment CTX parses the input as the innerHTML of a CTX element
+// (html.parse_fragment) and prints the views of its children; no script pauses there,
+// so it takes neither --scripts nor --chunk.
 html_command :: proc(args: []string) {
 	usage :: proc() -> ! {
-		fmt.eprintln("usage: lava html [--scripts] [--chunk N] [--select CSS] <file|->")
+		fmt.eprintln(
+			"usage: lava html [--scripts] [--chunk N] [--select CSS] [--tree|--serialize] [--fragment CTX] <file|->",
+		)
 		os.exit(2)
 	}
 	Html_Options :: struct {
@@ -198,11 +208,24 @@ html_command :: proc(args: []string) {
 	}
 	opts: Html_Options
 	chunk := 0
-	path, css := "", ""
+	path, css, fragment := "", "", ""
+	tree, serialize := false, false
 	for i := 0; i < len(args); i += 1 {
 		switch a := args[i]; {
 		case a == "--scripts":
 			opts.list_scripts = true
+		case a == "--tree":
+			tree = true
+		case a == "--serialize":
+			serialize = true
+		case a == "--fragment":
+			i += 1
+
+			if i == len(args) || args[i] == "" {
+				usage()
+			}
+
+			fragment = args[i]
 		case a == "--chunk":
 			i += 1
 
@@ -232,7 +255,11 @@ html_command :: proc(args: []string) {
 		}
 	}
 
-	if path == "" {
+	if path == "" || (tree && serialize) || (css != "" && (tree || serialize)) {
+		usage()
+	}
+
+	if fragment != "" && (opts.list_scripts || chunk > 0) {
 		usage()
 	}
 
@@ -270,18 +297,35 @@ html_command :: proc(args: []string) {
 	}
 
 	p: html.Parser
-	ok := html.init(&p) && html.parse_all(&p, data, report, &opts, chunk)
+	ok: bool
+	// The node whose children the views print: the Document, or the element a fragment
+	// was parsed into.
+	root: html.Node
+
+	if fragment != "" {
+		root, ok = html.parse_fragment(&p, fragment, data)
+	} else {
+		ok = html.init(&p) && html.parse_all(&p, data, report, &opts, chunk)
+		root = html.document(&p)
+	}
 
 	if ok && css != "" {
-		select_and_print(&p, css)
+		select_and_print(root, css)
 		html.destroy(&p)
 		return
 	}
 
-	markup: string
+	out: string
 
 	if ok {
-		markup, ok = html.serialize(&p)
+		switch {
+		case tree:
+			out, ok = html.dump_tree(root)
+		case fragment != "":
+			out, ok = html.inner_html(root)
+		case:
+			out, ok = html.serialize(&p)
+		}
 	}
 
 	if !ok {
@@ -291,13 +335,19 @@ html_command :: proc(args: []string) {
 		os.exit(1)
 	}
 
-	fmt.println(markup)
+	// The dump ends every line itself; the markup gets the one newline it always had.
+	if tree {
+		fmt.print(out)
+	} else {
+		fmt.println(out)
+	}
+
 	html.destroy(&p)
 }
 
-// select_and_print prints the outerHTML of every match of `css` in the document, one
+// select_and_print prints the outerHTML of every match of `css` under `root`, one
 // per line, in tree order. Exits 2 on an invalid selector, as a usage error.
-select_and_print :: proc(p: ^html.Parser, css: string) {
+select_and_print :: proc(root: html.Node, css: string) {
 	engine: html.Selectors
 
 	if !html.selectors_init(&engine) {
@@ -317,7 +367,7 @@ select_and_print :: proc(p: ^html.Parser, css: string) {
 	matches: [dynamic]html.Node
 	defer delete(matches)
 
-	if !html.query_all(&engine, html.document(p), sel, &matches) {
+	if !html.query_all(&engine, root, sel, &matches) {
 		fmt.eprintln("lava html: selector search failed")
 		os.exit(1)
 	}

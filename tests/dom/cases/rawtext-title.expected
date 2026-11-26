@@ -1,0 +1,18 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs rawtext-title
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "a & b <i>c</i> < d"
+|     "
+"
+|   <body>
+#serialize
+<!DOCTYPE html><html><head><title>a &amp; b &lt;i&gt;c&lt;/i&gt; &lt; d</title>
+</head><body></body></html>

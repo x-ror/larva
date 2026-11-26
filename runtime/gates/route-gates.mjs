@@ -32,6 +32,7 @@ export const TIERS = {
   L1: [
     'make check',
     'make test-web',
+    'make test-dom',
     // Out of CI during the Node-profile removal: red by design on the default build
     // (node-compat and eventloop oracles assert deleted Node modules), so a local run is
     // read against master's red set, not as pass/fail (gates.md).
@@ -279,6 +280,25 @@ const ROUTES = [
   {
     re: globToRe('scripts/{run-web-oracle.mjs,lib/web-oracle.mjs}'),
     targets: ['make test-web'],
+  },
+  {
+    // The DOM oracle (tests/dom): the parser and the tree read API it dumps through,
+    // the `lava html` flags it runs, the suite's cases, runner and Chrome-side walker,
+    // and the Window suite's library it imports its rules from.
+    re: globToRe('pkg/html/**'),
+    targets: ['make test-html-odin', 'make test-dom'],
+  },
+  {
+    re: globToRe('cmd/lava/main.odin'),
+    targets: ['make test-dom'],
+  },
+  {
+    re: globToRe('tests/dom/**'),
+    targets: ['make test-dom'],
+  },
+  {
+    re: globToRe('scripts/{run-dom-oracle.mjs,lib/dom-oracle.mjs,lib/web-oracle.mjs}'),
+    targets: ['make test-dom'],
   },
   {
     // Linux only, as the transport is; make check type-checks pkg/http but runs nothing.

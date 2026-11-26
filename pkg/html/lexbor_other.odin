@@ -40,6 +40,22 @@ larva_html_attr :: proc(node: Node, name: [^]u8, name_len: c.size_t, len: ^c.siz
 lxb_html_serialize_tree_cb :: proc(node: Node, cb: lxb_serialize_cb, ctx: rawptr) -> lxb_status_t {return(
 		LXB_STATUS_ERROR \
 	)}
+larva_html_node_type :: proc(node: Node) -> c.int {return 0}
+larva_html_first_child :: proc(node: Node) -> Node {return nil}
+larva_html_next_sibling :: proc(node: Node) -> Node {return nil}
+larva_html_ns :: proc(node: Node) -> uintptr {return 0}
+larva_html_element_name :: proc(node: Node, len: ^c.size_t) -> [^]u8 {len^ = 0; return nil}
+larva_html_template_content :: proc(node: Node) -> Node {return nil}
+larva_html_char_data :: proc(node: Node, len: ^c.size_t) -> [^]u8 {len^ = 0; return nil}
+larva_html_doctype_part :: proc(node: Node, part: c.int, len: ^c.size_t) -> [^]u8 {len^ = 0; return nil}
+larva_html_first_attr :: proc(node: Node) -> Attr {return nil}
+larva_html_next_attr :: proc(attr: Attr) -> Attr {return nil}
+larva_html_attr_ns :: proc(attr: Attr) -> uintptr {return 0}
+larva_html_attr_local_name :: proc(attr: Attr, len: ^c.size_t) -> [^]u8 {len^ = 0; return nil}
+larva_html_attr_value_of :: proc(attr: Attr, len: ^c.size_t) -> [^]u8 {len^ = 0; return nil}
+larva_html_parse_fragment :: proc(doc: lxb_document, ctx: [^]u8, ctx_len: c.size_t, html: [^]u8, len: c.size_t) -> Node {
+	return nil
+}
 larva_css_create :: proc() -> css_engine {return nil}
 larva_css_destroy :: proc(e: css_engine) {}
 larva_css_compile :: proc(e: css_engine, css: [^]u8, len: c.size_t) -> css_list {return nil}

@@ -4360,8 +4360,8 @@
       "name": "the web oracle runner fails a case with no Chrome recording",
       "why": "A missing recording that reads as a pass turns a deleted or never-recorded expectation into a green case: the suite would vouch for output nobody compared with Chrome.",
       "source": "scripts/lib/web-oracle.mjs",
-      "find": "      verdict: 'fail',\n      detail: `no Chrome recording; run: node scripts/record-chrome.mjs ${name}`,",
-      "replace": "      verdict: 'pass',\n      detail: `no Chrome recording; run: node scripts/record-chrome.mjs ${name}`,",
+      "find": "      verdict: 'fail',\n      detail: `no Chrome recording; run: ${suite.record} ${name}`,",
+      "replace": "      verdict: 'pass',\n      detail: `no Chrome recording; run: ${suite.record} ${name}`,",
       "gate": "node-test:scripts/run-web-oracle.test.mjs",
       "test": "a missing recording fails rather than skipping",
       "expect_detail": "a missing recording fails rather than skipping"
@@ -4842,6 +4842,202 @@
       "expect_detail": [
         "domexception: got no throw"
       ]
+    },
+    {
+      "name": "the DOM oracle refuses a recording whose views cannot be told apart",
+      "why": "A text node holding \"\\n#serialize\\n\" puts the opener at a line start twice; taking either hit would compare one view against the other view's bytes.",
+      "source": "scripts/lib/dom-oracle.mjs",
+      "find": "    if (hits.length !== 1) throw",
+      "replace": "    if (hits.length < 1) throw",
+      "gate": "node-test:scripts/run-dom-oracle.test.mjs",
+      "test": "a recording whose views cannot be told apart is refused, not guessed",
+      "expect_detail": "a recording whose views cannot be told apart is refused, not guessed"
+    },
+    {
+      "name": "the DOM oracle runner fails a case with no Chrome recording",
+      "why": "A case nobody recorded must not read as a pass; the runner names the recorder instead.",
+      "source": "scripts/run-dom-oracle.mjs",
+      "find": "  if (!existsSync(recording)) {\n    broken =",
+      "replace": "  if (false) {\n    broken =",
+      "gate": "node-test:scripts/run-dom-oracle.test.mjs",
+      "test": "a case with no recording fails both views and names the recorder",
+      "expect_detail": "a case with no recording fails both views and names the recorder"
+    },
+    {
+      "name": "the DOM oracle runner looks a known gap up by view, not by case",
+      "why": "Keyed by case, a gap entry would excuse both views; keyed by nothing, a listed serializer gap would fail the suite it was listed to hold.",
+      "source": "scripts/run-dom-oracle.mjs",
+      "find": "        known: known.get(unit),",
+      "replace": "        known: known.get(name),",
+      "gate": "node-test:scripts/run-dom-oracle.test.mjs",
+      "test": "a known gap names one view and holds while that view prints its pin",
+      "expect_detail": "a known gap names one view and holds while that view prints its pin"
+    },
+    {
+      "name": "the DOM oracle runner accepts gap entries that name a view",
+      "why": "suiteProblems must check gap entries against `<case>.<view>`, or every real entry reads as an orphan.",
+      "source": "scripts/run-dom-oracle.mjs",
+      "find": "  units: unitsOf(all),",
+      "replace": "  units: all,",
+      "gate": "node-test:scripts/run-dom-oracle.test.mjs",
+      "test": "a known gap names one view and holds while that view prints its pin",
+      "expect_detail": "a known gap names one view and holds while that view prints its pin"
+    },
+    {
+      "name": "the shared suiteProblems checks gap entries against the units it is given",
+      "why": "The DOM suite passes `<case>.<view>` units; reading the case list instead flags every DOM gap entry as an orphan.",
+      "source": "scripts/lib/web-oracle.mjs",
+      "find": "    if (!listable.has(name))",
+      "replace": "    if (!have.has(name))",
+      "gate": "node-test:scripts/run-dom-oracle.test.mjs",
+      "test": "a known gap names one view and holds while that view prints its pin",
+      "expect_detail": "a known gap names one view and holds while that view prints its pin"
+    },
+    {
+      "name": "the DOM oracle runner enforces the case-count floor",
+      "why": "A deleted case must not turn the suite green by vanishing.",
+      "source": "scripts/run-dom-oracle.mjs",
+      "find": "if (all.length < caseFloor(FLOOR_KEY)) {",
+      "replace": "if (false) {",
+      "gate": "node-test:scripts/run-dom-oracle.test.mjs",
+      "test": "a suite below the case-count floor fails before running anything",
+      "expect_detail": "a suite below the case-count floor fails before running anything"
+    },
+    {
+      "name": "the DOM oracle runner exits non-zero on a failing view",
+      "why": "Without the exit status the whole suite is decoration: CI reads the code, not the table.",
+      "source": "scripts/run-dom-oracle.mjs",
+      "find": "process.exit(failed ? 1 : 0);",
+      "replace": "process.exit(0);",
+      "gate": "node-test:scripts/run-dom-oracle.test.mjs",
+      "test": "a view that differs from its recording fails alone, naming the view",
+      "expect_detail": "a view that differs from its recording fails alone, naming the view"
+    },
+    {
+      "name": "the DOM oracle runner refuses a gap stage outside the DOM plan",
+      "why": "The Window suite's stages (S4a…) close nothing here; accepting them lets a DOM gap name a stage that will never come.",
+      "source": "scripts/run-dom-oracle.mjs",
+      "find": "const known = parseKnown(readFileSync(KNOWN_FILE, 'utf8'), STAGES);",
+      "replace": "const known = parseKnown(readFileSync(KNOWN_FILE, 'utf8'));",
+      "gate": "node-test:scripts/run-dom-oracle.test.mjs",
+      "test": "a known gap with a stage outside the DOM plan is refused",
+      "expect_detail": "a known gap with a stage outside the DOM plan is refused"
+    },
+    {
+      "name": "the DOM oracle runs a fragment case as a fragment",
+      "why": "Without --fragment, lava parses `<td>a` as a document while Chrome parsed it as tr.innerHTML: the case compares two different algorithms.",
+      "source": "scripts/lib/dom-oracle.mjs",
+      "find": "...(context ? ['--fragment', context] : []), file];",
+      "replace": "file];",
+      "gate": "node-test:scripts/run-dom-oracle.test.mjs",
+      "test": "a fragment case runs lava with --fragment and its context",
+      "expect_detail": "a fragment case runs lava with --fragment and its context"
+    },
+    {
+      "name": "the Chrome walker prints a template's content",
+      "why": "The parser puts a template's children into its content fragment; a walker that skips it drops them from both sides at once, and the views agree on a tree that lost them.",
+      "source": "scripts/lib/dom-oracle.mjs",
+      "find": "          line(depth + 1, 'content');\n",
+      "replace": "",
+      "gate": "node-test:scripts/run-dom-oracle.test.mjs",
+      "test": "dumpTree prints a template's content under it and a doctype's ids when it has any",
+      "expect_detail": "dumpTree prints a template's content under it and a doctype's ids when it has any"
+    },
+    {
+      "name": "the Chrome walker prints an adjusted attribute's namespace",
+      "why": "xlink:href and href differ in the DOM; without the prefix the tree view cannot see a parser that drops the adjustment.",
+      "source": "scripts/lib/dom-oracle.mjs",
+      "find": "          const ns = a.namespaceURI === null ? '' : ATTR_NS[a.namespaceURI];",
+      "replace": "          const ns = '';",
+      "gate": "node-test:scripts/run-dom-oracle.test.mjs",
+      "test": "dumpTree prints the html5lib format, attributes in element order",
+      "expect_detail": "dumpTree prints the html5lib format, attributes in element order"
+    },
+    {
+      "name": "the DOM recorder refuses an input with a BOM",
+      "why": "TextDecoder strips a BOM before Chrome parses while lava hands lexbor the bytes, so such a recording compares two different inputs.",
+      "source": "scripts/lib/dom-oracle.mjs",
+      "find": "  if (bytes.length >= 3 && bytes[0] === 0xef",
+      "replace": "  if (false && bytes[0] === 0xef",
+      "gate": "node-test:scripts/run-dom-oracle.test.mjs",
+      "test": "an input Chrome and lava would read differently is refused",
+      "expect_detail": "an input Chrome and lava would read differently is refused"
+    },
+    {
+      "name": "the harness page parses a fragment case through innerHTML",
+      "why": "The fragment parsing algorithm runs only through innerHTML; textContent records the input as one text node.",
+      "source": "scripts/lib/dom-oracle.mjs",
+      "find": "      el.innerHTML = text;",
+      "replace": "      el.textContent = text;",
+      "gate": "node-test:scripts/run-dom-oracle.test.mjs",
+      "test": "the harness page parses a fragment case as its context element innerHTML",
+      "expect_detail": "the harness page parses a fragment case as its context element innerHTML"
+    },
+    {
+      "name": "test-dom dies when dump_tree drops a template content line",
+      "why": "Template children live in the content fragment; a Lava dump without the `content` line disagrees with Chrome on every template case.",
+      "source": "pkg/html/dump.odin",
+      "find": "\t\t\tline(d, depth + 1, \"content\")\n",
+      "replace": "",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL template-contents.tree"
+    },
+    {
+      "name": "test-dom dies when local_name folds the case the parser adjusted in SVG",
+      "why": "lexbor's own local name is lowercase even for foreignObject/linearGradient; DOM's localName keeps the adjusted case.",
+      "source": "pkg/html/shim/larva_html.c",
+      "find": "\treturn lxb_dom_element_qualified_name(lxb_dom_interface_element(node), len);",
+      "replace": "\treturn lxb_dom_element_local_name(lxb_dom_interface_element(node), len);",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL foreign-svg.tree"
+    },
+    {
+      "name": "test-dom dies when lava html --fragment ignores its context",
+      "why": "A fragment parsed for the wrong context element is a different tree (`<td>` is dropped outside a row); the frag cases must see the context.",
+      "source": "cmd/lava/main.odin",
+      "find": "\t\troot, ok = html.parse_fragment(&p, fragment, data)",
+      "replace": "\t\troot, ok = html.parse_fragment(&p, \"body\", data)",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL frag-cell.frag-tr"
+    },
+    {
+      "name": "attributes_are_in_no_namespace_unless_adjusted dies when the shim reports lexbor's element namespace for an attribute",
+      "why": "lexbor stores an unadjusted attribute under its element's namespace; passed through, every attribute of every element reads as namespaced and the dump refuses it.",
+      "source": "pkg/html/shim/larva_html.c",
+      "find": "\treturn ns == LXB_NS__UNDEF || ns == LXB_NS_HTML || ns == LXB_NS_SVG || ns == LXB_NS_MATH;",
+      "replace": "\treturn ns == LXB_NS__UNDEF;",
+      "gate": "make:test-html-odin",
+      "expect_detail": "data-x on <p> is in HTML"
+    },
+    {
+      "name": "attributes_are_in_no_namespace_unless_adjusted dies when attr_local_name folds an adjusted SVG name",
+      "why": "lexbor's attribute local name is lowercase; DOM's localName is the parser-adjusted `viewBox`.",
+      "source": "pkg/html/shim/larva_html.c",
+      "find": "\treturn larva_attr_in_no_ns(attr) ? lxb_dom_attr_qualified_name(attr, len) : lxb_dom_attr_local_name(attr, len);",
+      "replace": "\treturn lxb_dom_attr_local_name(attr, len);",
+      "gate": "make:test-html-odin",
+      "expect_detail": "viewbox adjusted to \"viewbox\""
+    },
+    {
+      "name": "tree_read_on_the_wrong_node_kind_is_empty dies when first_attr reads a non-element as an element",
+      "why": "A text node has no attribute list; reading one through lxb_dom_element_t is a wild read past the node.",
+      "source": "pkg/html/shim/larva_html.c",
+      "find": "lxb_dom_attr_t *larva_html_first_attr(lxb_dom_node_t *node) {\n\tif (node == NULL || node->type != LXB_DOM_NODE_TYPE_ELEMENT) {",
+      "replace": "lxb_dom_attr_t *larva_html_first_attr(lxb_dom_node_t *node) {\n\tif (node == NULL) {",
+      "gate": "make:test-html-odin",
+      "expect_detail": [
+        "a text node answered an attribute list",
+        "tree_read_on_the_wrong_node_kind_is_empty"
+      ]
+    },
+    {
+      "name": "a_fragment_parses_in_its_context dies when a parsed fragment still accepts writes",
+      "why": "A fragment parse is over when parse_fragment returns; a write after it would be parsed by nobody and silently lost.",
+      "source": "pkg/html/parser.odin",
+      "find": "\t// The parse is over before this returns: pump answers .Done and write refuses.\n\tp.ended = true",
+      "replace": "\t// The parse is over before this returns: pump answers .Done and write refuses.\n\tp.ended = false",
+      "gate": "make:test-html-odin",
+      "expect_detail": "write accepted after a fragment parse"
     }
   ]
 }

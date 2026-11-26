@@ -1,0 +1,22 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs foreign-cdata
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       "a < b & c"
+|       <svg text>
+|         "t"
+|     <p>
+|       <!-- [CDATA[not in html]] -->
+|     "
+"
+#serialize
+<!DOCTYPE html><html><head></head><body><svg>a &lt; b &amp; c<text>t</text></svg><p><!--[CDATA[not in html]]--></p>
+</body></html>

@@ -255,6 +255,63 @@ parse_all :: proc(
 	}
 }
 
+// parse_fragment parses `data` as the children of an HTML element named `context`
+// (the fragment parsing algorithm, as innerHTML runs it), into a document of its own
+// that `p` owns: destroy frees it, as it frees a parsed document. `p` must not have
+// been init'ed. No script pauses and nothing can be written: the document is done.
+//
+// Returns:
+//   The element the fragment's nodes are children of (inner_html serializes them);
+//   ok false when lexbor could not create the document or parse into it, or off
+//   Linux (error_message says which).
+// Chrome:
+//   `doc.createElement(context).innerHTML = data` in a no-quirks document with
+//   scripting off; tests/dom's `*.frag-<context>` cases compare it with Chrome's.
+//
+// The context is always an HTML element in a no-quirks document: a fragment for an
+// SVG/MathML context or a quirks-mode page waits for stage 3e, which parses fragments
+// into a live tree with a real context element.
+parse_fragment :: proc(
+	p: ^Parser,
+	context_name: string,
+	data: []byte,
+	allocator := context.allocator,
+) -> (
+	root: Node,
+	ok: bool,
+) {
+	p^ = {}
+	source_init(&p.input, allocator)
+	source_init(&p.written, allocator)
+	// The parse is over before this returns: pump answers .Done and write refuses.
+	p.ended = true
+	when ODIN_OS != .Linux {
+		p.err = "pkg/html: no lexbor build for this target (Linux only)"
+		return nil, false
+	}
+	p.doc = lxb_html_document_create()
+
+	if p.doc == nil {
+		p.err = "pkg/html: lexbor could not create a document"
+		return nil, false
+	}
+
+	root = larva_html_parse_fragment(
+		p.doc,
+		raw_data(context_name),
+		c.size_t(len(context_name)),
+		raw_data(data),
+		c.size_t(len(data)),
+	)
+
+	if root == nil {
+		p.err = "pkg/html: lexbor failed to parse the fragment"
+		return nil, false
+	}
+
+	return root, true
+}
+
 // document returns the Document node: the root for a walk or a selector search over
 // the whole page. nil when init failed.
 document :: proc(p: ^Parser) -> Node {

@@ -1,0 +1,32 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs foreign-integration
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg title>
+|         <p>
+|           "html in svg title"
+|       <svg desc>
+|         <b>
+|           "d"
+|     <math math>
+|       <math mi>
+|         <math mglyph>
+|       <math ms>
+|         <math malignmark>
+|     <svg svg>
+|     <font>
+|       color="red"
+|       "f"
+|     "
+"
+#serialize
+<!DOCTYPE html><html><head></head><body><svg><title><p>html in svg title</p></title><desc><b>d</b></desc></svg><math><mi><mglyph></mglyph></mi><ms><malignmark></malignmark></ms></math><svg></svg><font color="red">f</font>
+</body></html>

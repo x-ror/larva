@@ -54,6 +54,21 @@ foreign lexbor {
 	larva_html_text_free :: proc(node: Node, text: [^]u8) ---
 	larva_html_attr :: proc(node: Node, name: [^]u8, name_len: c.size_t, len: ^c.size_t) -> [^]u8 ---
 
+	larva_html_node_type :: proc(node: Node) -> c.int ---
+	larva_html_first_child :: proc(node: Node) -> Node ---
+	larva_html_next_sibling :: proc(node: Node) -> Node ---
+	larva_html_ns :: proc(node: Node) -> uintptr ---
+	larva_html_element_name :: proc(node: Node, len: ^c.size_t) -> [^]u8 ---
+	larva_html_template_content :: proc(node: Node) -> Node ---
+	larva_html_char_data :: proc(node: Node, len: ^c.size_t) -> [^]u8 ---
+	larva_html_doctype_part :: proc(node: Node, part: c.int, len: ^c.size_t) -> [^]u8 ---
+	larva_html_first_attr :: proc(node: Node) -> Attr ---
+	larva_html_next_attr :: proc(attr: Attr) -> Attr ---
+	larva_html_attr_ns :: proc(attr: Attr) -> uintptr ---
+	larva_html_attr_local_name :: proc(attr: Attr, len: ^c.size_t) -> [^]u8 ---
+	larva_html_attr_value_of :: proc(attr: Attr, len: ^c.size_t) -> [^]u8 ---
+	larva_html_parse_fragment :: proc(doc: lxb_document, ctx: [^]u8, ctx_len: c.size_t, html: [^]u8, len: c.size_t) -> Node ---
+
 	larva_css_create :: proc() -> css_engine ---
 	larva_css_destroy :: proc(e: css_engine) ---
 	larva_css_compile :: proc(e: css_engine, css: [^]u8, len: c.size_t) -> css_list ---

@@ -107,6 +107,14 @@ jobs:
         if: needs.scope.outputs.scope == 'code' || needs.scope.outputs.scope == 'full'
         run: make test-web
 
+      # The DOM oracle (tests/dom): each HTML case parsed by `lava html`, its tree dump
+      # and serialization against the committed Chrome recording. Beside test-web for
+      # the same reasons: the binary is already built, no Chrome is needed, and the
+      # suite is 0.6 s locally for 60 cases (120 lava runs, on an already built tree).
+      - name: DOM oracle (Chrome recordings)
+        if: needs.scope.outputs.scope == 'code' || needs.scope.outputs.scope == 'full'
+        run: make test-dom
+
       - name: Markdown lint
         run: make check-md
 

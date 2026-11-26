@@ -1,0 +1,21 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs entity-legacy
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       "©2026 ¬it; ∉ &x <3"
+|     <a>
+|       href="?a=1&copy=2&lang=3"
+|       "x"
+|     "
+"
+#serialize
+<!DOCTYPE html><html><head></head><body><p>©2026 ¬it; ∉ &amp;x &lt;3</p><a href="?a=1&amp;copy=2&amp;lang=3">x</a>
+</body></html>

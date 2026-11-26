@@ -1,0 +1,27 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs foreign-math
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       definitionURL="x"
+|       <math mi>
+|         "x"
+|       <math annotation-xml>
+|         encoding="text/html"
+|         <p>
+|           "html"
+|       <math mtext>
+|         <b>
+|           "t"
+|     "
+"
+#serialize
+<!DOCTYPE html><html><head></head><body><math definitionURL="x"><mi>x</mi><annotation-xml encoding="text/html"><p>html</p></annotation-xml><mtext><b>t</b></mtext></math>
+</body></html>
