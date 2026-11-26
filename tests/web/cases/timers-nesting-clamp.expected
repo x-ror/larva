@@ -1,0 +1,14 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs timers-nesting-clamp
+# ---
+1 zero,four
+2 zero,four
+3 zero,four
+4 zero,four
+5 zero,four
+6 four,zero
+7 four,zero,three
+8 four,zero

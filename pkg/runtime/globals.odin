@@ -609,25 +609,54 @@ callback_arg :: proc(ctx: jsc.JSContextRef, value: jsc.JSValueRef) -> jsc.JSObje
 
 // --- Timer / scheduling callbacks ---
 
-// TIMER_MAX_MS is Node's TIMEOUT_MAX (2^31 - 1): the largest setTimeout/setInterval
-// delay. A delay outside [1, TIMER_MAX_MS] (including NaN/Infinity) clamps to 1ms.
-TIMER_MAX_MS :: 2147483647.0
 // MAX_SAFE_HANDLE_ID bounds a numeric timer/immediate id for the u64() conversion in
 // clear*: ids grow unbounded but stay exactly representable as f64 below 2^53.
 MAX_SAFE_HANDLE_ID :: 9007199254740992.0
 
-// clamp_timer_delay applies Node's [1, 2^31-1] ms clamp to a raw setTimeout/
-// setInterval delay and returns the u64 the event loop expects. Anything < 1
-// (including NaN) or > TIMER_MAX_MS becomes 1 — which also covers two guards:
-// flooring at 1 stops a 0ms timer from busy-spinning the loop and starving pending
-// I/O (and freezing the virtual clock), and the bounded value makes the u64()
-// conversion safe (float→int on NaN/Infinity/out-of-range is undefined in Odin).
-clamp_timer_delay :: proc(delay: f64) -> u64 {
-	if !(delay >= 1 && delay <= TIMER_MAX_MS) {
-		return 1
+// timer_delay_ms reads setTimeout/setInterval's `timeout` argument as Chrome's binding
+// does, on both surfaces: a WebIDL `long`, then a negative value is 0.
+//
+// Params:
+//   op  The method, for the prefix of a conversion TypeError.
+// Returns:
+//   The delay in ms, in [0, 2^31 - 1]; ok false when the conversion threw, the error
+//   in `exception` — the caller then schedules nothing.
+// Node:
+//   No counterpart; Chrome is the oracle. ToNumber runs the argument's valueOf/toString
+//   (once, at the call) and its error propagates; a BigInt or a Symbol throws a
+//   TypeError. Then truncation modulo 2^32 read as signed: NaN, ±Infinity, -1, 2^31 and
+//   2^32 - 1 are 0 ms, 2^32 + 5 is 5 ms, 4.9 is 4 ms. A 0 ms delay stays 0 — node's
+//   floor of 1 ms is gone — so it is queued as a task at once
+//   (eventloop.set_timer). Recorded on Chrome 158.0.8127.88:
+//   tests/web/cases/timers-delay-coercion.
+//
+// The nesting clamp (4 ms past level 5) is the loop's, which knows the running task.
+// Out of the u64() conversion's way: webidl_long's result is an exact integer in
+// [-2^31, 2^31 - 1], never NaN or out of range.
+@(private = "file")
+timer_delay_ms :: proc(
+	ctx: jsc.JSContextRef,
+	argument_count: c.size_t,
+	arguments: [^]jsc.JSValueRef,
+	op: string,
+	exception: ^jsc.JSValueRef,
+) -> (
+	u64,
+	bool,
+) {
+	// An omitted timeout is the IDL default, 0.
+	if argument_count < 2 {
+		return 0, true
 	}
 
-	return u64(delay)
+	n, ok := web_to_number(ctx, arguments[1], op, exception)
+
+	if !ok {
+		return 0, false
+	}
+
+	x := webidl_long(n)
+	return x > 0 ? u64(x) : 0, true
 }
 
 set_timeout_cb :: proc "c" (
@@ -655,15 +684,16 @@ set_timeout_cb :: proc "c" (
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
-	delay := 0.0
+	// Converted before anything is captured: a throwing conversion schedules nothing.
+	delay, ok := timer_delay_ms(ctx, argument_count, arguments, "setTimeout", exception)
 
-	if argument_count >= 2 {
-		delay = jsc.JSValueToNumber(ctx, arguments[1], nil)
+	if !ok {
+		return nil
 	}
 
 	// Trailing args (setTimeout(fn, delay, ...args)) are forwarded on fire.
 	cb := make_js_callback(ctx, fn, false, capture_timer_args(ctx, argument_count, arguments, 2, alloc), alloc)
-	id := eventloop.set_timeout(loop, js_callback_trampoline, clamp_timer_delay(delay), cb, js_callback_dispose)
+	id := eventloop.set_timeout(loop, js_callback_trampoline, delay, cb, js_callback_dispose)
 	return jsc.JSValueMakeNumber(ctx, f64(id))
 }
 
@@ -692,15 +722,16 @@ set_interval_cb :: proc "c" (
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
-	interval := 0.0
+	// Converted before anything is captured: a throwing conversion schedules nothing.
+	interval, ok := timer_delay_ms(ctx, argument_count, arguments, "setInterval", exception)
 
-	if argument_count >= 2 {
-		interval = jsc.JSValueToNumber(ctx, arguments[1], nil)
+	if !ok {
+		return nil
 	}
 
 	// Trailing args (setInterval(fn, delay, ...args)) are forwarded on every fire.
 	cb := make_js_callback(ctx, fn, true, capture_timer_args(ctx, argument_count, arguments, 2, alloc), alloc)
-	id := eventloop.set_interval(loop, js_callback_trampoline, clamp_timer_delay(interval), cb, js_callback_dispose)
+	id := eventloop.set_interval(loop, js_callback_trampoline, interval, cb, js_callback_dispose)
 	return jsc.JSValueMakeNumber(ctx, f64(id))
 }
 
@@ -892,9 +923,19 @@ clear_timer_web :: proc(
 		return nil
 	}
 
-	// WebIDL ConvertToInt for `long`: NaN and ±Infinity are 0; otherwise truncate, take
-	// it modulo 2^32 and read the result as signed. Every step stays in f64, where these
-	// magnitudes are exact, so no float→int conversion sees an out-of-range value.
+	if x := webidl_long(n); x >= 1 {
+		clear_timer_owned_id(ctx, u64(x))
+	}
+
+	return jsc.JSValueMakeUndefined(ctx)
+}
+
+// webidl_long is WebIDL's ConvertToInt for `long` on a number ToNumber produced: NaN
+// and ±Infinity are 0; otherwise truncate, take it modulo 2^32 and read the result as
+// signed. Every step stays in f64, where these magnitudes are exact, so no float→int
+// conversion sees an out-of-range value; the result is an integer in [-2^31, 2^31 - 1].
+@(private = "file")
+webidl_long :: proc(n: f64) -> f64 {
 	if !math.is_nan(n) && !math.is_inf(n) {
 		x := math.mod(math.trunc(n), 4294967296)
 
@@ -906,12 +947,10 @@ clear_timer_web :: proc(
 			x -= 4294967296
 		}
 
-		if x >= 1 {
-			clear_timer_owned_id(ctx, u64(x))
-		}
+		return x
 	}
 
-	return jsc.JSValueMakeUndefined(ctx)
+	return 0
 }
 
 // web_to_number is ECMAScript ToNumber as a WebIDL binding runs it: ToPrimitive with

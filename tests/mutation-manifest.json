@@ -941,8 +941,8 @@
       "name": "timer_binding_frees_through_its_own_allocator dies when setTimeout makes bindings from the heap instead of the state allocator",
       "why": "A hard-coded heap pairs alloc and free just as well, so only the routing count can see it; it is what keeps a leaked binding visible to the embedder's allocator.",
       "source": "pkg/runtime/globals.odin",
-      "find": "loop, alloc := state.loop, state.allocator\n\n\tfn := callback_arg(ctx, arguments[0])\n\n\tif fn == nil {\n\t\treturn jsc.JSValueMakeUndefined(ctx)\n\t}\n\n\tdelay := 0.0",
-      "replace": "loop, alloc := state.loop, context.allocator\n\n\tfn := callback_arg(ctx, arguments[0])\n\n\tif fn == nil {\n\t\treturn jsc.JSValueMakeUndefined(ctx)\n\t}\n\n\tdelay := 0.0",
+      "find": "loop, alloc := state.loop, state.allocator\n\n\tfn := callback_arg(ctx, arguments[0])\n\n\tif fn == nil {\n\t\treturn jsc.JSValueMakeUndefined(ctx)\n\t}\n\n\t// Converted before anything is captured: a throwing conversion schedules nothing.\n\tdelay, ok := timer_delay_ms(",
+      "replace": "loop, alloc := state.loop, context.allocator\n\n\tfn := callback_arg(ctx, arguments[0])\n\n\tif fn == nil {\n\t\treturn jsc.JSValueMakeUndefined(ctx)\n\t}\n\n\t// Converted before anything is captured: a throwing conversion schedules nothing.\n\tdelay, ok := timer_delay_ms(",
       "gate": "odin:cmd/lava:main.timer_binding_frees_through_its_own_allocator",
       "expect_detail": "made through the state allocator"
     },
@@ -3847,7 +3847,7 @@
       "name": "page_run_until_deadline_survives_page_js_clearing_it dies when a cleared wake-up timer is not re-armed",
       "why": "Once page JS clears the wake-up, a tick blocked on a far timer sleeps through the deadline to it.",
       "source": "pkg/runtime/page.odin",
-      "find": "\t\t\tif _, live := loop.timer_index[wake]; !live {\n",
+      "find": "\t\t\tif !eventloop.timer_is_live(loop, wake) {\n",
       "replace": "\t\t\tif wake == 0 {\n",
       "gate": "odin:cmd/lava:main.page_run_until_deadline_survives_page_js_clearing_it",
       "expect_detail": "far timer: Deadline after"
@@ -3901,46 +3901,154 @@
       "name": "clear_owned_running_timer_respects_owner dies when a running timer's dispose is not recorded",
       "why": "Without running_dispose the owner can never cancel its own running handle: clearInterval(self) from JS would stop working.",
       "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\tloop.running_id, loop.running_dispose = timer.id, timer.dispose\n",
-      "replace": "\t\tloop.running_id, loop.running_dispose = timer.id, nil\n",
+      "find": "\tloop.running_id, loop.running_dispose, loop.running_nesting = timer.id, timer.dispose, timer.nesting\n",
+      "replace": "\tloop.running_id, loop.running_dispose, loop.running_nesting = timer.id, nil, timer.nesting\n",
       "gate": "odin:pkg/runtime/eventloop:eventloop.clear_owned_running_timer_respects_owner",
       "expect_detail": "expected q.fires to be 1"
     },
     {
-      "name": "timer_due_during_timers_phase_waits_for_next_turn dies when the timers phase reads the live clock again",
-      "why": "set_timer re-syncs now_ms, so a callback that spins and then calls setTimeout pulls a timer that fell due mid-phase into this turn, ahead of this turn's setImmediate (node prints A,imm,B).",
+      "name": "zero_delay_timer_runs_before_a_timer_that_fell_due_during_its_creator dies when a 0 ms timer waits in the heap",
+      "why": "Chrome queues a 0 ms timer as a task when it is created; in the heap it is queued with B after A returns, by deadline, and prints A,B,C where Chrome prints A,C,B.",
       "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\tif root.due_ms > timer_phase_now {",
-      "replace": "\t\tif root.due_ms > loop.now_ms {",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.timer_due_during_timers_phase_waits_for_next_turn",
-      "expect_detail": "expected len(actual) to be 2, got 3"
+      "find": "\tif delay == 0 {\n\t\tqueue.push_back(&loop.ready_timers, timer)\n\t} else {\n\t\ttimer_heap_push(loop, timer)\n\t}\n",
+      "replace": "\ttimer_heap_push(loop, timer)\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.zero_delay_timer_runs_before_a_timer_that_fell_due_during_its_creator",
+      "expect_detail": "expected value to be 3, got 2"
     },
     {
-      "name": "interval_rearms_from_clock_before_its_callback dies when an interval re-arms from the clock after its callback again",
-      "why": "node's listOnTimeout re-inserts an interval with the start it read before _onTimeout(), so a slow callback does not push every later fire back by its own run time.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\t\ttimer.due_ms = rearm_start + timer.repeat_ms",
-      "replace": "\t\t\ttimer.due_ms = loop.now_ms + timer.repeat_ms",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.interval_rearms_from_clock_before_its_callback",
-      "expect_detail": "expected value to be 23, got 27"
+      "name": "timers-delay-coercion dies when a 0 ms timer waits in the heap",
+      "why": "A 1 ms timer created first would still fire after every 0 ms one by deadline, so the case does not see this; it pins only that the delay is not raised to 1.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\treturn x > 0 ? u64(x) : 0, true\n",
+      "replace": "\treturn x > 0 ? u64(x) : 1, true\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL timers-delay-coercion"
     },
     {
-      "name": "interval_rearms_from_clock_before_its_callback dies when an interval re-arms from the turn's now",
-      "why": "node reads a fresh getLibuvNow() per interval fire, not the processTimers `now`, so a slow timer ahead of the interval in the same turn does not pull its next fire early.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\t\trearm_start = loop.now_ms",
-      "replace": "\t\t\trearm_start = timer_phase_now",
-      "gate": "odin:pkg/runtime/eventloop:eventloop.interval_rearms_from_clock_before_its_callback",
-      "expect_detail": "expected value to be 23, got 20"
+      "name": "timers-delay-coercion dies when the delay is not a WebIDL long",
+      "why": "Without the modulo-2^32 signed reading, 2^31 and 2^32 - 1 wait 24 days instead of 0 ms and 2^32 + 5 never fires.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tx := webidl_long(n)\n",
+      "replace": "\tx := math.is_nan(n) || math.is_inf(n) ? 0 : math.trunc(n)\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL timers-delay-coercion"
     },
     {
-      "name": "eventloop case 13 dies when the interval's pre-callback start skips the real clock",
-      "why": "In real_time mode now_ms only moves on a sync, so without one before the callback the re-arm start is the turn's now (or whatever a prior callback's setTimeout left), firing the interval early; the virtual-clock test cannot see this.",
+      "name": "timers-delay-coercion dies when a throwing conversion is swallowed",
+      "why": "Chrome's setTimeout throws what the delay's valueOf throws (and a TypeError for a Symbol or BigInt) and schedules nothing; JSValueToNumber with no exception slot turned it into NaN, a 0 ms timer.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\tn, ok := web_to_number(ctx, arguments[1], op, exception)\n",
+      "replace": "\tn, ok := jsc.JSValueToNumber(ctx, arguments[1], nil), true\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL timers-delay-coercion"
+    },
+    {
+      "name": "due_timer_is_queued_between_tasks dies when due timers are looked for once per turn",
+      "why": "T fell due while X ran; queued only at the next turn it lands behind W, which Y queued after, where Chrome prints X,Y,Z,T,W.",
       "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\tif timer.repeating {\n\t\t\tsync_real_clock(loop)\n",
-      "replace": "\t\tif timer.repeating {\n",
-      "gate": "compat:tests/runtime/eventloop/cases/13-interval-rearms-from-callback-start.js",
-      "expect_detail": "'interval2', 'early'"
+      "find": "\t\trun_timer_task(loop, queue.pop_front(&loop.ready_timers))\n\t\tqueue_due_timers(loop)\n",
+      "replace": "\t\trun_timer_task(loop, queue.pop_front(&loop.ready_timers))\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.due_timer_is_queued_between_tasks",
+      "expect_detail": "expected value to be 4, got 5"
+    },
+    {
+      "name": "timers-ready-order dies when due timers are looked for once per turn",
+      "why": "The real-clock half of due_timer_is_queued_between_tasks: the per-task look reads the clock itself, which the virtual-clock test cannot see.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\trun_timer_task(loop, queue.pop_front(&loop.ready_timers))\n\t\tqueue_due_timers(loop)\n",
+      "replace": "\t\trun_timer_task(loop, queue.pop_front(&loop.ready_timers))\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL timers-ready-order"
+    },
+    {
+      "name": "interval_rearms_on_its_schedule_grid dies when an interval re-arms from the clock before its callback",
+      "why": "node's rule (#99): a 200 ms interval whose first fire ran 700 ms fires at 1100 instead of back on the grid at 1000.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\tdelay = next.repeat_ms - behind % next.repeat_ms\n",
+      "replace": "\t\tdelay = next.repeat_ms\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.interval_rearms_on_its_schedule_grid",
+      "expect_detail": "expected value to be 1000, got 1100"
+    },
+    {
+      "name": "timers-interval-overrun dies when an interval re-arms from the clock before its callback",
+      "why": "The real-clock half of interval_rearms_on_its_schedule_grid: I3 lands after the 1050 sentinel.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\tdelay = next.repeat_ms - behind % next.repeat_ms\n",
+      "replace": "\t\tdelay = next.repeat_ms\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL timers-interval-overrun"
+    },
+    {
+      "name": "interval_rearms_before_its_callback dies when an interval re-arms after its callback",
+      "why": "A 0 ms interval's next fire queued after its callback lands behind the 0 ms timer that callback created: I1,Z,I2 where Chrome prints I1,I2,Z.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tif timer.repeating {\n\t\trearm_interval(loop, timer)\n\t}\n\n\tloop.running_id, loop.running_dispose, loop.running_nesting = timer.id, timer.dispose, timer.nesting\n\ttimer.callback(loop, timer.user_data)\n",
+      "replace": "\tloop.running_id, loop.running_dispose, loop.running_nesting = timer.id, timer.dispose, timer.nesting\n\ttimer.callback(loop, timer.user_data)\n\n\tif timer.repeating && !is_cancel_requested(loop, timer.id) {\n\t\trearm_interval(loop, timer)\n\t}\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.interval_rearms_before_its_callback",
+      "expect_detail": "expected value to be 1, got 3"
+    },
+    {
+      "name": "nested_timeouts_clamp_to_4ms_past_level_5 dies without the nesting clamp",
+      "why": "A chain of 0 ms timers then runs at once to any depth, where the HTML timer steps (and Chrome) wait 4 ms past level 5.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tif parent > TIMER_NESTING_LEVEL_MAX {\n",
+      "replace": "\tif false {\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.nested_timeouts_clamp_to_4ms_past_level_5",
+      "expect_detail": "expected value to be 4, got 0"
+    },
+    {
+      "name": "timers-nesting-clamp dies without the nesting clamp",
+      "why": "The JS-visible half: from level 6 on the 0 ms timer would still fire ahead of the 4 ms one, where Chrome prints four,zero.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tif parent > TIMER_NESTING_LEVEL_MAX {\n",
+      "replace": "\tif false {\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL timers-nesting-clamp"
+    },
+    {
+      "name": "nested_timeouts_clamp_to_4ms_past_level_5 dies when the clamp waits one level more",
+      "why": "Level 5 is the last unclamped one: Chrome clamps the timers a level-6 task creates (the 7th of a chain), not those of level 7.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tif parent > TIMER_NESTING_LEVEL_MAX {\n",
+      "replace": "\tif parent > TIMER_NESTING_LEVEL_MAX + 1 {\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.nested_timeouts_clamp_to_4ms_past_level_5",
+      "expect_detail": "expected value to be 4, got 0"
+    },
+    {
+      "name": "nested_timeouts_clamp_to_4ms_past_level_5 dies when a timer task does not name its nesting level",
+      "why": "With running_nesting left 0 every timer is created at level 1 and none is ever clamped.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tloop.running_id, loop.running_dispose, loop.running_nesting = timer.id, timer.dispose, timer.nesting\n",
+      "replace": "\tloop.running_id, loop.running_dispose, loop.running_nesting = timer.id, timer.dispose, 0\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.nested_timeouts_clamp_to_4ms_past_level_5",
+      "expect_detail": "expected value to be 4, got 0"
+    },
+    {
+      "name": "nested_intervals_clamp_to_4ms_past_level_5 dies when an interval does not clamp its own period",
+      "why": "Each fire of an interval is a level deeper; without the re-arm clamp a 0 ms interval fires at once forever.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tif timer.nesting > TIMER_NESTING_LEVEL_MAX {\n",
+      "replace": "\tif false {\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.nested_intervals_clamp_to_4ms_past_level_5",
+      "expect_detail": "expected value to be 4, got 0"
+    },
+    {
+      "name": "nested_intervals_clamp_to_4ms_past_level_5 dies when an interval fire does not nest a level deeper",
+      "why": "An interval created outside a timer would then stay at level 1 and never reach the clamp.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tnext.nesting = timer.nesting == max(u8) ? timer.nesting : timer.nesting + 1\n",
+      "replace": "\tnext.nesting = timer.nesting\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.nested_intervals_clamp_to_4ms_past_level_5",
+      "expect_detail": "expected value to be 4, got 0"
+    },
+    {
+      "name": "timers-interval-nesting-clamp dies when an interval does not clamp its own period",
+      "why": "The JS-visible half: fires 7 to 12 of a 0 ms interval run back to back instead of 4 ms apart.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tif timer.nesting > TIMER_NESTING_LEVEL_MAX {\n",
+      "replace": "\tif false {\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL timers-interval-nesting-clamp"
     },
     {
       "name": "runner_churn_of_mixed_fates_frees_everything_it_allocates dies when destroy_runtime_state keeps the Runtime_State",
