@@ -2915,7 +2915,7 @@
       "find": "  natives['internal/crypto/random'] = natives['node/crypto'];\n",
       "replace": "",
       "gate": "compat:tests/node-compat/cases/22-typed-array-offset.js",
-      "expect_detail": "node: globalThis.crypto object true function function true true"
+      "expect_detail": "evaluating 'native.randomFill'"
     },
     {
       "name": "84-util-internal-modules dies when util.debug stops being util.debuglog",
