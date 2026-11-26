@@ -5,23 +5,40 @@
   'use strict';
 
   var ABORT = 'abort';
+  var DOMException = require('internal/domexception').DOMException;
+  var webErrors = require('internal/web_errors');
+  var web = webErrors.web;
+  var typeError = webErrors.typeError;
+  var pageError = webErrors.pageError;
 
+  // The default reasons are DOMExceptions on both surfaces — Chrome's and node's shape
+  // alike (name AbortError/TimeoutError, legacy code 20/23, no own `code`). Only the text
+  // is per surface: Chrome 158's (tests/web/cases/abort-reason-shape.expected) on the
+  // Window surface, node 26's on the Node one (probed: AbortSignal.abort().reason.message,
+  // AbortSignal.timeout(1)'s reason after it fires). pageError gives each the stack a
+  // page sees in Chrome: from the page's own frame, none of this file's.
   function abortError() {
-    var err = new Error('This operation was aborted');
-    err.name = 'AbortError';
-    err.code = 'ABORT_ERR';
-    return err;
+    return pageError(
+      new DOMException(
+        web ? 'signal is aborted without reason' : 'This operation was aborted',
+        'AbortError',
+      ),
+    );
   }
 
   function timeoutError() {
-    var err = new Error('The operation timed out');
-    err.name = 'TimeoutError';
-    err.code = 'ABORT_ERR';
-    return err;
+    return pageError(
+      new DOMException(
+        web ? 'signal timed out' : 'The operation was aborted due to timeout',
+        'TimeoutError',
+      ),
+    );
   }
 
   function AbortSignal() {
-    throw new TypeError('Illegal constructor');
+    throw web
+      ? typeError('AbortSignal', undefined, 'Illegal constructor')
+      : new TypeError('Illegal constructor');
   }
 
   // Internal constructor: AbortSignal is not directly constructable, so
@@ -140,7 +157,19 @@
 
   AbortSignal.any = function (signals) {
     if (!signals || typeof signals[Symbol.iterator] !== 'function') {
-      throw new TypeError('AbortSignal.any requires an iterable');
+      // WebIDL's sequence conversion: a non-object is refused before its iterator is
+      // looked at (tests/web/cases/abort-errors.expected).
+      if (!web) {
+        throw new TypeError('AbortSignal.any requires an iterable');
+      }
+
+      throw typeError(
+        'AbortSignal',
+        'any',
+        signals === null || (typeof signals !== 'object' && typeof signals !== 'function')
+          ? 'The provided value cannot be converted to a sequence.'
+          : 'The object must have a callable @@iterator property.',
+      );
     }
     var combined = newSignal();
     var list = Array.from(signals);
@@ -171,8 +200,17 @@
   };
 
   function AbortController() {
-    if (!(this instanceof AbortController))
-      throw new TypeError("Constructor AbortController requires 'new'");
+    // A function constructor, so the call-without-new text is ours to choose: Blink's on
+    // the Window surface.
+    if (!(this instanceof AbortController)) {
+      throw web
+        ? typeError(
+            'AbortController',
+            undefined,
+            "Please use the 'new' operator, this DOM object constructor cannot be called as a function.",
+          )
+        : new TypeError("Constructor AbortController requires 'new'");
+    }
     Object.defineProperty(this, 'signal', { value: newSignal(), enumerable: true });
   }
   AbortController.prototype.abort = function (reason) {

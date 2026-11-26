@@ -20,6 +20,9 @@
   var toString = Object.prototype.toString;
 
   var P = require('internal/primordials');
+  // DOMException is a serializable interface: its clone steps live with its private
+  // slots (internal/domexception), which nothing here can read.
+  var cloneDOMException = require('internal/domexception').cloneDOMException;
   // Rebuilding a view through `value.constructor` is a configurable
   // prototype-chain read: poisoning `Uint8Array.prototype.constructor` made
   // structuredClone invoke attacker code with the internals' freshly cloned
@@ -121,6 +124,12 @@
     if (t === 'function') throw dataCloneError('Function could not be cloned.');
 
     if (seen.has(value)) return seen.get(value);
+
+    var domException = cloneDOMException(value);
+    if (domException !== undefined) {
+      seen.set(value, domException);
+      return domException;
+    }
 
     var tag = toString.call(value);
 

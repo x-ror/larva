@@ -296,8 +296,8 @@ global_surface_alternates_on_one_thread :: proc(t: ^testing.T) {
 // the state outlives init and the counter can be read.
 @(test)
 global_surface_web_skips_stdio :: proc(t: ^testing.T) {
-	node_init, node_events, node_ok := surface_resolve_compiles(.Node, "events")
-	web_init, web_events, web_ok := surface_resolve_compiles(.Web, "events")
+	node_init, node_events, node_ok, _ := surface_resolve_compiles(.Node, "events")
+	web_init, web_events, web_ok, _ := surface_resolve_compiles(.Web, "events")
 	testing.expect(t, node_ok, "node: the builtin resolver did not answer 'events'")
 	testing.expect(t, web_ok, "web: the builtin resolver did not answer 'events'")
 
@@ -346,7 +346,7 @@ global_surface_web_loads_no_node_module :: proc(t: ^testing.T) {
 			// Not the temp allocator: surface_resolve_compiles frees it on return.
 			id := strings.concatenate({dir.prefix, "/", file.name[:len(file.name) - len(".js")]})
 			defer delete(id)
-			_, compiles, answered := surface_resolve_compiles(.Web, id[len("node/"):])
+			_, compiles, answered, _ := surface_resolve_compiles(.Web, id[len("node/"):])
 			loaded := answered && compiles == 0
 			allowed := false
 
@@ -377,18 +377,50 @@ global_surface_web_loads_no_node_module :: proc(t: ^testing.T) {
 @(private = "file")
 WEB_NODE_MODULES :: [?]string{"node/buffer"}
 
-// surface_resolve_compiles inits a context on `surface` and returns how many builtin
-// factories init compiled, then how many one resolve of `spec` compiled on top, and
-// whether the resolver answered it with exports (false for an unknown or excluded id
-// and for a factory that threw).
+// A coded error raised on `.Web` renders its received value through
+// internal/util/inspect, not through node:util: `.Web` must not instantiate a node/
+// module (global_surface_web_loads_no_node_module), and internal/errors.js used to
+// reach node:util for exactly this text. The prelude takes the inspect path —
+// determineSpecificType on a constructor-less object — and checks the rendered
+// "[Object]" came back, so it cannot pass by throwing early. Lava-only: which
+// factories ran is not observable from a page.
+//
+// The trigger is URL.createObjectURL's ERR_INVALID_ARG_TYPE, itself a Node shape
+// on the Window surface that stage S4c of the removal turns into Chrome's TypeError;
+// when it does, the prelude reports false and this test needs another path into
+// internal/errors — or, once no web arm reaches internal/errors at all, deleting.
+@(test)
+global_surface_web_coded_error_loads_no_node_util :: proc(t: ^testing.T) {
+	_, compiles, answered, prelude_ok := surface_resolve_compiles(
+		.Web,
+		"util",
+		`(() => { try { URL.createObjectURL(Object.create(null)); return false; } catch (e) {
+			return e.code === 'ERR_INVALID_ARG_TYPE' && e.message.endsWith('Received [Object]'); } })()`,
+	)
+	testing.expect(t, prelude_ok, "prelude: createObjectURL did not raise the inspect-rendered coded error")
+	testing.expect(t, answered, "the builtin resolver did not answer 'util'")
+	testing.expectf(
+		t,
+		compiles > 0,
+		"resolving util after the coded error compiled nothing — rendering the error loaded node:util",
+	)
+}
+
+// surface_resolve_compiles inits a context on `surface`, evaluates `prelude` when one
+// is given, and returns how many builtin factories init and the prelude compiled, then
+// how many one resolve of `spec` compiled on top, whether the resolver answered it
+// with exports (false for an unknown or excluded id and for a factory that threw), and
+// whether the prelude completed with a truthy value (true when there is none).
 @(private = "file")
 surface_resolve_compiles :: proc(
 	surface: lava.Global_Surface,
 	spec: string,
+	prelude := "",
 ) -> (
 	at_init: int,
 	compiles: int,
 	answered: bool,
+	prelude_ok: bool,
 ) {
 	jsc.lava_jsc_init()
 	gclass := lava.make_global_class()
@@ -411,6 +443,7 @@ surface_resolve_compiles :: proc(
 	lava.setup_module_environment(ctx, "<global-surface-resolve-test>", nil, surface)
 	defer free_all(context.temp_allocator)
 
+	prelude_ok = prelude == "" || eval_truthy(ctx, prelude)
 	at_init = state.builtin_compiles
 	exception: jsc.JSValueRef
 	exports := lava.require_builtin(ctx, lava.js_string_value(ctx, spec), &exception)

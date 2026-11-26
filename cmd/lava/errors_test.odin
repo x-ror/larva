@@ -176,7 +176,8 @@ check_string_prop :: proc(t: ^testing.T, ctx: jsc.JSContextRef, obj: jsc.JSObjec
 	testing.expectf(t, got == want, "%s: got %q want %q", prop, got, want)
 }
 
-@(private = "file")
+// Package-visible: global_surface_test.odin runs its prelude through it too.
+@(private)
 eval_truthy :: proc(ctx: jsc.JSContextRef, expr: string) -> bool {
 	c_expr, err := strings.clone_to_cstring(expr, context.temp_allocator)
 

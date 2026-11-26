@@ -2164,10 +2164,10 @@
     },
     {
       "name": "atob_invalid_character_shape dies when the InvalidCharacterError code stops being the number 5",
-      "why": "Lava has no DOMException, so atob/btoa throw an Error carrying DOMException's name and legacy NUMERIC code 5; console.log prints '5' and 5 alike, so only the Lava-only test sees the type.",
-      "source": "pkg/runtime/js/internal/base64.js",
-      "find": "    e.code = 5;\n",
-      "replace": "    e.code = '5';\n",
+      "why": "DOMException's code getter answers from its names table; a string there reads '5' through console.log just as 5 does, so only the Lava-only test sees the type.",
+      "source": "pkg/runtime/js/internal/domexception.js",
+      "find": "    InvalidCharacterError: 5,\n",
+      "replace": "    InvalidCharacterError: '5',\n",
       "gate": "odin:cmd/lava:main.atob_invalid_character_shape",
       "expect_detail": [
         "code=string:5"
@@ -4641,6 +4641,127 @@
       "replace": "\tif true {",
       "gate": "odin:cmd/lava:main.run_refuses_lava_workers",
       "expect_detail": "must be refused"
+    },
+    {
+      "name": "abort-reason-shape dies when the loader stops handing internal/web_errors the surface",
+      "why": "Without the profile every shared module takes node's text on the Window surface: the default abort reason reads 'This operation was aborted' where Chrome reads 'signal is aborted without reason'.",
+      "source": "pkg/runtime/js/bootstrap/loader.js",
+      "find": "  natives['internal/web_errors'] = Object.freeze({ __proto__: null, web: web === true });",
+      "replace": "  natives['internal/web_errors'] = Object.freeze({ __proto__: null, web: false });",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL abort-reason-shape"
+    },
+    {
+      "name": "crypto-random-errors dies when a Window-surface WebIDL TypeError carries a code",
+      "why": "A page's TypeError has no own `code` in Chrome; an ERR_*-style code leaking through the shared builder is the Node shape §5 forbids on the Window surface.",
+      "source": "pkg/runtime/js/internal/web_errors.js",
+      "find": "    return pageError(new TypeErrorP(context(iface, op) + detail));",
+      "replace": "    var e = pageError(new TypeErrorP(context(iface, op) + detail));\n    e.code = 'ERR_INVALID_ARG_TYPE';\n    return e;",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL crypto-random-errors"
+    },
+    {
+      "name": "domexception-errors dies when DOMException's accessors stop brand-checking their receiver",
+      "why": "Chrome answers Illegal invocation for DOMException.prototype.name; without the brand check the getter reads a private field off a foreign object and throws JSC's own TypeError text instead.",
+      "source": "pkg/runtime/js/internal/domexception.js",
+      "find": "        if (typeof o !== 'object' || o === null || !(#name in o)) {",
+      "replace": "        if (typeof o !== 'object' || o === null) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL domexception-errors"
+    },
+    {
+      "name": "domexception-class dies when the legacy codes table inherits from Object.prototype",
+      "why": "new DOMException('', 'constructor').code must be 0; an ordinary object literal answers Object for that name and '__proto__' for the other.",
+      "source": "pkg/runtime/js/internal/domexception.js",
+      "find": "  var CODES = {\n    __proto__: null,\n",
+      "replace": "  var CODES = {\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL domexception-class"
+    },
+    {
+      "name": "crypto-random dies when getRandomValues stops refusing non-integer views",
+      "why": "Chrome throws TypeMismatchError for a Float32Array; filling it would hand a page random float bit patterns (NaNs included) instead of the error.",
+      "source": "pkg/runtime/js/internal/crypto/random.js",
+      "find": "    if (kind === undefined || INTEGER_VIEWS[kind] !== true) {",
+      "replace": "    if (kind === undefined) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL crypto-random"
+    },
+    {
+      "name": "base64-errors dies when atob's Window-surface text falls back to node's",
+      "why": "Chrome has one sentence for every atob decode failure, prefixed with its WebIDL context; node's 'Invalid character' is the Node surface's text only.",
+      "source": "pkg/runtime/js/internal/base64.js",
+      "find": "    var message = nodeMessage;\n    if (web) {",
+      "replace": "    var message = nodeMessage;\n    if (false) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL base64-errors"
+    },
+    {
+      "name": "global_surface_web_coded_error_loads_no_node_util dies when internal/errors renders through node:util again",
+      "why": "A coded error raised on the Window surface then instantiates node:util and everything it requires — a node/ module `.Web` must never load.",
+      "source": "pkg/runtime/js/internal/errors.js",
+      "find": "    if (inspectFn === null) inspectFn = require('internal/util/inspect').inspect;",
+      "replace": "    if (inspectFn === null) inspectFn = require('util').inspect;",
+      "gate": "odin:cmd/lava:main.global_surface_web_coded_error_loads_no_node_util",
+      "expect_detail": [
+        "rendering the error loaded node:util"
+      ]
+    },
+    {
+      "name": "errors-stack dies when pageError stops dropping the leading internal frames",
+      "why": "A page's caught error then lists node:internal/web_errors, domexception and the thrower's own frames, which Chrome's stacks never show — and which name Node in every web error.",
+      "source": "pkg/runtime/js/internal/web_errors.js",
+      "find": "      e.stack = scrubStack(StringP(e.stack));",
+      "replace": "      e.stack = StringP(e.stack);",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL errors-stack"
+    },
+    {
+      "name": "domexception-class dies when a constructed DOMException keeps JSC's own line property",
+      "why": "Chrome's `new DOMException()` owns no property at all; JSC's Error constructor leaves line/column/sourceURL/stack pointing into internal/domexception.",
+      "source": "pkg/runtime/js/internal/domexception.js",
+      "find": "      delete self.line;\n",
+      "replace": "",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL domexception-class"
+    },
+    {
+      "name": "domexception-class dies when DOMException.prototype keeps constructor first",
+      "why": "Chrome lists code, name, message, the 25 constants, then constructor; a class puts constructor first, an order getOwnPropertyNames shows.",
+      "source": "pkg/runtime/js/internal/domexception.js",
+      "find": "  reAppendConstructor(DOMException.prototype);\n",
+      "replace": "",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL domexception-class"
+    },
+    {
+      "name": "clone-domexception dies when structuredClone loses the DOMException arm",
+      "why": "Without it a DOMException clones through the Error arm as a plain Error: no brand, name Error, code undefined, and QuotaExceededError's quota/requested lost.",
+      "source": "pkg/runtime/js/internal/structured_clone.js",
+      "find": "    var domException = cloneDOMException(value);",
+      "replace": "    var domException = undefined;",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL clone-domexception"
+    },
+    {
+      "name": "crypto-random-errors dies when getRandomValues stops brand-checking its receiver",
+      "why": "Chrome throws Illegal invocation for getRandomValues.call({}) and a detached call; without the check Lava fills the view.",
+      "source": "pkg/runtime/js/internal/crypto/random.js",
+      "find": "    if (web && this !== cryptoObject) {",
+      "replace": "    if (false) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL crypto-random-errors"
+    },
+    {
+      "name": "domexception_class_engine_traits dies when the DOMException global stops being the class",
+      "why": "The pin holds the call-without-new deviation to JSC's class text; a callable stand-in answers 'no throw', which is neither Chrome's nor the declared deviation.",
+      "source": "pkg/runtime/js/internal/domexception.js",
+      "find": "    value: DOMException,\n",
+      "replace": "    value: function DOMException() {},\n",
+      "gate": "odin:cmd/lava:main.domexception_class_engine_traits",
+      "expect_detail": [
+        "domexception: got no throw"
+      ]
     }
   ]
 }

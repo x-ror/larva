@@ -393,6 +393,7 @@
     // writable property on it, so a lazily-evaluated module reading `P.Symbol.for` at its
     // own module-eval still reads whatever user code left there.
     SymbolFor: Symbol.for,
+    SymbolToStringTag: Symbol.toStringTag,
     PromiseResolve: function (value) {
       return reflectApply(promiseResolve, PromiseCtor, [value]);
     },
@@ -445,6 +446,7 @@
     ReflectApply: Reflect.apply,
     ReflectOwnKeys: Reflect.ownKeys,
     ReflectGetPrototypeOf: Reflect.getPrototypeOf,
+    ReflectConstruct: Reflect.construct,
     JSONStringify: JSON.stringify,
     JSONParse: JSON.parse,
     MathTrunc: Math.trunc,
@@ -569,6 +571,17 @@
       // conditionally rather than assumed present.
       ...(typeof Float16Array === 'function' ? [[Float16Array.prototype, Float16Array]] : []),
     ]),
+
+    // %TypedArray%.prototype[Symbol.toStringTag] — the kind name read from the internal
+    // slot ("Float32Array"), undefined for anything that is not a TypedArray (a DataView
+    // included). Neither a subclass nor an own Symbol.toStringTag changes its answer, so
+    // it is a brand test, which a live `instanceof Float32Array` is not.
+    TypedArrayPrototypeGetSymbolToStringTag: safeGetter(
+      Object.getOwnPropertyDescriptor(
+        Object.getPrototypeOf(Uint8Array.prototype),
+        Symbol.toStringTag,
+      ).get,
+    ),
 
     // %TypedArray%.prototype.length — configurable like the rest. Excluded from
     // the ratchet's ACCESSOR list because a poisoned length cannot WIDEN a view
