@@ -25,7 +25,7 @@ endif
 SOURCE ?= console.log('hello from Lava')
 FILE ?=
 
-.PHONY: gates test-stdio test-web record-web help env sdk-diff test-one bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-html-odin test-http-odin test-sqlite-odin test-sqlite-node test-sqlite-lava test-fs-node test-fs-lava test-eventloop-node test-eventloop-lava test-fetch-smoke test-net-smoke test-http-smoke test-https-smoke test-multicore-smoke test-zerocopy-smoke bench bench-gate bench-http fmt clean test-bench-pages-smoke bench-pages
+.PHONY: gates test-stdio test-web record-web help env sdk-diff test-one bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-html-odin test-http-odin test-sqlite-odin test-odin-green test-eventloop-node test-eventloop-lava test-fetch-smoke bench bench-gate fmt clean test-bench-pages-smoke bench-pages
 
 help:
 	@printf '%s\n' 'Lava commands'
@@ -65,6 +65,7 @@ help:
 	@printf '%s\n' '  make test-odin          Odin tests for cmd/lava'
 	@printf '%s\n' '  make test-one T=a,b     Only the named Odin tests (PKG=pkg/runtime for another package)'
 	@printf '%s\n' '  make test-odin-serial   cmd/lava Odin tests on ONE runner thread'
+	@printf '%s\n' '  make test-odin-green    cmd/lava Odin tests minus cmd/lava/known-node-red.txt (CI)'
 	@printf '%s\n' '  make test-eventloop-odin Odin event-loop unit tests (serial)'
 	@printf '%s\n' '  make test-runtime-odin  Odin tests for pkg/runtime'
 	@printf '%s\n' '  make test-html-odin     Odin tests for pkg/html (lexbor + shim)'
@@ -73,8 +74,6 @@ help:
 	@printf '%s\n' '  make test-compat        Node-only node-compat cases (+ */ported)'
 	@printf '%s\n' '  make test-compat-lava   node-compat node-vs-Lava (skips known-lava-gaps)'
 	@printf '%s\n' '  make test-compat-lava-strict node-compat node-vs-Lava (no skips)'
-	@printf '%s\n' '  make test-fs-node / test-fs-lava'
-	@printf '%s\n' '  make test-sqlite-node / test-sqlite-lava'
 	@printf '%s\n' '  make test-eventloop-node / test-eventloop-lava'
 	@printf '%s\n' '  make test-stdio         node:test over tests/stdio (needs bin/lava)'
 	@printf '%s\n' '  make test-web           Window-profile cases vs their Chrome recordings (tests/web)'
@@ -86,14 +85,12 @@ help:
 	@printf '%s\n' '  make bun-buffer-tests   Ported Buffer cases node-vs-Lava'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Smokes (bind local ports)'
-	@printf '%s\n' '  make test-fetch-smoke test-net-smoke test-http-smoke'
-	@printf '%s\n' '  make test-https-smoke test-multicore-smoke test-zerocopy-smoke'
+	@printf '%s\n' '  make test-fetch-smoke     fetch client against a local node-run origin'
 	@printf '%s\n' '  make test-bench-pages-smoke  bench/pages builds, runs, and fails on a refused page'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Bench / report'
 	@printf '%s\n' '  make bench              node-vs-Lava ratio table (report-only)'
 	@printf '%s\n' '  make bench-gate         Fail if any ratio exceeds bench/thresholds.json'
-	@printf '%s\n' '  make bench-http         HTTP throughput/latency report (not in CI)'
 	@printf '%s\n' '  make bench-pages        Pages per thread: start-up, RSS, pages/s (not in CI)'
 	@printf '%s\n' '  make api-surface        Buffer/Crypto surface diff vs Node (report-only)'
 	@printf '%s\n' ''
@@ -318,6 +315,13 @@ test-one: native-deps
 test-odin-serial: native-deps
 	$(ODIN) test cmd/lava -collection:lava=. -define:ODIN_TEST_THREADS=1
 
+# cmd/lava's tests minus cmd/lava/known-node-red.txt — the ones red in the default build
+# because their pages require a Node module that is gone (S5a rewrites them). What CI's
+# test job runs; a skip entry naming a missing test fails it. SERIAL=1 runs it on one
+# runner thread, as test-odin-serial does, and for the same reason.
+test-odin-green: native-deps
+	ODIN="$(ODIN)" ./scripts/run-odin-green.sh $(if $(SERIAL),-define:ODIN_TEST_THREADS=1,)
+
 # ONE runner thread: the loop owns process-wide resources (descriptors, and the
 # rlimit that failed_platform_init_does_not_double_close has to tighten to reach
 # the EMFILE path), so tests here cannot run beside each other without turning
@@ -352,18 +356,6 @@ test-sqlite-odin:
 	$(ODIN) test pkg/std/sqlite
 endif
 
-test-sqlite-node:
-	$(RUNSCRIPT) ./scripts/run-sqlite-oracle.sh
-
-test-sqlite-lava: build
-	RUN_LAVA=1 LAVA_BIN="$(LAVA)" ./scripts/run-sqlite-oracle.sh
-
-test-fs-node:
-	$(RUNSCRIPT) ./scripts/run-fs-oracle.sh
-
-test-fs-lava: build
-	RUN_LAVA=1 LAVA_BIN="$(LAVA)" ./scripts/run-fs-oracle.sh
-
 test-eventloop-node:
 	$(RUNSCRIPT) ./scripts/run-eventloop-oracle.sh
 
@@ -372,26 +364,6 @@ test-eventloop-lava: build
 
 test-fetch-smoke: build
 	LAVA_BIN="$(LAVA)" ./scripts/run-fetch-smoke.sh
-
-test-net-smoke: build
-	LAVA_BIN="$(LAVA)" ./scripts/run-net-smoke.sh
-	LAVA_BIN="$(LAVA)" LAVA_NET_FORCE_READINESS=1 ./scripts/run-net-smoke.sh
-
-test-http-smoke: build
-	LAVA_BIN="$(LAVA)" ./scripts/run-http-smoke.sh
-	LAVA_BIN="$(LAVA)" LAVA_NET_FORCE_READINESS=1 ./scripts/run-http-smoke.sh
-
-# The https smoke drives BOTH backends itself (proactor + readiness inside the script), so it is a
-# single invocation unlike the http/zerocopy smokes.
-test-https-smoke: build
-	LAVA_BIN="$(LAVA)" ./scripts/run-https-smoke.sh
-
-test-multicore-smoke: build
-	LAVA_BIN="$(LAVA)" ./scripts/run-multicore-smoke.sh
-
-test-zerocopy-smoke: build
-	LAVA_BIN="$(LAVA)" ./scripts/run-zerocopy-smoke.sh
-	LAVA_BIN="$(LAVA)" LAVA_NET_FORCE_READINESS=1 ./scripts/run-zerocopy-smoke.sh
 
 # bench/pages, small: a valid run must report no failed page and a budget-0 run must
 # exit 1 with every page counted failed. Links the runtime, so native-deps, not lava.
@@ -406,11 +378,6 @@ bench: build
 
 bench-gate: build
 	LAVA_BIN="$(LAVA)" ./scripts/run-bench.sh --gate
-
-# HTTP server benchmark: hello-world throughput (req/s, latency) and memory-per-idle-
-# connection for Lava vs Node vs Bun. Report-only; binds local ports.
-bench-http: build
-	LAVA_BIN="$(LAVA)" $${NODE_BIN:-node} bench/http/run-http-bench.mjs
 
 # Pages per thread (#4): N = 1/10/50/100 concurrent pages on one thread's page runner —
 # cold vs warm VM start-up, process RSS growth per live page and per VM, pages/s. Medians
@@ -429,7 +396,7 @@ test-lava: build
 # behaviour with no coverage: it was only ever exercised by the macOS and Windows
 # jobs, which have been disabled since the Linux-first switch, and it is exactly
 # where a JSC upgrade that renamed the mangled symbol pkg/jsc dlsyms would land the
-# whole runtime. Same idea as test-net-smoke running both socket backends.
+# whole runtime.
 test-lava-nohostfn: build
 	RUN_LAVA=1 LAVA_BIN="$(LAVA)" LAVA_HOSTFN_DISABLE=1 ./scripts/run-oracles.sh
 

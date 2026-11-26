@@ -194,7 +194,6 @@ g_host_tables_live: int
 // Why it exists: the tables are thread_local and bound to the heap (bind_host_tables),
 // and nothing else ever deletes them, so every thread that ran JS and ended leaked
 // both backings — once per worker thread per lifetime. Pinned by
-// workers_give_back_their_host_tables (pkg/runtime/workers_test.odin) and
 // dispatcher_workers_give_back_their_host_tables.
 host_native_thread_teardown :: proc() {
 	if !g_host_tables_bound {

@@ -1,33 +1,22 @@
-// node:crypto — hashing, HMAC, CSPRNG and PBKDF2 backed by the Odin crypto
-// stdlib. The `native` bindings object (fourth factory argument, supplied by the
-// loader) exposes primitives implemented in pkg/runtime/crypto.odin:
+// node:crypto — the CSPRNG and timingSafeEqual, backed by the Odin crypto stdlib. The
+// `native` bindings object (fourth factory argument, supplied by the loader) exposes
+// primitives implemented in pkg/runtime/crypto.odin:
 //
 //   native.randomFill(typedArray)              -> fills in place with OS CSPRNG bytes
 //   native.randomInt(range)                    -> uniform integer in [0, range)
-//   native.hash(algo, Uint8Array)              -> digest Uint8Array
-//   native.hmac(algo, key, data)               -> HMAC Uint8Array
-//   native.pbkdf2(algo, password, salt, it, n) -> derived-key Uint8Array
-//   native.hkdf(algo, ikm, salt, info, n)      -> derived-key Uint8Array
 //   native.timingSafeEqual(a, b)               -> constant-time boolean
 //
 // The implementation is split along node's lib/internal/crypto seams:
-// internal/crypto/{util,hash,random,pbkdf2,hkdf,scrypt}.js. This file stays the public
-// entry: it assembles the exports in their old order, keeps createHash/createHmac and
-// timingSafeEqual where node keeps them (lib/crypto.js). The WHATWG `globalThis.crypto`
-// is installed by internal/crypto/random.js, so the Window surface has it without this
-// file. The loader hands hash/random/pbkdf2/hkdf/scrypt this same `native` object (see
+// internal/crypto/{util,random}.js. This file stays the public entry: it assembles the
+// exports and keeps timingSafeEqual where node keeps it (lib/crypto.js). The WHATWG
+// `globalThis.crypto` is installed by internal/crypto/random.js, so the Window surface
+// has it without this file. The loader hands random this same `native` object (see
 // bootstrap/loader.js), so there is one binding set per context.
 //
-// Streaming (createHash().update()…digest()) is handled in internal/crypto/hash by
-// accumulating chunks and calling the one-shot native primitive once at digest time, so
-// no streaming state has to cross the native boundary.
-//
-// Higher-level KDFs that decompose into the primitives above are built in JS:
-// scrypt (RFC 7914, internal/crypto/scrypt) runs Salsa20/8 + BlockMix/ROMix on top of
-// native.pbkdf2 (PBKDF2-HMAC-SHA256), so it needs no extra native code and is
-// identical on every platform. OpenSSL/Node digest aliases (e.g. RSA-SHA256 ->
-// sha256) are normalized to canonical names in internal/crypto/util, so the native
-// layer only ever sees the names in HASHES.
+// Hashing, HMAC and the KDFs (createHash/createHmac/hash/getHashes, pbkdf2, hkdf,
+// scrypt) went with the Node-profile removal (docs/LARVA.md decision 1): no page can
+// reach node:crypto, and the Window profile's `crypto.subtle` is to be built on
+// core:crypto when it is needed, not on these Node shapes.
 (function (require, module, exports, native) {
   'use strict';
 
@@ -35,11 +24,6 @@
   var nativeError = require('internal/errors').nativeError;
   var util = require('internal/crypto/util');
   var toU8 = util.toU8;
-  var getHashes = util.getHashes;
-  var hashModule = require('internal/crypto/hash');
-  var Hash = hashModule.Hash;
-  var Hmac = hashModule.Hmac;
-  var hash = hashModule.hash;
   var random = require('internal/crypto/random');
   var randomBytes = random.randomBytes;
   var randomFillSync = random.randomFillSync;
@@ -47,15 +31,6 @@
   var randomInt = random.randomInt;
   var randomUUID = random.randomUUID;
   var getRandomValues = random.getRandomValues;
-  var pbkdf2Module = require('internal/crypto/pbkdf2');
-  var pbkdf2 = pbkdf2Module.pbkdf2;
-  var pbkdf2Sync = pbkdf2Module.pbkdf2Sync;
-  var hkdfModule = require('internal/crypto/hkdf');
-  var hkdf = hkdfModule.hkdf;
-  var hkdfSync = hkdfModule.hkdfSync;
-  var scryptModule = require('internal/crypto/scrypt');
-  var scrypt = scryptModule.scrypt;
-  var scryptSync = scryptModule.scryptSync;
 
   function notImplemented(name) {
     return function () {
@@ -75,14 +50,6 @@
         'node:crypto ' + name + ' is not implemented in Lava',
       );
     };
-  }
-
-  function createHash(algorithm) {
-    return new Hash(algorithm);
-  }
-
-  function createHmac(algorithm, key) {
-    return new Hmac(algorithm, key);
   }
 
   // Constant-time comparison: never short-circuits on the first differing byte.
@@ -191,24 +158,12 @@
   };
 
   var exported = {
-    Hash: Hash,
-    Hmac: Hmac,
-    createHash: createHash,
-    createHmac: createHmac,
-    hash: hash,
-    getHashes: getHashes,
     timingSafeEqual: timingSafeEqual,
     randomBytes: randomBytes,
     randomFillSync: randomFillSync,
     randomFill: randomFill,
     randomInt: randomInt,
     randomUUID: randomUUID,
-    pbkdf2: pbkdf2,
-    pbkdf2Sync: pbkdf2Sync,
-    hkdf: hkdf,
-    hkdfSync: hkdfSync,
-    scrypt: scrypt,
-    scryptSync: scryptSync,
     getFips: getFips,
     constants: constants,
   };

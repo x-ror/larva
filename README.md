@@ -23,7 +23,8 @@ for how the runtime pieces fit together.
 - Odin at the commit pinned in [`.odin-version`](.odin-version) (LLVM 18); `make env`
   shows whether your compiler and SDK checkout match it
 - JavaScriptCore development headers and libraries
-- SQLite development headers and libraries (for `node:sqlite`)
+- SQLite development headers and libraries (for `pkg/std/sqlite`'s own tests; nothing
+  else links SQLite)
 - OpenSSL development headers and libraries (for `fetch` HTTPS/TLS). The roadmap
   replaces it with BoringSSL (stage 2); until that lands, OpenSSL is what links.
 - zlib, brotli (`libbrotlidec`) and zstd development headers and libraries (Linux):
@@ -76,8 +77,8 @@ make check-jsc
 make check-native
 make test
 make test-lava
-make test-sqlite-node
-make test-sqlite-lava
+make test-web
+make test-sqlite-odin
 make check-js
 make check-md
 make test-property
@@ -89,11 +90,11 @@ make bench
 
 - `cmd/lava` - command line entry point, and the Lava-only Odin tests
 - `pkg/runtime` - JavaScript runtime orchestration and native primitives
-- `pkg/runtime/js` - embedded JavaScript: `Buffer`, `fetch`, streams, `URL`, `http`
+- `pkg/runtime/js` - embedded JavaScript: `Buffer`, `fetch`, streams, `URL`
 - `pkg/runtime/eventloop` - native event-loop abstraction using io_uring/epoll on Linux
 - `pkg/jsc` - JavaScriptCore foreign declarations and the private-ABI probes
-- `pkg/std/sqlite` - SQLite bindings
-- `tests` - oracle suites (`node-compat`, `runtime`, `std`, `stdio`), differential
+- `pkg/std/sqlite` - SQLite bindings (kept for storage; nothing links them yet)
+- `tests` - oracle suites (`web`, `node-compat`, `runtime`, `stdio`), differential
   property tests (`property`) and the mutation manifest
 - `bench` - node-vs-Lava benchmarks, and `bench/jsc-vm` for JSC VM costs
 - `runtime/gates` - gate integrity checks and the oracle case-count assertions

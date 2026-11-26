@@ -3,9 +3,16 @@ package lava_runtime
 
 import win "core:sys/windows"
 
+// Not in core:sys/windows; hand-declared (it lived beside the node:os kernel32 calls
+// until those went with the Node profile).
+foreign import kernel32 "system:Kernel32.lib"
+@(default_calling_convention = "stdcall")
+foreign kernel32 {
+	GetThreadTimes :: proc(hThread: win.HANDLE, lpCreationTime, lpExitTime, lpKernelTime, lpUserTime: ^win.FILETIME) -> win.BOOL ---
+}
+
 // thread_cpu_ns: same contract as the POSIX one (vm_cpu_posix.odin) — the calling
 // thread's user + kernel time, which does not advance while the thread is blocked.
-// GetThreadTimes is declared with the other hand-bound kernel32 calls in os_windows.odin.
 // Unreachable today — Windows eval runs without a pooled VM and refuses limits — and
 // kept real rather than stubbed so a future Windows pool cannot inherit a clock that
 // silently never advances.

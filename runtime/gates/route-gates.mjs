@@ -26,29 +26,37 @@ export const TIERS = {
     'make fmt',
     'make test-scripts',
     'make check-js',
-    'make test-odin-serial',
+    'make test-odin-green',
+    'make test-odin-green SERIAL=1',
   ],
   L1: [
     'make check',
-    'make test',
+    'make test-web',
+    // Out of CI during the Node-profile removal: red by design on the default build
+    // (node-compat and eventloop oracles assert deleted Node modules), so a local run is
+    // read against master's red set, not as pass/fail (gates.md).
     'make test-lava',
     'make bench-gate',
     // Non-CI routed (must run locally — plan F1/F4)
     'make bun-buffer-tests',
     'make api-surface',
     'make test-compat-lava-strict',
-    'make bench-http',
   ],
-  L2: ['make test-mutation', 'make bench-http', 'make test-lava-nohostfn'],
+  L2: ['make test-mutation', 'make test-lava-nohostfn'],
 };
 
-/** Always-run mechanical set for any non-empty diff. */
+/**
+ * Always-run mechanical set for any non-empty diff. Since S3 of the Node-profile removal
+ * the cmd/lava gate is test-odin-green (cmd/lava minus cmd/lava/known-node-red.txt, what CI
+ * runs), threaded and on one runner thread; `make test`, `make test-odin-serial` and
+ * `make test-lava` are red by design on the default build and are no longer always-gates.
+ */
 export const ALWAYS = [
   'make check',
   'make build',
-  'make test',
-  'make test-lava',
-  'make test-odin-serial',
+  'make test-odin-green',
+  'make test-odin-green SERIAL=1',
+  'make test-web',
 ];
 
 /**
@@ -92,16 +100,26 @@ function globToRe(pat) {
 const ROUTES = [
   {
     re: globToRe('pkg/runtime/buffer*.odin'),
-    targets: ['make test-odin', 'make bun-buffer-tests', 'make api-surface', 'make bench-gate'],
+    targets: [
+      'make test-odin-green',
+      'make bun-buffer-tests',
+      'make api-surface',
+      'make bench-gate',
+    ],
   },
   {
     re: globToRe('pkg/runtime/typed_array.odin'),
-    targets: ['make test-odin', 'make bun-buffer-tests', 'make api-surface', 'make bench-gate'],
+    targets: [
+      'make test-odin-green',
+      'make bun-buffer-tests',
+      'make api-surface',
+      'make bench-gate',
+    ],
   },
   {
     re: globToRe('pkg/jsc/**'),
     targets: [
-      'make test-odin',
+      'make test-odin-green',
       'make bun-buffer-tests',
       'make api-surface',
       'make bench-gate',
@@ -109,36 +127,19 @@ const ROUTES = [
     ],
   },
   {
-    re: globToRe('pkg/runtime/http.odin'),
-    targets: ['make test-http-smoke', 'make bench-http'],
-  },
-  {
-    re: globToRe('**/js/node/http.js'),
-    targets: ['make test-http-smoke', 'make bench-http'],
-  },
-  {
-    re: globToRe('**/js/internal/http/**'),
-    targets: ['make test-http-smoke', 'make bench-http'],
-  },
-  {
+    // The response-head parser both HTTP stacks import (fetch.odin and pkg/http).
     re: globToRe('**/picohttpparser/**'),
-    targets: ['make test-http-smoke', 'make bench-http'],
+    targets: ['make test-fetch-smoke', 'make test-http-odin'],
   },
   {
-    re: globToRe('pkg/runtime/net.odin'),
-    targets: ['make test-net-smoke', 'make test-zerocopy-smoke'],
-  },
-  {
-    re: globToRe('**/js/node/net.js'),
-    targets: ['make test-net-smoke', 'make test-zerocopy-smoke'],
-  },
-  {
+    // tls_darwin.odin: fetch's TLS on darwin.
     re: globToRe('pkg/runtime/tls*.odin'),
-    targets: ['make test-https-smoke'],
+    targets: ['make test-fetch-smoke'],
   },
   {
-    re: globToRe('**/js/node/https.js'),
-    targets: ['make test-https-smoke'],
+    // The OpenSSL client both HTTP stacks share (fetch and pkg/http).
+    re: globToRe('pkg/tls/**'),
+    targets: ['make test-fetch-smoke', 'make test-http-odin'],
   },
   {
     re: globToRe('pkg/runtime/fetch*.odin'),
@@ -157,20 +158,8 @@ const ROUTES = [
     targets: ['make test-eventloop-odin', 'make test-eventloop-lava', 'make test-web'],
   },
   {
-    re: globToRe('pkg/runtime/fs*.odin'),
-    targets: ['make test-fs-lava'],
-  },
-  {
-    re: globToRe('pkg/runtime/os_*.odin'),
-    targets: ['make test-fs-lava'],
-  },
-  {
-    re: globToRe('**/js/node/fs.js'),
-    targets: ['make test-fs-lava'],
-  },
-  {
     re: globToRe('**/js/node/stream.js'),
-    targets: ['make test-http-smoke', 'make test-net-smoke', 'make test-stdio'],
+    targets: ['make test-stdio'],
   },
   {
     re: globToRe('pkg/runtime/require.odin'),
@@ -182,14 +171,7 @@ const ROUTES = [
   },
   {
     re: globToRe('**/js/bootstrap/loader.js'),
-    targets: [
-      'make test-compat-lava-strict',
-      'make test-fs-lava',
-      'make test-http-smoke',
-      'make test-net-smoke',
-      'make test-https-smoke',
-      'make test-stdio',
-    ],
+    targets: ['make test-compat-lava-strict', 'make test-stdio'],
   },
   {
     re: globToRe('**/js/bootstrap/esm.js'),
@@ -197,15 +179,15 @@ const ROUTES = [
   },
   {
     re: globToRe('pkg/runtime/crypto.odin'),
-    targets: ['make test-odin', 'make test-compat-lava', 'make api-surface'],
+    targets: ['make test-odin-green', 'make test-compat-lava', 'make api-surface'],
   },
   {
     re: globToRe('**/js/node/crypto.js'),
-    targets: ['make test-odin', 'make test-compat-lava', 'make api-surface'],
+    targets: ['make test-odin-green', 'make test-compat-lava', 'make api-surface'],
   },
   {
     re: globToRe('**/js/internal/crypto/*.js'),
-    targets: ['make test-odin', 'make test-compat-lava', 'make api-surface'],
+    targets: ['make test-odin-green', 'make test-compat-lava', 'make api-surface'],
   },
   {
     re: globToRe('pkg/runtime/js/**/*.js'),
@@ -232,6 +214,12 @@ const ROUTES = [
     targets: ['make test-property'],
   },
   {
+    // The known-red skip list and its runner: CI pins both by sha256 (ci.yml), so a change
+    // here also needs ci.yml, and a human.
+    re: globToRe('{cmd/lava/known-node-red.txt,scripts/run-odin-green.sh}'),
+    targets: ['make test-odin-green', 'make test-odin-green SERIAL=1', 'make check-actions'],
+  },
+  {
     re: globToRe('scripts/**'),
     targets: ['make test-scripts'],
   },
@@ -252,10 +240,6 @@ const ROUTES = [
     targets: ['make check-actions', '__ALL__'],
   },
   {
-    re: globToRe('pkg/runtime/workers*.odin'),
-    targets: ['make test-multicore-smoke'],
-  },
-  {
     re: globToRe('pkg/runtime/stdio*.odin'),
     targets: ['make test-stdio'],
   },
@@ -269,7 +253,7 @@ const ROUTES = [
   },
   {
     re: globToRe('pkg/runtime/globals.odin'),
-    targets: ['make test-odin', 'make test-compat-lava', 'make test-web'],
+    targets: ['make test-odin-green', 'make test-compat-lava', 'make test-web'],
   },
   {
     // The Window-profile oracle (tests/web): every shared Web API module, the
@@ -303,7 +287,7 @@ const ROUTES = [
   },
   {
     re: globToRe('pkg/std/sqlite/**'),
-    targets: ['make test-sqlite-odin', 'make test-sqlite-lava'],
+    targets: ['make test-sqlite-odin'],
   },
   {
     // Predicate: mutation-manifest sources — loaded at route time
@@ -369,7 +353,12 @@ export function routePaths(paths) {
     'make bun-buffer-tests',
     'make api-surface',
     'make test-compat-lava-strict',
-    'make bench-http',
+    // Out of CI during the Node-profile removal (gates.md).
+    'make test-lava',
+    'make test-lava-nohostfn',
+    'make test-property',
+    'make test-stdio',
+    'make bench-gate',
   ].filter((t) => targets.has(t));
 
   return { targets: [...targets], matched, nonCi };

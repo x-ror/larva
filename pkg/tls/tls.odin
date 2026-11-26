@@ -40,16 +40,6 @@ SSL_METHOD :: distinct rawptr
 X509_VERIFY_PARAM :: distinct rawptr
 X509 :: distinct rawptr
 X509_STORE :: distinct rawptr
-// Server-side (https.createServer, tls_server.odin): memory BIOs decouple SSL from the
-// fd so SSL_read/SSL_write run on completion-mode buffers, and EVP_PKEY/X509 carry the
-// PEM-loaded key+cert. Declared here (with the other OpenSSL types) so the foreign block
-// below names them; the server LOGIC that uses them is Linux-only (tls_server.odin).
-BIO :: distinct rawptr
-BIO_METHOD :: distinct rawptr
-EVP_PKEY :: distinct rawptr
-// pem_password_cb(buf, size, rwflag, userdata) -> length. tls_server.odin passes a no-op that
-// returns 0 so an encrypted key fails to load rather than blocking on a terminal prompt.
-PEM_password_cb :: #type proc "c" (buf: rawptr, size: c.int, rwflag: c.int, userdata: rawptr) -> c.int
 
 // SSL_get_error result codes (openssl/ssl.h) that the transport acts on.
 SSL_ERROR_SSL :: 1
@@ -81,27 +71,6 @@ SSL_CTRL_SET_MIN_PROTO_VERSION :: 123
 TLSEXT_NAMETYPE_host_name :: 0
 TLS1_2_VERSION :: 0x0303
 
-// --- TLS server (tls_server.odin / https.createServer) ----------------------
-// _set_mode / _set_session_cache_mode / add_extra_chain_cert are header MACROS over SSL_CTX_ctrl
-// and STILL dispatch through it (verified against OpenSSL 3.5.5), so we invoke the ctrl with these
-// command numbers (stable across 1.1.x / 3.x). NOTE: SSL_CTX_set_options is the EXCEPTION — it
-// became a real exported function in OpenSSL 1.1.0 and SSL_CTRL_OPTIONS (32) is no longer dispatched
-// by SSL_CTX_ctrl (a ctrl call silently returns 0 and sets nothing), so it is bound as a function
-// below, NOT invoked via ctrl.
-SSL_CTRL_MODE :: 33
-SSL_CTRL_SET_SESS_CACHE_MODE :: 44
-SSL_CTRL_EXTRA_CHAIN_CERT :: 14
-// Hardening bits (openssl/ssl.h). min-proto TLS 1.2 already disables SSLv3/TLS1.0/1.1, so
-// the only options we set are: refuse peer renegotiation (a DoS vector; gone in TLS 1.3)
-// and suppress TLS 1.2 session tickets (resumption is deferred — see also num_tickets(0)).
-SSL_OP_NO_RENEGOTIATION :: 0x40000000
-SSL_OP_NO_TICKET :: 0x00004000
-// Free each SSL's ~16 KiB read/write buffers between records so many idle keep-alive TLS
-// conns stay cheap (the http server's memory moat); SSL_SESS_CACHE_OFF keeps "no resumption"
-// honest and bounds the server session cache.
-SSL_MODE_RELEASE_BUFFERS :: 0x00000010
-SSL_SESS_CACHE_OFF :: 0x0
-
 @(default_calling_convention = "c")
 foreign openssl_lib {
 	TLS_client_method :: proc() -> SSL_METHOD ---
@@ -131,37 +100,7 @@ foreign openssl_lib {
 	d2i_X509 :: proc(px: ^X509, in_: ^[^]byte, len: c.long) -> X509 ---
 	X509_free :: proc(x: X509) ---
 
-	// --- TLS server (tls_server.odin). Symbols are declared on every platform tls.odin
-	// builds for (linux, windows); only the Linux server logic references them, so an
-	// unreferenced build (Windows) needs no link dependency on them. ---
-	TLS_server_method :: proc() -> SSL_METHOD ---
-	SSL_set_accept_state :: proc(ssl: SSL) ---
-	SSL_accept :: proc(ssl: SSL) -> c.int ---
-	SSL_shutdown :: proc(ssl: SSL) -> c.int ---
-	SSL_CTX_set_num_tickets :: proc(ctx: SSL_CTX, num_tickets: c.size_t) -> c.int ---
-	// Real function since OpenSSL 1.1.0 (NOT a ctrl macro — see the SSL_CTRL note above). On 64-bit
-	// the ABI is identical for OpenSSL 1.1.1's `unsigned long` and 3.x's `uint64_t`, and net is
-	// Linux/64-bit only, so binding the wider uint64 is safe for both.
-	SSL_CTX_set_options :: proc(ctx: SSL_CTX, op: c.uint64_t) -> c.uint64_t ---
-	// Memory BIOs: BIO ownership transfers to the SSL via set0_* and is freed by SSL_free.
-	SSL_set0_rbio :: proc(ssl: SSL, rbio: BIO) ---
-	SSL_set0_wbio :: proc(ssl: SSL, wbio: BIO) ---
-	BIO_new :: proc(type: BIO_METHOD) -> BIO ---
-	BIO_s_mem :: proc() -> BIO_METHOD ---
-	BIO_new_mem_buf :: proc(buf: rawptr, len: c.int) -> BIO ---
-	BIO_free :: proc(b: BIO) -> c.int ---
-	BIO_read :: proc(b: BIO, data: rawptr, dlen: c.int) -> c.int ---
-	BIO_write :: proc(b: BIO, data: rawptr, dlen: c.int) -> c.int ---
-	// PEM load from memory (Node passes PEM CONTENT, not paths) + install into the context.
-	// The cb (pem_password_cb) is a no-op in tls_server.odin so an encrypted key fails
-	// closed instead of blocking on a terminal prompt (the default cb reads the console).
-	PEM_read_bio_X509 :: proc(bp: BIO, x: ^X509, cb: PEM_password_cb, u: rawptr) -> X509 ---
-	PEM_read_bio_PrivateKey :: proc(bp: BIO, x: ^EVP_PKEY, cb: PEM_password_cb, u: rawptr) -> EVP_PKEY ---
-	EVP_PKEY_free :: proc(pkey: EVP_PKEY) ---
-	SSL_CTX_use_certificate :: proc(ctx: SSL_CTX, x: X509) -> c.int ---
-	SSL_CTX_use_PrivateKey :: proc(ctx: SSL_CTX, pkey: EVP_PKEY) -> c.int ---
-	SSL_CTX_check_private_key :: proc(ctx: SSL_CTX) -> c.int ---
-	// Clear the thread's error queue (PEM end-of-stream leaves a benign error there).
+	// The thread's error queue: cleared before an SSL call, peeked to classify a failure.
 	ERR_clear_error :: proc() ---
 	ERR_peek_error :: proc() -> c.ulong ---
 }
@@ -173,10 +112,11 @@ foreign openssl_lib {
 // process, like g_fetch_cancel_class.
 @(private = "file")
 g_tls_ctx: SSL_CTX
-// g_tls_ctx_once makes the lazy build race-safe when N workers' (Slice 3a) first https fetches
-// collide. The built SSL_CTX is refcounted and safe to share across workers; a failed build leaves
-// g_tls_ctx nil and is not retried (TLS_client_method / verify-paths failures are deterministic, not
-// transient), which matches the prior behaviour's effective outcome.
+// g_tls_ctx_once makes the lazy build race-safe when several threads' (page dispatcher
+// workers') first https fetches collide. The built SSL_CTX is refcounted and safe to share
+// across threads; a failed build leaves g_tls_ctx nil and is not retried (TLS_client_method /
+// verify-paths failures are deterministic, not transient), which matches the prior behaviour's
+// effective outcome.
 @(private = "file")
 g_tls_ctx_once: sync.Once
 

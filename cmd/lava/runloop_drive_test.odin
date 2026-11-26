@@ -124,7 +124,7 @@ collect_before_the_loop :: proc(user_data: rawptr) -> bool {
 	return true
 }
 
-// The same on eval's path (also `lava run` and the workers): the page's loop is the
+// The same on eval's path (also `lava run`): the page's loop is the
 // thread's driver, and page_tick services the RunLoop before each tick. The collection
 // runs in eval's pre-run hook, between the top-level script and the first tick.
 @(test)

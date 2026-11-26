@@ -202,13 +202,9 @@ package_main :: proc(dir: string) -> (string, bool) {
 	return pkg.main, true
 }
 
-module_file_exists :: proc(path: string) -> bool {
-	return os.exists(path)
-}
-
 // module_resolvable_file reports whether `path` is a regular file that can be
-// loaded as a module. Unlike module_file_exists (used by fs.existsSync, which is
-// true for directories), this excludes directories so a `lib/` directory does not
+// loaded as a module. Unlike a bare os.exists (true for directories), this
+// excludes directories so a `lib/` directory does not
 // shadow a sibling `lib.js` during require resolution.
 module_resolvable_file :: proc(path: string) -> bool {
 	return os.exists(path) && !os.is_dir(path)

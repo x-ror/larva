@@ -16,10 +16,6 @@ OPT="${LAVA_OPT:-speed}"
 JS_OVERRIDE="${LAVA_JS_OVERRIDE:-0}"
 DEFINES=""
 [ "$JS_OVERRIDE" = "1" ] && DEFINES="-define:LAVA_JS_OVERRIDE=true"
-# NODE_MODULES=1 builds the Node-only subsystems back in (sqlite, fs, os, net, http,
-# https, dns, tty); they are out of the default build — see LAVA_NODE_MODULES in
-# pkg/runtime/globals.odin.
-[ "${NODE_MODULES:-0}" = "1" ] && DEFINES="$DEFINES -define:LAVA_NODE_MODULES=true"
 BIN_PATH="$ROOT_DIR/bin/lava"
 NATIVE_STAMP_FILE="$ROOT_DIR/bin/.lava.native.stamp"
 JS_STAMP_FILE="$ROOT_DIR/bin/.lava.js.stamp"

@@ -101,24 +101,6 @@
       "expect_detail": "per-class trade"
     },
     {
-      "name": "the poisoned http-smoke phases die when a framing validator goes back to re.test",
-      "why": "Content-Length framing. With the check on a live regex, a poisoned exec answered 200 OK for `Content-Length: abc` — parseInt gives NaN and the body framing desyncs. The charCode form has no regex to poison at all.",
-      "source": "pkg/runtime/js/internal/http/server.js",
-      "find": "        if (!allChars(contentLengthHeader, isAsciiDigit)) return sendErrorAndClose(400);",
-      "replace": "        if (!/^\\d+$/.test(contentLengthHeader)) return sendErrorAndClose(400);",
-      "gate": "make:test-http-smoke",
-      "expect_detail": "malformed-poisoned"
-    },
-    {
-      "name": "the poisoned http-smoke phases die when the chunked check goes back to re.test",
-      "why": "Transfer-Encoding framing. A steered check accepted `gzip` as chunked, which is the other half of the smuggling pair.",
-      "source": "pkg/runtime/js/internal/http/server.js",
-      "find": "        if (!reTest(TE_CHUNKED_RE, transferEncoding)) return sendErrorAndClose(501);",
-      "replace": "        if (!/^\\s*chunked\\s*$/i.test(transferEncoding)) return sendErrorAndClose(501);",
-      "gate": "make:test-http-smoke",
-      "expect_detail": "malformed-poisoned"
-    },
-    {
       "name": "the runner's own tests die when SURVIVED is not reported",
       "why": "Inverting this branch makes every surviving mutation read as a kill, which is the exact P0 a review found: a gate whose value is its honesty, with nothing checking that honesty.",
       "source": "scripts/run-mutations.mjs",
@@ -247,33 +229,6 @@
         "got usp=THREW:RangeError"
       ],
       "timeout_ms": 30000
-    },
-    {
-      "name": "the poisoned http-smoke phases die when the header-char scan reads charCodeAt live",
-      "why": "assertValidHeaderChar guards the response path. Live, a CR/LF-lying gadget splits the response, and the exec/test phases pass throughout because they never touch that carrier.",
-      "source": "pkg/runtime/js/internal/http/outgoing.js",
-      "find": "      var code = StringPrototypeCharCodeAt(value, i);\n      if (code === 9 || (code >= 0x20 && code <= 0x7e) || (code >= 0x80 && code <= 0xff)) {",
-      "replace": "      var code = value.charCodeAt(i);\n      if (code === 9 || (code >= 0x20 && code <= 0x7e) || (code >= 0x80 && code <= 0xff)) {",
-      "gate": "make:test-http-smoke",
-      "expect_detail": "malformed-poisoned-charcodeat"
-    },
-    {
-      "name": "the poisoned http-smoke phases die when isHttpToken reads charCodeAt live",
-      "why": "isHttpToken guards header NAMES. Live, a CR/LF-lying gadget accepts a name that still carries real CR/LF on the wire. The value-path mutation does not cover this site.",
-      "source": "pkg/runtime/js/internal/http/common.js",
-      "find": "      var code = StringPrototypeCharCodeAt(value, i);\n      if (code >= 128 || !HTTP_TCHAR[code]) return false;",
-      "replace": "      var code = value.charCodeAt(i);\n      if (code >= 128 || !HTTP_TCHAR[code]) return false;",
-      "gate": "make:test-http-smoke",
-      "expect_detail": "malformed-poisoned-charcodeat"
-    },
-    {
-      "name": "the poisoned http-smoke phases die when Content-Length conversion reads live parseInt",
-      "why": "A sound allChars digit check next to live parseInt still desyncs framing: contentLengthRemaining becomes the gadget value. Poison-before-require is the realistic order; bootstrap capture on primordials is the fix. The Odin pi= pin covers the eager URL port path; this entry covers the lazy http framing path.",
-      "source": "pkg/runtime/js/internal/http/server.js",
-      "find": "        contentLengthRemaining = parseIntG(contentLengthHeader, 10);",
-      "replace": "        contentLengthRemaining = parseInt(contentLengthHeader, 10);",
-      "gate": "make:test-http-smoke",
-      "expect_detail": "malformed-poisoned-parseint"
     },
     {
       "name": "58-esm-pollution targeted dies when the export-default name comes back through .match",
@@ -573,12 +528,12 @@
       ]
     },
     {
-      "name": "fs_write_payload dies when the buffer length is sampled before the window getters",
-      "why": "byteOffset/byteLength on a DataView may be OWN accessors, so reading them runs arbitrary JS that can resize the backing ArrayBuffer. Sampling the buffer's length first validates the window against a size that no longer exists, and the resolver hands back a slice past the allocation — 4088 bytes of out-of-bounds heap written into a caller-named file.",
-      "source": "pkg/runtime/fs.odin",
+      "name": "stdio_write_payload dies when the buffer length is sampled before the window getters",
+      "why": "byteOffset/byteLength on a DataView may be OWN accessors, so reading them runs arbitrary JS that can resize the backing ArrayBuffer. Sampling the buffer's length first validates the window against a size that no longer exists, and the resolver hands back a slice past the allocation — 4088 bytes of out-of-bounds heap handed to a stdout/stderr write (it was a caller-named file while node:fs existed).",
+      "source": "pkg/runtime/stdio.odin",
       "find": "\t\t\t\toff_f := jsc.JSValueToNumber(ctx, get_named(ctx, obj, \"byteOffset\"), nil)\n\t\t\t\tlen_f := jsc.JSValueToNumber(ctx, get_named(ctx, obj, \"byteLength\"), nil)\n\t\t\t\t// Now that no further JS can run, sample the authoritative length and take\n\t\t\t\t// the base pointer back to back: the pointer is only valid until the next\n\t\t\t\t// JSC API call (a GC/realloc can move it), so nothing may come between them\n\t\t\t\t// but the pure-Odin validation below.\n\t\t\t\tab_len := f64(jsc.JSObjectGetArrayBufferByteLength(ctx, ab, nil))",
       "replace": "\t\t\t\tab_len := f64(jsc.JSObjectGetArrayBufferByteLength(ctx, ab, nil))\n\t\t\t\toff_f := jsc.JSValueToNumber(ctx, get_named(ctx, obj, \"byteOffset\"), nil)\n\t\t\t\tlen_f := jsc.JSValueToNumber(ctx, get_named(ctx, obj, \"byteLength\"), nil)",
-      "gate": "odin:cmd/lava:main.fs_write_payload_rejects_a_window_resized_by_its_own_getter",
+      "gate": "odin:cmd/lava:main.stdio_write_payload_rejects_a_window_resized_by_its_own_getter",
       "expect_detail": [
         "out-of-bounds read"
       ]
@@ -592,39 +547,6 @@
       "gate": "odin:cmd/lava:main.stdio_write_sync_rejects_every_fd_but_1_and_2",
       "expect_detail": [
         "writeSync(1.5, ...) was not rejected"
-      ]
-    },
-    {
-      "name": "62-fs-read-buffer dies when the read result is not re-tagged as a Buffer",
-      "why": "The native returns a plain Uint8Array where node returns a Buffer. Without the re-tag, Buffer.isBuffer is false and `.toString('hex')` falls through to Uint8Array.prototype.toString — comma-joined decimals instead of hex, with no throw. That shipped for a year.",
-      "source": "pkg/runtime/js/node/fs.js",
-      "find": "    return BufferFrom(\n      TypedArrayPrototypeGetBuffer(value),\n      TypedArrayPrototypeGetByteOffset(value),\n      TypedArrayPrototypeGetByteLength(value),\n    );",
-      "replace": "    return value;",
-      "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
-      "expect_detail": [
-        "readFileSync must return a Buffer"
-      ]
-    },
-    {
-      "name": "62-fs-read-buffer dies when the encoding is dropped instead of decoded in JS",
-      "why": "Reads must be decoded through Buffer's codecs here, because the native ignored the encoding argument entirely and decoded everything as UTF-8 — readFileSync(p,'hex') returned the file's text instead of its hex. expect_detail keys off a UNIQUE assertion message: an earlier version used ['strictEqual','string'], which appears in the red output of every failing assert.equal in the file and would have accepted a break of the Buffer re-tag instead.",
-      "source": "pkg/runtime/js/node/fs.js",
-      "find": "    return encoding === null ? buf : BufferPrototypeToString(buf, encoding);",
-      "replace": "    return buf;",
-      "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
-      "expect_detail": [
-        "an encoding must be decoded, not returned as a Buffer"
-      ]
-    },
-    {
-      "name": "62-fs-read-buffer dies when an unknown encoding is not rejected",
-      "why": "node throws ERR_INVALID_ARG_VALUE for an unrecognized encoding. Without the check the name reaches Buffer#toString, which throws a differently-coded error, and a caller catching by code sees the wrong one. expect_detail keys off the error that ESCAPES (Buffer#toString's uncoded 'Unknown encoding: bogus'), not the code the case asserts: assert.throws swallows the mismatch into an AssertionError, so the coded name never reaches the diff.",
-      "source": "pkg/runtime/js/node/fs.js",
-      "find": "    if (encoding !== 'buffer' && !BufferIsEncoding(encoding)) {",
-      "replace": "    if (false) {",
-      "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
-      "expect_detail": [
-        "Unknown encoding: bogus"
       ]
     },
     {
@@ -647,118 +569,6 @@
       "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
       "expect_detail": [
         "it\\'s"
-      ]
-    },
-    {
-      "name": "62-fs-read-buffer dies when the pristine Buffer capture moves back into fs.js",
-      "why": "fs.js is a LAZY module, so a `require('buffer').Buffer` capture at its module-eval reads whatever user code left there — a dependency's top-level `require('buffer').Buffer = shim` then steers and discloses every fs read. loader.js snapshots it right after buffer is instantiated, where the ordering is provable.",
-      "source": "pkg/runtime/js/node/fs.js",
-      "find": "  var PristineBuffer = require.pristineBuffer;",
-      "replace": "  var PristineBuffer = require('buffer').Buffer;",
-      "gate": "compat:tests/node-compat/cases/63-fs-buffer-capture.js",
-      "expect_detail": [
-        "must not steer the read",
-        "must not observe the file contents"
-      ]
-    },
-    {
-      "name": "62-fs-read-buffer dies when falsy encodings stop meaning binary",
-      "why": "node's assertEncoding is guarded `if (encoding && ...)`, so '', false, 0 and NaN all return a Buffer. Rejecting them broke code that worked before the JS layer existed, because the native treated a non-string encoding as binary and returned data.",
-      "source": "pkg/runtime/js/node/fs.js",
-      "find": "    if (!encoding) return null;",
-      "replace": "    if (encoding === null || encoding === undefined) return null;",
-      "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
-      "expect_detail": [
-        "invalid encoding. Received ''"
-      ]
-    },
-    {
-      "name": "62-fs-read-buffer dies when 'buffer' is validated like an ordinary encoding",
-      "why": "node's getOptions skips assertEncoding for 'buffer' so it reaches Buffer#toString and throws ERR_UNKNOWN_ENCODING. Validating it yields ERR_INVALID_ARG_VALUE — a different code AND message on a documented fs option value.",
-      "source": "pkg/runtime/js/node/fs.js",
-      "find": "    if (encoding !== 'buffer' && !BufferIsEncoding(encoding)) {",
-      "replace": "    if (!BufferIsEncoding(encoding)) {",
-      "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
-      "expect_detail": [
-        "invalid encoding. Received 'buffer'"
-      ]
-    },
-    {
-      "name": "62-fs-read-buffer dies when ERR_INVALID_ARG_TYPE loses node's object branch",
-      "why": "node's determineSpecificType renders an object receiver as `an instance of <Ctor>`, not the util.inspect fallback (`[Object]` at depth -1) — the branch now lives in internal/errors' determineSpecificType. The reachable trigger is fs.readFile(path, options) with a forgotten callback. expect_detail keys on the ESCAPING text (Received {}), not the case assertion: assert.throws re-surfaces the original TypeError on a message mismatch here, so the assertion text never reaches the diff.",
-      "source": "pkg/runtime/js/internal/errors.js",
-      "find": "    if (ctor && 'name' in ctor) return 'an instance of ' + ctor.name;",
-      "replace": "",
-      "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
-      "expect_detail": [
-        "Received [Object]"
-      ]
-    },
-    {
-      "name": "62-fs-read-buffer dies when the Received string stops being truncated",
-      "why": "node cuts a string longer than 28 chars to its first 25 plus '...' before inspecting it into the Received clause.",
-      "source": "pkg/runtime/js/internal/errors.js",
-      "find": "      if (value.length > 28) value = StringPrototypeSlice(value, 0, 25) + '...';",
-      "replace": "",
-      "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
-      "expect_detail": [
-        "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
-      ]
-    },
-    {
-      "name": "62-fs-read-buffer dies when the read result is copied instead of shared",
-      "why": "The zero-copy re-tag is a rank-2 memory claim on the hottest fs call there is. A copying Buffer.from(view) lands in the Buffer pool, so the result is an offset into a 256 KB store instead of an exact-size view. Before this entry the claim had NO test: the copying form left the whole case green.",
-      "source": "pkg/runtime/js/node/fs.js",
-      "find": "    return BufferFrom(\n      TypedArrayPrototypeGetBuffer(value),\n      TypedArrayPrototypeGetByteOffset(value),\n      TypedArrayPrototypeGetByteLength(value),\n    );",
-      "replace": "    return BufferFrom(value);",
-      "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
-      "expect_detail": [
-        "shared not copied",
-        "must not be an offset into a pool"
-      ]
-    },
-    {
-      "name": "62-fs-read-buffer dies when path type validation is dropped",
-      "why": "node rejects a non string/Buffer/URL/fd path with ERR_INVALID_ARG_TYPE; without the check an object is stringified and read as the filename '[object Object]'.",
-      "source": "pkg/runtime/js/node/fs.js",
-      "find": "    validatePath(path);\n    var encoding = readEncoding(options);",
-      "replace": "    var encoding = readEncoding(options);",
-      "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
-      "expect_detail": [
-        "ENOENT: no such file or directory, open 'null'"
-      ]
-    },
-    {
-      "name": "62-fs-read-buffer dies when the error callback regains its second argument",
-      "why": "node calls the readFile error callback with exactly one argument; the native's completion always builds a 2-slot array, so passing data through makes arguments.length 2.",
-      "source": "pkg/runtime/js/node/fs.js",
-      "find": "      if (err) {\n        cb(err);\n        return;\n      }",
-      "replace": "      if (err) {\n        cb(err, data);\n        return;\n      }",
-      "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
-      "expect_detail": [
-        "the error callback takes one argument on node"
-      ]
-    },
-    {
-      "name": "62-fs-read-buffer dies when cb validation moves after options validation",
-      "why": "node validates `callback || options` BEFORE the options, so readFile(p,'bogus') reports the string as a bad callback. The reverse order reports a plausible but different error for a forgotten callback.",
-      "source": "pkg/runtime/js/node/fs.js",
-      "find": "    var cb = callback || options;\n    if (typeof cb !== 'function') {",
-      "replace": "    var cb = callback || options;\n    readEncoding(typeof options === 'function' ? null : options);\n    if (typeof cb !== 'function') {",
-      "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
-      "expect_detail": [
-        "invalid encoding. Received 'bogus'"
-      ]
-    },
-    {
-      "name": "62-fs-read-buffer dies when a function in the options slot is rejected",
-      "why": "node's getOptions treats a callback sitting in the options slot as absent; rejecting it turns readFileSync(p, fn) from a working binary read into a throw. The throw escapes the case uncaught (exit 1); its text renders the function the way node's determineSpecificType does (`function ` for an anonymous one), so the detail keys on the options message, not the old `type function (...)` rendering.",
-      "source": "pkg/runtime/js/node/fs.js",
-      "find": "    if (options === null || options === undefined || typeof options === 'function') {",
-      "replace": "    if (options === null || options === undefined) {",
-      "gate": "compat:tests/node-compat/cases/62-fs-read-buffer.js",
-      "expect_detail": [
-        "must be one of type string or object. Received function"
       ]
     },
     {
@@ -881,83 +691,6 @@
       "gate": "compat:tests/node-compat/cases/64-stream-write-validation.js",
       "expect_detail": [
         "setDefaultEncoding must validate"
-      ]
-    },
-    {
-      "name": "65-lazy-buffer-capture dies when a module resolves Buffer itself instead of taking the loader's",
-      "why": "net.js is a LAZY module, so its own require('buffer') runs on the user's first require of net — after user code. Node is not steerable this way; measured, sock.write('PAYLOAD') delivered \"PAYLOAD\" on node and \"TAMPERED\" here.",
-      "source": "pkg/runtime/js/node/net.js",
-      "find": "  var PristineBuffer = require.pristineBuffer;",
-      "replace": "  var PristineBuffer = { Buffer: require('buffer').Buffer, from: require('buffer').Buffer.from, alloc: require('buffer').Buffer.alloc, concat: require('buffer').Buffer.concat, isBuffer: require('buffer').Buffer.isBuffer };",
-      "gate": "compat:tests/node-compat/cases/65-lazy-buffer-capture.js",
-      "expect_detail": [
-        "net must not resolve Buffer through the shim"
-      ]
-    },
-    {
-      "name": "65-lazy-buffer-capture dies when Buffer.from is read off the constructor at call time",
-      "why": "Capturing the CONSTRUCTOR is not enough: `.from` is a writable member read off it at call time, so `Buffer.from = evil` steers a module holding a pristine constructor. This is the half the first version of the fix missed — the object is not the method, the same lesson as Symbol.for in util.js.",
-      "source": "pkg/runtime/js/node/net.js",
-      "find": "  var BufferFrom = PristineBuffer.from;",
-      "replace": "  var BufferFrom = function (v, a, b) { return PristineBuffer.Buffer.from(v, a, b); };",
-      "gate": "compat:tests/node-compat/cases/65-lazy-buffer-capture.js",
-      "expect_detail": [
-        "a replaced Buffer.from must not steer net either"
-      ]
-    },
-    {
-      "name": "65-lazy-buffer-capture dies when os.userInfo reads Buffer.from at call time",
-      "why": "os.userInfo originally re-read the live export on EVERY call, so it was steerable at any time — a case that only swaps things before the first require cannot see it. This mutation restores a call-time read while leaving the module-eval capture intact, so it pins the call-time half alone.",
-      "source": "pkg/runtime/js/node/os.js",
-      "find": "  var BufferFrom = PristineBuffer.from;",
-      "replace": "  var BufferFrom = function (v, a, b) { return PristineBuffer.Buffer.from(v, a, b); };",
-      "gate": "compat:tests/node-compat/cases/65-lazy-buffer-capture.js",
-      "expect_detail": [
-        "os must not read Buffer.from at call time"
-      ]
-    },
-    {
-      "name": "65-lazy-buffer-capture dies when the chunked reassembly reads Buffer.concat live",
-      "why": "http.js's chunked decoder reassembles across TCP segments with concat; a poisoned concat that reorders the parts desynchronises the size line from its body. This is framing over network-controlled bytes, not a cosmetic read.",
-      "source": "pkg/runtime/js/internal/http/common.js",
-      "find": "  var BufferConcat = PristineBuffer.concat;",
-      "replace": "  var BufferConcat = function (l, t) { return require('buffer').Buffer.concat(l, t); };",
-      "gate": "compat:tests/node-compat/cases/65-lazy-buffer-capture.js",
-      "expect_detail": [
-        "http chunked framing must not be steered"
-      ]
-    },
-    {
-      "name": "65-lazy-buffer-capture dies when the chunk size is read through a live toString",
-      "why": "The size line is read with buffer.toString('latin1', 0, lineEnd). A replacement that INFLATES the size is a request-smuggling primitive; node frames HTTP in C (llhttp) and is not steerable at all.",
-      "source": "pkg/runtime/js/internal/http/common.js",
-      "find": "  var BufferPrototypeToString = PristineBuffer.bufferToString;",
-      "replace": "  var BufferPrototypeToString = function (b, e, a, c) { return b.toString(e, a, c); };",
-      "gate": "compat:tests/node-compat/cases/65-lazy-buffer-capture.js",
-      "expect_detail": [
-        "http chunked framing must not be steered"
-      ]
-    },
-    {
-      "name": "65-lazy-buffer-capture dies when the framing cursor advances through a live slice",
-      "why": "The decoder advances past each size line and body with slice; a corrupted cursor leaves a stray byte and desynchronises every later chunk.",
-      "source": "pkg/runtime/js/internal/http/common.js",
-      "find": "  var BufferPrototypeSlice = PristineBuffer.bufferSlice;",
-      "replace": "  var BufferPrototypeSlice = function (b, a, c) { return b.slice(a, c); };",
-      "gate": "compat:tests/node-compat/cases/65-lazy-buffer-capture.js",
-      "expect_detail": [
-        "http chunked framing must not be steered"
-      ]
-    },
-    {
-      "name": "65-lazy-buffer-capture dies when net's INBOUND wrap reads Buffer live",
-      "why": "net's asBuffer wraps every 'data' chunk — the DISCLOSURE direction. The write-side assertion alone leaves it green while a shim reads every inbound byte.",
-      "source": "pkg/runtime/js/node/net.js",
-      "find": "  var BufferFrom = PristineBuffer.from;",
-      "replace": "  var BufferFrom = function (v, a, b) { return require('buffer').Buffer.from(v, a, b); };",
-      "gate": "compat:tests/node-compat/cases/65-lazy-buffer-capture.js",
-      "expect_detail": [
-        "net must not resolve Buffer through the shim"
       ]
     },
     {
@@ -1152,15 +885,6 @@
       "replace": "native_runtime_unavailable()",
       "gate": "odin:cmd/lava:main.eval_reports_exhausted_vm_pool",
       "expect_detail": "install JavaScriptCoreGTK"
-    },
-    {
-      "name": "eval_teardown_with_live_net_connections dies when the teardown sweep skips every connection, even run alone",
-      "why": "Run alone on a cold runner thread the baseline used to absorb the first eval's +5 one-time fds, so three leaked sockets passed; the warm-up eval is what lets the census see them.",
-      "source": "pkg/runtime/net.odin",
-      "find": "\tif state == nil {\n\t\treturn\n\t}\n\n\tcontext = runtime.default_context() // alloc/free conns",
-      "replace": "\tif state != nil {\n\t\treturn\n\t}\n\n\tcontext = runtime.default_context() // alloc/free conns",
-      "gate": "odin:cmd/lava:main.eval_teardown_with_live_net_connections",
-      "expect_detail": "a connection's socket was never closed"
     },
     {
       "name": "timer_binding_frees_through_its_own_allocator dies when the JS_Callback is new()'d from the ambient allocator",
@@ -1416,52 +1140,11 @@
       "expect_detail": "page_runner_live(&runner) to be 0"
     },
     {
-      "name": "runner_destroy_does_not_wait_for_blocked_workers dies when fs.readFile registers no cancel hook",
-      "why": "Without fs_read_cancel the callback stays protected until the late dispose, which then calls into a VM the runner already destroyed, from a worker thread. Locally (ubuntu-24.04) that late call faults on the worker ('odin test exited'); on CI's ubuntu-26.04 build (run 43699940285) no fault reached the process within the wait, and the detached loop's last worker never finished its teardown, so the test's own check that the pipe closes fails — both are that late call into the destroyed VM; the unmutated test closes the pipe within milliseconds of the release.",
-      "source": "pkg/runtime/fs.odin",
-      "find": "fs_read_dispose, fs_read_cancel) {",
-      "replace": "fs_read_dispose) {",
-      "gate": "odin:cmd/lava:main.runner_destroy_does_not_wait_for_blocked_workers",
-      "expect_detail": [
-        "odin test exited",
-        "Segmentation_Fault",
-        "the blocked jobs never finished after destroy"
-      ]
-    },
-    {
-      "name": "runner_close_does_not_wait_for_a_hanging_dns_lookup dies when a node:dns request is allocated from the runner allocator",
-      "why": "The worker of a loop detached by page_runner_destroy writes into the request after the embedder frees the runner allocator (CLAUDE.md §4, #34). Locally (ubuntu-24.04) the worker faults ('odin test exited'); on CI's ubuntu-26.04 build (run 43699940285) no fault reached the process, and the detached loop's teardown never finished, so the test's own check that the loop's pipe closes after the resolver times out fails (15 s against a ~4 s resolver wait).",
-      "source": "pkg/runtime/dns.odin",
-      "find": "\talloc := runtime.heap_allocator()\n",
-      "replace": "\talloc := get_state_from_ctx(ctx).allocator\n",
-      "gate": "odin:cmd/lava:main.runner_close_does_not_wait_for_a_hanging_dns_lookup",
-      "expect_detail": [
-        "Segmentation_Fault",
-        "odin test exited",
-        "still running 15 s after the runner was destroyed"
-      ],
-      "timeout_ms": 60000
-    },
-    {
       "name": "runner_close_does_not_wait_for_a_hanging_dns_lookup dies when fetch's DNS_Job is allocated from the request allocator",
       "why": "req.allocator is the runner's; a detached lookup's worker re-reads job.host per family after the runner allocator is gone (#34). Locally (ubuntu-24.04) the worker faults ('odin test exited'); on CI's ubuntu-26.04 build (run 43699940285) no fault reached the process, and the detached loop's teardown never finished, so the test's own check that the loop's pipe closes after the resolver times out fails (15 s against a ~4 s resolver wait).",
       "source": "pkg/runtime/fetch_dns.odin",
       "find": "\tjob := new(DNS_Job, runtime.heap_allocator())\n\tjob.allocator = runtime.heap_allocator()\n",
       "replace": "\tjob := new(DNS_Job, req.allocator)\n\tjob.allocator = req.allocator\n",
-      "gate": "odin:cmd/lava:main.runner_close_does_not_wait_for_a_hanging_dns_lookup",
-      "expect_detail": [
-        "Segmentation_Fault",
-        "odin test exited",
-        "still running 15 s after the runner was destroyed"
-      ],
-      "timeout_ms": 60000
-    },
-    {
-      "name": "runner_close_does_not_wait_for_a_hanging_dns_lookup dies when dns.lookup registers no cancel hook",
-      "why": "Without dns_cancel the callback is unprotected only by the late dispose, from the worker thread, into a VM page_runner_destroy already freed. Locally (ubuntu-24.04) the worker faults ('odin test exited'); on CI's ubuntu-26.04 build (run 43699940285) no fault reached the process, and the detached loop's teardown never finished, so the test's own check that the loop's pipe closes after the resolver times out fails (15 s against a ~4 s resolver wait).",
-      "source": "pkg/runtime/dns.odin",
-      "find": "dns_lookup_complete_cb, req, dns_dispose, dns_cancel) {",
-      "replace": "dns_lookup_complete_cb, req, dns_dispose) {",
       "gate": "odin:cmd/lava:main.runner_close_does_not_wait_for_a_hanging_dns_lookup",
       "expect_detail": [
         "Segmentation_Fault",
@@ -1559,15 +1242,6 @@
       "replace": "if uring.init(",
       "gate": "odin:cmd/lava:main.runner_wakes_on_io_without_timers_on_the_readiness_backend",
       "expect_detail": "page loop backend is"
-    },
-    {
-      "name": "runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator dies when net's readiness read copy goes back to context.allocator",
-      "why": "jsc_buffer_deallocator frees through the heap; a read copy made under the runner's allocator is a bad free when JSC collects it (glibc abort at VM teardown).",
-      "source": "pkg/runtime/net.odin",
-      "find": "copy_buf := make([]byte, n, runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap\n\t\t\tcopy(copy_buf, buf[:n])",
-      "replace": "copy_buf := make([]byte, n, context.allocator)\n\t\t\tcopy(copy_buf, buf[:n])",
-      "gate": "odin:cmd/lava:main.runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator",
-      "expect_detail": "odin test exited"
     },
     {
       "name": "runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator dies when fetch's chunk copy goes back to context.allocator",
@@ -1794,19 +1468,6 @@
       "gate": "node-test:scripts/run-mutations.test.mjs",
       "test": "a test name is a literal, not a pattern",
       "expect_detail": "a test name is a literal, not a pattern"
-    },
-    {
-      "name": "nocopy_net_bytes_never_use_the_ambient_allocator dies when conn_read_cb copies received bytes from the ambient allocator",
-      "why": "conn_read_cb (readiness backend) runs under the loop's context, i.e. the embedder's allocator, while jsc_buffer_deallocator frees the NoCopy Uint8Array's bytes into the heap; an ambient copy is the original defect.",
-      "source": "pkg/runtime/net.odin",
-      "find": "\t\t\tcopy_buf := make([]byte, n, runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap\n\t\t\tcopy(copy_buf, buf[:n])",
-      "replace": "\t\t\tcopy_buf := make([]byte, n, context.allocator)\n\t\t\tcopy(copy_buf, buf[:n])",
-      "gate": "odin:cmd/lava:main.nocopy_net_bytes_never_use_the_ambient_allocator",
-      "expect_detail": [
-        "Signal caught:",
-        "handed to JSC from the ambient allocator",
-        "odin test exited -1"
-      ]
     },
     {
       "name": "merge-mutation-manifest tests die when an entry both sides changed is silently taken from ours",
@@ -2177,58 +1838,13 @@
       "expect_detail": "behind a page holding every core worker"
     },
     {
-      "name": "fs_read_file_cancel_releases_the_callback_of_a_blocked_read dies when fs.readFile registers no cancel hook",
-      "why": "Without fs_read_cancel the callback stays protected until the late dispose, which for a detached loop runs on a worker thread after the context is gone (#34) — larva#49's page-runner-gated entry, pinned in Lava on the request itself.",
-      "source": "pkg/runtime/fs.odin",
-      "find": "fs_read_dispose, fs_read_cancel) {",
-      "replace": "fs_read_dispose) {",
-      "gate": "odin:cmd/lava:main.fs_read_file_cancel_releases_the_callback_of_a_blocked_read",
-      "expect_detail": "close_begin left the callback of a job its worker is still running protected"
-    },
-    {
-      "name": "fs_write_file_cancel_releases_the_callback_of_a_blocked_write dies when fs.writeFile registers no cancel hook",
-      "why": "Without fs_write_cancel the callback stays protected until the late dispose, which for a detached loop runs on a worker thread after the context is gone (#34).",
-      "source": "pkg/runtime/fs.odin",
-      "find": "fs_write_dispose, fs_write_cancel) {",
-      "replace": "fs_write_dispose) {",
-      "gate": "odin:cmd/lava:main.fs_write_file_cancel_releases_the_callback_of_a_blocked_write",
-      "expect_detail": "close_begin left the callback of a job its worker is still running protected"
-    },
-    {
-      "name": "dns_lookup_cancel_releases_the_callback_of_a_hanging_lookup dies when dns.lookup registers no cancel hook",
-      "why": "Without dns_cancel the callback is unprotected only by the late dispose, which for a detached loop runs on the worker thread once the resolver times out, after the context is gone (#34) — larva#49's page-runner-gated entry, pinned in Lava on the request itself.",
-      "source": "pkg/runtime/dns.odin",
-      "find": "dns_lookup_complete_cb, req, dns_dispose, dns_cancel) {",
-      "replace": "dns_lookup_complete_cb, req, dns_dispose) {",
-      "gate": "odin:cmd/lava:main.dns_lookup_cancel_releases_the_callback_of_a_hanging_lookup",
-      "expect_detail": "close_begin left the callback of a job its worker is still running protected"
-    },
-    {
-      "name": "eval_dns_workers_own_their_requests_on_the_heap dies when a node:dns request is allocated from the runtime allocator",
-      "why": "A worker blocked in a lookup can outlive its loop's owner and the allocator the embedder handed in (CLAUDE.md §4, #34) — larva#49's page-runner-gated entry, pinned in Lava by where the allocation comes from.",
-      "source": "pkg/runtime/dns.odin",
-      "find": "\talloc := runtime.heap_allocator()\n",
-      "replace": "\talloc := get_state_from_ctx(ctx).allocator\n",
-      "gate": "odin:cmd/lava:main.eval_dns_workers_own_their_requests_on_the_heap",
-      "expect_detail": "came from eval's allocator, not the heap"
-    },
-    {
-      "name": "eval_dns_workers_own_their_requests_on_the_heap dies when fetch's DNS_Job is allocated from the request allocator",
+      "name": "eval_fetch_dns_jobs_live_on_the_heap dies when fetch's DNS_Job is allocated from the request allocator",
       "why": "req.allocator is the runtime's; a lookup's worker re-reads job.host per family and may outlive that allocator (CLAUDE.md §4, #34) — larva#49's page-runner-gated entry, pinned in Lava by where the allocation comes from.",
       "source": "pkg/runtime/fetch_dns.odin",
       "find": "\tjob := new(DNS_Job, runtime.heap_allocator())\n\tjob.allocator = runtime.heap_allocator()\n",
       "replace": "\tjob := new(DNS_Job, req.allocator)\n\tjob.allocator = req.allocator\n",
-      "gate": "odin:cmd/lava:main.eval_dns_workers_own_their_requests_on_the_heap",
+      "gate": "odin:cmd/lava:main.eval_fetch_dns_jobs_live_on_the_heap",
       "expect_detail": "came from eval's allocator, not the heap"
-    },
-    {
-      "name": "workers_give_back_their_host_tables dies when worker_main stops tearing down its host-native tables",
-      "why": "The thread_local host-native tables are heap-bound and nothing else deletes them, so a worker thread that ends without host_native_thread_teardown leaks both backings per worker per lifetime (larva#51's fix, ported into Lava's multi-worker path).",
-      "source": "pkg/runtime/workers.odin",
-      "find": "\thost_native_thread_teardown()\n",
-      "replace": "",
-      "gate": "odin:pkg/runtime:lava_runtime.workers_give_back_their_host_tables",
-      "expect_detail": "host-native tables live after workers exited"
     },
     {
       "name": "function_call_lock dies when the loader stops locking Function.prototype.call/apply/bind",
@@ -2274,17 +1890,6 @@
       "replace": "    if (intrinsicsLocked) return;",
       "gate": "odin:cmd/lava:main.function_call_lock",
       "expect_detail": "want wrapped-ext=false,false,false,true got wrapped-ext=false,false,true,true"
-    },
-    {
-      "name": "65-lazy-buffer-capture dies when internal/http/server.js resolves Buffer itself",
-      "why": "http.js was migrated with NO test behind it: reverting this one line left every gate green while the measured divergence returned. Two of five migrated modules were unpinned until this entry.",
-      "source": "pkg/runtime/js/internal/http/server.js",
-      "find": "  var PristineBuffer = require.pristineBuffer;",
-      "replace": "  var PristineBuffer = { Buffer: require('buffer').Buffer, from: require('buffer').Buffer.from, alloc: require('buffer').Buffer.alloc, concat: require('buffer').Buffer.concat, isBuffer: require('buffer').Buffer.isBuffer, bufferToString: function (b, e, a, c) { return b.toString(e, a, c); }, bufferIndexOf: function (b, n) { return b.indexOf(n); }, bufferSlice: function (b, a, c) { return b.slice(a, c); } };",
-      "gate": "compat:tests/node-compat/cases/65-lazy-buffer-capture.js",
-      "expect_detail": [
-        "http response body must not be steered"
-      ]
     },
     {
       "name": "compare.sh dies when the .nvmrc oracle-major check is gutted",
@@ -2626,25 +2231,6 @@
       "replace": "    var result = {};",
       "gate": "compat:tests/node-compat/cases/44-util-parseenv.js",
       "expect_detail": "{} strictEqual null"
-    },
-    {
-      "name": "05-coercion dies when undefined is no longer bound as NULL",
-      "why": "node 26 binds undefined as SQL NULL; node 24 threw ERR_INVALID_ARG_TYPE. Dropping the branch falls through to the unbindable throw.",
-      "source": "pkg/runtime/js/node/sqlite.js",
-      "find": "    if (value === undefined) {\n      native.bind(stmtId, index, null); // primordials-ok: method\n    } else if (value === null",
-      "replace": "    if (value === null",
-      "gate": "compat:tests/std/sqlite/cases/05-coercion.js",
-      "expect_detail": "Provided value cannot be bound to SQLite parameter 1."
-    },
-    {
-      "name": "04-bigint dies when run()'s lastInsertRowid goes back to a lossy number",
-      "why": "node 26 throws ERR_OUT_OF_RANGE for an unsafe rowid after the insert; node 24 returned a lossy number.",
-      "source": "pkg/runtime/sqlite.odin",
-      "find": "\treturn sqlite_int_value(ctx, sqlite.last_insert_rowid(db), read_big_ints, exception)",
-      "replace": "\trowid := sqlite.last_insert_rowid(db)\n\tif read_big_ints do return sqlite_make_bigint(ctx, rowid)\n\treturn jsc.JSValueMakeNumber(ctx, f64(rowid))",
-      "gate": "compat:tests/std/sqlite/cases/04-bigint.js",
-      "expect_detail": "unsafe rowid: RangeError",
-      "rebuild": true
     },
     {
       "name": "74-builtin-visibility dies when the public resolver answers internal/ ids",
@@ -3149,117 +2735,6 @@
       "expect_detail": "diagnostics_channel: ok [\"Object.defineProperty\"]"
     },
     {
-      "name": "75-lazy-global-capture dies when dns.js enumerates its error codes through the live Object",
-      "why": "`Object.keys` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/dns.js",
-      "find": "  P.ObjectKeys(CODES).forEach(function (k) {",
-      "replace": "  Object.keys(CODES).forEach(function (k) {",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "dns: ok [\"Object.keys\"]"
-    },
-    {
-      "name": "75-lazy-global-capture dies when internal/http/common.js allocates the tchar table with the live Uint8Array",
-      "why": "`Uint8Array` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/internal/http/common.js",
-      "find": "  var HTTP_TCHAR = new primordials.Uint8Array(128);",
-      "replace": "  var HTTP_TCHAR = new Uint8Array(128);",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "http: ok [\"new Uint8Array\""
-    },
-    {
-      "name": "75-lazy-global-capture dies when internal/http/incoming.js builds IncomingMessage.prototype with the live Object",
-      "why": "`Object.create` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/internal/http/incoming.js",
-      "find": "  IncomingMessage.prototype = ObjectCreate(EventEmitter.prototype);",
-      "replace": "  IncomingMessage.prototype = Object.create(EventEmitter.prototype);",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "http: ok [\"Object.create\"]"
-    },
-    {
-      "name": "75-lazy-global-capture dies when internal/http/incoming.js defines IncomingMessage#rawHeaders through the live Object",
-      "why": "`Object.defineProperty` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/internal/http/incoming.js",
-      "find": "  ObjectDefineProperty(IncomingMessage.prototype, 'rawHeaders', {",
-      "replace": "  Object.defineProperty(IncomingMessage.prototype, 'rawHeaders', {",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "http: ok [\"Object.defineProperty\"]"
-    },
-    {
-      "name": "75-lazy-global-capture dies when internal/http/server.js builds ServerResponse.prototype with the live Object",
-      "why": "`Object.create` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/internal/http/server.js",
-      "find": "  ServerResponse.prototype = ObjectCreate(EventEmitter.prototype);",
-      "replace": "  ServerResponse.prototype = Object.create(EventEmitter.prototype);",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "http: ok [\"Object.create\"]"
-    },
-    {
-      "name": "75-lazy-global-capture dies when internal/http/server.js builds Server.prototype with the live Object",
-      "why": "`Object.create` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/internal/http/server.js",
-      "find": "  Server.prototype = ObjectCreate(EventEmitter.prototype);",
-      "replace": "  Server.prototype = Object.create(EventEmitter.prototype);",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "http: ok [\"Object.create\"]"
-    },
-    {
-      "name": "81-http-internal-modules dies when the loader stops handing internal/http/server node:http's bindings",
-      "why": "server.js calls native.parseRequest for every request head; the split moved it out of node/http.js, the only id Odin keys the http bindings by, so the loader alias is the one thing connecting it. Without it every request fails.",
-      "source": "pkg/runtime/js/bootstrap/loader.js",
-      "find": "  natives['internal/http/server'] = natives['node/http'];",
-      "replace": "",
-      "gate": "compat:tests/node-compat/cases/81-http-internal-modules.js",
-      "expect_detail": [
-        "parseRequest",
-        "no complete response"
-      ]
-    },
-    {
-      "name": "81-http-internal-modules dies when the loader stops handing internal/http/outgoing node:http's bindings",
-      "why": "outgoing.js reads native.latin1WriteInto at module-eval for the response head encoder; without the alias require('http') itself throws.",
-      "source": "pkg/runtime/js/bootstrap/loader.js",
-      "find": "  natives['internal/http/outgoing'] = natives['node/http'];",
-      "replace": "",
-      "gate": "compat:tests/node-compat/cases/81-http-internal-modules.js",
-      "expect_detail": "latin1WriteInto"
-    },
-    {
-      "name": "75-lazy-global-capture dies when net.js builds Socket.prototype with the live Object",
-      "why": "`Object.create` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/net.js",
-      "find": "  Socket.prototype = ObjectCreate(EventEmitter.prototype);",
-      "replace": "  Socket.prototype = Object.create(EventEmitter.prototype);",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "net: ok [\"Object.create\"]"
-    },
-    {
-      "name": "75-lazy-global-capture dies when net.js builds Server.prototype with the live Object",
-      "why": "`Object.create` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/net.js",
-      "find": "  Server.prototype = ObjectCreate(EventEmitter.prototype);",
-      "replace": "  Server.prototype = Object.create(EventEmitter.prototype);",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "net: ok [\"Object.create\"]"
-    },
-    {
-      "name": "75-lazy-global-capture dies when os.js probes endianness through the live typed-array constructors",
-      "why": "`Uint16Array` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/os.js",
-      "find": "      OsPrimordials.TypedArrayPrototypeGetBuffer(new OsPrimordials.Uint16Array([1])),",
-      "replace": "      OsPrimordials.TypedArrayPrototypeGetBuffer(new Uint16Array([1])),",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "os: ok [\"new Uint16Array\""
-    },
-    {
-      "name": "75-lazy-global-capture dies when os.js wraps the endianness probe in the live Uint8Array",
-      "why": "`Uint8Array` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/os.js",
-      "find": "    new OsPrimordials.Uint8Array(",
-      "replace": "    new Uint8Array(",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "new Uint8Array"
-    },
-    {
       "name": "75-lazy-global-capture dies when querystring.js reads Object.prototype.hasOwnProperty live",
       "why": "`Object.prototype.hasOwnProperty` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
       "source": "pkg/runtime/js/node/querystring.js",
@@ -3267,42 +2742,6 @@
       "replace": "  var hasOwnM = Object.prototype.hasOwnProperty; var hasOwn = function (o, k) { return hasOwnM.call(o, k); };",
       "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
       "expect_detail": "querystring: ok [\"Object.prototype\"]"
-    },
-    {
-      "name": "75-lazy-global-capture dies when sqlite.js polyfills Symbol.dispose onto the live Symbol",
-      "why": "`Symbol` (the polyfill target for Symbol.dispose) is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/sqlite.js",
-      "find": "  var SymbolG = P.Symbol;",
-      "replace": "  var SymbolG = Symbol;",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "Symbol.dispose="
-    },
-    {
-      "name": "75-lazy-global-capture dies when sqlite.js defines DatabaseSync#isOpen through the live Object",
-      "why": "`Object.defineProperty` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/sqlite.js",
-      "find": "  P.ObjectDefineProperty(DatabaseSync.prototype, 'isOpen', {",
-      "replace": "  Object.defineProperty(DatabaseSync.prototype, 'isOpen', {",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "node:sqlite: ok [\"Object.defineProperty\"]"
-    },
-    {
-      "name": "75-lazy-global-capture dies when tty.js builds ReadStream.prototype with the live Object",
-      "why": "`Object.create` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/tty.js",
-      "find": "  ReadStream.prototype = ObjectCreate(EventEmitter.prototype);",
-      "replace": "  ReadStream.prototype = Object.create(EventEmitter.prototype);",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "tty: ok [\"Object.create\"]"
-    },
-    {
-      "name": "75-lazy-global-capture dies when tty.js builds WriteStream.prototype with the live Object",
-      "why": "`Object.create` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/tty.js",
-      "find": "  WriteStream.prototype = ObjectCreate(EventEmitter.prototype);",
-      "replace": "  WriteStream.prototype = Object.create(EventEmitter.prototype);",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "tty: ok [\"Object.create\"]"
     },
     {
       "name": "75-lazy-global-capture dies when util/types.js reads Object.prototype.toString live",
@@ -3434,6 +2873,15 @@
       "expect_detail": "node: Duplex has write function"
     },
     {
+      "name": "80-webstreams-internal-modules dies when a constructor is defined in the assembling entry again",
+      "why": "A constructor defined in internal/webstreams/index.js (the export assembly node:stream/web re-exports) throws from that file's frame instead of the file node attributes it to, which is what the split moved away from.",
+      "source": "pkg/runtime/js/internal/webstreams/index.js",
+      "find": "  var CountQueuingStrategy = strategies.CountQueuingStrategy;",
+      "replace": "  var CountQueuingStrategy = function CountQueuingStrategy(o) { if (!o) throw new TypeError('init'); return new strategies.CountQueuingStrategy(o); };",
+      "gate": "compat:tests/node-compat/cases/80-webstreams-internal-modules.js",
+      "expect_detail": "node: CountQueuingStrategy(): node:internal/webstreams/queuingstrategies true false"
+    },
+    {
       "name": "80-webstreams-internal-modules dies when pipeTo loses its writablestream import",
       "why": "pipeTo's abort path calls writableStreamAbort across the readablestream -> writablestream seam; a dropped import throws out of the abort path (unhandled, exit 1) instead of rejecting the pipe with the signal's reason.",
       "source": "pkg/runtime/js/internal/webstreams/readablestream.js",
@@ -3461,22 +2909,13 @@
       "expect_detail": "node: identities true true true true true true true true true"
     },
     {
-      "name": "83-crypto-internal-modules dies when node:crypto exports a Hash other than internal/crypto/hash's",
-      "why": "createHash (node/crypto) and Hash (internal/crypto/hash) now meet across a file seam; an entry that re-exports a wrapper or a stale copy hands user code a crypto.Hash that createHash()'s instances are not instances of.",
-      "source": "pkg/runtime/js/node/crypto.js",
-      "find": "  var Hash = hashModule.Hash;",
-      "replace": "  var Hash = function Hash(algorithm) {\n    return new hashModule.Hash(algorithm);\n  };",
-      "gate": "compat:tests/node-compat/cases/83-crypto-internal-modules.js",
-      "expect_detail": "node: identities true true true true true true true"
-    },
-    {
-      "name": "83-crypto-internal-modules dies when the loader stops handing internal/crypto/random the crypto bindings",
+      "name": "22-typed-array-offset dies when the loader stops handing internal/crypto/random the crypto bindings",
       "why": "Odin keys the crypto natives to node/crypto only; random.js reaches them solely through the loader alias, and without it every CSPRNG entry point (and the WHATWG global) throws on first use instead of at load.",
       "source": "pkg/runtime/js/bootstrap/loader.js",
       "find": "  natives['internal/crypto/random'] = natives['node/crypto'];\n",
       "replace": "",
-      "gate": "compat:tests/node-compat/cases/83-crypto-internal-modules.js",
-      "expect_detail": "node: globalThis.crypto object true function function true true"
+      "gate": "compat:tests/node-compat/cases/22-typed-array-offset.js",
+      "expect_detail": "evaluating 'native.randomFill'"
     },
     {
       "name": "84-util-internal-modules dies when util.debug stops being util.debuglog",
@@ -3551,15 +2990,6 @@
       "expect_detail": "node: domain \"mañana.com\" \"xn--maana-pta.com\" \"mañana.com\""
     },
     {
-      "name": "86-os-internal-modules dies when internal/os/constants drops a table from os.constants",
-      "why": "os.constants is now assembled in internal/os/constants.js, outside node:os; the case's per-table lines are what show the moved object still carries every table node's does, so losing one in the move must turn it red.",
-      "source": "pkg/runtime/js/internal/os/constants.js",
-      "find": "    dlopen: dlopen,\n",
-      "replace": "",
-      "gate": "compat:tests/node-compat/cases/86-os-internal-modules.js",
-      "expect_detail": "node: constants dlopen object"
-    },
-    {
       "name": "global_surface_web_hides_node_names dies when Buffer is dropped from the .Web removal list",
       "why": "WEB_REMOVED_GLOBALS is the only thing that takes the bootstrap-only Node globals back off a .Web context; a name missing from it stays reachable by name, which is exactly what .Web promises it is not.",
       "source": "pkg/runtime/environment.odin",
@@ -3585,6 +3015,15 @@
       "replace": "\tinstall_stdio(ctx, global)",
       "gate": "odin:cmd/lava:main.global_surface_web_skips_stdio",
       "expect_detail": "web: resolving events compiled nothing"
+    },
+    {
+      "name": "global_surface_web_loads_no_node_module dies when the Window surface instantiates node:stream/web again",
+      "why": "The Node-profile removal deletes js/node/; a web global reached only through a node/ module on .Web would vanish with it. The loader gate is what keeps the stream globals' install path internal.",
+      "source": "pkg/runtime/js/bootstrap/loader.js",
+      "find": "  if (!web) req('stream/web');\n",
+      "replace": "  req('stream/web');\n",
+      "gate": "odin:cmd/lava:main.global_surface_web_loads_no_node_module",
+      "expect_detail": "node/stream/web was loaded by .Web init"
     },
     {
       "name": "global_surface_web_rejects_mjs dies when eval stops refusing .mjs on .Web",
@@ -4639,61 +4078,6 @@
       "expect_detail": "in the temp arena"
     },
     {
-      "name": "runloop_adopts_only_before_the_threads_first_vm dies when the RunLoop self-test is skipped",
-      "why": "WTF binds a thread's RunLoop for good to the context that was thread-default at its first VM; a thread whose first VM came before the push would report a drive that never runs anything, and its pages would keep a held wasm compile alive forever.",
-      "source": "pkg/jsc/runloop_linux.odin",
-      "find": "\tadopted := group != nil && runloop_self_test(group)\n",
-      "replace": "\tadopted := group != nil\n",
-      "gate": "odin:cmd/lava:main.runloop_adopts_only_before_the_threads_first_vm",
-      "expect_detail": "to be Not_Adopted"
-    },
-    {
-      "name": "runner_runs_a_finalization_cleanup_in_its_page dies when the runner stops dispatching the RunLoop between rounds",
-      "why": "Without the runner's dispatch a runner page's FinalizationRegistry cleanup is queued on a RunLoop nothing iterates, which is #91 itself.",
-      "source": "pkg/runtime/page_runner.odin",
-      "find": "\tif jsc.runloop_due() && jsc.runloop_dispatch() {",
-      "replace": "\tif false {",
-      "gate": "odin:cmd/lava:main.runner_runs_a_finalization_cleanup_in_its_page",
-      "expect_detail": "no FinalizationRegistry cleanup within 3 s"
-    },
-    {
-      "name": "eval_runs_a_finalization_cleanup dies when page_tick's service stops dispatching the RunLoop",
-      "why": "On eval's thread the page loop is the only driver; without the dispatch before each tick a cleanup waits for the page to close and is dropped there.",
-      "source": "pkg/runtime/deferred.odin",
-      "find": "\tif jsc.runloop_due() {\n\t\tjsc.runloop_dispatch()\n\t}\n",
-      "replace": "",
-      "gate": "odin:cmd/lava:main.eval_runs_a_finalization_cleanup",
-      "expect_detail": "no FinalizationRegistry cleanup within 3 s"
-    },
-    {
-      "name": "vm_pool_releases_its_timerfds dies when vm_pool_destroy no longer iterates the RunLoop after its releases",
-      "why": "A released VM's timer source closes its timerfd only at the next iteration, so every retired VM would again cost a descriptor for the life of its thread.",
-      "source": "pkg/runtime/vm_pool.odin",
-      "find": "\tif len(pool.vms) > 0 {\n\t\tjsc.runloop_dispatch()\n\t}\n",
-      "replace": "",
-      "gate": "odin:cmd/lava:main.vm_pool_releases_its_timerfds",
-      "expect_detail": "outlived their VMs"
-    },
-    {
-      "name": "runner_churn_with_the_drive_does_not_crash dies when JSC's GC activity timers stay on under the drive",
-      "why": "A driven full-GC activity timer reaches RunLoop::mainSingleton(), null in this embedding (session probes: SIGSEGV in 12 of 12 runs); the observable here is the crash, or a spin, so the verdict is the gate's own failure.",
-      "source": "pkg/jsc/runloop_linux.odin",
-      "find": "\t\t\t(transmute(Disable_GC_Timer_Proc)p)()\n",
-      "replace": "\t\t\t_ = p\n",
-      "gate": "odin:cmd/lava:main.runner_churn_with_the_drive_does_not_crash",
-      "expect_detail": "",
-      "timeout_ms": 120000
-    },
-    {
-      "name": "runner_collects_a_vm_whose_sampled_heap_was_large dies when page_create skips the pending collection",
-      "why": "With the GC activity timers off, the heap-gated collection is the only one not driven by allocation; without it a VM keeps a large predecessor's garbage (bench/pages heavy: 66 MB RSS growth per VM against 27 MB).",
-      "source": "pkg/runtime/page.odin",
-      "find": "\t\tjsc.collect_garbage_now(cast(jsc.JSContextRef)ctx)\n",
-      "replace": "",
-      "gate": "odin:cmd/lava:main.runner_collects_a_vm_whose_sampled_heap_was_large",
-      "expect_detail": "was not collected"
-    },
-    {
       "name": "suspended_timers_phase_resumes_the_same_turn dies when a yield breaks out of the timers phase",
       "why": "A slice that falls through to the later phases runs this turn's setImmediate (and any completion) ahead of the timers still due in it: t1,micro,imm,t2 where node prints t1,micro,t2,imm.",
       "source": "pkg/runtime/eventloop/loop.odin",
@@ -4853,15 +4237,6 @@
       "expect_detail": "web sees"
     },
     {
-      "name": "run_surface_refuses_workers dies when --surface=web is allowed onto the worker supervisor",
-      "why": "The supervisor builds its pages on the Node surface, so without the refusal LAVA_WORKERS=2 lava run --surface=web leaves require/process/Buffer reachable behind a flag that promised to hide them.",
-      "source": "cmd/lava/main.odin",
-      "find": "\tif worker_count > 1 && surface != .Node {",
-      "replace": "\tif false {",
-      "gate": "odin:cmd/lava:main.run_surface_refuses_workers",
-      "expect_detail": "web surface with 2 workers must be refused"
-    },
-    {
       "name": "the web oracle recorder refuses a run that raised a page error",
       "why": "A Chrome run that throws after its last print would be recorded as a clean oracle, and Lava would then pass a case whose page errors in Chrome.",
       "source": "scripts/lib/web-oracle.mjs",
@@ -4920,6 +4295,61 @@
       "gate": "node-test:scripts/run-web-oracle.test.mjs",
       "test": "a suite below the case-count floor fails before running anything",
       "expect_detail": "a suite below the case-count floor fails before running anything"
+    },
+    {
+      "name": "runloop_adopts_only_before_the_threads_first_vm dies when the RunLoop self-test is skipped",
+      "why": "WTF binds a thread's RunLoop for good to the context that was thread-default at its first VM; a thread whose first VM came before the push would report a drive that never runs anything, and its pages would keep a held wasm compile alive forever.",
+      "source": "pkg/jsc/runloop_linux.odin",
+      "find": "\tadopted := group != nil && runloop_self_test(group)\n",
+      "replace": "\tadopted := group != nil\n",
+      "gate": "odin:cmd/lava:main.runloop_adopts_only_before_the_threads_first_vm",
+      "expect_detail": "to be Not_Adopted"
+    },
+    {
+      "name": "runner_runs_a_finalization_cleanup_in_its_page dies when the runner stops dispatching the RunLoop between rounds",
+      "why": "Without the runner's dispatch a runner page's FinalizationRegistry cleanup is queued on a RunLoop nothing iterates, which is #91 itself.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\tif jsc.runloop_due() && jsc.runloop_dispatch() {",
+      "replace": "\tif false {",
+      "gate": "odin:cmd/lava:main.runner_runs_a_finalization_cleanup_in_its_page",
+      "expect_detail": "no FinalizationRegistry cleanup within 3 s"
+    },
+    {
+      "name": "eval_runs_a_finalization_cleanup dies when page_tick's service stops dispatching the RunLoop",
+      "why": "On eval's thread the page loop is the only driver; without the dispatch before each tick a cleanup waits for the page to close and is dropped there.",
+      "source": "pkg/runtime/deferred.odin",
+      "find": "\tif jsc.runloop_due() {\n\t\tjsc.runloop_dispatch()\n\t}\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.eval_runs_a_finalization_cleanup",
+      "expect_detail": "no FinalizationRegistry cleanup within 3 s"
+    },
+    {
+      "name": "vm_pool_releases_its_timerfds dies when vm_pool_destroy no longer iterates the RunLoop after its releases",
+      "why": "A released VM's timer source closes its timerfd only at the next iteration, so every retired VM would again cost a descriptor for the life of its thread.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tif len(pool.vms) > 0 {\n\t\tjsc.runloop_dispatch()\n\t}\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.vm_pool_releases_its_timerfds",
+      "expect_detail": "outlived their VMs"
+    },
+    {
+      "name": "runner_churn_with_the_drive_does_not_crash dies when JSC's GC activity timers stay on under the drive",
+      "why": "A driven full-GC activity timer reaches RunLoop::mainSingleton(), null in this embedding (session probes: SIGSEGV in 12 of 12 runs); the observable here is the crash, or a spin, so the verdict is the gate's own failure.",
+      "source": "pkg/jsc/runloop_linux.odin",
+      "find": "\t\t\t(transmute(Disable_GC_Timer_Proc)p)()\n",
+      "replace": "\t\t\t_ = p\n",
+      "gate": "odin:cmd/lava:main.runner_churn_with_the_drive_does_not_crash",
+      "expect_detail": "",
+      "timeout_ms": 120000
+    },
+    {
+      "name": "runner_collects_a_vm_whose_sampled_heap_was_large dies when page_create skips the pending collection",
+      "why": "With the GC activity timers off, the heap-gated collection is the only one not driven by allocation; without it a VM keeps a large predecessor's garbage (bench/pages heavy: 66 MB RSS growth per VM against 27 MB).",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\tjsc.collect_garbage_now(cast(jsc.JSContextRef)ctx)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.runner_collects_a_vm_whose_sampled_heap_was_large",
+      "expect_detail": "was not collected"
     },
     {
       "name": "runner_charges_a_cleanup_to_its_own_page dies when the shim runs the cleanup at the RunLoop dispatch",
@@ -5066,22 +4496,43 @@
       "expect_detail": "exited"
     },
     {
-      "name": "80-webstreams-internal-modules dies when a constructor is defined in the assembling entry again",
-      "why": "A constructor defined in internal/webstreams/index.js (the export assembly node:stream/web re-exports) throws from that file's frame instead of the file node attributes it to, which is what the split moved away from.",
-      "source": "pkg/runtime/js/internal/webstreams/index.js",
-      "find": "  var CountQueuingStrategy = strategies.CountQueuingStrategy;",
-      "replace": "  var CountQueuingStrategy = function CountQueuingStrategy(o) { if (!o) throw new TypeError('init'); return new strategies.CountQueuingStrategy(o); };",
-      "gate": "compat:tests/node-compat/cases/80-webstreams-internal-modules.js",
-      "expect_detail": "node: CountQueuingStrategy(): node:internal/webstreams/queuingstrategies true false"
+      "name": "run-odin-green dies when a skip-listed test that now passes is let through",
+      "why": "The known-red list may only shrink: a listed test that turns green but stays skipped is coverage CI silently stops running.",
+      "source": "scripts/run-odin-green.sh",
+      "find": "\t\tpassing=\"$passing $name\"",
+      "replace": "\t\t:",
+      "gate": "node-test:scripts/run-odin-green.test.mjs",
+      "test": "a listed test that now passes fails the run and is named",
+      "expect_detail": "a listed test that now passes fails the run and is named"
     },
     {
-      "name": "global_surface_web_loads_no_node_module dies when the Window surface instantiates node:stream/web again",
-      "why": "The Node-profile removal deletes js/node/; a web global reached only through a node/ module on .Web would vanish with it. The loader gate is what keeps the stream globals' install path internal.",
-      "source": "pkg/runtime/js/bootstrap/loader.js",
-      "find": "  if (!web) req('stream/web');\n",
-      "replace": "  req('stream/web');\n",
-      "gate": "odin:cmd/lava:main.global_surface_web_loads_no_node_module",
-      "expect_detail": "node/stream/web was loaded by .Web init"
+      "name": "run-odin-green dies when discovery is not cross-checked against the @(test) count",
+      "why": "core:testing only warns on an unknown name and cannot list its tests, so a test the parser misses would never be selected and never fail.",
+      "source": "scripts/run-odin-green.sh",
+      "find": "if [ \"$attrs\" != \"$found\" ]; then",
+      "replace": "if false; then",
+      "gate": "node-test:scripts/run-odin-green.test.mjs",
+      "test": "an attribute discovery cannot pair with a name fails the run",
+      "expect_detail": "attributes .* but 5 test names discovered"
+    },
+    {
+      "name": "run-odin-green dies when discovery only accepts a bare @(test) line",
+      "why": "A test written as `@(test) name :: proc`, among other attributes or indented in a `when` block is a real test that an exact-line match never selects.",
+      "source": "scripts/run-odin-green.sh",
+      "find": "\t\t\tif (match(line, /@[ \\t]*\\(([^)]*[, \\t])?test[ \\t]*[,)]/)) {",
+      "replace": "\t\t\tif (match(line, /^@\\(test\\)$/)) {",
+      "gate": "node-test:scripts/run-odin-green.test.mjs",
+      "test": "runs every discovered form and passes while each listed test still fails",
+      "expect_detail": "test names discovered"
+    },
+    {
+      "name": "run_refuses_lava_workers dies when LAVA_WORKERS is silently ignored",
+      "why": "The multi-worker supervisor is gone; accepting LAVA_WORKERS=4 would run one page where four were asked for, with no diagnostic, where an invalid value used to exit 2.",
+      "source": "cmd/lava/main.odin",
+      "find": "\tif !set || raw == \"\" || raw == \"1\" {",
+      "replace": "\tif true {",
+      "gate": "odin:cmd/lava:main.run_refuses_lava_workers",
+      "expect_detail": "must be refused"
     }
   ]
 }

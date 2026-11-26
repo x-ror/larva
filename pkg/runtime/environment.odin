@@ -5,8 +5,6 @@ import "core:c"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
-import "core:unicode/utf16"
-import "core:unicode/utf8"
 import jsc "lava:pkg/jsc"
 import eventloop "lava:pkg/runtime/eventloop"
 
@@ -383,35 +381,6 @@ js_string_value :: proc(ctx: jsc.JSContextRef, value: string) -> jsc.JSValueRef 
 	js_str := jsc.JSStringCreateWithUTF8CString(c_value)
 	defer jsc.JSStringRelease(js_str)
 
-	return jsc.JSValueMakeString(ctx, js_str)
-}
-
-// js_string_from_bytes builds a JS string from raw UTF-8 bytes that may contain
-// embedded NULs, by converting to UTF-16 and passing an explicit length. Unlike
-// js_string_value (which routes through a NUL-terminated cstring and so truncates
-// at the first 0x00), this preserves the full content — needed for SQLite TEXT,
-// where a NUL is a legal byte.
-js_string_from_bytes :: proc(ctx: jsc.JSContextRef, value: string) -> jsc.JSValueRef {
-	if len(value) == 0 {
-		return js_string_value(ctx, "")
-	}
-
-	// ASCII (NULs included — this builder's contract preserves them) copies
-	// straight into 8-bit string storage.
-	if bytes_all_ascii(transmute([]byte)value) {
-		if str, dst, ok := jsc.string_alloc8(len(value)); ok {
-			copy(dst, value)
-			defer jsc.JSStringRelease(str)
-			return jsc.JSValueMakeString(ctx, str)
-		}
-	}
-
-	runes := utf8.string_to_runes(value, context.temp_allocator)
-	// Each rune is at most two UTF-16 code units (a surrogate pair).
-	units := make([]u16, len(runes) * 2, context.temp_allocator)
-	n := utf16.encode(units, runes)
-	js_str := jsc.JSStringCreateWithCharacters(raw_data(units), c.size_t(n))
-	defer jsc.JSStringRelease(js_str)
 	return jsc.JSValueMakeString(ctx, js_str)
 }
 

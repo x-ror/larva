@@ -4,15 +4,14 @@
 // Every builtin used to carry its own copy of node's ERR_* constructors (describeType,
 // invalidArgType, outOfRange, …), and the copies disagreed with node and with each other:
 // `path.join(1)` said "Received type number" with no value, crypto rendered a string as
-// "type string" with no value and dropped node's `_` grouping on large integers, dns
-// printed `undefined` as "type undefined (undefined)", url printed an object as
-// "type object ()". They now all build through internal/errors, which this case pins.
+// "type string" with no value and dropped node's `_` grouping on large integers, url
+// printed an object as "type object ()". They now all build through internal/errors, which this case pins.
 //
 // Two error SHAPES exist in node and both are observable through String(e):
 //   - errors thrown by node's JS layer (`new ERR_X(...)`) stringify as
 //     `TypeError [ERR_X]: msg` — the code is spliced in by an inherited toString;
 //   - errors thrown by node's C++ layer (THROW_ERR_X: URL parsing, the encoding binding,
-//     sqlite, timingSafeEqual) are a bare `TypeError` with a `code` own property and
+//     timingSafeEqual) are a bare `TypeError` with a `code` own property and
 //     stringify as `TypeError: msg`.
 // Lava used to produce the second shape everywhere.
 //
@@ -21,8 +20,8 @@
 //     `[Object: null prototype] {}`, Lava's util.inspect gives `{}` (#331);
 //   - util.styleText's invalid-format list — it is built from inspect.colors, whose key
 //     set differs between the runtimes;
-//   - fs.writeFileSync(path, 5) — Lava does not validate `data` at all yet.
-// http/net/https sites are Linux-only natives and have no oracle case yet.
+// os, fs, sqlite, dns and crypto's hash/KDF sites went with those modules (the Node-profile
+// removal, docs/LARVA.md decision 1).
 'use strict';
 
 // One error prints as up to three SHORT lines — the shape (everything String(e) adds
@@ -175,14 +174,6 @@ const crypto = require('crypto');
 t('crypto randomBytes str', () => crypto.randomBytes('x'));
 t('crypto randomBytes neg', () => crypto.randomBytes(-1));
 t('crypto randomBytes 2^40', () => crypto.randomBytes(2 ** 40));
-t('crypto update num', () => crypto.createHash('sha256').update(5));
-t('crypto update bigint', () => crypto.createHmac('sha256', 'k').update(5n));
-t('crypto finalized', () => {
-  const h = crypto.createHash('sha256');
-  h.digest();
-  h.digest();
-});
-t('crypto hmac digest', () => crypto.createHmac('bogus', 'k'));
 t('crypto randomFillSync off', () => crypto.randomFillSync(Buffer.alloc(4), 'x'));
 t('crypto randomFillSync off oob', () => crypto.randomFillSync(Buffer.alloc(4), 9));
 t('crypto randomFillSync size', () => crypto.randomFillSync(Buffer.alloc(4), 0, 9));
@@ -190,19 +181,6 @@ t('crypto randomFillSync buf', () => crypto.randomFillSync(5));
 t('crypto timingSafeEqual len', () => crypto.timingSafeEqual(Buffer.alloc(1), Buffer.alloc(2)));
 t('crypto timingSafeEqual type', () => crypto.timingSafeEqual(1, Buffer.alloc(2)));
 t('crypto timingSafeEqual type b', () => crypto.timingSafeEqual(Buffer.alloc(1), 'x'));
-t('crypto scrypt pair', () => crypto.scryptSync('p', 's', 8, { N: 16, cost: 16 }));
-t('crypto scrypt keylen', () => crypto.scryptSync('p', 's', -1));
-t('crypto scrypt params', () => crypto.scryptSync('p', 's', 8, { N: 3 }));
-t('crypto pbkdf2 iter', () => crypto.pbkdf2Sync('p', 's', 'x', 8, 'sha256'));
-t('crypto pbkdf2 iter range', () => crypto.pbkdf2Sync('p', 's', 0, 8, 'sha256'));
-t('crypto pbkdf2 digest', () => crypto.pbkdf2Sync('p', 's', 1, 8, 5));
-
-// --- os ---
-const os = require('os');
-t('os getPriority str', () => os.getPriority('x'));
-t('os getPriority frac', () => os.getPriority(1.5));
-t('os getPriority 2^40', () => os.getPriority(2 ** 40));
-t('os setPriority range', () => os.setPriority(0, 100));
 
 // --- util (+ parse_env, parse_args, mime) ---
 const util = require('util');
@@ -264,33 +242,6 @@ a(
     }),
 );
 t('string_decoder enc', () => new (require('string_decoder').StringDecoder)('bogus'));
-
-// --- fs ---
-const fs = require('fs');
-t('fs readFile no cb', () => fs.readFile('x', { encoding: 'utf8' }));
-t('fs readFileSync bool', () => fs.readFileSync(true));
-t('fs readFileSync enc', () => fs.readFileSync(__filename, { encoding: 'bogus' }));
-t('fs readFileSync opts', () => fs.readFileSync(__filename, 5));
-
-// --- sqlite (node's C++ layer: no [code] in String(e)) ---
-const { DatabaseSync } = require('node:sqlite');
-t('sqlite path', () => new DatabaseSync(5));
-const db = new DatabaseSync(':memory:');
-t('sqlite sql', () => db.prepare(5));
-t('sqlite bigint', () => db.prepare('select ?').get(2n ** 70n));
-t('sqlite unknown named', () => db.prepare('select :a').get({ b: 1 }));
-db.close();
-t('sqlite closed', () => db.prepare('select 1'));
-
-// --- dns (validation only; nothing is resolved) ---
-const dns = require('dns');
-t('dns lookup host', () => dns.lookup(5, () => {}));
-t('dns lookup family', () => dns.lookup('localhost', { family: 5 }, () => {}));
-t('dns lookup family str', () => dns.lookup('localhost', { family: '4' }, () => {}));
-t('dns lookup hints', () => dns.lookup('localhost', { hints: 999999 }, () => {}));
-t('dns lookup all', () => dns.lookup('localhost', { all: 5 }, () => {}));
-t('dns lookup cb', () => dns.lookup('localhost', {}));
-t('dns order', () => dns.setDefaultResultOrder('x'));
 
 (async () => {
   for (const [label, f] of pending) {

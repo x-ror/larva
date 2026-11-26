@@ -239,7 +239,7 @@ function ratchetSandbox() {
 test('ratchet CLI fails and names the file when a scanned module gains a site', () => {
   const { root, cli } = ratchetSandbox();
   try {
-    const key = 'node/net.js';
+    const key = 'node/querystring.js';
     const base = JSON.parse(
       readFileSync(join(root, 'tests', 'node-compat', 'pollution-baseline.json'), 'utf8'),
     )[key].method;

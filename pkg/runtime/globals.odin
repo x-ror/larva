@@ -98,38 +98,6 @@ Runtime_State :: struct {
 	// Fetches currently owned by this runtime context. Used during abnormal eval
 	// teardown to stop requests and join any DNS worker before the loop/context die.
 	active_fetches:    [dynamic]^Fetch_Request,
-	// node:dns lookups run off-loop on the loop's shared worker pool (see dns.odin);
-	// the pool's own `outstanding` list is the in-flight tracking, and the loop's
-	// teardown (close_begin / close_finish) cancels and disposes it, so no separate
-	// active_dns bag is needed here.
-	// node:sqlite handle registries: opaque id -> ^sqlite.Database / ^sqlite.Statement
-	// (kept as rawptr so this struct need not import pkg/std/sqlite). See sqlite.odin.
-	sqlite_dbs:        map[u64]rawptr,
-	sqlite_stmts:      map[u64]rawptr,
-	next_sqlite_id:    u64,
-	// node:net registries (see net.odin): integer id -> live ^Net_Server / ^Net_Connection.
-	// Each is a watched fd, so the loop stays alive while a server listens or a connection
-	// is open; net_shutdown_active tears them down before the loop/context die.
-	net_servers:       map[u64]^Net_Server,
-	net_conns:         map[u64]^Net_Connection,
-	// node:https per-listener TLS contexts (tls_server.odin): id -> ^SSL_CTX (rawptr so this
-	// cross-platform struct need not name the OpenSSL binding). createSecureContext builds one and
-	// parks it here; net.listen consumes it (ownership moves to the Net_Server); any left unconsumed
-	// (createServer without listen) are freed at teardown. Keyed off next_net_id. Linux-only in
-	// practice; the map is inert on platforms without node:net.
-	tls_server_ctxs:   map[u64]rawptr,
-	// Intrusive FIFO of ProactorRing conns parked on -ENOBUFS (Slice 2a). head/tail + the conn's
-	// starved_next/prev give O(1) enqueue/dequeue/remove (a [dynamic] with ordered_remove was O(K)
-	// per op → O(K^2) to drain/close K parked conns at 10k-conn scale, precisely during overload).
-	net_starved_head:  ^Net_Connection,
-	net_starved_tail:  ^Net_Connection,
-	net_recv_credits:  int, // buffers recycled with no parked taker — consumed by a later park (Slice 2a)
-	next_net_id:       u64,
-	// Graceful shutdown (Slice 3a): set when the loop's drain hook has closed the listeners and is
-	// letting in-flight connections finish. drain_timer is the bounded-drain deadline that force-exits
-	// if connections don't close in time (0 == none armed).
-	draining:          bool,
-	drain_timer:       eventloop.Timer_ID,
 	// Node-style process.argv: [execPath, scriptPath, ...userArgs]. Built in eval()
 	// and read by install_process. Empty for embedders that don't set it (then
 	// install_process falls back to os.args).
@@ -152,7 +120,7 @@ JS_Callback :: struct {
 	repeating: bool,
 	// allocator made this binding and its args slice, and is the only one that may
 	// free them: the owning Runtime_State's, captured by the timer native that made
-	// the binding — the same capture dns.odin makes for its requests (CLAUDE.md §4).
+	// the binding — the same capture fetch makes for its requests (CLAUDE.md §4).
 	// The native is a `proc "c"`, so its ambient allocator is
 	// runtime.default_context()'s heap, while the free runs under a different
 	// context depending on the path: eval's, when the loop fires, re-arms or tears
@@ -198,13 +166,6 @@ new_runtime_state :: proc(loop: ^eventloop.Loop) -> ^Runtime_State {
 	state.module_cache = make(map[string]Cached_Module, 0, state.allocator)
 	state.error_intrinsics = make(map[string]jsc.JSValueRef)
 	state.active_fetches = make([dynamic]^Fetch_Request)
-	state.sqlite_dbs = make(map[u64]rawptr)
-	state.sqlite_stmts = make(map[u64]rawptr)
-	state.next_sqlite_id = 1
-	state.net_servers = make(map[u64]^Net_Server)
-	state.net_conns = make(map[u64]^Net_Connection)
-	state.tls_server_ctxs = make(map[u64]rawptr)
-	state.next_net_id = 1
 	state.wasm_jobs = make([dynamic]Wasm_Job, state.allocator)
 	state.deferred_cleanups = make([dynamic]Deferred_Cleanup, state.allocator)
 	return state
@@ -217,8 +178,6 @@ destroy_runtime_state :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) {
 
 	fetch_shutdown_active(state)
 	fetch_destroy_pending(state)
-	net_destroy_state(state)
-	sqlite_destroy_state(state)
 	for _, entry in state.module_cache {
 		unprotect_before_eval_exit(ctx, entry.value)
 		delete(entry.key, state.allocator)
@@ -1819,17 +1778,6 @@ install_internal_modules :: proc(
 	set_named(ctx, natives, "internal/deferred", cast(jsc.JSValueRef)make_deferred_bindings(ctx))
 	// Native, not a module: nothing of it is JS a page could see in a stack (wasm.odin).
 	install_wasm(ctx, state)
-	// The Node-only subsystems: built in only with -define:LAVA_NODE_MODULES=true.
-	when LAVA_NODE_MODULES {
-		set_named(ctx, natives, "node/sqlite", cast(jsc.JSValueRef)make_sqlite_bindings(ctx))
-		set_named(ctx, natives, "node/dns", cast(jsc.JSValueRef)make_dns_bindings(ctx))
-		set_named(ctx, natives, "node/net", cast(jsc.JSValueRef)make_net_bindings(ctx))
-		set_named(ctx, natives, "node/http", cast(jsc.JSValueRef)make_http_bindings(ctx))
-		set_named(ctx, natives, "node/https", cast(jsc.JSValueRef)make_https_bindings(ctx))
-		set_named(ctx, natives, "node/os", cast(jsc.JSValueRef)make_os_bindings(ctx))
-		set_named(ctx, natives, "node/tty", cast(jsc.JSValueRef)make_tty_bindings(ctx))
-		set_named(ctx, natives, "node/fs", cast(jsc.JSValueRef)make_fs_bindings(ctx))
-	}
 
 	// Intrinsic process/console objects. Captured here (context init, before user
 	// code) and handed to the factories so require('node:process') /
@@ -1985,11 +1933,6 @@ builtin_compile_cb :: proc "c" (
 			narrow[i] = byte(u)
 		}
 		id = string(narrow[:len(r.s16)])
-	}
-
-	// Excluded from this build (LAVA_NODE_MODULES=false): not a builtin.
-	if node_module_excluded(id) {
-		return undefined
 	}
 
 	slash := strings.last_index_byte(id, '/')
@@ -2185,47 +2128,6 @@ make_native_function :: proc(
 // mutant builds.
 LAVA_JS_OVERRIDE :: #config(LAVA_JS_OVERRIDE, false)
 
-// LAVA_NODE_MODULES decides whether the Node-only subsystems are part of the build:
-// node:sqlite, node:fs, node:os, node:net, node:http, node:https, node:dns and
-// node:tty. Off by default while the engine core for Larva is being built — the
-// owner's call, 2026-11-18: these are excluded, not deleted, so Lava can still be
-// taken to full Node parity later. `-define:LAVA_NODE_MODULES=true` (`make build
-// NODE_MODULES=1`) brings them back unchanged.
-//
-// Off means: their bindings objects are never created (install_internal_modules),
-// and the loader's compile refuses their ids (builtin_compile_cb), so `require` of
-// one falls through to the filesystem like any unknown name. The sources stay
-// embedded and type-checked. What still stays in: the web surface (fetch, URL,
-// streams, encoding, timers), Buffer, events/stream/util/path/assert and the
-// CommonJS loader.
-//
-// Deviates: with it off this is not a Node-compatible runtime (§1), and the oracle
-// suites for these modules cannot pass. No test pins the off state yet — tests are
-// deliberately paused for this phase.
-LAVA_NODE_MODULES :: #config(LAVA_NODE_MODULES, false)
-
-// The module ids LAVA_NODE_MODULES=false takes out, by exact id or `dir/` prefix.
-@(private = "file")
-node_module_excluded :: proc(id: string) -> bool {
-	when LAVA_NODE_MODULES {
-		return false
-	} else {
-		switch id {
-		case "node/sqlite",
-		     "node/fs",
-		     "node/os",
-		     "node/net",
-		     "node/http",
-		     "node/https",
-		     "node/dns",
-		     "node/tty",
-		     "node/dns/promises":
-			return true
-		}
-		return strings.has_prefix(id, "internal/http/") || strings.has_prefix(id, "internal/os/")
-	}
-}
-
 RUNTIME_SOURCE_FILE :: #file
 
 // js_override_dir returns the compile-time `pkg/runtime` directory when this is a
@@ -2385,7 +2287,7 @@ set_named :: proc(ctx: jsc.JSContextRef, object: jsc.JSObjectRef, name: string, 
 // is a use-after-free: that slice is in Odin heap memory, which JSC's conservative GC does
 // NOT scan (only the machine stack + registers), so the elements are unrooted GC cells and
 // a collection mid-build frees them. Setting into the array immediately keeps each rooted.
-// See http.odin's parseRequest for the crash this pattern caused.
+// The node:http server's parseRequest (http.odin, since deleted) crashed on exactly this pattern.
 build_string_array :: proc(ctx: jsc.JSContextRef, items: []string) -> jsc.JSObjectRef {
 	arr := jsc.JSObjectMakeArray(ctx, 0, nil, nil)
 	for item, i in items {
@@ -2460,7 +2362,6 @@ Embedded_JS_Dir :: struct {
 // proc-local forms). Nothing writes to it after init.
 EMBEDDED_JS_DIRS := [?]Embedded_JS_Dir {
 	{"node", #load_directory("js/node")},
-	{"node/dns", #load_directory("js/node/dns")},
 	{"node/path", #load_directory("js/node/path")},
 	{"node/stream", #load_directory("js/node/stream")},
 	{"node/timers", #load_directory("js/node/timers")},
@@ -2468,8 +2369,6 @@ EMBEDDED_JS_DIRS := [?]Embedded_JS_Dir {
 	{"internal", #load_directory("js/internal")},
 	{"internal/crypto", #load_directory("js/internal/crypto")},
 	{"internal/fetch", #load_directory("js/internal/fetch")},
-	{"internal/http", #load_directory("js/internal/http")},
-	{"internal/os", #load_directory("js/internal/os")},
 	{"internal/streams", #load_directory("js/internal/streams")},
 	{"internal/util", #load_directory("js/internal/util")},
 	{"internal/webstreams", #load_directory("js/internal/webstreams")},

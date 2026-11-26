@@ -214,7 +214,7 @@ when ODIN_OS == .Linux {
 			return
 		}
 
-		// TEST-ONLY switch, same shape and purpose as net.odin's
+		// TEST-ONLY switch, same shape and purpose as the deleted net.odin's
 		// LAVA_NET_FORCE_READINESS: force the C-API fallback so CI can exercise the
 		// "probe missed" half of this file on a box where the probe would succeed.
 		// That direction has had no coverage since the macOS/Windows jobs were

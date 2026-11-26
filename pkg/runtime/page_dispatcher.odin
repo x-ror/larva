@@ -16,8 +16,8 @@ import jsc "lava:pkg/jsc"
 // on that worker. JSC adds a collector thread per VM, so the process runs about
 // threads × pages_per_thread threads (decision 2 has the counts).
 //
-// Why threads in one process and not workers.odin's processes: a process per worker
-// would put every VM pool behind IPC, and workers.odin's model — one script per
+// Why threads in one process and not Lava's workers.odin processes (deleted with the Node
+// profile): a process per worker would put every VM pool behind IPC, and that model — one script per
 // worker sharing a listen socket — is a server's, not a page farm's. A supervisor that
 // wants process isolation runs one dispatcher per process.
 //

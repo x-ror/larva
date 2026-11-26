@@ -47,41 +47,17 @@
     "accessor": 3,
     "global": 17
   },
-  "internal/crypto/hash.js": {
-    "method": 8,
-    "invoke": 0,
-    "accessor": 0,
-    "global": 5
-  },
-  "internal/crypto/hkdf.js": {
-    "method": 0,
-    "invoke": 0,
-    "accessor": 1,
-    "global": 1
-  },
-  "internal/crypto/pbkdf2.js": {
-    "method": 0,
-    "invoke": 0,
-    "accessor": 0,
-    "global": 2
-  },
   "internal/crypto/random.js": {
     "method": 0,
     "invoke": 0,
     "accessor": 12,
     "global": 24
   },
-  "internal/crypto/scrypt.js": {
-    "method": 0,
-    "invoke": 0,
-    "accessor": 0,
-    "global": 12
-  },
   "internal/crypto/util.js": {
-    "method": 10,
+    "method": 2,
     "invoke": 0,
     "accessor": 4,
-    "global": 15
+    "global": 12
   },
   "internal/encoding.js": {
     "method": 0,
@@ -131,30 +107,6 @@
     "accessor": 0,
     "global": 0
   },
-  "internal/http/common.js": {
-    "method": 5,
-    "invoke": 0,
-    "accessor": 0,
-    "global": 0
-  },
-  "internal/http/incoming.js": {
-    "method": 2,
-    "invoke": 1,
-    "accessor": 0,
-    "global": 3
-  },
-  "internal/http/outgoing.js": {
-    "method": 1,
-    "invoke": 0,
-    "accessor": 0,
-    "global": 1
-  },
-  "internal/http/server.js": {
-    "method": 13,
-    "invoke": 4,
-    "accessor": 0,
-    "global": 14
-  },
   "internal/idna.js": {
     "method": 4,
     "invoke": 0,
@@ -166,12 +118,6 @@
     "invoke": 0,
     "accessor": 0,
     "global": 4
-  },
-  "internal/os/constants.js": {
-    "method": 0,
-    "invoke": 0,
-    "accessor": 0,
-    "global": 0
   },
   "internal/parse_args.js": {
     "method": 0,
@@ -377,53 +323,11 @@
     "accessor": 0,
     "global": 13
   },
-  "node/dns.js": {
-    "method": 6,
-    "invoke": 0,
-    "accessor": 0,
-    "global": 4
-  },
-  "node/dns/promises.js": {
-    "method": 0,
-    "invoke": 0,
-    "accessor": 0,
-    "global": 0
-  },
   "node/events.js": {
     "method": 0,
     "invoke": 2,
     "accessor": 0,
     "global": 0
-  },
-  "node/fs.js": {
-    "method": 0,
-    "invoke": 0,
-    "accessor": 0,
-    "global": 0
-  },
-  "node/http.js": {
-    "method": 0,
-    "invoke": 0,
-    "accessor": 0,
-    "global": 0
-  },
-  "node/https.js": {
-    "method": 0,
-    "invoke": 0,
-    "accessor": 0,
-    "global": 2
-  },
-  "node/net.js": {
-    "method": 2,
-    "invoke": 2,
-    "accessor": 3,
-    "global": 8
-  },
-  "node/os.js": {
-    "method": 12,
-    "invoke": 0,
-    "accessor": 0,
-    "global": 5
   },
   "node/path.js": {
     "method": 161,
@@ -461,12 +365,6 @@
     "accessor": 0,
     "global": 6
   },
-  "node/sqlite.js": {
-    "method": 10,
-    "invoke": 1,
-    "accessor": 3,
-    "global": 12
-  },
   "node/stream.js": {
     "method": 0,
     "invoke": 0,
@@ -502,12 +400,6 @@
     "invoke": 0,
     "accessor": 0,
     "global": 4
-  },
-  "node/tty.js": {
-    "method": 2,
-    "invoke": 2,
-    "accessor": 0,
-    "global": 2
   },
   "node/url.js": {
     "method": 10,

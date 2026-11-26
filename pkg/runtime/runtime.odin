@@ -32,10 +32,6 @@ Result :: struct {
 	exit_code:      int,
 	message:        string,
 	is_allocated:   bool,
-	// True when the event loop exited because its backend poll failed fatally (loop.backend_error),
-	// not because work drained or a stop was requested. The multi-worker supervisor reads this to tell
-	// a crashed worker from one that finished cleanly (so a crash stops the other workers).
-	backend_failed: bool,
 	// Which page limit (eval's `limits`) ended the run, if any. A kill is reported as
 	// .Execution_Error, so this is how a caller tells it from an uncaught exception.
 	kill:           Kill_Reason,
@@ -185,10 +181,11 @@ release_global_context_after_eval :: proc(ctx: jsc.JSGlobalContextRef) {
 }
 
 // Pre_Run_Hook fires once per eval, after top-level evaluation has succeeded (listeners bound,
-// context up) and BEFORE the event loop starts. It returns whether the loop should run: the
-// multi-worker supervisor uses it as the startup-barrier rendezvous (report ready, block until the
-// supervisor releases or aborts all workers), returning false on abort so this worker skips run() and
-// falls through to the normal teardown. nil (the default) means "just run" — the single-worker path.
+// context up) and BEFORE the event loop starts. It returns whether the loop should run; false
+// skips the loop and falls through to the normal teardown. nil (the default) means "just run".
+// Lava's multi-worker supervisor used it as its startup barrier; since that went with the Node
+// profile its caller is cmd/lava/runloop_drive_test.odin, which collects garbage between the
+// top-level script and the first tick.
 Pre_Run_Hook :: proc(user_data: rawptr) -> bool
 
 // Result_Hook receives eval's final Result once, BEFORE eval tears down its loop and
@@ -289,17 +286,8 @@ eval :: proc(
 
 	if page_open(&page, source, source_name, loop, echo_result, script_args, limits, surface = surface) &&
 	   loop != nil {
-		// Startup-barrier rendezvous (multi-worker): report this worker ready and block until the
-		// supervisor releases all workers, or aborts startup (some worker failed). On abort, skip the
-		// loop entirely and fall through to the teardown — the loop never ran, so this is a direct
-		// teardown, not a drain. nil hook (single-worker) always proceeds.
-		proceed := true
-
-		if pre_run != nil {
-			proceed = pre_run(pre_run_data)
-		}
-
-		if proceed {
+		// nil hook: just run. false: skip the loop; the teardown below still runs.
+		if pre_run == nil || pre_run(pre_run_data) {
 			for {
 				alive, _ := page_tick(&page)
 

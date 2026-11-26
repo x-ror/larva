@@ -1,4 +1,4 @@
-// Benchmark orchestrator: run every bench/{micro,macro}/*.js under both Node (the oracle)
+// Benchmark orchestrator: run every bench/micro/*.js under both Node (the oracle)
 // and Lava, plus an external process-startup measurement, then print a node-vs-lava table
 // and — with --gate — fail on any benchmark whose lava/node ratio exceeds its cap in
 // bench/thresholds.json. All timing/parsing lives here (in Node, always present) rather
@@ -20,10 +20,10 @@ const STARTUP_REPS = Number(process.env.BENCH_STARTUP_REPS || 15);
 const GATE = process.argv.includes('--gate');
 const MARKER = '##BENCH##';
 
-// Collect the bench files (micro then macro), excluding the startup noop target and lib.
+// Collect the bench files, excluding the startup noop target and lib.
 function benchFiles() {
   const out = [];
-  for (const group of ['micro', 'macro']) {
+  for (const group of ['micro']) {
     const dir = join(ROOT, 'bench', group);
     for (const name of readdirSync(dir).sort()) {
       if (name.endsWith('.js') && name !== 'noop.js') out.push(join(dir, name));
@@ -157,17 +157,18 @@ const thresholds = thresholdsFile.caps || {};
 // cap nor an opt-out is a gate hole: deleting a file used to drop its cap too.
 const reportOnly = new Set(thresholdsFile.report_only || []);
 
-// Agent-cycle F1.2: every bench file under micro/macro (except noop) must stay
+// Agent-cycle F1.2: every bench file under micro (except noop) must stay
 // discoverable — silent rm of a .js would otherwise shrink the gate with no fail.
 {
   let benchFileCount = 0;
-  for (const group of ['micro', 'macro']) {
+  for (const group of ['micro']) {
     const dir = join(ROOT, 'bench', group);
     for (const name of readdirSync(dir)) {
       if (name.endsWith('.js') && name !== 'noop.js') benchFileCount++;
     }
   }
-  // micro: buffer, encoding, json, require, url (+ noop excluded) + macro: fs = 6
+  // micro: buffer, encoding, json, require, url (+ noop excluded) = 5. bench/macro held
+  // only fs.js, which went with node:fs.
   const minFiles = 0;
   if (benchFileCount < minFiles) {
     console.error(`gate-integrity: found ${benchFileCount} bench files, expected >= ${minFiles}`);

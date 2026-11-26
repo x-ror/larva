@@ -11,15 +11,9 @@
 //                           String.fromCharCode, Object.defineProperties, Object.prototype
 //   assert                  Object.prototype
 //   diagnostics_channel     new Map, Object.defineProperty
-//   dns                     Object.keys
-//   os                      new Uint8Array, new Uint16Array
 //   querystring, util/types Object.prototype
-//   sqlite                  Symbol.dispose, Symbol(), and a WRITE of Symbol.dispose — the
-//                           JSC polyfill went onto whatever object held the name
-//   tty                     Object.create
-//   http, https, net        Object.create / Object.defineProperty / new Uint8Array
-//                           (Linux; on darwin the missing-bindings `new Error` is reached
-//                           instead, which node never has)
+// (dns, os, sqlite, tty, http, https and net were on this list too, until those modules
+// went with the Node profile.)
 //
 // A spy that forwards everything is enough to see the read: what the builtin does with
 // the value is up to whoever installed the replacement. punycode is deliberately absent —
@@ -80,22 +74,9 @@ armed = false;
 console.log('recorder live:', log.length === 1 && log[0] === 'Object.keys');
 
 const results = [];
-// Leaves first: util requires util/types and internal/mime, assert requires util, http
-// requires net — a module already loaded by a dependency logs nothing of its own.
-for (const m of [
-  'util/types',
-  'util',
-  'assert',
-  'diagnostics_channel',
-  'dns',
-  'os',
-  'querystring',
-  'node:sqlite',
-  'tty',
-  'net',
-  'http',
-  'https',
-]) {
+// Leaves first: util requires util/types and internal/mime, assert requires util — a
+// module already loaded by a dependency logs nothing of its own.
+for (const m of ['util/types', 'util', 'assert', 'diagnostics_channel', 'querystring']) {
   results.push([m, loadUnderSpies(m)]);
 }
 

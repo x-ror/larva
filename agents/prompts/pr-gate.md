@@ -103,7 +103,7 @@ Mechanical gates
   make check         PASS
   make check-js      PASS
   make test          PASS
-  make test-http-smoke  FAIL  (or NOT RUN — reason, or DELEGATED — where)
+  make test-fetch-smoke  FAIL  (or NOT RUN — reason, or DELEGATED — where)
 
 Review gates          (each: PASS | FAIL | N/A — no routed path | NOT REVIEWED — why)
   Correctness    …   Safety      …

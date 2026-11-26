@@ -118,19 +118,6 @@ parse_run_args :: proc(args: []string) -> (surface: lava_runtime.Global_Surface,
 	return surface, rest, ""
 }
 
-// run_surface_error refuses a surface the chosen run mode cannot honour: the worker
-// supervisor (LAVA_WORKERS>1) builds its pages on the Node surface, so running a file
-// there under `--surface=web` would leave require/process/Buffer reachable behind a
-// flag that promised to hide them. Returns "" when the combination is allowed.
-// Pinned by cmd/lava/run_surface_flag_test.odin.
-run_surface_error :: proc(surface: lava_runtime.Global_Surface, worker_count: int) -> string {
-	if worker_count > 1 && surface != .Node {
-		return "--surface=web does not support LAVA_WORKERS>1"
-	}
-
-	return ""
-}
-
 run_command :: proc(raw_args: []string) {
 	surface, args, usage_err := parse_run_args(raw_args)
 
@@ -139,23 +126,11 @@ run_command :: proc(raw_args: []string) {
 		os.exit(2)
 	}
 
-	// LAVA_WORKERS>1 runs the file on N shared-nothing worker loops (Slice 3a). Resolved fail-fast:
-	// an invalid value or an unsupported platform exits non-zero rather than silently degrading.
-	worker_count, count_ok, count_msg := lava_runtime.lava_resolve_worker_count()
+	workers_raw, workers_set := os.lookup_env("LAVA_WORKERS", context.temp_allocator)
 
-	if !count_ok {
-		fmt.eprintfln("lava: %s", count_msg)
-		os.exit(2)
-	}
-
-	if refusal := run_surface_error(surface, worker_count); refusal != "" {
+	if refusal := workers_env_error(workers_raw, workers_set); refusal != "" {
 		fmt.eprintfln("lava: %s", refusal)
 		os.exit(2)
-	}
-
-	if worker_count > 1 {
-		// args is [scriptPath, ...userArgs]; the supervisor reads the file once and runs N workers.
-		os.exit(lava_runtime.lava_run_workers(args[0], worker_count, args[1:]))
 	}
 
 	loop := eventloop.init(real_time = true)
@@ -167,6 +142,20 @@ run_command :: proc(raw_args: []string) {
 	exit_code := result.exit_code
 	lava_runtime.result_destroy(&result)
 	os.exit(exit_code)
+}
+
+// workers_env_error refuses a LAVA_WORKERS value that asks for more than the one page
+// `lava run` now runs. The variable selected Lava's multi-worker supervisor, deleted with
+// the Node profile (S3); ignoring it would silently run one page where N were asked for,
+// so anything but unset, empty or "1" — what it always meant by the single-page run — is
+// a usage error (exit 2), as an invalid value was before. Returns "" when allowed.
+// Pinned by cmd/lava/run_surface_flag_test.odin.
+workers_env_error :: proc(raw: string, set: bool) -> string {
+	if !set || raw == "" || raw == "1" {
+		return ""
+	}
+
+	return "LAVA_WORKERS is no longer supported (the multi-worker supervisor was removed); unset it"
 }
 
 // print_result routes through lava_runtime.process_write rather than fmt.println for the
