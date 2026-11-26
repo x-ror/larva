@@ -4404,7 +4404,7 @@
       "find": "\t\t\tcase \"web\":\n\t\t\t\topts.surface = .Web\n",
       "replace": "\t\t\tcase \"web\":\n\t\t\t\topts.surface = .Node\n",
       "gate": "odin:cmd/lava:main.run_args_surface_flag",
-      "expect_detail": "expected web to be Web"
+      "expect_detail": "expected web.surface to be Web"
     },
     {
       "name": "run_file_threads_surface dies when run_file drops its surface",
