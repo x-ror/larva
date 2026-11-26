@@ -1,0 +1,72 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs html5lib-tests11-004
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       attributename=""
+|       attributetype=""
+|       basefrequency=""
+|       baseprofile=""
+|       calcmode=""
+|       clippathunits=""
+|       diffuseconstant=""
+|       edgemode=""
+|       filterunits=""
+|       glyphref=""
+|       gradienttransform=""
+|       gradientunits=""
+|       kernelmatrix=""
+|       kernelunitlength=""
+|       keypoints=""
+|       keysplines=""
+|       keytimes=""
+|       lengthadjust=""
+|       limitingconeangle=""
+|       markerheight=""
+|       markerunits=""
+|       markerwidth=""
+|       maskcontentunits=""
+|       maskunits=""
+|       numoctaves=""
+|       pathlength=""
+|       patterncontentunits=""
+|       patterntransform=""
+|       patternunits=""
+|       pointsatx=""
+|       pointsaty=""
+|       pointsatz=""
+|       preservealpha=""
+|       preserveaspectratio=""
+|       primitiveunits=""
+|       refx=""
+|       refy=""
+|       repeatcount=""
+|       repeatdur=""
+|       requiredextensions=""
+|       requiredfeatures=""
+|       specularconstant=""
+|       specularexponent=""
+|       spreadmethod=""
+|       startoffset=""
+|       stddeviation=""
+|       stitchtiles=""
+|       surfacescale=""
+|       systemlanguage=""
+|       tablevalues=""
+|       targetx=""
+|       targety=""
+|       textlength=""
+|       viewbox=""
+|       viewtarget=""
+|       xchannelselector=""
+|       ychannelselector=""
+|       zoomandpan=""
+#serialize
+<!DOCTYPE html><html><head></head><body><math attributename="" attributetype="" basefrequency="" baseprofile="" calcmode="" clippathunits="" diffuseconstant="" edgemode="" filterunits="" glyphref="" gradienttransform="" gradientunits="" kernelmatrix="" kernelunitlength="" keypoints="" keysplines="" keytimes="" lengthadjust="" limitingconeangle="" markerheight="" markerunits="" markerwidth="" maskcontentunits="" maskunits="" numoctaves="" pathlength="" patterncontentunits="" patterntransform="" patternunits="" pointsatx="" pointsaty="" pointsatz="" preservealpha="" preserveaspectratio="" primitiveunits="" refx="" refy="" repeatcount="" repeatdur="" requiredextensions="" requiredfeatures="" specularconstant="" specularexponent="" spreadmethod="" startoffset="" stddeviation="" stitchtiles="" surfacescale="" systemlanguage="" tablevalues="" targetx="" targety="" textlength="" viewbox="" viewtarget="" xchannelselector="" ychannelselector="" zoomandpan=""></math></body></html>

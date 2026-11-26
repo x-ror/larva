@@ -1,0 +1,15 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs html5lib-tests16-173
+# ---
+#tree
+| <html>
+|   <head>
+|     <style>
+|       "<!--<br><html xmlns:v="urn:schemas-microsoft-com:vml"><!--[if !mso]><style>"
+|   <body>
+|     "X"
+#serialize
+<html><head><style><!--<br><html xmlns:v="urn:schemas-microsoft-com:vml"><!--[if !mso]><style></style></head><body>X</body></html>

@@ -1,6 +1,5 @@
 package larva_html
 
-import "base:runtime"
 import "core:c"
 import "core:strings"
 
@@ -261,9 +260,10 @@ parse_all :: proc(
 // been init'ed. No script pauses and nothing can be written: the document is done.
 //
 // Returns:
-//   The element the fragment's nodes are children of (inner_html serializes them);
-//   ok false when lexbor could not create the document or parse into it, or off
-//   Linux (error_message says which).
+//   The context element, which holds the fragment's nodes as its children — as its
+//   template content when `context` is `template` — so inner_html serializes them;
+//   ok false when lexbor could not create the document or parse into it, for a
+//   foreign context (`svg desc`, stage 3e), or off Linux (error_message says which).
 // Chrome:
 //   `doc.createElement(context).innerHTML = data` in a no-quirks document with
 //   scripting off; tests/dom's `*.frag-<context>` cases compare it with Chrome's.
@@ -285,6 +285,15 @@ parse_fragment :: proc(
 	source_init(&p.written, allocator)
 	// The parse is over before this returns: pump answers .Done and write refuses.
 	p.ended = true
+
+	if strings.contains_rune(context_name, ' ') {
+		// html5lib's `svg desc` / `math mi` notation, in which tests/dom's corpus cases
+		// name a foreign context: refused rather than taken for an HTML element with a
+		// space in its name.
+		p.err = "pkg/html: a fragment context in the SVG or MathML namespace waits for stage 3e"
+		return nil, false
+	}
+
 	when ODIN_OS != .Linux {
 		p.err = "pkg/html: no lexbor build for this target (Linux only)"
 		return nil, false
@@ -335,69 +344,11 @@ serialize :: proc(p: ^Parser, allocator := context.allocator) -> (markup: string
 		return "", false
 	}
 
-	return serialize_with(larva_html_document_node(p.doc), true, 0, allocator)
+	return serialize_markup(larva_html_document_node(p.doc), true, 0, allocator)
 }
 
 @(private = "file")
 fail :: proc(p: ^Parser, why: string) -> Pump_Status {
 	p.err = why
 	return .Failed
-}
-
-// serialize_with serializes `node` — its children only when `deep`, the node itself too
-// otherwise. `reserve` > 0 is the builder's first capacity.
-//
-// The builder is bound to `allocator` by builder_make, so growing it inside the C
-// callback (which runs under the default context) still goes to `allocator`. An
-// allocation failure stops the serializer instead of returning truncated markup.
-//
-// The callback appends with the zeroing `append` on purpose, and the whole document is
-// not pre-reserved. Both were measured on a 1.2 MB page (-o:speed, medians of 7
-// interleaved launches, 25 parse+serialize rounds each): reserving the input size and
-// appending without zeroing took serialize from 3.37 to 2.89 ms but the next parse in
-// the same process from 6.91 to 7.87 ms — the memory the builder no longer touches is
-// what lexbor then faults in — 10.76 ms a round against 10.28.
-@(private)
-serialize_with :: proc(
-	node: Node,
-	deep: bool,
-	reserve: int,
-	allocator := context.allocator,
-) -> (
-	markup: string,
-	ok: bool,
-) {
-	b := strings.builder_make(allocator)
-
-	if reserve > 0 && strings.builder_grow(&b, reserve) != nil {
-		return "", false
-	}
-
-	status :=
-		lxb_html_serialize_deep_cb(node, collect_markup, &b) if deep else lxb_html_serialize_tree_cb(node, collect_markup, &b)
-
-	if status != LXB_STATUS_OK {
-		strings.builder_destroy(&b)
-		return "", false
-	}
-
-	return strings.to_string(b), true
-}
-
-// A non-OK status is the only thing that stops a lexbor serializer, so a failed append
-// has to become one.
-@(private = "file")
-collect_markup :: proc "c" (data: [^]u8, n: c.size_t, raw: rawptr) -> lxb_status_t {
-	if n == 0 {
-		return LXB_STATUS_OK
-	}
-
-	// Only for append itself: the builder grows through its own allocator.
-	context = runtime.default_context()
-
-	if _, err := strings.write_bytes(cast(^strings.Builder)raw, data[:n]); err != nil {
-		return LXB_STATUS_ERROR_MEMORY_ALLOCATION
-	}
-
-	return LXB_STATUS_OK
 }

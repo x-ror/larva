@@ -43,3 +43,5 @@ tests/web/known/*.lava     -text
 tests/dom/cases/*.html     -text
 tests/dom/cases/*.expected -text
 tests/dom/known/*.lava     -text
+# The vendored html5lib-tests inputs the corpus cases are generated from.
+tests/dom/html5lib/*.dat   -text

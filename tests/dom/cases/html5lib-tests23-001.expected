@@ -1,0 +1,41 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs html5lib-tests23-001
+# ---
+#tree
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <font>
+|         size="4"
+|         <font>
+|           color="red"
+|           <font>
+|             size="4"
+|             <font>
+|               size="4"
+|               <font>
+|                 size="4"
+|                 <font>
+|                   size="4"
+|                   <font>
+|                     size="4"
+|                     <font>
+|                       color="red"
+|     <p>
+|       <font>
+|         color="red"
+|         <font>
+|           size="4"
+|           <font>
+|             size="4"
+|             <font>
+|               size="4"
+|               <font>
+|                 color="red"
+|                 "X"
+#serialize
+<html><head></head><body><p><font size="4"><font color="red"><font size="4"><font size="4"><font size="4"><font size="4"><font size="4"><font color="red"></font></font></font></font></font></font></font></font></p><p><font color="red"><font size="4"><font size="4"><font size="4"><font color="red">X</font></font></font></font></font></p></body></html>

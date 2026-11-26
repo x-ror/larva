@@ -1,0 +1,50 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs html5lib-tricky01-008
+# ---
+#tree
+| <html>
+|   <head>
+|   <body>
+|     <center>
+|       <center>
+|     <font>
+|       "
+"
+|     <table>
+|       "
+"
+|       <tbody>
+|         <tr>
+|           "
+"
+|           <td>
+|         <tr>
+|           "
+"
+|     <table>
+|       <tbody>
+|         <tr>
+|     <font>
+|       "
+"
+|       <p>
+|       "
+"
+|       <a>
+|     <a>
+|       <font>
+|     <font>
+|       "
+This page contains an insanely badly-nested tag sequence."
+#serialize
+<html><head></head><body><center><center></center></center><font>
+</font><table>
+<tbody><tr>
+<td></td></tr><tr>
+</tr></tbody></table><table><tbody><tr></tr></tbody></table><font>
+<p></p>
+<a></a></font><a><font></font></a><font>
+This page contains an insanely badly-nested tag sequence.</font></body></html>

@@ -19,6 +19,14 @@ tests/node-compat/bun-buffer/ported/
   turn derive from the Node.js test suite (MIT License). The rest are original.
   These files are test inputs and are not linked into bin/lava.
 
+tests/dom/html5lib/*.dat
+  The tree-construction inputs of html5lib-tests
+  (https://github.com/html5lib/html5lib-tests, commit 9329e64, the last before those
+  tests moved to web-platform-tests). Copyright (c) 2006-2013 James Graham, Geoffrey
+  Sneddon, and other contributors. Used under the MIT License, kept beside them in
+  tests/dom/html5lib/LICENSE. Test inputs only, not linked into bin/lava;
+  tests/dom/cases/html5lib-*.html are generated from them.
+
 Libraries linked at build time, not distributed here
 ----------------------------------------------------
 

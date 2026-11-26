@@ -1,0 +1,14 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs html5lib-comments01-012
+# ---
+#tree
+| <!-- ?xml version="1.0" -->
+| <html>
+|   <head>
+|   <body>
+|     "Hi"
+#serialize
+<!--?xml version="1.0"--><html><head></head><body>Hi</body></html>

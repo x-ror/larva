@@ -1,0 +1,21 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs html5lib-webkit02-048
+# ---
+#tree
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       <button>
+|         <selectedcontent>
+|           "Y"
+|       <option>
+|         "X"
+|       <option>
+|         selected=""
+|         "Y"
+#serialize
+<html><head></head><body><select><button><selectedcontent>Y</selectedcontent></button><option>X</option><option selected="">Y</option></select></body></html>

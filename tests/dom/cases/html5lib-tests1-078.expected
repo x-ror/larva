@@ -1,0 +1,28 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs html5lib-tests1-078
+# ---
+#tree
+| <html>
+|   <head>
+|   <body>
+|     <a>
+|       href="blah"
+|       "aba"
+|       <a>
+|         href="foo"
+|         "br"
+|       <a>
+|         href="foo"
+|         "x"
+|       <table>
+|         <tbody>
+|           <tr>
+|             <td>
+|     <a>
+|       href="foo"
+|       "aoe"
+#serialize
+<html><head></head><body><a href="blah">aba<a href="foo">br</a><a href="foo">x</a><table><tbody><tr><td></td></tr></tbody></table></a><a href="foo">aoe</a></body></html>

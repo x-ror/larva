@@ -13,9 +13,15 @@
 // in known-gaps.txt apart, so a serializer gap (stage 3b) does not excuse the parse.
 // LAVA_BIN overrides the binary, CASE_TIMEOUT_SEC (default 30) bounds one run. Needs
 // no Chrome and no server: the recordings are committed and the input is a file.
+//
+// Cases run DOM_ORACLE_JOBS at a time (default: the machine's parallelism). Each run
+// is its own `lava html` process reading its own file, so they share nothing; the
+// report is in case order whatever order they finish in. With the html5lib corpus
+// (~1800 cases, two runs each) one at a time took ~18 s on 16 cores.
 
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { availableParallelism } from 'node:os';
 import { join } from 'node:path';
 import {
   CASES_DIR,
@@ -27,6 +33,7 @@ import {
   VIEWS,
   areaOf,
   fragmentContext,
+  handCases,
   lavaArgs,
   listCases,
   splitViews,
@@ -54,10 +61,11 @@ if (!existsSync(LAVA)) die(`${LAVA} does not exist; run make build`);
 
 const all = listCases();
 // The floor on the case count: a deleted case must not turn the suite green by
-// vanishing.
-if (all.length < caseFloor(FLOOR_KEY)) {
+// vanishing. Hand cases only; FLOOR_KEY's comment says what holds the generated ones.
+const hand = handCases(all);
+if (hand.length < caseFloor(FLOOR_KEY)) {
   console.error(
-    `gate-integrity case-count: ${CASES_DIR} has ${all.length} cases, expected >= ${caseFloor(FLOOR_KEY)} (see runtime/gates/case-counts.json)`,
+    `gate-integrity case-count: ${CASES_DIR} has ${hand.length} hand-written cases, expected >= ${caseFloor(FLOOR_KEY)} (see runtime/gates/case-counts.json)`,
   );
   process.exit(1);
 }
@@ -75,10 +83,18 @@ const problems = suiteProblems(all, known, CASES_DIR, KNOWN_DIR, {
   label: 'tests/dom',
 });
 
-const results = [];
-for (const name of names.length ? names : all) {
-  results.push(...(await runCase(name)));
-}
+const JOBS = Number(process.env.DOM_ORACLE_JOBS) || availableParallelism();
+const order = names.length ? names : all;
+const perCase = new Array(order.length);
+let next = 0;
+const worker = async () => {
+  while (next < order.length) {
+    const i = next++;
+    perCase[i] = await runCase(order[i]);
+  }
+};
+await Promise.all(Array.from({ length: Math.min(JOBS, order.length) }, worker));
+const results = perCase.flat();
 
 const byArea = new Map();
 for (const r of results) {

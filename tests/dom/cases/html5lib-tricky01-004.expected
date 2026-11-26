@@ -1,0 +1,30 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs html5lib-tricky01-004
+# ---
+#tree
+| <html>
+|   <head>
+|   <body>
+|     <dl>
+|       "
+"
+|       <dt>
+|         <b>
+|           "Boo
+"
+|       <dd>
+|         <b>
+|           "Goo?
+"
+|     <b>
+|       "
+"
+#serialize
+<html><head></head><body><dl>
+<dt><b>Boo
+</b></dt><dd><b>Goo?
+</b></dd></dl><b>
+</b></body></html>

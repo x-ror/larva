@@ -1,0 +1,31 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs html5lib-tricky01-009
+# ---
+#tree
+| <html>
+|   <head>
+|   <body>
+|     "
+"
+|     <b>
+|       <nobr>
+|     <div>
+|       <b>
+|         <nobr>
+|           "This text is in a div inside a nobr"
+|         "More text that should not be in the nobr, i.e., the
+nobr should have closed the div inside it implicitly. "
+|       <pre>
+|         "A pre tag outside everything else."
+|       "
+
+"
+#serialize
+<html><head></head><body>
+<b><nobr></nobr></b><div><b><nobr>This text is in a div inside a nobr</nobr>More text that should not be in the nobr, i.e., the
+nobr should have closed the div inside it implicitly. </b><pre>A pre tag outside everything else.</pre>
+
+</div></body></html>

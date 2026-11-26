@@ -1,0 +1,56 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs html5lib-tricky01-002
+# ---
+#tree
+| <html>
+|   <head>
+|   <body>
+|     <font>
+|       color="red"
+|       <i>
+|         "Italic and Red"
+|     <i>
+|       <p>
+|         <font>
+|           color="red"
+|           "Italic and Red "
+|         " Just italic."
+|       " Italic only."
+|     " Plain
+"
+|     <p>
+|       "I should not be red. "
+|       <font>
+|         color="red"
+|         "Red. "
+|         <i>
+|           "Italic and red."
+|     <font>
+|       color="red"
+|       <i>
+|         "
+"
+|     <p>
+|       <font>
+|         color="red"
+|         <i>
+|           "Italic and red. "
+|         " Red."
+|       " I should not be red."
+|     "
+"
+|     <b>
+|       "Bold "
+|       <i>
+|         "Bold and italic"
+|     <i>
+|       " Only Italic "
+|     " Plain"
+#serialize
+<html><head></head><body><font color="red"><i>Italic and Red</i></font><i><p><font color="red">Italic and Red </font> Just italic.</p> Italic only.</i> Plain
+<p>I should not be red. <font color="red">Red. <i>Italic and red.</i></font></p><font color="red"><i>
+</i></font><p><font color="red"><i>Italic and red. </i> Red.</font> I should not be red.</p>
+<b>Bold <i>Bold and italic</i></b><i> Only Italic </i> Plain</body></html>

@@ -1,0 +1,36 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs html5lib-tests12-001
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       "foo"
+|       <math math>
+|         <math mtext>
+|           <i>
+|             "baz"
+|         <math annotation-xml>
+|           <svg svg>
+|             <svg desc>
+|               <b>
+|                 "eggs"
+|             <svg g>
+|               <svg foreignObject>
+|                 <p>
+|                   "spam"
+|                 <table>
+|                   <tbody>
+|                     <tr>
+|                       <td>
+|                         <img>
+|             <svg g>
+|               "quux"
+|       "bar"
+#serialize
+<!DOCTYPE html><html><head></head><body><p>foo<math><mtext><i>baz</i></mtext><annotation-xml><svg><desc><b>eggs</b></desc><g><foreignObject><p>spam</p><table><tbody><tr><td><img></td></tr></tbody></table></foreignObject></g><g>quux</g></svg></annotation-xml></math>bar</p></body></html>
