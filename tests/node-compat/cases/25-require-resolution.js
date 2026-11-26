@@ -5,9 +5,9 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 
 // Bare builtin specifier resolves the same as the node: form.
-const fs = require('fs');
-assert.equal(typeof fs.readFileSync, 'function');
-assert.equal(require('fs'), require('node:fs'));
+const util = require('util');
+assert.equal(typeof util.format, 'function');
+assert.equal(require('util'), require('node:util'));
 
 // A directory must not shadow a sibling <name>.js during resolution.
 assert.equal(require('../fixtures/resolve/pkgdir'), 'SIBLING_WINS');

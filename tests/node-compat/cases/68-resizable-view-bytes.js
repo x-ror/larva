@@ -1,7 +1,7 @@
 // A typed array over a RESIZABLE ArrayBuffer must hand natives its current bytes.
 //
-// Every native that takes bytes (Buffer codecs, TextDecoder, crypto, fs writes, sqlite
-// binds) borrows them through one helper, typed_array_view. Its fast path reads the
+// Every native that takes bytes (Buffer codecs, TextDecoder, and once fs writes, sqlite
+// binds and crypto hashes, all gone with the Node profile) borrows them through one helper, typed_array_view. Its fast path reads the
 // view's length straight out of the JSC cell, and for a view whose length is not fixed
 // that field is not the length:
 //
@@ -20,10 +20,6 @@
 // Every surface below routes through the same helper; they are listed individually so
 // a caller that grows its own byte-borrowing path is still pinned.
 const assert = require('node:assert/strict');
-const crypto = require('node:crypto');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
 
 const td = new TextDecoder();
 const rab = () => {
@@ -32,7 +28,6 @@ const rab = () => {
   return b;
 };
 const hex = (v) => Buffer.from(v.buffer, v.byteOffset, v.byteLength).toString('hex');
-const sha1 = (v) => crypto.createHash('sha1').update(v).digest('hex');
 
 // Each view kind, with the bytes a correct runtime reports for it.
 const views = [];
@@ -71,23 +66,14 @@ const views = [];
   views.push(['Buffer over resizable', Buffer.from(b), 'abcd']);
 }
 
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lava-rab-'));
-try {
-  for (const [label, v, want] of views) {
-    const bytes = Buffer.from(want, 'latin1');
-    assert.equal(v.length, bytes.length, label + ': length');
-    assert.equal(td.decode(v), want, label + ': TextDecoder#decode');
-    assert.equal(Buffer.byteLength(v), bytes.length, label + ': Buffer.byteLength');
-    assert.equal(Buffer.from(v).toString('latin1'), want, label + ': Buffer.from');
-    assert.equal(hex(v), bytes.toString('hex'), label + ': Buffer over the same window');
-    assert.equal(Buffer.compare(v, bytes), 0, label + ': Buffer.compare');
-    assert.equal(sha1(v), sha1(bytes), label + ': hash.update');
-    const file = path.join(dir, 'out.bin');
-    fs.writeFileSync(file, v);
-    assert.equal(fs.readFileSync(file, 'latin1'), want, label + ': fs.writeFileSync');
-    console.log(label, JSON.stringify(td.decode(v)));
-  }
-} finally {
-  fs.rmSync(dir, { recursive: true, force: true });
+for (const [label, v, want] of views) {
+  const bytes = Buffer.from(want, 'latin1');
+  assert.equal(v.length, bytes.length, label + ': length');
+  assert.equal(td.decode(v), want, label + ': TextDecoder#decode');
+  assert.equal(Buffer.byteLength(v), bytes.length, label + ': Buffer.byteLength');
+  assert.equal(Buffer.from(v).toString('latin1'), want, label + ': Buffer.from');
+  assert.equal(hex(v), bytes.toString('hex'), label + ': Buffer over the same window');
+  assert.equal(Buffer.compare(v, bytes), 0, label + ': Buffer.compare');
+  console.log(label, JSON.stringify(td.decode(v)));
 }
 console.log('ok');

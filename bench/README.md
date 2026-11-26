@@ -29,8 +29,8 @@ so the harness itself can be smoke-tested anywhere Node is present.
   and Lava (CommonJS; uses `performance.now()`, which both expose).
 - `micro/` — `json`, `buffer`, `require` (cache-hit lookups); plus `noop.js`, the startup
   target spawned repeatedly to measure process boot.
-- `macro/` — `fs` (64 KiB write+read throughput). Fetch throughput is a planned addition
-  (needs a local origin, like the fetch smoke test).
+- Fetch throughput is a planned macro addition (needs a local origin, like the fetch smoke
+  test); `macro/` held only an `fs` benchmark, deleted with node:fs.
 - `run.mjs` — the orchestrator (Node): runs every bench under both runtimes, measures
   startup externally, prints the table, and applies the gate. All parsing/timing lives
   here (portable; no shell JSON parsing). `scripts/run-bench.sh` is a thin wrapper.

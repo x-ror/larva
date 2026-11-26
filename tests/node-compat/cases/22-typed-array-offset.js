@@ -6,8 +6,6 @@
 // macOS CI backend, whose JSC may handle the pointer differently from Linux.
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
-const fs = require('node:fs');
-const path = require('node:path');
 
 // randomFillSync(buffer, offset, size) must fill exactly [offset, offset+size).
 const b = Buffer.alloc(16); // zeroed
@@ -32,13 +30,3 @@ assert.ok(
   new Uint8Array(buf, 16, 8).every((x) => x === 0),
   'bytes after view untouched',
 );
-
-// writeFileSync must borrow exactly the visible view, not the ArrayBuffer base.
-// Pid suffix: parallel oracle runs must not share a fixed fixture path (agent-cycle F2).
-const out = path.join(__dirname, '..', 'fixtures', `typed-array-offset.${process.pid}.tmp`);
-try {
-  fs.writeFileSync(out, Buffer.from('AAAAAAAABBBBBBBB').subarray(8));
-  assert.equal(fs.readFileSync(out, 'utf8'), 'BBBBBBBB');
-} finally {
-  fs.rmSync(out, { force: true });
-}
