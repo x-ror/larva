@@ -1,0 +1,19 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs abort-reason-shape
+# ---
+DOMException function
+abort() name AbortError code 20 message "signal is aborted without reason"
+abort() tag [object DOMException] ctor DOMException
+abort() is Error true
+abort() own code false
+AbortSignal.abort() name AbortError code 20 message "signal is aborted without reason"
+AbortSignal.abort() tag [object DOMException] ctor DOMException
+AbortSignal.abort() is Error true
+AbortSignal.abort() own code false
+timeout name TimeoutError code 23 message "signal timed out"
+timeout tag [object DOMException] ctor DOMException
+timeout is Error true
+timeout own code false

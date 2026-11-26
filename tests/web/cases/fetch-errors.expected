@@ -1,0 +1,20 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs fetch-errors
+# ---
+Headers.append name: TypeError: Failed to execute 'append' on 'Headers': Invalid name code=undefined
+Headers.set value: TypeError: Failed to execute 'set' on 'Headers': Invalid value code=undefined
+Headers.get name: TypeError: Failed to execute 'get' on 'Headers': Invalid name code=undefined
+Headers init: TypeError: Failed to construct 'Headers': Invalid value code=undefined
+Request credentials: TypeError: Failed to construct 'Request': Request cannot be constructed from a URL that includes credentials: http://u:p@x/ code=undefined
+Request GET body: TypeError: Failed to construct 'Request': Request with GET/HEAD method cannot have body. code=undefined
+Request redirect: TypeError: Failed to construct 'Request': Failed to read the 'redirect' property from 'RequestInit': The provided value 'nope' is not a valid enum value of type RequestRedirect. code=undefined
+Request duplex: TypeError: Failed to construct 'Request': The `duplex` member must be specified for a request with a streaming body code=undefined
+Request bad method: TypeError: Failed to construct 'Request': 'b d' is not a valid HTTP method. code=undefined
+Request forbidden method: TypeError: Failed to construct 'Request': 'CONNECT' HTTP method is unsupported. code=undefined
+Response status: RangeError: Failed to construct 'Response': The status provided (99) is outside the range [200, 599]. code=undefined
+Response null body status: TypeError: Failed to construct 'Response': Response with null body status cannot have body code=undefined
+Response.json BigInt: TypeError: Failed to execute 'json' on 'Response': Do not know how to serialize a BigInt code=undefined
+fetch credentials: TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: http://u:p@x/

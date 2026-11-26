@@ -1,0 +1,36 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs encoding-errors
+# ---
+made-up label: RangeError: Failed to construct 'TextDecoder': The encoding label provided ('made-up') is invalid. code=undefined
+nbsp label: RangeError: Failed to construct 'TextDecoder': The encoding label provided (' utf-8') is invalid. code=undefined
+ideographic space label: RangeError: Failed to construct 'TextDecoder': The encoding label provided ('　utf-8') is invalid. code=undefined
+zero-width label: RangeError: Failed to construct 'TextDecoder': The encoding label provided ('​utf-8') is invalid. code=undefined
+replacement label: RangeError: Failed to construct 'TextDecoder': The encoding label provided ('replacement') is invalid. code=undefined
+label coerced once: RangeError: Failed to construct 'TextDecoder': The encoding label provided ('zz-bogus') is invalid. code=undefined
+label toString calls 1
+fatal 0xff: TypeError: Failed to execute 'decode' on 'TextDecoder': The encoded data was not valid. code=undefined
+fatal utf-16le lone: TypeError: Failed to execute 'decode' on 'TextDecoder': The encoded data was not valid. code=undefined
+fatal odd mid-stream: no throw ""
+fatal odd flushed: TypeError: Failed to execute 'decode' on 'TextDecoder': The encoded data was not valid. code=undefined
+fatal tail mid-stream: no throw ""
+fatal tail flushed: TypeError: Failed to execute 'decode' on 'TextDecoder': The encoded data was not valid. code=undefined
+ctor options 5: TypeError: Failed to construct 'TextDecoder': The provided value is not of type 'TextDecoderOptions'. code=undefined
+decode options 5: TypeError: Failed to execute 'decode' on 'TextDecoder': The provided value is not of type 'TextDecodeOptions'. code=undefined
+ctor options 0: TypeError: Failed to construct 'TextDecoder': The provided value is not of type 'TextDecoderOptions'. code=undefined
+decode options 0: TypeError: Failed to execute 'decode' on 'TextDecoder': The provided value is not of type 'TextDecodeOptions'. code=undefined
+ctor options "x": TypeError: Failed to construct 'TextDecoder': The provided value is not of type 'TextDecoderOptions'. code=undefined
+decode options "x": TypeError: Failed to execute 'decode' on 'TextDecoder': The provided value is not of type 'TextDecodeOptions'. code=undefined
+ctor options true: TypeError: Failed to construct 'TextDecoder': The provided value is not of type 'TextDecoderOptions'. code=undefined
+decode options true: TypeError: Failed to execute 'decode' on 'TextDecoder': The provided value is not of type 'TextDecodeOptions'. code=undefined
+ctor options 1n: TypeError: Failed to construct 'TextDecoder': The provided value is not of type 'TextDecoderOptions'. code=undefined
+decode options 1n: TypeError: Failed to execute 'decode' on 'TextDecoder': The provided value is not of type 'TextDecodeOptions'. code=undefined
+ctor options Symbol: TypeError: Failed to construct 'TextDecoder': The provided value is not of type 'TextDecoderOptions'. code=undefined
+decode options Symbol: TypeError: Failed to execute 'decode' on 'TextDecoder': The provided value is not of type 'TextDecodeOptions'. code=undefined
+options before label: TypeError: Failed to construct 'TextDecoder': The provided value is not of type 'TextDecoderOptions'. code=undefined
+label coerced before options: RangeError: coerced first code=undefined
+decode options before input: TypeError: Failed to execute 'decode' on 'TextDecoder': parameter 1 is not of type 'ArrayBuffer'. code=undefined
+decode non-buffer input: TypeError: Failed to execute 'decode' on 'TextDecoder': parameter 1 is not of type 'ArrayBuffer'. code=undefined
+encodeInto non-Uint8Array: TypeError: Failed to execute 'encodeInto' on 'TextEncoder': parameter 2 is not of type 'Uint8Array'. code=undefined

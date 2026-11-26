@@ -45,7 +45,9 @@ print_help :: proc() {
 
 Usage:
   lava eval <source>    Evaluate JavaScript source
-  lava run <file>       Run a JavaScript file
+  lava run [--surface=web] <file>
+                        Run a JavaScript file; --surface=web exposes only the
+                        Window-profile globals (no require/process/Buffer)
   lava html [--scripts] [--chunk N] [--select CSS] <file|->
                         Parse HTML and print the serialized document
   lava fetch <url>      Fetch a page without JS; status and headers on stderr,
@@ -77,9 +79,63 @@ eval_command :: proc(args: []string) {
 	os.exit(exit_code)
 }
 
-run_command :: proc(args: []string) {
-	if len(args) < 1 {
-		fmt.eprintln("usage: lava run <file>")
+// parse_run_args splits `lava run`'s argv into the global surface and
+// [scriptPath, ...userArgs].
+//
+// Returns:
+//   `.Node` unless a leading `--surface=web` selects `.Web`; `rest` aliases `args`.
+//   A non-empty `err` is a usage error (exit 2): an unknown `--surface=` value, or
+//   no script path after the flag.
+// Node:
+//   No counterpart. Options are read only BEFORE the script path; everything after
+//   it reaches the script untouched, as `node file --x` hands `--x` to the script.
+// Deviates:
+//   Lava-only, and temporary: it lets `make test-web` (tests/web) run a case with
+//   exactly the Window-profile globals until the Node surface is deleted, at which
+//   point the flag goes with it. `--surface=node` is accepted as the explicit form
+//   of the default. Pinned by cmd/lava/run_surface_flag_test.odin and, against
+//   Chrome, by tests/web/cases/globals-window.js.
+parse_run_args :: proc(args: []string) -> (surface: lava_runtime.Global_Surface, rest: []string, err: string) {
+	rest = args
+
+	if len(rest) > 0 && strings.has_prefix(rest[0], "--surface=") {
+		switch rest[0][len("--surface="):] {
+		case "web":
+			surface = .Web
+		case "node":
+			surface = .Node
+		case:
+			return .Node, nil, "unknown --surface value (expected web or node)"
+		}
+
+		rest = rest[1:]
+	}
+
+	if len(rest) < 1 {
+		return .Node, nil, "usage: lava run [--surface=web] <file>"
+	}
+
+	return surface, rest, ""
+}
+
+// run_surface_error refuses a surface the chosen run mode cannot honour: the worker
+// supervisor (LAVA_WORKERS>1) builds its pages on the Node surface, so running a file
+// there under `--surface=web` would leave require/process/Buffer reachable behind a
+// flag that promised to hide them. Returns "" when the combination is allowed.
+// Pinned by cmd/lava/run_surface_flag_test.odin.
+run_surface_error :: proc(surface: lava_runtime.Global_Surface, worker_count: int) -> string {
+	if worker_count > 1 && surface != .Node {
+		return "--surface=web does not support LAVA_WORKERS>1"
+	}
+
+	return ""
+}
+
+run_command :: proc(raw_args: []string) {
+	surface, args, usage_err := parse_run_args(raw_args)
+
+	if usage_err != "" {
+		fmt.eprintln(usage_err)
 		os.exit(2)
 	}
 
@@ -89,6 +145,11 @@ run_command :: proc(args: []string) {
 
 	if !count_ok {
 		fmt.eprintfln("lava: %s", count_msg)
+		os.exit(2)
+	}
+
+	if refusal := run_surface_error(surface, worker_count); refusal != "" {
+		fmt.eprintfln("lava: %s", refusal)
 		os.exit(2)
 	}
 
@@ -102,7 +163,7 @@ run_command :: proc(args: []string) {
 	// process.argv.slice(2) (Node parity).
 	// run_file forwards to eval, which tears the loop down before releasing its JS
 	// context and reports through print_result before that teardown (see eval_command).
-	result := lava_runtime.run_file(args[0], &loop, args[1:], report = print_result)
+	result := lava_runtime.run_file(args[0], &loop, args[1:], report = print_result, surface = surface)
 	exit_code := result.exit_code
 	lava_runtime.result_destroy(&result)
 	os.exit(exit_code)

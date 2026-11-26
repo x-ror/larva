@@ -1,0 +1,38 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs streams-basic
+# ---
+global ReadableStream function
+global WritableStream function
+global TransformStream function
+global ReadableStreamDefaultReader function
+global ReadableStreamBYOBReader function
+global ReadableStreamDefaultController function
+global WritableStreamDefaultWriter function
+global WritableStreamDefaultController function
+global TransformStreamDefaultController function
+global ByteLengthQueuingStrategy function
+global CountQueuingStrategy function
+locked before false
+locked after true
+getReader: ab
+asyncIterator: [1,2,3]
+pull: [1,2,3]
+cancel: done-here
+cancel after: true
+tee: xyz xyz true
+double lock: TypeError
+pipeTo: pipe-to
+pipeThrough: ["A","B","!"]
+err read1: 1
+err read2: Error
+transform throw: [10] Error
+writable: ["1","2"]
+count strategy: 5 1
+byte strategy: 16 5
+byob reader: TypeError function
+iter break: 1 true
+many-chunk drain: true true
+WEB STREAMS OK

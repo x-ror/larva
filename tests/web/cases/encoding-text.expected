@@ -1,0 +1,60 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs encoding-text
+# ---
+encoder utf-8
+encode héllo Uint8Array[104,195,169,108,108,111]
+encode empty Uint8Array[]
+encode no arg Uint8Array[]
+encode euro Uint8Array[226,130,172]
+encode emoji Uint8Array[240,159,152,128]
+encode lone Uint8Array[97,239,191,189,98]
+encodeInto {"read":4,"written":6} 97,98,99,226,130,172
+encodeInto capacity {"read":2,"written":4}
+encodeInto pair split {"read":1,"written":1}
+decoder utf-8 false false
+decode hé
+decode no arg ""
+utf-16le hé
+label "latin1" -> windows-1252
+label "ascii" -> windows-1252
+label "UTF-16LE" -> utf-16le
+label "utf-16" -> utf-16le
+label "unicode-1-1-utf-8" -> utf-8
+label "iso-ir-100" -> windows-1252
+label "iso_8859-1" -> windows-1252
+label "iso_8859-1:1987" -> windows-1252
+label "csisolatin1" -> windows-1252
+label " \t utf-8 \r\n" -> utf-8
+windows-1252 €éŸ
+bom stripped "A"
+bom kept 2
+utf-16le bom "A"
+seam 8191 8191 65 8191 65
+seam 8192 8192 66 8192 66
+seam 8193 8193 67 8193 67
+seam 16384 16384 68 16384 68
+seam 16385 16385 69 16385 69
+accumulator 0 true true
+accumulator 1 true true
+accumulator 8191 true true
+accumulator 8192 true true
+accumulator 8193 true true
+invalid byte fffd
+arraybuffer A
+dataview C
+stream utf-8 "" €
+stream pair "" 1f600
+stream odd "" A
+stream bom "" a
+stream flush tail 61 fffd
+truncated fffd
+maximal subpart 61 fffd fffd fffd 62
+overlong fffd fffd fffd fffd fffd
+surrogate bytes fffd fffd fffd
+utf-16le lone fffd
+fatal pair 2
+options accepted AAAA
+globals true true

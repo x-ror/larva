@@ -1,0 +1,6 @@
+# exit 1
+types object function number
+monotonic true number number
+timeOrigin positive true
+tracks Date.now true
+tag [object Object]

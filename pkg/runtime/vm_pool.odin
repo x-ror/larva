@@ -78,6 +78,12 @@ VM :: struct {
 	// page_create on this VM runs a full synchronous collection first (page.odin says
 	// why there). Survives vm_release, unlike every per-holder field above.
 	collect_pending: bool,
+	// CPU quantum of one page tick (#35), nanoseconds; 0 = none. Set by the page runner
+	// (Page_Runner.slice_us) and cleared by vm_acquire, so eval, page_eval and
+	// page_run_until never slice. tick_mark_ns is the thread CPU clock at the outermost
+	// vm_cpu_enter, which page_checkpoint compares against.
+	slice_ns:        i64,
+	tick_mark_ns:    i64,
 }
 
 // Page_Limits are the CPU limits a page runs under. Seconds; 0 = no limit.
@@ -211,6 +217,7 @@ vm_acquire :: proc(pool: ^VM_Pool) -> (^VM, VM_Pool_Error) {
 			vm.limit_hit = false
 			vm.budget_hit = false
 			vm.stop_requested = false
+			vm.slice_ns = 0
 			vm.pages_hosted += 1
 			return vm, .None
 		}
@@ -320,6 +327,7 @@ vm_cpu_enter :: proc(vm: ^VM) {
 	}
 
 	vm.cpu_mark_ns = thread_cpu_ns()
+	vm.tick_mark_ns = vm.cpu_mark_ns
 	vm_arm_watchdog(vm)
 }
 
@@ -360,6 +368,14 @@ vm_cpu_checkpoint :: proc(vm: ^VM) {
 	}
 
 	vm_arm_watchdog(vm)
+}
+
+// vm_slice_spent reports whether the current tick has spent the VM's CPU quantum
+// (slice_ns, #35). It reads the mark vm_cpu_checkpoint just took, so the quantum costs
+// one compare per callback and no clock read of its own. False outside a vm_cpu_enter
+// stretch, and on a VM without a budget, whose checkpoint reads no clock at all.
+vm_slice_spent :: proc(vm: ^VM) -> bool {
+	return vm != nil && vm.slice_ns > 0 && vm.cpu_depth > 0 && vm.cpu_mark_ns - vm.tick_mark_ns >= vm.slice_ns
 }
 
 // vm_kill_reason reports which limit, if any, has ended the VM's current holder. The

@@ -1,0 +1,21 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs fetch-headers
+# ---
+fetch function
+status 201 application/json
+json {"ok":true}
+x-a "spaced value"
+x-b "leading-tab"
+x-c "v"
+x-d "foo"
+x-e "foo"
+x-f "trimme  d"
+x-g ""
+interior CRLF threw TypeError
+x-h "\u000bvtab"
+x-i "\f formfeed"
+x-k "a, b"
+missing null has true

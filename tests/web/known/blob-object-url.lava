@@ -1,0 +1,5 @@
+# exit 0
+types function function
+shape false
+distinct true
+FAILED TypeError: fetch: invalid URL

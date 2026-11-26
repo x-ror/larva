@@ -467,6 +467,140 @@ interval_rearms_from_clock_before_its_callback :: proc(t: ^testing.T) {
 	testing.expect_value(t, pending_count(&loop), 0)
 }
 
+record_4 :: proc(loop: ^Loop, user_data: rawptr) {
+	rec := cast(^Recorder)user_data
+	append(&rec.events, 4)
+}
+
+record_5 :: proc(loop: ^Loop, user_data: rawptr) {
+	rec := cast(^Recorder)user_data
+	append(&rec.events, 5)
+}
+
+record_6 :: proc(loop: ^Loop, user_data: rawptr) {
+	rec := cast(^Recorder)user_data
+	append(&rec.events, 6)
+}
+
+record_7 :: proc(loop: ^Loop, user_data: rawptr) {
+	rec := cast(^Recorder)user_data
+	append(&rec.events, 7)
+}
+
+// record_yield_and_queue_all is t1 of the suspended-turn test: it asks the timers
+// phase to yield, as page_checkpoint does once a page's CPU quantum is spent, and
+// queues one of everything a later phase or turn would run: a microtask (7), an
+// immediate (4), a 0 ms timer (5) and a cross-thread completion (6).
+record_yield_and_queue_all :: proc(loop: ^Loop, user_data: rawptr) {
+	rec := cast(^Recorder)user_data
+	append(&rec.events, 1)
+	loop.yield_requested = true
+	queue_microtask(loop, record_7, user_data)
+	set_immediate(loop, record_4, user_data)
+	set_timeout(loop, record_5, 0, user_data)
+	async_begin(loop)
+	post_async(loop, record_6, user_data)
+}
+
+// record_and_yield is a timer callback that spends the quantum and nothing else.
+record_and_yield :: proc(loop: ^Loop, user_data: rawptr) {
+	rec := cast(^Recorder)user_data
+	append(&rec.events, 1)
+	loop.yield_requested = true
+}
+
+// A yield suspends the WHOLE turn between two due timers (#35): no later phase, no
+// cross-thread completion and no new turn runs until the timers phase resumes, and the
+// resumed phase keeps the suspended one's sequence limit. Three timers due at 10; t1
+// yields after queueing a microtask (7), an immediate (4), a 0 ms timer (5) and a
+// completion (6). Node runs t1,micro,t2,t3 then the immediate, and the 0 ms timer next
+// turn (tests/runtime/eventloop/cases/14); the slice must not change that.
+//   - breaking out of the phase instead runs the immediate (and 6) before t2;
+//   - recomputing the sequence limit on resume runs the 0 ms timer (5) inside it;
+//   - running drain_async on resume runs the completion (6) between t1 and t2.
+@(test)
+suspended_timers_phase_resumes_the_same_turn :: proc(t: ^testing.T) {
+	loop := init()
+	defer destroy(&loop)
+
+	rec := Recorder{}
+	defer delete(rec.events)
+
+	set_timeout(&loop, record_yield_and_queue_all, 10, &rec)
+	set_timeout(&loop, record_2, 10, &rec)
+	set_timeout(&loop, record_3, 10, &rec)
+
+	// The first slice fires t1 and its microtask, then suspends with t2 and t3 due.
+	testing.expect(t, run_next(&loop))
+	expect_events(t, rec.events[:], []int{1, 7})
+	testing.expect(t, loop.resume_timers)
+
+	// The resumed slice finishes the turn: t2, t3, then the poll-time completion and
+	// the immediate — but not the 0 ms timer t1 created. run_next, not run_once: on a
+	// loop that ran everything in the first slice (the bug), run_once would block in
+	// poll(-1) on the last step.
+	testing.expect(t, run_next(&loop))
+	expect_events(t, rec.events[:], []int{1, 7, 2, 3, 6, 4})
+	testing.expect(t, !loop.resume_timers)
+
+	testing.expect(t, run_next(&loop))
+	expect_events(t, rec.events[:], []int{1, 7, 2, 3, 6, 4, 5})
+	testing.expect_value(t, pending_count(&loop), 0)
+}
+
+// A suspended turn whose remaining due timers are all unreffed is still pending work:
+// they are due, so node fires them this turn whatever their ref state. Without the
+// resume counting in pending_count, the driver reads the loop as idle mid-turn and a
+// page runner closes the page with them unrun.
+@(test)
+suspended_turn_with_only_unreffed_timers_left_is_not_idle :: proc(t: ^testing.T) {
+	loop := init()
+	defer destroy(&loop)
+
+	rec := Recorder{}
+	defer delete(rec.events)
+
+	set_timeout(&loop, record_and_yield, 10, &rec)
+	timer_unref(&loop, set_timeout(&loop, record_2, 10, &rec))
+	timer_unref(&loop, set_timeout(&loop, record_3, 10, &rec))
+
+	testing.expect(t, run_next(&loop))
+	expect_events(t, rec.events[:], []int{1})
+	testing.expect_value(t, pending_count(&loop), 1)
+
+	run_until_idle(&loop)
+	expect_events(t, rec.events[:], []int{1, 2, 3})
+	testing.expect_value(t, pending_count(&loop), 0)
+}
+
+// A pending resume is always consumed by the next tick, even when every timer it was
+// suspended for has since been cleared (an embedder's clear_timeout between slices):
+// pending_count counts it, so run_next must run the tick that clears it and
+// wait_hint_ms must not let a multi-loop driver sleep on it. Otherwise a page would
+// read as alive forever while no tick ever made progress.
+@(test)
+suspended_turn_is_resumed_after_its_due_timers_are_cleared :: proc(t: ^testing.T) {
+	loop := init()
+	defer destroy(&loop)
+
+	rec := Recorder{}
+	defer delete(rec.events)
+
+	set_timeout(&loop, record_and_yield, 10, &rec)
+	t2 := set_timeout(&loop, record_2, 10, &rec)
+	timer_unref(&loop, t2)
+
+	testing.expect(t, run_next(&loop))
+	testing.expect(t, loop.resume_timers)
+	clear_timeout(&loop, t2)
+	testing.expect_value(t, wait_hint_ms(&loop), 0)
+
+	run_next(&loop)
+	testing.expect(t, !loop.resume_timers)
+	testing.expect_value(t, pending_count(&loop), 0)
+	expect_events(t, rec.events[:], []int{1})
+}
+
 @(test)
 close_callbacks_run_after_immediates :: proc(t: ^testing.T) {
 	loop := init()

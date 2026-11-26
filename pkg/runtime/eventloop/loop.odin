@@ -153,6 +153,19 @@ Loop :: struct {
 	// GLib's next fd-less RunLoop deadline (pkg/runtime/deferred.odin). Waking at the
 	// cap counts as progress, like waking for the nearest timer.
 	poll_cap_ms:        int,
+	// yield_requested asks the timers phase to suspend the turn before the next due
+	// timer (#35). Set by the page runner's CPU quantum (page_checkpoint) from inside a
+	// timer callback; cleared when a timers phase starts, so a request left over from
+	// another phase never cuts a turn short before its first timer has run.
+	yield_requested:    bool,
+	// resume_timers marks a turn suspended mid-timers-phase: the next run_once re-enters
+	// that phase with the saved sequence limit and turn `now`, and runs no other phase
+	// first. It counts as pending work (pending_count, run_next, wait_hint_ms), since the
+	// timers still due may all be unreffed. resume_seq_limit / resume_now are the
+	// suspended phase's timer_phase_sequence_limit and timer_phase_now.
+	resume_timers:      bool,
+	resume_seq_limit:   u64,
+	resume_now:         u64,
 }
 
 // Shutdown_Hook runs ONCE on the loop thread the first time run_once observes a stop request. The net
@@ -470,9 +483,13 @@ iteration_count :: proc(loop: ^Loop) -> u64 {
 }
 
 // Returns the number of items keeping the loop alive.
-// Unreffed timers are excluded (matching Node.js timer.unref() semantics).
+// Unreffed timers are excluded (matching Node.js timer.unref() semantics) — but a
+// suspended timers phase counts as one item whatever its timers' ref state: they are
+// already due, so node fires them this turn, and a loop that read idle there would be
+// closed mid-turn with them unrun.
 pending_count :: proc(loop: ^Loop) -> int {
 	return(
+		int(loop.resume_timers) +
 		len(loop.next_ticks) +
 		len(loop.microtasks) +
 		active_immediate_count(loop) +
@@ -860,14 +877,31 @@ run_once :: proc(loop: ^Loop) -> bool {
 		return false
 	}
 
-	// Sample the real clock first so the timer phase fires every timer whose
-	// deadline has actually elapsed (no-op in virtual-clock mode).
-	sync_real_clock(loop)
+	// A turn the timers phase suspended (resume_timers, #35) carries on where it
+	// stopped, as if no time had passed between slices: nothing that would land between
+	// two timers of one node turn may run here. So no clock sample — the resumed phase
+	// compares against the saved turn `now` anyway — and no cross-thread completion: a
+	// completion drained here would run between two due timers, which node never does
+	// (it drains in poll, after the whole timers phase). The microtask drain below still
+	// runs and finds nothing: a slice only yields once the last callback's microtasks
+	// have drained.
+	//
+	// The resume itself is progress, even when every timer it was suspended for has been
+	// cleared since: a tick that consumed it with did_work false would go on to block in
+	// poll as if the loop had nothing to do.
+	resuming := loop.resume_timers
+	did_work = resuming
 
-	// Cross-thread completions (e.g. async DNS) posted by worker threads run first
-	// so the work they unblock proceeds this tick.
-	if drain_async(loop) {
-		did_work = true
+	if !resuming {
+		// Sample the real clock first so the timer phase fires every timer whose
+		// deadline has actually elapsed (no-op in virtual-clock mode).
+		sync_real_clock(loop)
+
+		// Cross-thread completions (e.g. async DNS) posted by worker threads run first
+		// so the work they unblock proceeds this tick.
+		if drain_async(loop) {
+			did_work = true
+		}
 	}
 
 	// Phase 1 & 2: next_tick + microtasks (before anything else)
@@ -883,7 +917,10 @@ run_once :: proc(loop: ^Loop) -> bool {
 	// scheduled this phase and (since its due_ms >= now_ms, delays being >= 0) sorts
 	// no earlier than every already-due seq < limit timer — so stopping at the first
 	// such root cannot starve an earlier-scheduled due timer.
-	timer_phase_sequence_limit := loop.next_sequence
+	//
+	// A resumed phase keeps the suspended one's limit: recomputing it would admit a
+	// 0 ms timer an earlier slice's callback created into this same turn (case 05).
+	timer_phase_sequence_limit := resuming ? loop.resume_seq_limit : loop.next_sequence
 	// The phase compares every deadline against the turn's `now`, sampled once above, not
 	// the live now_ms: set_timer re-syncs now_ms (a new timer's delay counts from when it
 	// is scheduled), so a callback that spins and then calls setTimeout would otherwise
@@ -893,7 +930,9 @@ run_once :: proc(loop: ^Loop) -> bool {
 	// --expose-internals), while insert() stamps a new timer with a fresh getLibuvNow().
 	// Measured: A due at +10 spins 5 ms, B due at +12 — node prints A,imm,B.
 	// Pinned by eventloop.timer_due_during_timers_phase_waits_for_next_turn.
-	timer_phase_now := loop.now_ms
+	timer_phase_now := resuming ? loop.resume_now : loop.now_ms
+	loop.resume_timers = false
+	loop.yield_requested = false
 	for len(loop.timers) > 0 {
 		// Lazily drop a cancelled root: its binding was already disposed and its
 		// count already adjusted at cancel time, so just discard it.
@@ -910,6 +949,22 @@ run_once :: proc(loop: ^Loop) -> bool {
 
 		if root.due_ms > timer_phase_now {
 			break
+		}
+
+		// Suspend the turn here, between two due timers, when the CPU quantum is spent
+		// (#35): a page runner ticks the page's siblings before it resumes. Checked only
+		// with another due timer at the root, so a resume tick always fires one, and only
+		// after the previous callback's microtasks drained, so a slice never separates a
+		// callback from them. It returns rather than breaking out: falling through to
+		// check ran a sibling timer's setImmediate ahead of it (t1,micro,imm,t2 against
+		// node's t1,micro,t2,imm, measured; case 14). cancelled_ids stays as it is: the
+		// resumed slice is the same turn, and its end clears them.
+		if loop.yield_requested {
+			loop.yield_requested = false
+			loop.resume_timers = true
+			loop.resume_seq_limit = timer_phase_sequence_limit
+			loop.resume_now = timer_phase_now
+			return did_work
 		}
 
 		timer := timer_heap_pop_min(loop)
@@ -1113,7 +1168,10 @@ run_once :: proc(loop: ^Loop) -> bool {
 // run_next advances time to the next due timer if there is no immediate work,
 // then calls run_once. Used for test/simulation drivers.
 run_next :: proc(loop: ^Loop) -> bool {
-	if len(loop.next_ticks) > 0 ||
+	// A suspended turn first: it must not be fast-forwarded past, and its due timers
+	// may since have been cleared, so has_due_timer alone could leave it pending forever.
+	if loop.resume_timers ||
+	   len(loop.next_ticks) > 0 ||
 	   len(loop.microtasks) > 0 ||
 	   has_due_timer(loop) ||
 	   active_immediate_count(loop) > 0 ||
@@ -1234,6 +1292,11 @@ backend_fd :: proc(loop: ^Loop) -> (fd: uintptr, ok: bool) {
 // only I/O (seen through backend_fd) or nothing can wake it. Samples the real clock
 // first, so a timer that came due while another loop ran reports 0.
 wait_hint_ms :: proc(loop: ^Loop) -> int {
+	// A suspended turn is runnable now, whatever its remaining timers look like.
+	if loop.resume_timers {
+		return 0
+	}
+
 	sync_real_clock(loop)
 
 	if len(loop.next_ticks) > 0 ||

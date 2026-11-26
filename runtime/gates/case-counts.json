@@ -16,6 +16,10 @@
     "tests/std/sqlite/cases": {
       "globs": ["*.js"],
       "min": 8
+    },
+    "tests/web/cases": {
+      "globs": ["*.js"],
+      "min": 46
     }
   },
   "bench": {

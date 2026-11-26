@@ -1,0 +1,38 @@
+# exit 0
+auto: length 4
+  decode "abcd"
+  blob "abcd"
+  response "abcd"
+  encodeInto {"read":2,"written":2}
+  getRandomValues 4
+auto at offset 1: length 3
+  decode "bcd"
+  blob "bcd"
+  response "bcd"
+  encodeInto {"read":2,"written":2}
+  getRandomValues 3
+auto after grow: length 6
+  decode "abcd\u0000\u0000"
+  blob "abcd\u0000\u0000"
+  response "abcd\u0000\u0000"
+  encodeInto {"read":2,"written":2}
+  getRandomValues 6
+auto after shrink: length 2
+  decode "ab"
+  blob "ab"
+  response "ab"
+  encodeInto {"read":2,"written":2}
+  getRandomValues 2
+fixed in bounds: length 2
+  decode "bc"
+  blob "bc"
+  response "bc"
+  encodeInto {"read":2,"written":2}
+  getRandomValues 2
+fixed out of bounds: length 0
+  decode ""
+  blob ""
+  response ""
+  encodeInto {"read":0,"written":0}
+  getRandomValues 0
+ok
