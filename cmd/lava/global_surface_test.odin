@@ -328,8 +328,7 @@ global_surface_web_skips_stdio :: proc(t: ^testing.T) {
 // resolving an id the loader already instantiated compiles nothing, resolving one it
 // did not compiles at least that factory. Fresh per id because a resolve instantiates
 // the module's own requires too, which would read as "loaded at init" for the next id
-// probed on the same context. A module this build excludes (LAVA_NODE_MODULES) is
-// not answered at all and so cannot have been loaded.
+// probed on the same context.
 @(test)
 global_surface_web_loads_no_node_module :: proc(t: ^testing.T) {
 	probed := 0

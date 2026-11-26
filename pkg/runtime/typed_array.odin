@@ -136,7 +136,8 @@ jsc_buffer_deallocator :: proc "c" (bytes: rawptr, deallocator_context: rawptr) 
 // make_uint8_array hands a byte slice from runtime.heap_allocator() to JavaScriptCore
 // as a Uint8Array without copying; jsc_buffer_deallocator frees it. Natives reached
 // as `proc "c"` callbacks run under runtime.default_context(), whose allocator is the
-// heap, so their context.allocator qualifies; loop callbacks do not (net.odin).
+// heap, so their context.allocator qualifies; loop callbacks do not (they run under the
+// embedder's context — node:net's read path, since deleted, was the case that crashed).
 make_uint8_array :: proc(ctx: jsc.JSContextRef, data: []byte) -> jsc.JSValueRef {
 	ptr := raw_data(data)
 	n := len(data)

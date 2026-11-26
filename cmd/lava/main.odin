@@ -118,44 +118,12 @@ parse_run_args :: proc(args: []string) -> (surface: lava_runtime.Global_Surface,
 	return surface, rest, ""
 }
 
-// run_surface_error refuses a surface the chosen run mode cannot honour: the worker
-// supervisor (LAVA_WORKERS>1) builds its pages on the Node surface, so running a file
-// there under `--surface=web` would leave require/process/Buffer reachable behind a
-// flag that promised to hide them. Returns "" when the combination is allowed.
-// Pinned by cmd/lava/run_surface_flag_test.odin.
-run_surface_error :: proc(surface: lava_runtime.Global_Surface, worker_count: int) -> string {
-	if worker_count > 1 && surface != .Node {
-		return "--surface=web does not support LAVA_WORKERS>1"
-	}
-
-	return ""
-}
-
 run_command :: proc(raw_args: []string) {
 	surface, args, usage_err := parse_run_args(raw_args)
 
 	if usage_err != "" {
 		fmt.eprintln(usage_err)
 		os.exit(2)
-	}
-
-	// LAVA_WORKERS>1 runs the file on N shared-nothing worker loops (Slice 3a). Resolved fail-fast:
-	// an invalid value or an unsupported platform exits non-zero rather than silently degrading.
-	worker_count, count_ok, count_msg := lava_runtime.lava_resolve_worker_count()
-
-	if !count_ok {
-		fmt.eprintfln("lava: %s", count_msg)
-		os.exit(2)
-	}
-
-	if refusal := run_surface_error(surface, worker_count); refusal != "" {
-		fmt.eprintfln("lava: %s", refusal)
-		os.exit(2)
-	}
-
-	if worker_count > 1 {
-		// args is [scriptPath, ...userArgs]; the supervisor reads the file once and runs N workers.
-		os.exit(lava_runtime.lava_run_workers(args[0], worker_count, args[1:]))
 	}
 
 	loop := eventloop.init(real_time = true)

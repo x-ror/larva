@@ -231,18 +231,6 @@ page_create :: proc(
 	state.script_argv = build_process_argv(source_name, script_args)
 	jsc.JSObjectSetPrivate(jsc.JSContextGetGlobalObject(cast(jsc.JSContextRef)ctx), cast(rawptr)state)
 
-	// Register the graceful-shutdown drain hook (multi-worker, Linux only): when the supervisor
-	// requests a stop, the loop runs net_drain_begin on its own thread to stop accepting and drain
-	// in-flight connections. KNOWN DIVERGENCE (design §9): only the multi-worker supervisor blocks
-	// SIGINT/SIGTERM and calls request_shutdown, so this hook never fires for a single-worker run
-	// (LAVA_WORKERS unset/1) — there SIGTERM still terminates immediately without draining, as it did
-	// before Slice 3a. Routing the single-worker path through the same machinery is a follow-up.
-	when ODIN_OS == .Linux {
-		if loop != nil {
-			eventloop.set_shutdown_hook(loop, net_drain_begin, state)
-		}
-	}
-
 	// Snapshot the standard error constructors while globalThis is still pristine —
 	// before setup_module_environment's builtin JS and, crucially, before any user
 	// code. make_native_error builds native throws from these captured intrinsics, so
@@ -670,12 +658,9 @@ page_close :: proc(
 		if ended, result := page_ended(page); ended {
 			page.result = result
 		} else {
-			// Captured while the loop is still alive: a fatal backend-poll failure means
-			// this worker crashed rather than finished/stopped cleanly.
 			page.result = Result {
-				status         = .Ok,
-				exit_code      = exit_code,
-				backend_failed = page.loop != nil && page.loop.backend_error,
+				status    = .Ok,
+				exit_code = exit_code,
 			}
 
 			if page.completion != nil {
@@ -732,7 +717,6 @@ page_close :: proc(
 
 	if page.loop != nil {
 		fetch_shutdown_active(page.state)
-		net_shutdown_active(page.state)
 
 		if eventloop.close_begin(page.loop) {
 			busy_loop = page.loop

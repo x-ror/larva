@@ -5,9 +5,10 @@ import "core:testing"
 import jsc "lava:pkg/jsc"
 import lava "lava:pkg/runtime"
 
-// Regression guard for a TOCTOU in fs_resolve_write_payload's DataView arm — the same
+// Regression guard for a TOCTOU in stdio_resolve_write_payload's DataView arm — the same
 // argument-coercion re-entrancy family as cmd/lava/buffer_reentrancy_test.odin, reached
-// through a property read rather than a valueOf.
+// through a property read rather than a valueOf. The resolver was fs.writeFile's and is
+// process.stdout/stderr.write's now that node:fs is gone; the hole is the same either way.
 //
 // JSC's C API has no DataView byte accessor, so the resolver reads `.byteOffset` and
 // `.byteLength` off the object. Those are ordinary property reads, and on an object
@@ -43,7 +44,7 @@ payload_eval :: proc(ctx: jsc.JSContextRef, src: cstring) -> jsc.JSValueRef {
 }
 
 @(test)
-fs_write_payload_rejects_a_window_resized_by_its_own_getter :: proc(t: ^testing.T) {
+stdio_write_payload_rejects_a_window_resized_by_its_own_getter :: proc(t: ^testing.T) {
 	jsc.lava_jsc_init()
 	gctx := jsc.JSGlobalContextCreate(nil)
 	testing.expect(t, gctx != nil, "could not create a JSC global context")
@@ -86,7 +87,7 @@ fs_write_payload_rejects_a_window_resized_by_its_own_getter :: proc(t: ^testing.
 	)
 	testing.expect(t, dv != nil, "could not build the DataView under test")
 
-	bytes, owned, ok := lava.fs_resolve_write_payload(ctx, dv)
+	bytes, owned, ok := lava.stdio_resolve_write_payload(ctx, dv)
 	testing.expect(t, ok, "a DataView must resolve, not report an invalid type")
 	testing.expect(t, !owned, "a DataView window is borrowed, never owned")
 

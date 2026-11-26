@@ -30,21 +30,10 @@
 
   var cache = Object.create(null);
   natives = natives || Object.create(null);
-  // node:http's implementation is split across js/internal/http/ (laid out like node's
-  // _http_* files); the two that call into Odin take node:http's OWN bindings object as
-  // their fourth argument, exactly as http.js did before the split — aliased here, not a
-  // second binding set, so there is one parseRequest per context. node/http.js checks
-  // the bindings before requiring either file.
-  natives['internal/http/outgoing'] = natives['node/http'];
-  natives['internal/http/server'] = natives['node/http'];
-  // node:crypto is split the same way, along node's lib/internal/crypto seams; the five
-  // files that call into Odin get node:crypto's own bindings object, aliased for the
-  // same reason.
-  natives['internal/crypto/hash'] = natives['node/crypto'];
+  // node:crypto is split along node's lib/internal/crypto seams; internal/crypto/random
+  // calls into Odin through node:crypto's OWN bindings object, aliased here rather than
+  // a second binding set, so there is one CSPRNG binding per context.
   natives['internal/crypto/random'] = natives['node/crypto'];
-  natives['internal/crypto/pbkdf2'] = natives['node/crypto'];
-  natives['internal/crypto/hkdf'] = natives['node/crypto'];
-  natives['internal/crypto/scrypt'] = natives['node/crypto'];
   // node:buffer's codecs and numeric accessors live in internal/buffer.js (node's
   // lib/internal/buffer seam); it decodes through node:buffer's own bindings object.
   natives['internal/buffer'] = natives['node/buffer'];
@@ -84,7 +73,7 @@
     // to the partially-built exports object instead of looping forever.
     cache[id] = module.exports;
     // natives[id] (or undefined) carries any Odin-backed primitives for this
-    // module — e.g. crypto's CSPRNG and one-shot hash/hmac/pbkdf2.
+    // module — e.g. crypto's CSPRNG.
     var result = factory(req, module, module.exports, natives[id]);
     cache[id] = result !== undefined ? result : module.exports;
     return cache[id];
@@ -118,8 +107,8 @@
   // which reads the three as plain values. And the loader is the one choke point every
   // user-code entry runs behind: there is exactly one JSGlobalContextCreate that hosts a
   // script (runtime.odin eval), install_globals runs this loader before the entry
-  // script, `.mjs` sources only reach the same context through esm.js's transform, and
-  // multi-worker mode is N such evals. Only runtime code runs before this line (the
+  // script, and `.mjs` sources only reach the same context through esm.js's transform.
+  // Only runtime code runs before this line (the
   // console prelude, install_process), so locking here leaves no window.
   req('internal/primordials').lockIntrinsics();
   req('buffer');
@@ -144,7 +133,7 @@
   // Three categories, and only the third needs this table:
   //   eager (the list above)         — their own capture is pristine
   //   bootstrap (stream, stdio)      — instantiated by installStdio before user code
-  //   lazy (fs, http, https, net, os) — capture at the user's first require(): TOO LATE
+  //   lazy (every other module)      — capture at the user's first require(): TOO LATE
   //
   // The OPERATIONS, not just the constructor: `.from` is read off the constructor at CALL
   // time, so `Buffer.from = evil` steers a module holding a pristine `Buffer`. Same lesson
@@ -168,13 +157,6 @@
     // unbound method invites each consumer to re-derive it, and two consumers deriving it
     // differently is how the six copies of describeType happened.
     bufferToString: req('internal/primordials').uncurryThis(PristineBufferCtor.prototype.toString),
-    // The rest of the framing path in http.js's chunked decoder: it reads the chunk-size
-    // line, finds the CRLF boundary and advances the cursor through these three. Every one
-    // was a live `Buffer.prototype` read, i.e. a request-smuggling gadget — a replaced
-    // `toString` that INFLATES the size is the sharp version. Node frames HTTP in C
-    // (llhttp) and is not steerable here at all.
-    bufferIndexOf: req('internal/primordials').uncurryThis(PristineBufferCtor.prototype.indexOf),
-    bufferSlice: req('internal/primordials').uncurryThis(PristineBufferCtor.prototype.slice),
   };
 
   // Already instantiated by `buffer`, which requires all three at its top level; named

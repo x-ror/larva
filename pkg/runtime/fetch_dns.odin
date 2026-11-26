@@ -14,7 +14,7 @@ import eventloop "lava:pkg/runtime/eventloop"
 // runner thread's one pool, shared by its pages, in Larva's page runner (#36); either way a job
 // reaches its loop only through the loop's pool client (eventloop threadpool.odin).
 //
-// Lifetime / safety (mirrors node:dns in dns.odin):
+// Lifetime / safety (node:dns's lookups, deleted with the Node profile, followed the same rules):
 //   - dns_resolve_work runs on a pool worker and touches ONLY its DNS_Job (an owned host copy +
 //     result fields) — never the loop, the request, or the JS engine. The job carries the result
 //     back; dns_resolve_done reads it on the loop thread and drives the connect.

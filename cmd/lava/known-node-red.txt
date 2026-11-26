@@ -1,0 +1,25 @@
+# cmd/lava tests that are RED in the default build for Node-profile reasons, skipped by
+# `make test-odin-green` (scripts/run-odin-green.sh), which CI's test job runs. Each one
+# drives its page through a Node module that is no longer in the build (node:fs, node:os,
+# node:net, node:dns — removed in S3 of the Node-profile removal, out of the build since
+# LAVA_NODE_MODULES before that), so it fails in setup, before reaching what it pins.
+# What each pins is still real and still Lava's: runner reaping, allocator pairing,
+# lazy compilation. S5a rewrites them onto the Window surface (timers, fetch to a local
+# origin) and deletes this file. Do not add an entry for any other reason: a test red
+# for its stated reason gets its code fixed.
+#
+# <test name>  <what it needs that is gone>
+builtin_factories_compile_on_first_require                                  node:os as the lazy module it requires
+eval_host_native_names_use_consistent_allocator                             node:fs to reach the host-native path
+host_native_tables_are_not_charged_to_the_eval_allocator                    node:fs to reach the host-native path
+runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator             node:http and node:net server pages
+runner_close_does_not_wait_for_a_hanging_dns_lookup                         node:dns to block a pool worker
+runner_close_does_not_wait_for_a_worker_blocked_on_a_fifo                   node:fs to block a pool worker on a FIFO
+runner_destroy_does_not_wait_for_blocked_workers                            node:fs to block a pool worker on a FIFO
+runner_fd_count_stays_flat_over_10k_pages                                   node:fs FIFO pages in its census
+runner_orphans_free_through_matching_allocators                             node:fs to block a pool worker on a FIFO
+runner_process_exit_runs_no_code_after_it                                   node:fs to observe code after process.exit
+runner_refuses_pages_at_its_orphan_bound                                    node:fs to block a pool worker on a FIFO
+runner_second_page_in_a_reused_vm_gets_no_callback_from_the_first_pages_job node:fs to queue a pool job
+runner_wakes_on_io_without_timers                                           node:net for a server page
+runner_wakes_on_io_without_timers_on_the_readiness_backend                  node:net for a server page
