@@ -4,6 +4,22 @@ import "core:strings"
 import jsc "lava:pkg/jsc"
 import eventloop "lava:pkg/runtime/eventloop"
 
+// HEAP_COLLECT_BYTES is the sampled heap (Result.heap_bytes, every Nth page per VM) at
+// or above which the VM's next page_create runs a full synchronous collection first.
+// JSC's GC activity timers are off with the RunLoop drive (pkg/jsc/runloop_linux.odin),
+// so this stands in for the collection they would have scheduled, where the heap is
+// known to be large; an unsampled VM keeps JSC's allocation-driven collections only,
+// which is all it ever had (the timers never fired before the drive either).
+//
+// 16 MB, measured with bench/pages (`<bin> 10 500 30 1 heavy`: 10 pages in flight on one
+// runner thread, 500 pages, every page sampled, each keeping 50k small objects; medians
+// of 5 interleaved launches per arm, -o:speed, Ryzen 7 7700X under a foreground game's
+// load): master 96 pages/s and 66263 KB of RSS growth per VM; this change with no
+// collection 103 and 45358; at 64 MB 103 and 43042 (such a page's heap rarely reaches
+// it); at 16 MB 131 and 27396. The collection pays for itself: the next sample walks a
+// collected heap.
+HEAP_COLLECT_BYTES :: 16 * 1024 * 1024
+
 // A page is one script run in its own global context, in its own pooled VM, with its
 // own event loop (docs/LARVA.md decision 2). eval runs one page to completion; the
 // page runner (page_runner.odin) interleaves many on one thread. Both drive the same
@@ -210,6 +226,16 @@ page_create :: proc(
 	page.vm = vm
 	page.ctx = ctx
 	page.global_class = global_class
+
+	// The collection JSC's GC activity timers used to be able to schedule, now that they
+	// are off (pkg/jsc/runloop_linux.odin): a VM whose last sampled heap was large is
+	// collected here, before the new page's first entry, so it is paid by no page's
+	// budget, and after the previous page's context was released — collected at that
+	// page's close, its whole realm would still have been reachable.
+	if vm != nil && vm.collect_pending {
+		vm.collect_pending = false
+		jsc.collect_garbage_now(cast(jsc.JSContextRef)ctx)
+	}
 
 	if limits != {} {
 		vm_set_entry_limit(vm, limits.entry_limit)
@@ -588,6 +614,13 @@ page_tick :: proc(page: ^Page) -> (alive: bool, did_work: bool) {
 		return false, false
 	}
 
+	// JSC's RunLoop is the thread's to drive, and a loop that blocks on its own is the
+	// thread's only driver: serviced here, before the tick and outside its CPU window
+	// (deferred.odin). The runner's never_block loops leave it to the runner.
+	if !loop.never_block {
+		deferred_service_page(page.state)
+	}
+
 	vm_cpu_enter(page.vm)
 	did_work = eventloop.run_next(loop)
 	vm_cpu_exit(page.vm)
@@ -714,6 +747,7 @@ page_close :: proc(
 	   page.result.kill == .None {
 		if bytes, ok := jsc.heap_size_bytes(ctx); ok {
 			page.result.heap_bytes = bytes
+			page.vm.collect_pending = bytes >= HEAP_COLLECT_BYTES
 		}
 	}
 
@@ -731,6 +765,7 @@ page_close :: proc(
 	}
 
 	if page.loop != nil {
+		deferred_unwatch_loop(page.state)
 		fetch_shutdown_active(page.state)
 		net_shutdown_active(page.state)
 
@@ -743,6 +778,14 @@ page_close :: proc(
 		destroy_runtime_state(ctx, page.state)
 	}
 
+	// No RunLoop dispatch here, though the design had one (#91: drain what JSC queued for
+	// this realm before its context goes). It bought nothing the shim does not already
+	// give — a closed page's natives find no Runtime_State, so whatever JSC runs for the
+	// realm later posts nowhere (deferred.odin) — and it cost a pinned behaviour: on a
+	// page a limit ended, the dispatch entered the VM before vm_release disarmed the
+	// kill, and the next page on the VM lost its first callback chain without a kill
+	// (cpu_budget_kills_a_next_tick_ping_pong red after cpu_budget_kills_many_timers_in_one_tick,
+	// green with only this dispatch removed; measured 2026-11-26).
 	if page.ctx != nil {
 		release_global_context_after_eval(page.ctx)
 	}

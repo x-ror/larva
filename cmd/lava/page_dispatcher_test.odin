@@ -614,11 +614,11 @@ dispatcher_allocations_pair_through_its_allocator :: proc(t: ^testing.T) {
 
 // The dispatcher's own descriptors — a wake pipe and an epoll set per worker — and
 // every page's loop descriptors are closed once shutdown returns, and so are the VMs'
-// timerfds. Those outlive a VM on a thread that goes on running (vm_pool.odin: the
-// timer belongs to the thread's WTF::RunLoop), but a worker thread's RunLoop ends with
-// the thread, before join returns — measured here at 0 left of the 6 VMs' timerfds.
-// So a dispatcher's VMs cost no permanent descriptor, unlike a long-lived thread's
-// pool. Only meaningful on one runner thread (fd_census).
+// timerfds and each worker's RunLoop drive (its GLib context's wakeup eventfd and the
+// drive's epoll set: runloop_thread_teardown). A VM's timerfd closes once the thread's
+// RunLoop is iterated after the VM is released (vm_pool_releases_its_timerfds), and a
+// worker's RunLoop also ends with the thread, before join returns — measured here at 0
+// left of the 6 VMs' timerfds. Only meaningful on one runner thread (fd_census).
 @(test)
 dispatcher_closes_its_descriptors :: proc(t: ^testing.T) {
 	when RUNNER_THREADS != 1 {

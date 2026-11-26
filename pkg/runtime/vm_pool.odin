@@ -7,17 +7,23 @@ import jsc "lava:pkg/jsc"
 // bench/jsc-vm for the measurements behind it.
 //
 // Why a pool and not a VM per context: JSGlobalContextCreate makes a fresh VM per
-// context, and every VM ever created keeps one timerfd open for the life of its
-// thread (a timer on the thread's WTF::RunLoop), even after the last context and the
-// group are released and fully collected. Its memory does come back; the fd does not
-// until the thread ends — a page dispatcher worker's close as it exits (6 open, 0
-// after join: dispatcher_closes_its_descriptors), the main thread's never. A warm
-// VM also runs a page in ~41% less time, because JSC's CodeCache already holds the
-// embedded runtime JS: bench/jsc-vm scenario C (one warm pooled VM) against A (a
-// fresh implicit VM per page), each page evaluating 8 embedded runtime modules plus
-// a 200k-iteration loop, mean of 100 pages per launch — medians of 5 interleaved
-// launches per arm, 7.40 vs 12.61 ms/page (2026-11-13). So VMs are created at most
-// `capacity` times per thread and reused one context at a time.
+// context, and a warm VM runs a page in ~41% less time, because JSC's CodeCache
+// already holds the embedded runtime JS: bench/jsc-vm scenario C (one warm pooled VM)
+// against A (a fresh implicit VM per page), each page evaluating 8 embedded runtime
+// modules plus a 200k-iteration loop, mean of 100 pages per launch — medians of 5
+// interleaved launches per arm, 7.40 vs 12.61 ms/page (2026-11-13). So VMs are created
+// at most `capacity` times per thread and reused one context at a time.
+//
+// A VM's timer on the thread's WTF::RunLoop holds a timerfd, which used to outlive the
+// VM for the life of the thread: the timer's GSource is finalized, and the fd closed,
+// only when the RunLoop's GLib context is next iterated, and nothing iterated it. With
+// the RunLoop driven (pkg/jsc/runloop_linux.odin) vm_pool_destroy iterates once after
+// its releases, and the fd goes with the VM (vm_pool_releases_its_timerfds). On a
+// thread with no drive the old cost stands, as before.
+//
+// The thread's first VM is also where the drive is set up: WTF binds the thread's
+// RunLoop when the thread creates its first VM, so vm_acquire's create is the one point
+// that pushes the drive's context (runloop_before_vm / runloop_after_vm).
 //
 // Why VMs are never shared by two live contexts: a VM has one heap and one microtask
 // queue, drained at every exit from the C API, so a context would run another's
@@ -68,6 +74,10 @@ VM :: struct {
 	// nothing resets it. The page runner samples a VM's heap on every Nth of its pages
 	// (Page_Runner.heap_sample_every), so the cost is spread per VM, not per runner.
 	pages_hosted:    int,
+	// Set by page_close when a sampled heap was at least HEAP_COLLECT_BYTES: the next
+	// page_create on this VM runs a full synchronous collection first (page.odin says
+	// why there). Survives vm_release, unlike every per-holder field above.
+	collect_pending: bool,
 }
 
 // Page_Limits are the CPU limits a page runs under. Seconds; 0 = no limit.
@@ -104,8 +114,7 @@ VM_Pool :: struct {
 	// most recently.
 	vms:       [dynamic]^VM,
 	capacity:  int,
-	// VMs ever created by this pool. Each one costs a timerfd for the life of the
-	// pool's thread.
+	// VMs ever created by this pool.
 	created:   int,
 	allocator: runtime.Allocator,
 }
@@ -141,8 +150,8 @@ thread_vm_pool :: proc() -> ^VM_Pool {
 }
 
 // thread_vm_pool_destroy tears down the calling thread's implicit pool, destroying
-// its VMs and reclaiming their heaps (not their timerfds, which close only when the
-// thread itself ends). For a thread that is about to end; a later thread_vm_pool on the same thread starts a
+// its VMs and reclaiming their heaps (and, on a thread whose RunLoop is driven, their
+// timerfds: vm_pool_destroy). For a thread that is about to end; a later thread_vm_pool on the same thread starts a
 // fresh pool. Every VM must be idle.
 thread_vm_pool_destroy :: proc() {
 	if !g_thread_pool_ready {
@@ -178,6 +187,14 @@ vm_pool_destroy :: proc(pool: ^VM_Pool) {
 		jsc.JSContextGroupRelease(vm.group)
 		free(vm, pool.allocator)
 	}
+
+	// A released VM's RunLoop timer source is finalized, and its timerfd closed, only
+	// when the thread's context is next iterated; without this the descriptor outlived
+	// the VM for the life of the thread (vm_pool_releases_its_timerfds).
+	if len(pool.vms) > 0 {
+		jsc.runloop_dispatch()
+	}
+
 	delete(pool.vms)
 	pool^ = {}
 }
@@ -204,7 +221,12 @@ vm_acquire :: proc(pool: ^VM_Pool) -> (^VM, VM_Pool_Error) {
 	}
 
 	jsc.lava_jsc_init()
+	// The thread's first VM binds its WTF::RunLoop for good, so the drive's context is
+	// pushed around this create and nowhere else (pkg/jsc/runloop_linux.odin). Later
+	// creates on the thread pass straight through.
+	pushed := jsc.runloop_before_vm()
 	group := jsc.JSContextGroupCreate()
+	jsc.runloop_after_vm(pushed, group)
 
 	if group == nil {
 		return nil, .Create_Failed

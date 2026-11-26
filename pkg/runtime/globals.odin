@@ -61,6 +61,15 @@ Runtime_State :: struct {
 	// well-known symbol cannot be replaced, but globalThis.Symbol can, so it is not
 	// read at call time.
 	symbol_to_primitive: jsc.JSValueRef,
+	// js/internal/deferred.js's flush, GC-protected, and the context it belongs to: the
+	// loop task its `schedule` native posts (deferred.odin) runs it in the page's tick.
+	// A loop task has no context of its own to call through, hence the second field.
+	deferred_flush:    jsc.JSValueRef,
+	deferred_ctx:      jsc.JSContextRef,
+	// The page loop's watcher on the thread's RunLoop descriptor (deferred_service_page),
+	// for a page whose loop blocks on its own; the loop holds a pointer to it while it is
+	// watched, which deferred_unwatch_loop ends in page_close.
+	deferred_watch:    eventloop.IO_Watcher,
 	// Settled fetch requests awaiting free. Their teardown is deferred to here
 	// because the io_uring watcher may reference a request once more after it is
 	// stopped; freeing only at destroy keeps that memory valid (see fetch.odin).
@@ -206,6 +215,7 @@ destroy_runtime_state :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) {
 	unprotect_before_eval_exit(ctx, state.dispatch_fn)
 	unprotect_before_eval_exit(ctx, state.next_tick_drain)
 	unprotect_before_eval_exit(ctx, state.symbol_to_primitive)
+	unprotect_before_eval_exit(ctx, state.deferred_flush)
 	// Clear the global's private slot BEFORE the free, so get_state_from_ctx can
 	// never hand out a dangling ^Runtime_State. The reachable path is the one the
 	// fail-closed dispatcher defines: host_dispatch_fail -> make_js_error ->
@@ -1755,6 +1765,7 @@ install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef)
 	set_named(ctx, natives, "internal/encoding", cast(jsc.JSValueRef)buffer_bindings)
 	set_named(ctx, natives, "internal/fetch", cast(jsc.JSValueRef)make_fetch_bindings(ctx))
 	set_named(ctx, natives, "internal/stdio", cast(jsc.JSValueRef)make_stdio_bindings(ctx))
+	set_named(ctx, natives, "internal/deferred", cast(jsc.JSValueRef)make_deferred_bindings(ctx))
 	// The Node-only subsystems: built in only with -define:LAVA_NODE_MODULES=true.
 	when LAVA_NODE_MODULES {
 		set_named(ctx, natives, "node/sqlite", cast(jsc.JSValueRef)make_sqlite_bindings(ctx))

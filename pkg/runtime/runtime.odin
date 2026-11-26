@@ -107,8 +107,8 @@ result_destroy :: proc(res: ^Result) {
 }
 
 // create_eval_context makes eval's global context in a VM from `pool`, or the calling
-// thread's implicit pool when nil (vm_pool.odin), so repeated evals reuse a warm VM instead of paying for — and
-// permanently leaking a timerfd with — a new one each time. On Windows the context
+// thread's implicit pool when nil (vm_pool.odin), so repeated evals reuse a warm VM instead of paying for a new
+// one each time. On Windows the context
 // is never released (see release_global_context_after_eval), so its VM could never
 // be reused: there, eval keeps the one-VM-per-context path and returns a nil VM.
 //
@@ -172,8 +172,11 @@ create_eval_context :: proc(
 // Contexts are now created in pooled VMs (create_eval_context), so the fd is paid
 // once per pooled VM, not once per eval: repeated evals on one thread reuse one VM
 // and the fd count stays flat. Remeasured in bench/jsc-vm (2026-11-13): the fd
-// survives even JSContextGroupRelease and a full GC, while the VM's memory does
-// come back — so VMs are pooled for the life of the thread, never churned.
+// survived even JSContextGroupRelease and a full GC. The cause, found since (#91): the
+// timer's GSource is finalized, and the fd closed, only when the thread's RunLoop
+// context is next iterated, and nothing iterated it. With the RunLoop driven
+// (pkg/jsc/runloop_linux.odin) a released VM's fd closes at the next iteration, which
+// vm_pool_destroy runs (vm_pool_releases_its_timerfds).
 release_global_context_after_eval :: proc(ctx: jsc.JSGlobalContextRef) {
 	when ODIN_OS != .Windows {
 		jsc.JSGlobalContextRelease(ctx)

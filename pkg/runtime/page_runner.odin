@@ -3,6 +3,7 @@ package lava_runtime
 
 import "base:runtime"
 import "core:sys/linux"
+import jsc "lava:pkg/jsc"
 import eventloop "lava:pkg/runtime/eventloop"
 
 // A page runner drives many pages concurrently on the calling thread (docs/LARVA.md
@@ -80,9 +81,8 @@ Page_Runner :: struct {
 	// The bound on the pool's orphans; RUNNER_ORPHAN_LIMIT unless the embedder lowers
 	// it after page_runner_init.
 	orphan_limit:      int,
-	// The runner's own VMs, so the number of live VMs — and of timerfds, kept for the
-	// life of the runner's thread — is bounded by the runner's capacity, not by how
-	// many pages it ever ran.
+	// The runner's own VMs, so the number of live VMs is bounded by the runner's
+	// capacity, not by how many pages it ever ran.
 	pool:              VM_Pool,
 	epfd:              linux.Fd,
 	allocator:         runtime.Allocator,
@@ -98,6 +98,10 @@ Page_Runner :: struct {
 	// samples nothing. Set by the embedder after page_runner_init, like orphan_limit.
 	// Sampled pages pay the heap walk outside their CPU budget (page_close says why).
 	heap_sample_every: int,
+	// The thread's RunLoop descriptor (jsc.runloop_fd) once it is in epfd: added on the
+	// first wait after the thread's first VM made one, never counted in `watched` — it
+	// keeps no page alive and gives page_runner_step nothing of its own to wait for.
+	runloop_fd:        linux.Fd,
 }
 
 // page_runner_init prepares a runner that can hold up to `capacity` live pages (one
@@ -132,6 +136,7 @@ page_runner_init :: proc(
 	}
 
 	runner.epfd = epfd
+	runner.runloop_fd = -1
 	return true
 }
 
@@ -374,6 +379,13 @@ runner_round :: proc(runner: ^Page_Runner, idle_wait: bool) -> bool {
 	}
 	eventloop.pool_tick(runner.workers)
 
+	// JSC's RunLoop, between rounds and never inside a page's tick (deferred.odin): every
+	// round, not only before a block, or a runner that is always busy would starve it.
+	// What it runs posts to the pages' own loops, so a dispatch is progress.
+	if jsc.runloop_due() && jsc.runloop_dispatch() {
+		progressed = true
+	}
+
 	if progressed {
 		return true
 	}
@@ -412,6 +424,26 @@ runner_wait :: proc(runner: ^Page_Runner) {
 			timeout = hint
 		}
 	}
+
+	// The RunLoop's descriptors are re-read before every block (the set changes as VMs
+	// arm and drop timers), and the block ends at GLib's own next deadline.
+	if glib_timeout, ok := jsc.runloop_sync(); ok {
+		if runner.runloop_fd < 0 {
+			fd, _ := jsc.runloop_fd()
+			ev := linux.EPoll_Event {
+				events = {.IN},
+			}
+
+			if linux.epoll_ctl(runner.epfd, .ADD, linux.Fd(fd), &ev) == .NONE {
+				runner.runloop_fd = linux.Fd(fd)
+			}
+		}
+
+		if glib_timeout >= 0 && (timeout < 0 || glib_timeout < timeout) {
+			timeout = glib_timeout
+		}
+	}
+
 	events: [16]linux.EPoll_Event
 	// EINTR or a spurious wake only costs one more round.
 	linux.epoll_wait(runner.epfd, raw_data(events[:]), i32(len(events)), i32(timeout))

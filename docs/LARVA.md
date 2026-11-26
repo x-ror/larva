@@ -63,19 +63,25 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
      and callback boundaries only; a long native call is not interrupted. Wall-clock
      page deadlines are event-loop timers;
    - **memory:** the VM's heap belongs to one page at a time, so heap growth can
-     be attributed and capped. Pools are fixed-size: every VM ever created keeps
-     one `timerfd` open for the life of its thread (the timer is the thread's
-     `WTF::RunLoop`'s; a dispatcher worker's close when it ends — 6 open while
-     its workers live (3 workers × 2 slots), 0 after join, pinned by `dispatcher_closes_its_descriptors`),
-     so retiring a VM is a rare, fd-budgeted event (heap runaway), not a routine
-     step. A runner samples every Nth page's heap per VM into `Result.heap_bytes`
+     be attributed and capped. Pools are fixed-size. A VM's `timerfd` (its timer
+     on the thread's `WTF::RunLoop`) used to stay open for the life of the thread;
+     the timer's source closes it only when the RunLoop's GLib context is iterated,
+     and Lava now drives that context (#91, #97: `pkg/jsc/runloop_linux.odin`), so
+     destroying a pool's VMs closes their fds (`vm_pool_releases_its_timerfds`) and
+     retiring a VM costs no descriptor. A runner samples every Nth page's heap per
+     VM into `Result.heap_bytes`
      (`Page_Runner.heap_sample_every`, off by default; never a killed or cancelled
      page). The sample is the heap's capacity — `JSGetMemoryUsageStatistics`'
      `heapCapacity`, since its `heapSize` is the last collection's mark count and
      reads 0 before the first one — and the call walks the heap: sampling every page
      took a trivial page from 133 to 109 pages/s and a page keeping 50k objects
      from 107 to 54 (`bench/pages`, N = 10, 1000 pages, medians of 7 interleaved
-     launches per arm). Nothing acts on the sample yet. Measured: a warm VM
+     launches per arm). A sample at or above 16 MB has the VM collected before its
+     next page (`HEAP_COLLECT_BYTES`, `page.odin`): JSC's GC activity timers are
+     off with the RunLoop drive (a driven full-GC timer crashes this embedding), and
+     this stands in for them where the heap is known to be large — on the heavy shape
+     with every page sampled, 131 pages/s and 27396 KB RSS growth per VM against
+     master's 96 and 66263. Measured: a warm VM
      stays flat over 500 pages (`bench/jsc-vm` scenario G), and 50 bare JSC VMs
      each holding one page add 4999 KB of RSS apiece (`bench/jsc-vm` scenario D,
      medians of 5 launches, same machine as below) — raw JSC contexts after a
@@ -93,8 +99,7 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
      no GC) and malloc's high-water mark, with per-VM and per-run cost inseparable
      — not what an idle pooled VM keeps; N = 1 is dominated by process init. The
      Node-profile install is the whole cost today; the Window profile's is measured once it exists (#5);
-   - the pool bounds the per-VM `timerfd` leak (`runtime.odin`), and a warm VM
-     runs a page in ~41% less time: 7.40 vs 12.61 ms/page, `bench/jsc-vm`
+   - a warm VM runs a page in ~41% less time: 7.40 vs 12.61 ms/page, `bench/jsc-vm`
      scenario C (one warm pooled VM) vs A (a fresh VM per page), each page
      evaluating 8 embedded runtime modules plus a 200k-iteration loop, mean of
      100 pages per launch, medians of 5 interleaved launches per arm.
@@ -104,6 +109,14 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
      that reuses the VM. No page loop blocks on its own; when no page can
      progress the runner blocks on every page loop's descriptor at once,
      bounded by the nearest timer;
+   - **JSC's own deferred work** (a `FinalizationRegistry` cleanup, a
+     `WebAssembly.compile` settlement) is queued on the thread's `WTF::RunLoop`,
+     one per thread whatever its VM count. Lava drives it at thread level, never
+     inside a page's tick: the runner between rounds, and a page that drives its
+     own thread (eval, `lava run`, workers) before each tick.
+     What runs there for a page is a shim that posts to the page's own loop
+     (`js/internal/deferred.js`), so the callback runs in the page's tick, charged
+     to its budget, and a closed page's runs nowhere;
    - one worker pool per runner thread (#36), not one per page: every page
      loop is a client of the runner's `eventloop.Worker_Pool`, four core
      threads shared by all its pages instead of four per page that touched
