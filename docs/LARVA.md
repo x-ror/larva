@@ -130,10 +130,28 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
      returns; each blocked worker keeps its thread until its job returns;
    - Pages on one thread still share its CPU; threads are sized to cores. A runner
      page must carry a CPU budget (`page_runner_open` refuses one without), and a
-     page that spins is killed alone. Until then it delays its siblings by up to its
-     **budget**, not its entry limit: one tick fires every timer already due, so a
-     page that queues many timers holds the thread for all of them. Slicing a tick
-     is open work (#35).
+     page that spins is killed alone. A tick also has a CPU **quantum**
+     (`Page_Runner.slice_us`, 1 ms by default, #35): once a tick has spent it, the
+     page's timers phase suspends before its next due timer — the whole turn pauses,
+     no later phase runs — and the runner ticks the siblings before resuming it with
+     the same turn `now` and sequence limit, so node's order within the turn holds
+     (oracle case 14, run sliced by `runner_slicing_keeps_event_loop_order`). The
+     check reuses the per-callback CPU clock read of the budget, so it adds one
+     compare per callback. A sibling then waits at most about the quantum plus one
+     callback behind a page with a pile of due timers, instead of up to that page's
+     budget. `bench/pages sibling 100000 10` (one thread, 10 pages on a 1 ms
+     interval beside one page with 100k timers due in one tick, medians of 7
+     interleaved launches per arm, 16 cores, taken while a game held one core):
+     the worst sibling gap is 322.83 ms with no quantum, 4.22 ms at 1 ms and
+     4.23 ms at 250 µs, where 4 ms is one callback the probe spins on purpose;
+     alone, that page's 100k timers take 348.38, 345.26 and 347.71 ms — no cost
+     above the noise. Runner pages only: `eval`, `page_eval` and
+     `page_run_until` never slice, since `page_run_until`'s `cond` may evaluate script
+     between two ticks. Still unbounded by the quantum, each up to the entry limit and
+     budget: one long callback; a microtask or promise flood inside one drain (JSC
+     drains on C-API exit); the top-level script (registering 100k timers took 124 ms
+     inside `page_runner_open`); `page_close` of a page holding many handles; and the
+     Node-profile check, I/O-callback and close phases, which do not suspend.
    - **threads:** a page dispatcher (`page_dispatcher.odin`) runs N worker
      threads, each driving its own page runner and VM pool. A page goes to the
      worker with the fewest pages queued or running, queues there while that

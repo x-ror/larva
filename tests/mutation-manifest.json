@@ -4714,6 +4714,97 @@
       "replace": "\t\treport_data = report_data,\n\t)",
       "gate": "odin:cmd/lava:main.run_file_threads_surface",
       "expect_detail": "web sees"
+    },
+    {
+      "name": "suspended_timers_phase_resumes_the_same_turn dies when a yield breaks out of the timers phase",
+      "why": "A slice that falls through to the later phases runs this turn's setImmediate (and any completion) ahead of the timers still due in it: t1,micro,imm,t2 where node prints t1,micro,t2,imm.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\t\tloop.resume_timers = true\n",
+      "replace": "\t\t\tif true {\n\t\t\t\tbreak\n\t\t\t}\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.suspended_timers_phase_resumes_the_same_turn",
+      "expect_detail": "expected len(actual) to be 2, got 4"
+    },
+    {
+      "name": "runner_slicing_keeps_event_loop_order dies when a yield breaks out of the timers phase",
+      "why": "Case 14 run as a sliced runner page is the only JS-level check of the slice: no oracle suite runs a page that slices.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\t\tloop.resume_timers = true\n",
+      "replace": "\t\t\tif true {\n\t\t\t\tbreak\n\t\t\t}\n",
+      "gate": "odin:cmd/lava:main.runner_slicing_keeps_event_loop_order",
+      "expect_detail": "[ 't1', 'micro', 'imm', 't2', 't0' ]"
+    },
+    {
+      "name": "suspended_timers_phase_resumes_the_same_turn dies when the resumed phase recomputes its sequence limit",
+      "why": "A fresh limit admits the 0 ms timer an earlier slice's callback created into the same turn, ahead of the turn's immediates (case 05's rule).",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "resuming ? loop.resume_seq_limit : loop.next_sequence",
+      "replace": "loop.next_sequence",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.suspended_timers_phase_resumes_the_same_turn",
+      "expect_detail": "expected len(actual) to be 6, got 7"
+    },
+    {
+      "name": "suspended_timers_phase_resumes_the_same_turn dies when a resumed tick drains cross-thread completions first",
+      "why": "A completion drained on resume runs between two timers of one turn, which node never does: it drains in poll, after the whole timers phase.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tif !resuming {\n",
+      "replace": "\tif true {\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.suspended_timers_phase_resumes_the_same_turn",
+      "expect_detail": "expected value to be 2, got 6"
+    },
+    {
+      "name": "suspended_turn_with_only_unreffed_timers_left_is_not_idle dies when pending_count ignores a suspended turn",
+      "why": "A turn whose remaining due timers are all unreffed reads idle mid-turn, and the page runner closes the page with them unrun.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\tint(loop.resume_timers) +\n",
+      "replace": "",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.suspended_turn_with_only_unreffed_timers_left_is_not_idle",
+      "expect_detail": "expected pending_count(&loop) to be 1, got 0"
+    },
+    {
+      "name": "suspended_turn_is_resumed_after_its_due_timers_are_cleared dies when run_next ignores a suspended turn",
+      "why": "pending_count counts the resume, so a run_next that does not consume it leaves the loop pending forever with no tick making progress.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tif loop.resume_timers ||\n\t   len(loop.next_ticks) > 0 ||",
+      "replace": "\tif len(loop.next_ticks) > 0 ||",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.suspended_turn_is_resumed_after_its_due_timers_are_cleared",
+      "expect_detail": "expected !loop.resume_timers to be true"
+    },
+    {
+      "name": "suspended_turn_is_resumed_after_its_due_timers_are_cleared dies when wait_hint_ms ignores a suspended turn",
+      "why": "A multi-loop driver would sleep on a page whose suspended turn is runnable now: until the next timer, or forever with none left.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tif loop.resume_timers {\n\t\treturn 0\n\t}\n",
+      "replace": "",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.suspended_turn_is_resumed_after_its_due_timers_are_cleared",
+      "expect_detail": "expected wait_hint_ms(&loop) to be 0, got -1"
+    },
+    {
+      "name": "suspended_turn_is_resumed_after_its_due_timers_are_cleared dies when a resume is not progress",
+      "why": "A resume tick whose timers were all cleared reports no work and blocks in poll(-1) as if the loop had nothing to do.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tdid_work = resuming\n",
+      "replace": "",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.suspended_turn_is_resumed_after_its_due_timers_are_cleared",
+      "expect_detail": "timed out",
+      "timeout_ms": 30000
+    },
+    {
+      "name": "runner_sibling_ticks_between_slices_of_a_timer_heavy_page dies when page_checkpoint does not request a yield",
+      "why": "Without the request a page's turn fires every due timer in one tick, and its siblings wait out the whole pile: up to its CPU budget, not the quantum.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "\t\tstate.loop.yield_requested = true\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.runner_sibling_ticks_between_slices_of_a_timer_heavy_page",
+      "expect_detail": "waited out the hog's turn"
+    },
+    {
+      "name": "runner_sibling_ticks_between_slices_of_a_timer_heavy_page dies when a runner page does not take the runner's quantum",
+      "why": "The quantum lives on the runner; a page that never copies it to its VM never slices.",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\trp.page.vm.slice_ns = i64(max(runner.slice_us, 0)) * 1000\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.runner_sibling_ticks_between_slices_of_a_timer_heavy_page",
+      "expect_detail": "waited out the hog's turn"
     }
   ]
 }
