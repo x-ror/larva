@@ -3885,10 +3885,40 @@
       "expect_detail": "expected q.fires to be 1"
     },
     {
+      "name": "cleared_timer_stays_cleared_when_its_dispose_arms_timers dies when a queued timer is marked after its dispose",
+      "why": "A dispose that arms timers can grow the ready queue into a new buffer; the cancel then writes through a stale pointer and the cleared timer fires on the binding its dispose released.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\tready_cancel_at(loop, timer)\n\t\trun_dispose(dispose, user_data)\n",
+      "replace": "\t\trun_dispose(dispose, user_data)\n\t\tready_cancel_at(loop, timer)\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.cleared_timer_stays_cleared_when_its_dispose_arms_timers",
+      "expect_detail": "delay 0: fires=1"
+    },
+    {
+      "name": "cleared_timer_stays_cleared_when_its_dispose_arms_timers dies when a heap timer is removed after its dispose",
+      "why": "A dispose that arms an earlier timer sifts it into the cleared timer's slot; removing that slot afterwards drops the new timer and leaves the cleared one to fire.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\ttimer := loop.timers[idx]\n\t\ttimer_heap_remove_at(loop, idx)\n\n\t\tif !timer.unreffed {\n\t\t\tloop.reffed_timer_count -= 1\n\t\t}\n\n\t\trun_dispose(timer.dispose, timer.user_data)\n",
+      "replace": "\t\ttimer := loop.timers[idx]\n\t\trun_dispose(timer.dispose, timer.user_data)\n\t\ttimer_heap_remove_at(loop, idx)\n\n\t\tif !timer.unreffed {\n\t\t\tloop.reffed_timer_count -= 1\n\t\t}\n",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.cleared_timer_stays_cleared_when_its_dispose_arms_timers",
+      "expect_detail": [
+        "the cleared timer is still live",
+        "delay 10: fires=1"
+      ]
+    },
+    {
+      "name": "ready_index_holds_only_live_queued_timers dies when a cleared queued timer stays indexed",
+      "why": "The index then keeps every tombstone a debounce leaves, growing with it until the turn drains them.",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\tdelete_key(&loop.ready_index, timer.id)\n\n\tif !timer.unreffed {",
+      "replace": "\tif !timer.unreffed {",
+      "gate": "odin:pkg/runtime/eventloop:eventloop.ready_index_holds_only_live_queued_timers",
+      "expect_detail": "expected value to be 1, got 1000"
+    },
+    {
       "name": "zero_delay_timer_runs_before_a_timer_that_fell_due_during_its_creator dies when a 0 ms timer waits in the heap",
       "why": "Chrome queues a 0 ms timer as a task when it is created; in the heap it is queued with B after A returns, by deadline, and prints A,B,C where Chrome prints A,C,B.",
       "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\tif delay == 0 {\n\t\tqueue.push_back(&loop.ready_timers, timer)\n\t} else {\n\t\ttimer_heap_push(loop, timer)\n\t}\n",
+      "find": "\tif delay == 0 {\n\t\tready_push(loop, timer)\n\t} else {\n\t\ttimer_heap_push(loop, timer)\n\t}\n",
       "replace": "\ttimer_heap_push(loop, timer)\n",
       "gate": "odin:pkg/runtime/eventloop:eventloop.zero_delay_timer_runs_before_a_timer_that_fell_due_during_its_creator",
       "expect_detail": "expected value to be 3, got 2"
@@ -3933,8 +3963,8 @@
       "name": "due_timer_is_queued_between_tasks dies when due timers are looked for once per turn",
       "why": "T fell due while X ran; queued only at the next turn it lands behind W, which Y queued after, where Chrome prints X,Y,Z,T,W.",
       "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\trun_timer_task(loop, queue.pop_front(&loop.ready_timers))\n\t\tqueue_due_timers(loop)\n",
-      "replace": "\t\trun_timer_task(loop, queue.pop_front(&loop.ready_timers))\n",
+      "find": "\t\trun_timer_task(loop, ready_pop(loop))\n\t\tqueue_due_timers(loop)\n",
+      "replace": "\t\trun_timer_task(loop, ready_pop(loop))\n",
       "gate": "odin:pkg/runtime/eventloop:eventloop.due_timer_is_queued_between_tasks",
       "expect_detail": "expected value to be 4, got 5"
     },
@@ -3942,8 +3972,8 @@
       "name": "timers-ready-order dies when due timers are looked for once per turn",
       "why": "The real-clock half of due_timer_is_queued_between_tasks: the per-task look reads the clock itself, which the virtual-clock test cannot see.",
       "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\trun_timer_task(loop, queue.pop_front(&loop.ready_timers))\n\t\tqueue_due_timers(loop)\n",
-      "replace": "\t\trun_timer_task(loop, queue.pop_front(&loop.ready_timers))\n",
+      "find": "\t\trun_timer_task(loop, ready_pop(loop))\n\t\tqueue_due_timers(loop)\n",
+      "replace": "\t\trun_timer_task(loop, ready_pop(loop))\n",
       "gate": "make:test-web",
       "expect_detail": "FAIL timers-ready-order"
     },

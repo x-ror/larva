@@ -614,6 +614,97 @@ nested_intervals_clamp_to_4ms_past_level_5 :: proc(t: ^testing.T) {
 	}
 }
 
+// Rearming_Dispose is the binding of a timer whose dispose re-enters the loop and arms
+// 64 timers of `delay` ms, with an allocation between each so the containers they grow
+// cannot grow in place: whatever clear_timeout still held into the heap or the ready
+// queue across the dispose now points at freed or reshuffled memory. `kept` holds those
+// allocations until the test frees them.
+Rearming_Dispose :: struct {
+	loop:     ^Loop,
+	delay:    u64,
+	fires:    int,
+	disposed: int,
+	kept:     [dynamic]^int,
+}
+
+rearming_dispose_fire :: proc(loop: ^Loop, user_data: rawptr) {
+	(cast(^Rearming_Dispose)user_data).fires += 1
+}
+
+rearming_dispose_noop :: proc(loop: ^Loop, user_data: rawptr) {}
+
+rearming_dispose :: proc(user_data: rawptr) {
+	r := cast(^Rearming_Dispose)user_data
+	r.disposed += 1
+
+	for _ in 0 ..< 64 {
+		set_timeout(r.loop, rearming_dispose_noop, r.delay)
+		append(&r.kept, new(int))
+	}
+}
+
+// A cleared timer stays cleared when its dispose arms more timers: clear_timeout takes
+// it out (or marks it) BEFORE the dispose runs, as it does for an immediate. Marked
+// after, through a pointer into the ready queue taken before the dispose, the write
+// landed in the queue's old buffer once the dispose grew it, and the cleared timer still
+// fired on the binding its dispose had released; removed after, by a heap slot read
+// before, it removed whichever timer the dispose had sifted into that slot. Both shapes:
+// a queued 0 ms timer and a 10 ms one waiting in the heap.
+@(test)
+cleared_timer_stays_cleared_when_its_dispose_arms_timers :: proc(t: ^testing.T) {
+	for delay in ([2]u64{0, 10}) {
+		loop := init()
+		r := Rearming_Dispose {
+			loop  = &loop,
+			delay = delay == 0 ? 0 : 1,
+		}
+		id := set_timeout(&loop, rearming_dispose_fire, delay, &r, rearming_dispose)
+		testing.expect(t, clear_timeout(&loop, id))
+		testing.expect(t, !timer_is_live(&loop, id), "the cleared timer is still live")
+		run_until_idle(&loop)
+		testing.expectf(t, r.fires == 0 && r.disposed == 1, "delay %d: fires=%d disposed=%d", delay, r.fires, r.disposed)
+		testing.expect_value(t, active_timer_count(&loop), 0)
+		destroy(&loop)
+		for p in r.kept {
+			free(p)
+		}
+		delete(r.kept)
+	}
+}
+
+// record_and_rearm_debounced clears and re-arms the 0 ms timer in rec.interval_id 1000
+// times in one task, a debounce written as clearTimeout(t); t = setTimeout(f, 0), then
+// records how many queued timers ready_index holds — read inside the task, before the
+// timers phase drops the tombstones off the front of the queue.
+record_and_rearm_debounced :: proc(loop: ^Loop, user_data: rawptr) {
+	rec := cast(^Recorder)user_data
+
+	for _ in 0 ..< 1000 {
+		clear_timeout(loop, rec.interval_id)
+		rec.interval_id = set_timeout(loop, record_3, 0, user_data)
+	}
+
+	append(&rec.events, len(loop.ready_index))
+}
+
+// Clearing a queued timer drops it from ready_index at once, so the index holds only the
+// live queued timers and a clear never scans the queue's tombstones: a debounce that
+// clears and re-arms a 0 ms timer 1000 times leaves one live entry indexed (not 1000),
+// and only that one fires.
+@(test)
+ready_index_holds_only_live_queued_timers :: proc(t: ^testing.T) {
+	loop := init()
+	defer destroy(&loop)
+
+	rec := Recorder{}
+	defer delete(rec.events)
+
+	set_timeout(&loop, record_and_rearm_debounced, 0, &rec)
+	run_until_idle(&loop)
+	expect_events(t, rec.events[:], []int{1, 3})
+	testing.expect_value(t, len(loop.ready_index), 0)
+}
+
 record_4 :: proc(loop: ^Loop, user_data: rawptr) {
 	rec := cast(^Recorder)user_data
 	append(&rec.events, 4)

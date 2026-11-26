@@ -98,18 +98,29 @@ Loop :: struct {
 	// loop's task queue for timers as Chrome runs it: a timer that falls due while a
 	// callback runs is queued after the 0 ms timers that callback created
 	// (tests/web/cases/timers-due-mid-callback, timers-ready-order). Usually holds only
-	// what is due right now, so clear_timeout and timer_ref scan it. A cleared entry is
-	// marked cancelled in place and dropped when it reaches the front.
+	// what is due right now. A cleared entry is marked cancelled in place and dropped
+	// when it reaches the front.
 	ready_timers:       queue.Queue(Timer),
+	// ready_index maps a live (not cleared) queued timer's id to its absolute position in
+	// ready_timers — how many entries were ever popped before it, plus its place — so
+	// clear_timeout, timer_ref and timer_is_live find it in O(1) instead of scanning
+	// the queue, cleared tombstones included. A scan made a debounce,
+	// `clearTimeout(t); t = setTimeout(f, 0)` in a loop, quadratic: clear+arm on the loop
+	// directly, one -o:speed run each on 16 cores, took 56.21 ms for 10k iterations and
+	// 5620.89 ms for 100k scanning, 0.62 ms and 6.17 ms indexed.
+	// Kept by ready_push/ready_pop and the two cancel sites; ready_popped is the count.
+	ready_index:        map[Timer_ID]u64,
+	ready_popped:       u64,
 	// timer_index maps a live heap timer's id to its slot in `timers`, so timer_cancel
 	// (clearTimeout) is O(1) instead of an O(n) scan. With per-request HTTP header/idle
 	// timeouts the heap holds O(connections) timers and an O(n) cancel made the server
 	// O(n^2) under load — ~43% of CPU in clearTimeout (sampling profiler). Kept in sync by
 	// every site that moves a timer within the heap (the timer_heap_* swaps).
 	timer_index:        map[Timer_ID]int,
-	// reffed_timer_count mirrors the number of heap timers that are ref'd and not
-	// cancelled, so pending_count is O(1) instead of walking the heap every tick.
-	// Maintained at every site a timer enters/leaves the heap or flips ref state.
+	// reffed_timer_count mirrors the number of timers, waiting in the heap or queued in
+	// ready_timers, that are ref'd and not cancelled, so pending_count is O(1) instead of
+	// walking them every tick. Maintained at every site a timer is armed, runs, is
+	// cleared or flips ref state.
 	reffed_timer_count: int,
 	cancelled_ids:      map[Timer_ID]bool,
 	running_id:         Timer_ID,
@@ -262,6 +273,7 @@ init :: proc(allocator := context.allocator, real_time := false) -> Loop {
 	loop.timers = make([dynamic]Timer, allocator)
 	loop.timer_index = make(map[Timer_ID]int, 64, allocator)
 	queue.init(&loop.ready_timers, allocator = allocator)
+	loop.ready_index = make(map[Timer_ID]u64, 16, allocator)
 	loop.async_queue = make([dynamic]Task, allocator)
 	loop.async_scratch = make([dynamic]Task, allocator)
 
@@ -371,6 +383,7 @@ close_begin :: proc(loop: ^Loop) -> (workers_busy: bool) {
 	// The queued timers likewise, taken out whole for the same reason.
 	ready := loop.ready_timers
 	loop.ready_timers = {}
+	clear(&loop.ready_index)
 	for i in 0 ..< queue.len(ready) {
 		timer := queue.get_ptr(&ready, i)
 
@@ -419,6 +432,7 @@ close_release :: proc(loop: ^Loop) {
 	delete(loop.timers)
 	delete(loop.timer_index)
 	queue.destroy(&loop.ready_timers)
+	delete(loop.ready_index)
 	delete(loop.cancelled_ids)
 	delete(loop.async_queue)
 	delete(loop.async_scratch)
@@ -789,28 +803,31 @@ clear_timeout :: proc(loop: ^Loop, id: Timer_ID) -> bool {
 	// cancelled tombstone until it reaches the root) keeps the heap and timer_index bounded
 	// under timer churn — e.g. per-request HTTP timeouts armed then cancelled on
 	// completion, whose due times are far in the future.
+	//
+	// Both timer branches take the timer out (or mark it) BEFORE its dispose runs, as the
+	// immediates branch does: a dispose may re-enter the loop and arm timers, which
+	// reshuffles the heap and can grow the ready queue into a new buffer, so a slot or a
+	// pointer read before it names another timer, or freed memory, after it. Pinned by
+	// cleared_timer_stays_cleared_when_its_dispose_arms_timers.
 	if idx, ok := loop.timer_index[id]; ok {
-		if !loop.timers[idx].unreffed {
-			loop.reffed_timer_count -= 1
-		}
-
-		run_dispose(loop.timers[idx].dispose, loop.timers[idx].user_data)
+		timer := loop.timers[idx]
 		timer_heap_remove_at(loop, idx)
-		return true
-	}
-
-	// Queued to run: released now and left in place as a tombstone, which the timers
-	// phase drops when it reaches the front.
-	if i := ready_timer_index(loop, id); i >= 0 {
-		timer := queue.get_ptr(&loop.ready_timers, i)
 
 		if !timer.unreffed {
 			loop.reffed_timer_count -= 1
 		}
 
 		run_dispose(timer.dispose, timer.user_data)
-		timer.cancelled = true
-		timer.dispose = nil
+		return true
+	}
+
+	// Queued to run: left in place as a tombstone, which the timers phase drops when it
+	// reaches the front, and released.
+	if i := ready_timer_index(loop, id); i >= 0 {
+		timer := queue.get_ptr(&loop.ready_timers, i)
+		dispose, user_data := timer.dispose, timer.user_data
+		ready_cancel_at(loop, timer)
+		run_dispose(dispose, user_data)
 		return true
 	}
 
@@ -1037,7 +1054,7 @@ run_once :: proc(loop: ^Loop) -> bool {
 		}
 
 		did_work = true
-		run_timer_task(loop, queue.pop_front(&loop.ready_timers))
+		run_timer_task(loop, ready_pop(loop))
 		queue_due_timers(loop)
 	}
 
@@ -1172,9 +1189,9 @@ run_once :: proc(loop: ^Loop) -> bool {
 		drain_microtasks(loop)
 	}
 
-	// Cancelled timers are dropped lazily from the heap root (see the timer phase),
-	// so there is no per-tick compaction pass for them — only the array-backed
-	// immediates still need one.
+	// A cleared timer leaves the heap at once, and a cleared queued one is dropped when
+	// it reaches the front of ready_timers (see the timers phase), so there is no
+	// per-tick compaction pass for them — only the array-backed immediates still need one.
 	discard_cancelled_immediates(loop)
 	clear(&loop.cancelled_ids)
 	return did_work
@@ -1350,7 +1367,7 @@ get_next_timer_timeout :: proc(loop: ^Loop) -> int {
 @(private = "file")
 arm_timer :: proc(loop: ^Loop, timer: Timer, delay: u64) {
 	if delay == 0 {
-		queue.push_back(&loop.ready_timers, timer)
+		ready_push(loop, timer)
 	} else {
 		timer_heap_push(loop, timer)
 	}
@@ -1369,7 +1386,7 @@ queue_due_timers :: proc(loop: ^Loop) {
 	for len(loop.timers) > 0 && loop.timers[0].due_ms <= loop.now_ms {
 		timer := timer_heap_pop_min(loop)
 		timer.seq = next_sequence(loop)
-		queue.push_back(&loop.ready_timers, timer)
+		ready_push(loop, timer)
 		timer_heap_clean_root(loop)
 	}
 }
@@ -1460,30 +1477,55 @@ disarm_running :: proc(loop: ^Loop, id: Timer_ID) {
 
 		timer_heap_remove_at(loop, idx)
 	} else if i := ready_timer_index(loop, id); i >= 0 {
-		timer := queue.get_ptr(&loop.ready_timers, i)
-
-		if !timer.unreffed {
-			loop.reffed_timer_count -= 1
-		}
-
-		timer.cancelled = true
-		timer.dispose = nil
+		ready_cancel_at(loop, queue.get_ptr(&loop.ready_timers, i))
 	}
 }
 
-// ready_timer_index returns the slot of live timer `id` in ready_timers, or -1. A scan:
-// the queue holds what is due right now, a handful of entries outside a pile-up.
+// ready_timer_index returns the slot of live timer `id` in ready_timers, or -1, through
+// ready_index: O(1).
 @(private = "file")
 ready_timer_index :: proc(loop: ^Loop, id: Timer_ID) -> int {
-	for i in 0 ..< queue.len(loop.ready_timers) {
-		timer := queue.get_ptr(&loop.ready_timers, i)
-
-		if timer.id == id && !timer.cancelled {
-			return i
-		}
+	if at, ok := loop.ready_index[id]; ok {
+		return int(at - loop.ready_popped)
 	}
 
 	return -1
+}
+
+// ready_push queues `timer` at the back of ready_timers and indexes it.
+@(private = "file")
+ready_push :: proc(loop: ^Loop, timer: Timer) {
+	loop.ready_index[timer.id] = loop.ready_popped + u64(queue.len(loop.ready_timers))
+	queue.push_back(&loop.ready_timers, timer)
+}
+
+// ready_pop takes the front of ready_timers, live or a tombstone, and unindexes it. A
+// tombstone was unindexed when cleared; an interval's next fire may since be queued
+// under the same id, so only an entry indexed at the front's own position is dropped.
+@(private = "file")
+ready_pop :: proc(loop: ^Loop) -> Timer {
+	timer := queue.pop_front(&loop.ready_timers)
+
+	if at, ok := loop.ready_index[timer.id]; ok && at == loop.ready_popped {
+		delete_key(&loop.ready_index, timer.id)
+	}
+
+	loop.ready_popped += 1
+	return timer
+}
+
+// ready_cancel_at turns a queued timer into a tombstone without disposing it: unindexed,
+// its ref dropped, its dispose cleared so no later path runs it.
+@(private = "file")
+ready_cancel_at :: proc(loop: ^Loop, timer: ^Timer) {
+	delete_key(&loop.ready_index, timer.id)
+
+	if !timer.unreffed {
+		loop.reffed_timer_count -= 1
+	}
+
+	timer.cancelled = true
+	timer.dispose = nil
 }
 
 // ready_drop_cancelled_front pops cleared timers off the front of ready_timers so a peek
@@ -1491,7 +1533,7 @@ ready_timer_index :: proc(loop: ^Loop, id: Timer_ID) -> int {
 @(private = "file")
 ready_drop_cancelled_front :: proc(loop: ^Loop) {
 	for queue.len(loop.ready_timers) > 0 && queue.front_ptr(&loop.ready_timers).cancelled {
-		queue.pop_front(&loop.ready_timers)
+		ready_pop(loop)
 	}
 }
 
