@@ -1,0 +1,40 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs nesting-implied-ends
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <ul>
+|       <li>
+|         "a"
+|       <li>
+|         "b"
+|         <ul>
+|           <li>
+|             "c"
+|     <dl>
+|       <dt>
+|         "t"
+|       <dd>
+|         "d"
+|       <dt>
+|         "u"
+|     <h1>
+|       "x"
+|     <h2>
+|       "y"
+|     <button>
+|       <p>
+|         "p"
+|     <button>
+|       "q"
+|     "
+"
+#serialize
+<!DOCTYPE html><html><head></head><body><ul><li>a</li><li>b<ul><li>c</li></ul></li></ul><dl><dt>t</dt><dd>d</dd><dt>u</dt></dl><h1>x</h1><h2>y</h2><button><p>p</p></button><button>q</button>
+</body></html>

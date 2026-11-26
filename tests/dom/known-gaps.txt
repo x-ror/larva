@@ -1,0 +1,9 @@
+# Views where `lava html` does not print what Chrome recorded.
+#
+#   <case>.<view> <stage>: <reason>
+#
+# <view> is `tree` or `serialize`; the stage is the step of the DOM plan that closes
+# the gap (tests/dom/README.md lists them). Each listed view is held to its pinned
+# Lava output in tests/dom/known/<case>.<view>.lava, so a gap that changes is a
+# failure too; one that starts matching Chrome fails until its line and pin are
+# removed. `unplanned` marks a gap no stage closes: it needs an issue of its own.

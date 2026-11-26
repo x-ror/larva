@@ -17,17 +17,15 @@
 // running a script until its loop is idle. A case must therefore end on its own — a
 // timer that never stops would print until the budget, not the same thing twice.
 
-import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   CASES_DIR,
   caseOptions,
+  chromeVersion as readChromeVersion,
   formatExpected,
   listCases,
-  readSink,
-  recordVerdict,
+  recordRuns,
   startServer,
 } from './lib/web-oracle.mjs';
 
@@ -47,63 +45,22 @@ const all = listCases();
 for (const n of names) if (!all.includes(n)) die(`no such case: tests/web/cases/${n}.js`);
 const selected = names.length ? names : all;
 
-const version = spawnSync(chrome, ['--version'], { encoding: 'utf8' });
-if (version.status !== 0) die(`cannot run ${chrome} --version (set CHROME_BIN or --chrome)`);
-const chromeVersion = version.stdout.trim();
-
-// Virtual time, not wall time. 60 s covers the slowest case (a 1100-turn timer chain
-// at Chrome's 4 ms nesting clamp); the wall-clock guard is for a Chrome that hangs.
-const BUDGET_MS = 60_000;
-const WALL_TIMEOUT_MS = 120_000;
-
-function runChrome(url, profile, realTimeMs) {
-  return new Promise((resolveRun, rejectRun) => {
-    const child = spawn(
-      chrome,
-      [
-        '--headless=new',
-        '--no-sandbox',
-        '--disable-gpu',
-        '--no-first-run',
-        '--disable-extensions',
-        `--user-data-dir=${profile}`,
-        ...(realTimeMs ? [] : [`--virtual-time-budget=${BUDGET_MS}`]),
-        '--dump-dom',
-        url,
-      ],
-      { stdio: ['ignore', 'pipe', 'ignore'] },
-    );
-    let dom = '';
-    child.stdout.setEncoding('utf8');
-    child.stdout.on('data', (d) => (dom += d));
-    const timer = setTimeout(() => child.kill('SIGKILL'), WALL_TIMEOUT_MS);
-    child.on('error', rejectRun);
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      if (code !== 0) return rejectRun(new Error(`chrome exited ${code ?? 'on a signal'}`));
-      resolveRun(dom);
-    });
-  });
+let chromeVersion;
+try {
+  chromeVersion = readChromeVersion(chrome);
+} catch (e) {
+  die(e.message);
 }
 
-async function recordOne(origin, name) {
+// Virtual time, not wall time. 60 s covers the slowest case (a 1100-turn timer chain
+// at Chrome's 4 ms nesting clamp); lib dumpDom's wall-clock guard is for a Chrome
+// that hangs.
+const BUDGET_MS = 60_000;
+
+function recordOne(origin, name) {
   const { realTimeMs } = caseOptions(readFileSync(join(CASES_DIR, `${name}.js`), 'utf8'));
-  const results = [];
-  for (let r = 0; r < runs; r++) {
-    const profile = mkdtempSync(join(tmpdir(), 'larva-web-oracle-'));
-    try {
-      let dom;
-      try {
-        dom = await runChrome(`${origin}/page/${name}`, profile, realTimeMs);
-      } catch (e) {
-        return { error: `run ${r + 1}: ${e.message}` };
-      }
-      results.push({ out: readSink(dom, 'out'), err: readSink(dom, 'err') });
-    } finally {
-      rmSync(profile, { recursive: true, force: true });
-    }
-  }
-  return recordVerdict(results);
+  const budget = realTimeMs ? [] : [`--virtual-time-budget=${BUDGET_MS}`];
+  return recordRuns(chrome, `${origin}/page/${name}`, runs, budget);
 }
 
 const server = await startServer();

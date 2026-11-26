@@ -32,9 +32,14 @@ import { fileURLToPath } from 'node:url';
 const DOCS = [/\.md$/, /^docs\//, /^LICENSE$/, /^NOTICE$/];
 // scripts/*.sh are NOT tooling: build.sh and the oracle/smoke runners decide
 // what the code gates see. Only the Node-side scripts qualify — except the web
-// oracle's runner and the library holding its print shim, which decide what
-// `make test-web` (a code gate) compares.
-const NOT_TOOLING = [/^scripts\/run-web-oracle\.mjs$/, /^scripts\/lib\/web-oracle\.mjs$/];
+// and DOM oracles' runners and the libraries holding their print shim and tree
+// walker, which decide what `make test-web` and `make test-dom` (code gates) compare.
+const NOT_TOOLING = [
+  /^scripts\/run-web-oracle\.mjs$/,
+  /^scripts\/lib\/web-oracle\.mjs$/,
+  /^scripts\/run-dom-oracle\.mjs$/,
+  /^scripts\/lib\/dom-oracle\.mjs$/,
+];
 const TOOLING = [/^runtime\/gates\//, /^agents\//, /^\.claude\//, /^scripts\/.*\.mjs$/];
 
 const isDocs = (p) => DOCS.some((re) => re.test(p));

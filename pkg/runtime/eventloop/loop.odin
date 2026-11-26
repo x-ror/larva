@@ -1,8 +1,15 @@
 package eventloop
 
+import "core:container/queue"
 import "core:mem"
 import "core:sync"
 import "core:time"
+
+// TIMER_NESTING_LEVEL_MAX and TIMER_NESTING_MIN_MS are the HTML timer initialization
+// steps' clamp: a timer created by a timer task whose nesting level is past 5 waits at
+// least 4 ms. Chrome 158 applies it exactly so (tests/web/cases/timers-nesting-clamp).
+TIMER_NESTING_LEVEL_MAX :: 5
+TIMER_NESTING_MIN_MS :: 4
 
 Callback :: proc(loop: ^Loop, user_data: rawptr)
 // Dispose releases a handle's user_data when the loop drops it WITHOUT invoking
@@ -49,10 +56,18 @@ Timer :: struct {
 	callback:  Callback,
 	user_data: rawptr,
 	dispose:   Dispose, // released when the timer is dropped without (re-)firing
+	// due_ms is the scheduled time: the deadline while the timer waits in the heap, and
+	// still the time it was due once queued, which an interval's re-arm counts from.
 	due_ms:    u64,
 	repeat_ms: u64,
 	repeating: bool,
+	// seq orders the timer: in the heap, its creation (ties between equal deadlines);
+	// in ready_timers, when it was queued (the order tasks run in).
 	seq:       u64,
+	// nesting is the HTML timer nesting level of the task this timer runs as: one more
+	// than the level of the timer task that created it, 1 when created outside any.
+	// Saturates at max(u8); only "past TIMER_NESTING_LEVEL_MAX" is ever asked of it.
+	nesting:   u8,
 	cancelled: bool,
 	unreffed:  bool, // if true, does not keep loop alive (like timer.unref() in Node)
 }
@@ -73,20 +88,39 @@ Loop :: struct {
 	immediates:         [dynamic]Task,
 	io_callbacks:       [dynamic]Task, // poll-phase completions (e.g. fs.readFile); run before check
 	close_callbacks:    [dynamic]Task,
-	// timers is a binary min-heap keyed on (due_ms, seq): the root is the earliest
-	// deadline, seq breaking ties to preserve Node's FIFO order for equal due_ms.
-	// Push/pop are O(log n); cancelled entries are removed lazily (skipped/popped
-	// when they reach the root) rather than compacted each tick.
+	// timers is a binary min-heap keyed on (due_ms, seq) of the timers not yet due: the
+	// root is the earliest deadline, seq breaking ties so equal deadlines keep creation
+	// order. Push/pop are O(log n). A timer leaves it for ready_timers once due.
 	timers:             [dynamic]Timer,
+	// ready_timers are the timer tasks queued to run, in the order they were queued: a
+	// 0 ms timer when it is created, any other when the loop finds it due, which it
+	// looks for before every timer task (queue_due_timers). This is the HTML event
+	// loop's task queue for timers as Chrome runs it: a timer that falls due while a
+	// callback runs is queued after the 0 ms timers that callback created
+	// (tests/web/cases/timers-due-mid-callback, timers-ready-order). Usually holds only
+	// what is due right now. A cleared entry is marked cancelled in place and dropped
+	// when it reaches the front.
+	ready_timers:       queue.Queue(Timer),
+	// ready_index maps a live (not cleared) queued timer's id to its absolute position in
+	// ready_timers — how many entries were ever popped before it, plus its place — so
+	// clear_timeout, timer_ref and timer_is_live find it in O(1) instead of scanning
+	// the queue, cleared tombstones included. A scan made a debounce,
+	// `clearTimeout(t); t = setTimeout(f, 0)` in a loop, quadratic: clear+arm on the loop
+	// directly, one -o:speed run each on 16 cores, took 56.21 ms for 10k iterations and
+	// 5620.89 ms for 100k scanning, 0.62 ms and 6.17 ms indexed.
+	// Kept by ready_push/ready_pop and the two cancel sites; ready_popped is the count.
+	ready_index:        map[Timer_ID]u64,
+	ready_popped:       u64,
 	// timer_index maps a live heap timer's id to its slot in `timers`, so timer_cancel
 	// (clearTimeout) is O(1) instead of an O(n) scan. With per-request HTTP header/idle
 	// timeouts the heap holds O(connections) timers and an O(n) cancel made the server
 	// O(n^2) under load — ~43% of CPU in clearTimeout (sampling profiler). Kept in sync by
 	// every site that moves a timer within the heap (the timer_heap_* swaps).
 	timer_index:        map[Timer_ID]int,
-	// reffed_timer_count mirrors the number of heap timers that are ref'd and not
-	// cancelled, so pending_count is O(1) instead of walking the heap every tick.
-	// Maintained at every site a timer enters/leaves the heap or flips ref state.
+	// reffed_timer_count mirrors the number of timers, waiting in the heap or queued in
+	// ready_timers, that are ref'd and not cancelled, so pending_count is O(1) instead of
+	// walking them every tick. Maintained at every site a timer is armed, runs, is
+	// cleared or flips ref state.
 	reffed_timer_count: int,
 	cancelled_ids:      map[Timer_ID]bool,
 	running_id:         Timer_ID,
@@ -94,6 +128,11 @@ Loop :: struct {
 	// running_id: the running handle has left the heap (or its queue), so this is the
 	// only place clear_timeout_owned can still read its owner from.
 	running_dispose:    Dispose,
+	// running_nesting is the running timer task's nesting level, 0 outside a timer task
+	// (so for a timer an immediate, an I/O completion or a microtask outside a timer
+	// creates). Set and cleared with running_id; the callback's microtask checkpoint is
+	// part of the task, so a timer a promise job creates there nests too, as in Chrome.
+	running_nesting:    u8,
 	active_io_count:    int,
 	io_events:          u64, // bumped by platform_poll each time a watcher callback fires
 	iteration:          u64, // bumped once per run_once; a monotonic loop-tick counter
@@ -156,19 +195,18 @@ Loop :: struct {
 	// GLib's next fd-less RunLoop deadline (pkg/runtime/deferred.odin). Waking at the
 	// cap counts as progress, like waking for the nearest timer.
 	poll_cap_ms:        int,
-	// yield_requested asks the timers phase to suspend the turn before the next due
-	// timer (#35). Set by the page runner's CPU quantum (page_checkpoint) from inside a
+	// yield_requested asks the timers phase to suspend the turn before the next timer
+	// task (#35). Set by the page runner's CPU quantum (page_checkpoint) from inside a
 	// timer callback; cleared when a timers phase starts, so a request left over from
 	// another phase never cuts a turn short before its first timer has run.
 	yield_requested:    bool,
 	// resume_timers marks a turn suspended mid-timers-phase: the next run_once re-enters
-	// that phase with the saved sequence limit and turn `now`, and runs no other phase
-	// first. It counts as pending work (pending_count, run_next, wait_hint_ms), since the
-	// timers still due may all be unreffed. resume_seq_limit / resume_now are the
-	// suspended phase's timer_phase_sequence_limit and timer_phase_now.
+	// that phase with the saved sequence limit, and runs no other phase first. It counts
+	// as pending work (pending_count, run_next, wait_hint_ms), since the timers still
+	// queued may all be unreffed. resume_seq_limit is the suspended phase's
+	// timer_phase_sequence_limit.
 	resume_timers:      bool,
 	resume_seq_limit:   u64,
-	resume_now:         u64,
 }
 
 // Shutdown_Hook runs ONCE on the loop thread the first time run_once observes a stop request. The net
@@ -234,6 +272,8 @@ init :: proc(allocator := context.allocator, real_time := false) -> Loop {
 	loop.close_callbacks = make([dynamic]Task, allocator)
 	loop.timers = make([dynamic]Timer, allocator)
 	loop.timer_index = make(map[Timer_ID]int, 64, allocator)
+	queue.init(&loop.ready_timers, allocator = allocator)
+	loop.ready_index = make(map[Timer_ID]u64, 16, allocator)
 	loop.async_queue = make([dynamic]Task, allocator)
 	loop.async_scratch = make([dynamic]Task, allocator)
 
@@ -340,6 +380,18 @@ close_begin :: proc(loop: ^Loop) -> (workers_busy: bool) {
 		}
 	}
 	delete(timers)
+	// The queued timers likewise, taken out whole for the same reason.
+	ready := loop.ready_timers
+	loop.ready_timers = {}
+	clear(&loop.ready_index)
+	for i in 0 ..< queue.len(ready) {
+		timer := queue.get_ptr(&ready, i)
+
+		if !timer.cancelled {
+			run_dispose(timer.dispose, timer.user_data)
+		}
+	}
+	queue.destroy(&ready)
 	platform_close_backend(loop)
 	return
 }
@@ -379,6 +431,8 @@ close_release :: proc(loop: ^Loop) {
 	delete(loop.close_callbacks)
 	delete(loop.timers)
 	delete(loop.timer_index)
+	queue.destroy(&loop.ready_timers)
+	delete(loop.ready_index)
 	delete(loop.cancelled_ids)
 	delete(loop.async_queue)
 	delete(loop.async_scratch)
@@ -641,20 +695,21 @@ queue_close_callback :: proc(loop: ^Loop, callback: Callback, user_data: rawptr 
 	append(&loop.close_callbacks, Task{id = id, callback = callback, user_data = user_data, seq = next_sequence(loop)})
 }
 
-// timer_ref marks a timer as ref'd (default). Ref'd timers keep the loop alive. O(1) via
-// timer_index; only heap-resident timers are ref-adjustable (a running handle is not in
-// the heap), matching the prior scan's reachability.
+// timer_ref marks a timer as ref'd (default). Ref'd timers keep the loop alive. Reaches a
+// timer waiting in the heap (O(1) via timer_index) or queued in ready_timers; a running
+// one-shot is in neither, and a running interval is reached through its next fire,
+// which is armed before its callback runs.
 timer_ref :: proc(loop: ^Loop, id: Timer_ID) {
 	if loop.destroyed {
 		return
 	}
 
-	if idx, ok := loop.timer_index[id]; ok {
-		if loop.timers[idx].unreffed && !loop.timers[idx].cancelled {
+	if timer := live_timer(loop, id); timer != nil {
+		if timer.unreffed {
 			loop.reffed_timer_count += 1
 		}
 
-		loop.timers[idx].unreffed = false
+		timer.unreffed = false
 	}
 }
 
@@ -664,13 +719,19 @@ timer_unref :: proc(loop: ^Loop, id: Timer_ID) {
 		return
 	}
 
-	if idx, ok := loop.timer_index[id]; ok {
-		if !loop.timers[idx].unreffed && !loop.timers[idx].cancelled {
+	if timer := live_timer(loop, id); timer != nil {
+		if !timer.unreffed {
 			loop.reffed_timer_count -= 1
 		}
 
-		loop.timers[idx].unreffed = true
+		timer.unreffed = true
 	}
+}
+
+// timer_is_live reports whether timer `id` will still fire: it waits in the heap or is
+// queued to run. A running one-shot is not live; a running interval is, until cleared.
+timer_is_live :: proc(loop: ^Loop, id: Timer_ID) -> bool {
+	return live_timer(loop, id) != nil
 }
 
 set_timer :: proc(
@@ -689,20 +750,32 @@ set_timer :: proc(
 	// measured from when the timer is scheduled, not from the loop's last tick.
 	sync_real_clock(loop)
 
+	// The HTML timer initialization steps' nesting clamp: created by a timer task nested
+	// past level 5, a delay under 4 ms becomes 4 ms, and so does an interval's period
+	// (each fire is a level deeper, so it would be clamped from then on anyway).
+	parent := loop.running_nesting
+	delay, repeat := delay_ms, repeat_ms
+
+	if parent > TIMER_NESTING_LEVEL_MAX {
+		delay = max(delay, TIMER_NESTING_MIN_MS)
+		repeat = repeating ? max(repeat, TIMER_NESTING_MIN_MS) : repeat
+	}
+
 	timer := Timer {
 		id        = next_handle_id(loop),
 		callback  = callback,
 		user_data = user_data,
 		dispose   = dispose,
-		due_ms    = loop.now_ms + delay_ms,
-		repeat_ms = repeat_ms,
+		due_ms    = loop.now_ms + delay,
+		repeat_ms = repeat,
 		repeating = repeating,
 		seq       = next_sequence(loop),
+		nesting   = parent == max(u8) ? parent : parent + 1,
 	}
 
-	// New timers start ref'd; account for it before the heap push.
+	// New timers start ref'd; account for it before the push.
 	loop.reffed_timer_count += 1
-	timer_heap_push(loop, timer)
+	arm_timer(loop, timer, delay)
 	return timer.id
 }
 
@@ -712,30 +785,49 @@ clear_timeout :: proc(loop: ^Loop, id: Timer_ID) -> bool {
 		return false
 	}
 
-	// Heap-resident timer: remove it eagerly (O(log n)) — release its binding, drop its
-	// ref, and take it out of the heap and timer_index now. It is not the running handle
-	// (that one was popped from the heap before its callback ran), so freeing its user_data
-	// here is safe. Eager removal (vs leaving a cancelled tombstone until it reaches the
-	// root) keeps the heap and timer_index bounded under timer churn — e.g. per-request
-	// HTTP timeouts armed then cancelled on completion, whose due times are far in the
-	// future.
-	if idx, ok := loop.timer_index[id]; ok {
-		if !loop.timers[idx].unreffed {
-			loop.reffed_timer_count -= 1
-		}
-
-		run_dispose(loop.timers[idx].dispose, loop.timers[idx].user_data)
-		timer_heap_remove_at(loop, idx)
+	// Cancelling the currently-running callback (e.g. clearInterval(self)) comes first: an
+	// interval's next fire is armed before its callback runs, so it is in the heap or the
+	// ready queue under this same id, but its binding is the one the callback is running
+	// on and cannot be freed mid-call. disarm_running takes the next fire out without
+	// disposing it; run_timer_task releases the binding once the callback returns, and a
+	// one-shot frees itself then.
+	if loop.running_id == id {
+		disarm_running(loop, id)
+		append_cancel_request(loop, id)
 		return true
 	}
 
-	// Cancelling the currently-running callback (e.g. clearInterval(self)): it was popped
-	// from the heap before its callback ran, so it is not in timer_index. Its binding
-	// cannot be freed mid-call — run_once's re-arm branch releases a repeating timer once
-	// it decides not to re-arm, and a one-shot frees itself when its callback returns.
-	// Checked before the immediates scan so self-cancellation stays O(1).
-	if loop.running_id == id {
-		append_cancel_request(loop, id)
+	// Heap-resident timer: remove it eagerly (O(log n)) — release its binding, drop its
+	// ref, and take it out of the heap and timer_index now. It is not the running handle
+	// (checked above), so freeing its user_data here is safe. Eager removal (vs leaving a
+	// cancelled tombstone until it reaches the root) keeps the heap and timer_index bounded
+	// under timer churn — e.g. per-request HTTP timeouts armed then cancelled on
+	// completion, whose due times are far in the future.
+	//
+	// Both timer branches take the timer out (or mark it) BEFORE its dispose runs, as the
+	// immediates branch does: a dispose may re-enter the loop and arm timers, which
+	// reshuffles the heap and can grow the ready queue into a new buffer, so a slot or a
+	// pointer read before it names another timer, or freed memory, after it. Pinned by
+	// cleared_timer_stays_cleared_when_its_dispose_arms_timers.
+	if idx, ok := loop.timer_index[id]; ok {
+		timer := loop.timers[idx]
+		timer_heap_remove_at(loop, idx)
+
+		if !timer.unreffed {
+			loop.reffed_timer_count -= 1
+		}
+
+		run_dispose(timer.dispose, timer.user_data)
+		return true
+	}
+
+	// Queued to run: left in place as a tombstone, which the timers phase drops when it
+	// reaches the front, and released.
+	if i := ready_timer_index(loop, id); i >= 0 {
+		timer := queue.get_ptr(&loop.ready_timers, i)
+		dispose, user_data := timer.dispose, timer.user_data
+		ready_cancel_at(loop, timer)
+		run_dispose(dispose, user_data)
 		return true
 	}
 
@@ -766,18 +858,22 @@ clear_timeout :: proc(loop: ^Loop, id: Timer_ID) -> bool {
 // pkg/http's transfer deadline) alike — so an id alone does not say whose handle it
 // is, and an id handed in by JS is just a number the script picked (#92). The dispose
 // hook is what each kind already stores per handle, so the owner check costs no field
-// on Timer or Task. Looks in the same three places as clear_timeout, in its order.
+// on Timer or Task. Looks in the same four places as clear_timeout, in its order.
 clear_timeout_owned :: proc(loop: ^Loop, id: Timer_ID, owner: Dispose) -> bool {
 	if owner == nil || id == 0 || loop.destroyed {
 		return false
+	}
+
+	if loop.running_id == id {
+		return loop.running_dispose == owner && clear_timeout(loop, id)
 	}
 
 	if idx, ok := loop.timer_index[id]; ok {
 		return loop.timers[idx].dispose == owner && clear_timeout(loop, id)
 	}
 
-	if loop.running_id == id {
-		return loop.running_dispose == owner && clear_timeout(loop, id)
+	if i := ready_timer_index(loop, id); i >= 0 {
+		return queue.get_ptr(&loop.ready_timers, i).dispose == owner && clear_timeout(loop, id)
 	}
 
 	for i in 0 ..< len(loop.immediates) {
@@ -882,13 +978,11 @@ run_once :: proc(loop: ^Loop) -> bool {
 	}
 
 	// A turn the timers phase suspended (resume_timers, #35) carries on where it
-	// stopped, as if no time had passed between slices: nothing that would land between
-	// two timers of one node turn may run here. So no clock sample — the resumed phase
-	// compares against the saved turn `now` anyway — and no cross-thread completion: a
-	// completion drained here would run between two due timers, which node never does
-	// (it drains in poll, after the whole timers phase). The microtask drain below still
-	// runs and finds nothing: a slice only yields once the last callback's microtasks
-	// have drained.
+	// stopped: nothing may run between two of its timer tasks that would not have run
+	// there unsliced. So no cross-thread completion: unsliced, a completion is drained
+	// after the timers phase, never between two of its tasks. The microtask drain below
+	// still runs and finds nothing: a slice only yields once the last callback's
+	// microtasks have drained.
 	//
 	// The resume itself is progress, even when every timer it was suspended for has been
 	// cleared since: a tick that consumed it with did_work false would go on to block in
@@ -897,8 +991,8 @@ run_once :: proc(loop: ^Loop) -> bool {
 	did_work = resuming
 
 	if !resuming {
-		// Sample the real clock first so the timer phase fires every timer whose
-		// deadline has actually elapsed (no-op in virtual-clock mode).
+		// Sample the real clock first so the rest of the tick sees the time it starts at
+		// (no-op in virtual-clock mode).
 		sync_real_clock(loop)
 
 		// Cross-thread completions (e.g. async DNS) posted by worker threads run first
@@ -915,119 +1009,53 @@ run_once :: proc(loop: ^Loop) -> bool {
 
 	drain_microtasks(loop)
 
-	// Phase 3: timers
-	// sequence_limit ensures timers scheduled *during* this phase run next iteration.
-	// The heap root is the earliest (due_ms, seq); a timer with seq >= the limit was
-	// scheduled this phase and (since its due_ms >= now_ms, delays being >= 0) sorts
-	// no earlier than every already-due seq < limit timer — so stopping at the first
-	// such root cannot starve an earlier-scheduled due timer.
+	// Phase 3: timers, as the HTML event loop runs timer tasks (Chrome is the oracle,
+	// docs/LARVA.md decision 1). A timer becomes a task when it is queued on
+	// ready_timers: a 0 ms one when created, any other when found due. The loop looks for
+	// due timers before every timer task, on a fresh clock (queue_due_timers), and runs
+	// the queue in order with a microtask checkpoint after each task. So a timer that
+	// falls due while a callback runs is queued after whatever that callback queued, and
+	// ahead of whatever the next one does: A,C,B in timers-due-mid-callback and X,Y,Z,T,W
+	// in timers-ready-order (tests/web/cases, recorded in Chrome 158). Pinned by
+	// eventloop.zero_delay_timer_runs_before_a_timer_that_fell_due_during_its_creator and
+	// eventloop.due_timer_is_queued_between_tasks.
 	//
-	// A resumed phase keeps the suspended one's limit: recomputing it would admit a
-	// 0 ms timer an earlier slice's callback created into this same turn (case 05).
+	// A turn runs the tasks queued before it started: everything below the sequence
+	// limit, taken after the timers already due were queued. A task queued during the
+	// turn — a 0 ms timer a callback creates, a timer found due between two tasks —
+	// keeps its place in the queue and runs next turn, after the poll and the later
+	// phases: a 0 ms timer chain cannot starve I/O. A resumed phase keeps the suspended
+	// one's limit: recomputing it would admit a 0 ms timer an earlier slice's callback
+	// created into this same turn (case 05).
+	queue_due_timers(loop)
 	timer_phase_sequence_limit := resuming ? loop.resume_seq_limit : loop.next_sequence
-	// The phase compares every deadline against the turn's `now`, sampled once above, not
-	// the live now_ms: set_timer re-syncs now_ms (a new timer's delay counts from when it
-	// is scheduled), so a callback that spins and then calls setTimeout would otherwise
-	// pull a timer that fell due mid-phase into this turn, ahead of this turn's
-	// immediates. Node keeps the turn's `now`: processTimers(now) / listOnTimeout(list,
-	// now) take it once per entry (read from node 26.13.0's internal/timers via
-	// --expose-internals), while insert() stamps a new timer with a fresh getLibuvNow().
-	// Measured: A due at +10 spins 5 ms, B due at +12 — node prints A,imm,B.
-	// Pinned by eventloop.timer_due_during_timers_phase_waits_for_next_turn.
-	timer_phase_now := resuming ? loop.resume_now : loop.now_ms
 	loop.resume_timers = false
 	loop.yield_requested = false
-	for len(loop.timers) > 0 {
-		// Lazily drop a cancelled root: its binding was already disposed and its
-		// count already adjusted at cancel time, so just discard it.
-		if loop.timers[0].cancelled || is_cancel_requested(loop, loop.timers[0].id) {
-			timer_heap_pop_min(loop)
-			continue
-		}
+	for {
+		ready_drop_cancelled_front(loop)
 
-		root := loop.timers[0]
-
-		if root.seq >= timer_phase_sequence_limit {
+		if queue.len(loop.ready_timers) == 0 || queue.front_ptr(&loop.ready_timers).seq >= timer_phase_sequence_limit {
 			break
 		}
 
-		if root.due_ms > timer_phase_now {
-			break
-		}
-
-		// Suspend the turn here, between two due timers, when the CPU quantum is spent
+		// Suspend the turn here, between two timer tasks, when the CPU quantum is spent
 		// (#35): a page runner ticks the page's siblings before it resumes. Checked only
-		// with another due timer at the root, so a resume tick always fires one, and only
-		// after the previous callback's microtasks drained, so a slice never separates a
-		// callback from them. It returns rather than breaking out: falling through to
-		// check ran a sibling timer's setImmediate ahead of it (t1,micro,imm,t2 against
-		// node's t1,micro,t2,imm, measured; case 14). cancelled_ids stays as it is: the
-		// resumed slice is the same turn, and its end clears them.
+		// with another task of this turn at the front, so a resume tick always runs one,
+		// and only after the previous callback's microtasks drained, so a slice never
+		// separates a callback from them. It returns rather than breaking out: falling
+		// through to check ran a sibling timer's setImmediate ahead of it (t1,micro,imm,t2
+		// against t1,micro,t2,imm unsliced, measured; case 14). cancelled_ids stays as it
+		// is: the resumed slice is the same turn, and its end clears them.
 		if loop.yield_requested {
 			loop.yield_requested = false
 			loop.resume_timers = true
 			loop.resume_seq_limit = timer_phase_sequence_limit
-			loop.resume_now = timer_phase_now
 			return did_work
 		}
 
-		timer := timer_heap_pop_min(loop)
 		did_work = true
-
-		// A one-shot cannot re-arm, so it leaves the active set the instant it is
-		// popped — drop its ref now, before the callback, not after. This keeps
-		// has_pending_work honest *while the callback runs* (a running task is not
-		// "pending"), matching how immediates/I-O/close are uncounted before firing.
-		// Without it the firing one-shot still counts itself, so an in-callback
-		// has_pending_work check (e.g. the Windows post-fire root-release decision)
-		// can't tell a final one-shot from one with real work queued behind it. A
-		// repeating timer's ref is left until the re-arm decision below, since it
-		// stays active across the fire.
-		if !timer.repeating && !timer.unreffed {
-			loop.reffed_timer_count -= 1
-		}
-
-		// An interval re-arms from a fresh clock read taken just BEFORE its callback:
-		// neither the turn's `now` (a slow timer ahead of it in this turn would pull its
-		// next fire early) nor the clock after the callback (a slow callback would push
-		// every later fire back by its own run time). Node 26.13.0's listOnTimeout does
-		// `start = binding.getLibuvNow()` before `_onTimeout()` and re-inserts with that
-		// start (read via --expose-internals); getLibuvNow updates libuv's clock, which
-		// sync_real_clock mirrors. Measured: a 100 ms timer spinning 40 ms ahead of a
-		// 100 ms interval whose first fire spins 30 ms — node prints I1 at 143, I2 at 243.
-		// Pinned by eventloop.interval_rearms_from_clock_before_its_callback.
-		rearm_start: u64
-
-		if timer.repeating {
-			sync_real_clock(loop)
-			rearm_start = loop.now_ms
-		}
-
-		loop.running_id, loop.running_dispose = timer.id, timer.dispose
-		timer.callback(loop, timer.user_data)
-		// Drain microtasks while running_id still names this timer: a task the
-		// callback queued (next_tick/microtask) that clears this very timer must
-		// reach clear_timeout's running-handle branch and record the cancel, or the
-		// re-arm check below misses it and re-arms a cancelled repeating timer.
-		drain_microtasks(loop)
-		loop.running_id, loop.running_dispose = 0, nil
-
-		if timer.repeating && !is_cancel_requested(loop, timer.id) {
-			// Re-armed: stays active, so reffed_timer_count is unchanged.
-			timer.due_ms = rearm_start + timer.repeat_ms
-			timer.seq = next_sequence(loop)
-			timer_heap_push(loop, timer)
-		} else if timer.repeating {
-			// Repeating, not re-armed (cancelled from within its own callback): it
-			// already fired, so its callback did NOT free the binding — release it
-			// here — and drop the ref it kept across the fire. A one-shot freed its
-			// binding when it fired and dropped its ref above, so neither applies.
-			run_dispose(timer.dispose, timer.user_data)
-
-			if !timer.unreffed {
-				loop.reffed_timer_count -= 1
-			}
-		}
+		run_timer_task(loop, ready_pop(loop))
+		queue_due_timers(loop)
 	}
 
 	// Phase 4a: deliver ready I/O completion callbacks (e.g. async fs.readFile)
@@ -1161,9 +1189,9 @@ run_once :: proc(loop: ^Loop) -> bool {
 		drain_microtasks(loop)
 	}
 
-	// Cancelled timers are dropped lazily from the heap root (see the timer phase),
-	// so there is no per-tick compaction pass for them — only the array-backed
-	// immediates still need one.
+	// A cleared timer leaves the heap at once, and a cleared queued one is dropped when
+	// it reaches the front of ready_timers (see the timers phase), so there is no
+	// per-tick compaction pass for them — only the array-backed immediates still need one.
 	discard_cancelled_immediates(loop)
 	clear(&loop.cancelled_ids)
 	return did_work
@@ -1331,6 +1359,198 @@ get_next_timer_timeout :: proc(loop: ^Loop) -> int {
 }
 
 // --- Internal helpers ---
+
+// arm_timer puts a timer that is to fire `delay` ms from now where it waits: queued on
+// ready_timers at once when the delay is 0, as Chrome posts a 0 ms timer as a task right
+// away (it runs before a 1 ms timer created ahead of it; timers-delay-coercion), else
+// in the heap until queue_due_timers finds it due. The caller has counted its ref.
+@(private = "file")
+arm_timer :: proc(loop: ^Loop, timer: Timer, delay: u64) {
+	if delay == 0 {
+		ready_push(loop, timer)
+	} else {
+		timer_heap_push(loop, timer)
+	}
+}
+
+// queue_due_timers moves every timer whose deadline has passed from the heap to the end
+// of ready_timers, in deadline order (creation order on a tie), each with the sequence
+// number of the moment it was queued: that, not its deadline, is its place among the
+// tasks. Reads the clock first, so a timer that fell due while the last task ran is
+// queued now, behind the tasks that task queued.
+@(private = "file")
+queue_due_timers :: proc(loop: ^Loop) {
+	sync_real_clock(loop)
+	timer_heap_clean_root(loop)
+
+	for len(loop.timers) > 0 && loop.timers[0].due_ms <= loop.now_ms {
+		timer := timer_heap_pop_min(loop)
+		timer.seq = next_sequence(loop)
+		ready_push(loop, timer)
+		timer_heap_clean_root(loop)
+	}
+}
+
+// run_timer_task runs one timer task: the callback, then the microtask checkpoint, with
+// running_id/running_nesting naming the timer for both.
+@(private = "file")
+run_timer_task :: proc(loop: ^Loop, timer: Timer) {
+	// A one-shot cannot re-arm, so it leaves the active set the instant it is popped —
+	// drop its ref now, before the callback, not after. This keeps has_pending_work
+	// honest *while the callback runs* (a running task is not "pending"), matching how
+	// immediates/I-O/close are uncounted before firing. Without it the firing one-shot
+	// still counts itself, so an in-callback has_pending_work check (e.g. the Windows
+	// post-fire root-release decision) can't tell a final one-shot from one with real
+	// work queued behind it. An interval keeps its ref: its next fire is armed below.
+	if !timer.repeating && !timer.unreffed {
+		loop.reffed_timer_count -= 1
+	}
+
+	if timer.repeating {
+		rearm_interval(loop, timer)
+	}
+
+	loop.running_id, loop.running_dispose, loop.running_nesting = timer.id, timer.dispose, timer.nesting
+	timer.callback(loop, timer.user_data)
+	// Drain microtasks while running_id still names this timer: a task the callback
+	// queued (next_tick/microtask) that clears this very timer must reach clear_timeout's
+	// running-handle branch, which takes the armed next fire out again. The checkpoint
+	// is part of the task, so a timer created in it nests under this one.
+	drain_microtasks(loop)
+	loop.running_id, loop.running_dispose, loop.running_nesting = 0, nil, 0
+
+	// An interval cleared from within its own callback: its next fire was taken out (and
+	// its ref dropped) by disarm_running, but the binding the callback ran on is only
+	// released now. A one-shot freed its own binding when it fired.
+	if timer.repeating && is_cancel_requested(loop, timer.id) {
+		run_dispose(timer.dispose, timer.user_data)
+	}
+}
+
+// rearm_interval arms an interval's next fire BEFORE its callback runs, as Chrome does,
+// so the next fire of a 0 ms interval is queued ahead of anything the callback queues
+// (I1,I2,Z,I3 in Chrome 158; pinned by eventloop.interval_rearms_before_its_callback).
+// The next fire is created by this task, so it nests a level deeper and the nesting
+// clamp applies to the period from the 7th fire on, for good.
+//
+// The deadline stays on the interval's schedule grid: the first multiple of the period
+// past the scheduled time (due_ms) that is still ahead of the clock. A fire that ran
+// late is followed by one more at once if a beat was missed, never by a burst, and then
+// the grid resumes: a 200 ms interval whose first fire runs 700 ms fires at 200, 900,
+// 1000 (tests/web/cases/timers-interval-overrun, timers-interval-rearm; pinned by
+// eventloop.interval_rearms_on_its_schedule_grid). This is Blink's TimerBase re-arm,
+// `now + period - (now - scheduled) % period`, read off the recorded fire order rather
+// than its source. It replaces node's re-arm from the clock before the callback (#99).
+@(private = "file")
+rearm_interval :: proc(loop: ^Loop, timer: Timer) {
+	next := timer
+	next.nesting = timer.nesting == max(u8) ? timer.nesting : timer.nesting + 1
+
+	if timer.nesting > TIMER_NESTING_LEVEL_MAX {
+		next.repeat_ms = max(next.repeat_ms, TIMER_NESTING_MIN_MS)
+	}
+
+	sync_real_clock(loop)
+	now := loop.now_ms
+	delay: u64
+
+	if next.repeat_ms > 0 {
+		behind := now > timer.due_ms ? now - timer.due_ms : 0
+		delay = next.repeat_ms - behind % next.repeat_ms
+	}
+
+	next.due_ms = now + delay
+	next.seq = next_sequence(loop)
+	arm_timer(loop, next, delay)
+}
+
+// disarm_running takes the running interval's armed next fire out of the heap or the
+// ready queue without disposing it — its binding is the one the running callback uses,
+// and run_timer_task releases it — and drops its ref, since it no longer keeps the loop
+// alive. Nothing to do for a running one-shot, which is in neither.
+@(private = "file")
+disarm_running :: proc(loop: ^Loop, id: Timer_ID) {
+	if idx, ok := loop.timer_index[id]; ok {
+		if !loop.timers[idx].unreffed {
+			loop.reffed_timer_count -= 1
+		}
+
+		timer_heap_remove_at(loop, idx)
+	} else if i := ready_timer_index(loop, id); i >= 0 {
+		ready_cancel_at(loop, queue.get_ptr(&loop.ready_timers, i))
+	}
+}
+
+// ready_timer_index returns the slot of live timer `id` in ready_timers, or -1, through
+// ready_index: O(1).
+@(private = "file")
+ready_timer_index :: proc(loop: ^Loop, id: Timer_ID) -> int {
+	if at, ok := loop.ready_index[id]; ok {
+		return int(at - loop.ready_popped)
+	}
+
+	return -1
+}
+
+// ready_push queues `timer` at the back of ready_timers and indexes it.
+@(private = "file")
+ready_push :: proc(loop: ^Loop, timer: Timer) {
+	loop.ready_index[timer.id] = loop.ready_popped + u64(queue.len(loop.ready_timers))
+	queue.push_back(&loop.ready_timers, timer)
+}
+
+// ready_pop takes the front of ready_timers, live or a tombstone, and unindexes it. A
+// tombstone was unindexed when cleared; an interval's next fire may since be queued
+// under the same id, so only an entry indexed at the front's own position is dropped.
+@(private = "file")
+ready_pop :: proc(loop: ^Loop) -> Timer {
+	timer := queue.pop_front(&loop.ready_timers)
+
+	if at, ok := loop.ready_index[timer.id]; ok && at == loop.ready_popped {
+		delete_key(&loop.ready_index, timer.id)
+	}
+
+	loop.ready_popped += 1
+	return timer
+}
+
+// ready_cancel_at turns a queued timer into a tombstone without disposing it: unindexed,
+// its ref dropped, its dispose cleared so no later path runs it.
+@(private = "file")
+ready_cancel_at :: proc(loop: ^Loop, timer: ^Timer) {
+	delete_key(&loop.ready_index, timer.id)
+
+	if !timer.unreffed {
+		loop.reffed_timer_count -= 1
+	}
+
+	timer.cancelled = true
+	timer.dispose = nil
+}
+
+// ready_drop_cancelled_front pops cleared timers off the front of ready_timers so a peek
+// sees a live one. Their bindings were disposed and their refs dropped when cleared.
+@(private = "file")
+ready_drop_cancelled_front :: proc(loop: ^Loop) {
+	for queue.len(loop.ready_timers) > 0 && queue.front_ptr(&loop.ready_timers).cancelled {
+		ready_pop(loop)
+	}
+}
+
+// live_timer returns timer `id` where it waits — heap or ready queue — or nil.
+@(private = "file")
+live_timer :: proc(loop: ^Loop, id: Timer_ID) -> ^Timer {
+	if idx, ok := loop.timer_index[id]; ok {
+		return &loop.timers[idx]
+	}
+
+	if i := ready_timer_index(loop, id); i >= 0 {
+		return queue.get_ptr(&loop.ready_timers, i)
+	}
+
+	return nil
+}
+
 
 drain_task_queue :: proc(loop: ^Loop, queue: ^[dynamic]Task, scratch: ^[dynamic]Task) {
 	if len(queue^) == 0 {
@@ -1500,6 +1720,12 @@ timer_heap_clean_root :: proc(loop: ^Loop) {
 }
 
 has_due_timer :: proc(loop: ^Loop) -> bool {
+	ready_drop_cancelled_front(loop)
+
+	if queue.len(loop.ready_timers) > 0 {
+		return true
+	}
+
 	timer_heap_clean_root(loop)
 	return len(loop.timers) > 0 && loop.timers[0].due_ms <= loop.now_ms
 }
@@ -1555,9 +1781,16 @@ next_close_index :: proc(loop: ^Loop, sequence_limit: u64) -> int {
 	return -1
 }
 
-// next_timer_due returns the earliest live deadline (the heap root after pruning
-// any cancelled timers off it), or false if no timer is pending.
+// next_timer_due returns the earliest live deadline (now, when a timer is already
+// queued to run; else the heap root after pruning any cancelled timers off it), or false
+// if no timer is pending.
 next_timer_due :: proc(loop: ^Loop) -> (u64, bool) {
+	ready_drop_cancelled_front(loop)
+
+	if queue.len(loop.ready_timers) > 0 {
+		return loop.now_ms, true
+	}
+
 	timer_heap_clean_root(loop)
 
 	if len(loop.timers) == 0 {

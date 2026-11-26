@@ -517,8 +517,8 @@ page_eval :: proc(page: ^Page, source: string, source_name := "<page_eval>") -> 
 // so a tick blocked in its poll (a far timer, a socket with nothing to read) wakes when
 // the deadline is due rather than sleeping through it, while a loop with nothing else
 // left still reads as idle — a reffed timer would keep it alive until the deadline.
-// Before every tick it is re-armed for the time left if it is no longer live (a map
-// lookup, versus a clear plus a heap push and a fresh id on every tick were it simply
+// Before every tick it is re-armed for the time left if it is no longer live (timer_is_live:
+// a map lookup, versus a clear plus a heap push and a fresh id on every tick were it simply
 // re-set each turn). Residual: a page that clears it DURING a tick can still block that
 // one tick's poll until its own next timer or I/O. Cleared on every return — unless
 // `cond` broke the contract and the page no longer holds the loop it was armed on. A
@@ -548,7 +548,7 @@ page_run_until :: proc(page: ^Page, cond: Run_Until_Cond, user_data: rawptr = ni
 
 	for {
 		if deadline_ms > 0 {
-			if _, live := loop.timer_index[wake]; !live {
+			if !eventloop.timer_is_live(loop, wake) {
 				now := page_loop_now(loop)
 				wake = eventloop.set_timeout(loop, page_deadline_wake, deadline_at > now ? deadline_at - now : 0)
 				eventloop.timer_unref(loop, wake)
@@ -736,6 +736,7 @@ page_close :: proc(
 	   page.result.kill == .None {
 		if bytes, ok := jsc.heap_size_bytes(ctx); ok {
 			page.result.heap_bytes = bytes
+			page.vm.heap_bytes = bytes
 			page.vm.collect_pending = bytes >= HEAP_COLLECT_BYTES
 		}
 	}

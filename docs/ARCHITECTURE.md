@@ -74,9 +74,14 @@ The strongest part of the system, and the right thing to have gotten right first
   (`setImmediate`) → close. Each phase uses a _sequence limit_ so callbacks queued
   _during_ a phase defer to the next iteration — this is what makes ordering
   deterministic and matchable against Node.
-- **Timers are a binary min-heap** keyed on `(due_ms, seq)` (`timer_heap_*`), so
-  ties fire in FIFO order (Node parity) and push/pop are O(log n). Cancelled
-  timers are dropped lazily at the root rather than compacted every tick.
+- **Timers run as HTML timer tasks, as Chrome runs them** (#103). A timer waits in
+  a binary min-heap keyed on `(due_ms, seq)` (`timer_heap_*`, O(log n), ties in
+  creation order) until it is due, then is queued on `ready_timers`; a 0 ms timer
+  is queued when created. The timers phase looks for due timers before every
+  timer task, on a fresh clock, and runs the queue in order with a microtask
+  checkpoint after each task. An interval re-arms before its callback, on its
+  schedule grid, and a timer created by a timer task nested past level 5 waits at
+  least 4 ms. Each rule is a Chrome recording in `tests/web/cases/timers-*`.
 - **Two clocks.** `real_time` mode tracks the monotonic wall clock; the default
   (used by tests) advances a _logical_ clock explicitly, enabling deterministic
   scheduling tests.

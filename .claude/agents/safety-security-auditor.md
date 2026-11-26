@@ -92,9 +92,11 @@ of the form "one thread = one VM = one program" is a bug candidate.
   The CPU budget sums `CLOCK_THREAD_CPUTIME_ID` around **every** entry into the
   VM; a new entry path (callback, timer, microtask drain) that skips the
   accounting lets a page escape its budget.
-- **Pool bounds.** Every VM ever created keeps a `timerfd` for the life of the
-  process. Creating VMs outside the pool, or retiring them routinely, is an fd
-  leak. Capacity must be honored.
+- **Pool bounds.** A VM's `timerfd` closes only when the thread's RunLoop is
+  next iterated (`pkg/jsc/runloop_linux.odin`), so every path that destroys a VM
+  — `vm_pool_destroy`, a retirement in `vm_release` — iterates it once after the
+  release. A VM created outside the pool, or released without that iteration, is
+  an fd leak on a thread with a drive. Capacity must be honored.
 - **Wrapper teardown order** (`docs/LARVA.md` decision 4): for every DOM
   wrapper, `JSObjectSetPrivate(nil)`, then unprotect, and only then free the
   page arena. Wrappers outlive the arena until the next GC of a pooled VM, so

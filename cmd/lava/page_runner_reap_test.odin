@@ -513,7 +513,7 @@ runner_second_page_in_a_reused_vm_gets_no_callback_from_the_first_pages_job :: p
 	expect_exit(t, r.second, 11, "second page")
 	testing.expect(t, !os.exists(r.marker), "the first page's callback ran after its page closed")
 	testing.expectf(t, wall < 1.5, "two pages took %.2fs: the first page's close waited on its worker", wall)
-	_, created := lava.vm_pool_stats(&runner.pool)
+	_, created, _ := lava.vm_pool_stats(&runner.pool)
 	testing.expect_value(t, created, 1)
 	testing.expect(t, wait_orphans(&runner, 3 * time.Second), "the first page's job never finished")
 }
@@ -548,7 +548,7 @@ runner_refuses_pages_at_its_orphan_bound :: proc(t: ^testing.T) {
 		expect_exit(t, b, 4, "fifo page")
 	}
 	testing.expect_value(t, lava.page_runner_orphans(&runner), 2)
-	_, created_before := lava.vm_pool_stats(&runner.pool)
+	_, created_before, _ := lava.vm_pool_stats(&runner.pool)
 
 	refused: Page_Outcome
 	lava.page_runner_open(&runner, "process.exitCode = 3;", "<refused>", LIMITS, &refused)
@@ -561,7 +561,7 @@ runner_refuses_pages_at_its_orphan_bound :: proc(t: ^testing.T) {
 		"page opened at the bound: %s",
 		describe_outcome(refused),
 	)
-	_, created_after := lava.vm_pool_stats(&runner.pool)
+	_, created_after, _ := lava.vm_pool_stats(&runner.pool)
 	testing.expect_value(t, created_after, created_before)
 
 	for f in fifos {

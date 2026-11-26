@@ -1,0 +1,20 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs rawtext-noembed
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <noembed>
+|       "<b>&amp;</b>"
+|     <noframes>
+|       "<i>&lt;</i>"
+|     "
+"
+#serialize
+<!DOCTYPE html><html><head></head><body><noembed><b>&amp;</b></noembed><noframes><i>&lt;</i></noframes>
+</body></html>

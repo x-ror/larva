@@ -1,0 +1,32 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs void-elements
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <area>
+|     <base>
+|     <br>
+|     <embed>
+|     <hr>
+|     <img>
+|       src="a.png"
+|     <input>
+|       type="text"
+|     <link>
+|     <meta>
+|     <source>
+|     <track>
+|     <wbr>
+|     <param>
+|     <keygen>
+|     "after
+"
+#serialize
+<!DOCTYPE html><html><head></head><body><area><base><br><embed><hr><img src="a.png"><input type="text"><link><meta><source><track><wbr><param><keygen>after
+</body></html>

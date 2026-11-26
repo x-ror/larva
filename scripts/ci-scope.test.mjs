@@ -42,6 +42,14 @@ test("the web oracle's runner and print shim are code, its recorder tooling", ()
   assert.equal(classify(['tests/web/cases/url-parse.js']), 'code');
 });
 
+test("the DOM oracle's runner and tree walker are code, its recorder tooling", () => {
+  // They decide what `make test-dom` compares; the recorder only writes recordings.
+  assert.equal(classify(['scripts/run-dom-oracle.mjs']), 'code');
+  assert.equal(classify(['scripts/lib/dom-oracle.mjs']), 'code');
+  assert.equal(classify(['scripts/record-dom.mjs']), 'tooling');
+  assert.equal(classify(['tests/dom/cases/void-elements.html']), 'code');
+});
+
 test('the Makefile and the workflows are code', () => {
   assert.equal(classify(['Makefile']), 'code');
   assert.equal(classify(['.github/workflows/ci.yml']), 'code');

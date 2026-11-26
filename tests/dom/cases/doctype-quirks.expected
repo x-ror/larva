@@ -1,0 +1,19 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs doctype-quirks
+# ---
+#tree
+| <!DOCTYPE html "-//W3C//DTD HTML 4.01 Transitional//EN" "">
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       "quirks keeps p in table"
+|     <table>
+|     "
+"
+#serialize
+<!DOCTYPE html><html><head></head><body><p>quirks keeps p in table</p><table></table>
+</body></html>

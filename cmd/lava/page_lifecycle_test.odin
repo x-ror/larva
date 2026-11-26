@@ -227,7 +227,7 @@ runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first :: proc(t: ^t
 			"the first page's close and the second page took %.2f s: the first page's cleanup ran after it closed",
 			elapsed,
 		)
-		_, created := lava.vm_pool_stats(&runner.pool)
+		_, created, _ := lava.vm_pool_stats(&runner.pool)
 		testing.expect_value(t, created, 1)
 	})
 }
@@ -316,7 +316,7 @@ runner_churn_of_mixed_fates_frees_everything_it_allocates :: proc(t: ^testing.T)
 		lava.page_runner_step(&runner)
 	}
 	testing.expect_value(t, lava.page_runner_live(&runner), CHURN_CANCELLED)
-	_, created := lava.vm_pool_stats(&runner.pool)
+	_, created, _ := lava.vm_pool_stats(&runner.pool)
 	lava.page_runner_destroy(&runner)
 
 	testing.expect_value(t, created, CHURN_SLOTS)
@@ -525,7 +525,7 @@ runner_pages_leave_the_vm_protect_count_where_they_found_it :: proc(t: ^testing.
 			}
 		}
 	}
-	_, created := lava.vm_pool_stats(&runner.pool)
+	_, created, _ := lava.vm_pool_stats(&runner.pool)
 	testing.expect_value(t, created, 1)
 }
 

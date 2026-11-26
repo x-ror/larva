@@ -1,0 +1,20 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs basic-minimal
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "t"
+|   <body>
+|     <p>
+|       "hello"
+|     "
+"
+#serialize
+<!DOCTYPE html><html><head><title>t</title></head><body><p>hello</p>
+</body></html>

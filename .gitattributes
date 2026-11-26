@@ -37,3 +37,9 @@ tests/mutation-manifest.json merge=mutation-manifest
 # a recorded CR would turn into a difference on checkout.
 tests/web/cases/*.expected -text
 tests/web/known/*.lava     -text
+
+# The DOM oracle (tests/dom) the same way, and its inputs too: a case about CRLF or a
+# lone CR must reach the parser with the bytes it was written with.
+tests/dom/cases/*.html     -text
+tests/dom/cases/*.expected -text
+tests/dom/known/*.lava     -text

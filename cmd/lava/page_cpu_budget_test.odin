@@ -149,15 +149,20 @@ cpu_budget_is_cleared_on_release :: proc(t: ^testing.T) {
 
 // The watchdog must follow the budget LEFT, not the budget set: after ~0.85 s of a
 // 1 s budget spent in short callbacks, a runaway entry gets ~0.15 s, not a fresh 1 s.
-// Without the re-arm in vm_cpu_enter the page runs ~1.85 s.
+// Without the re-arm in vm_cpu_enter the page runs ~1.85 s. The page counts the time
+// it spun itself, not the wall clock since it started: past nesting level 5 its 0 ms
+// chain waits 4 ms between callbacks (the HTML timer clamp), idle time a wall-clock
+// count would take for CPU — with 2 ms spins, only ~0.3 s was spent by the 850 ms mark
+// and the test passed with the re-arm deleted.
 @(test)
 cpu_budget_clamps_to_the_budget_left :: proc(t: ^testing.T) {
 	src := `
-	const t0 = Date.now();
+	let spun = 0;
 	function spin() {
 		const s = Date.now();
-		while (Date.now() - s < 2) {}
-		if (Date.now() - t0 < 850) setTimeout(spin, 0);
+		while (Date.now() - s < 10) {}
+		spun += Date.now() - s;
+		if (spun < 850) setTimeout(spin, 0);
 		else setTimeout(() => { while (true) {} }, 0);
 	}
 	setTimeout(spin, 0);

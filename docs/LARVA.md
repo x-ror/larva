@@ -81,7 +81,21 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
      off with the RunLoop drive (a driven full-GC timer crashes this embedding), and
      this stands in for them where the heap is known to be large — on the heavy shape
      with every page sampled, 131 pages/s and 27396 KB RSS growth per VM against
-     master's 96 and 66263. Measured: a warm VM
+     master's 96 and 66263. A VM is **retired** — destroyed at `vm_release` and
+     replaced by a fresh one on the next acquire — once it has hosted 200 pages or a
+     heap sample taken on it reached 64 MB, whichever comes first
+     (`VM_RETIRE_AFTER_PAGES`, `VM_RETIRE_HEAP_BYTES`, `vm_pool.odin`; thresholds
+     approved 2026-11-26; per runner on `Page_Runner.pool`, 0 turns a trigger off;
+     eval's thread pool applies the same defaults). The heap trigger reads only the
+     samples `heap_sample_every` takes, since the read walks the heap; an unsampled
+     VM is bounded by the page cap. A retirement iterates the RunLoop once, so the
+     VM's `timerfd` goes with it, and costs one cold page (~5.2 ms, `bench/jsc-vm`
+     A vs C). On `bench/pages` (N = 10, 4000 pages, medians of 7 interleaved launches
+     per arm, -o:speed, Ryzen 7 7700X, load average ~2) retiring at 200 against
+     never: trivial pages 448 vs 346 pages/s and 295620 vs 344484 KB end RSS growth,
+     pages keeping 50k objects 330 vs 280 pages/s and 525708 vs 541096 KB — 20
+     retirements in each run. Faster, not slower; why was not profiled. Measured: a
+     warm VM
      stays flat over 500 pages (`bench/jsc-vm` scenario G), and 50 bare JSC VMs
      each holding one page add 4999 KB of RSS apiece (`bench/jsc-vm` scenario D,
      medians of 5 launches, same machine as below) — raw JSC contexts after a
@@ -149,10 +163,11 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
      page must carry a CPU budget (`page_runner_open` refuses one without), and a
      page that spins is killed alone. A tick also has a CPU **quantum**
      (`Page_Runner.slice_us`, 1 ms by default, #35): once a tick has spent it, the
-     page's timers phase suspends before its next due timer — the whole turn pauses,
+     page's timers phase suspends before its next timer task — the whole turn pauses,
      no later phase runs — and the runner ticks the siblings before resuming it with
-     the same turn `now` and sequence limit, so node's order within the turn holds
-     (oracle case 14, run sliced by `runner_slicing_keeps_event_loop_order`). The
+     the same sequence limit, so the order within the turn holds (eventloop case 14
+     and the Chrome-recorded timer orders, run sliced by
+     `runner_slicing_keeps_event_loop_order`). The
      check reuses the per-callback CPU clock read of the budget, so it adds one
      compare per callback. A sibling then waits at most about the quantum plus one
      callback behind a page with a pile of due timers, instead of up to that page's
@@ -307,8 +322,8 @@ Stage 1 so far, on the Node profile and the `.Web` global surface:
   sees of a predecessor that finished in the same VM, a mixed-fate churn under a
   tracking allocator, and the VM's protect count across pages.
 
-Still open in stage 1: acting on a heap sample (killing or retiring a VM) and the
-Window profile.
+Still open in stage 1: killing a page on its heap sample (a VM is retired on one,
+decision 2) and the Window profile.
 
 ## Risks
 

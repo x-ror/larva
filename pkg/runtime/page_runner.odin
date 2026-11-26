@@ -101,7 +101,10 @@ Page_Runner :: struct {
 	// it after page_runner_init.
 	orphan_limit:      int,
 	// The runner's own VMs, so the number of live VMs is bounded by the runner's
-	// capacity, not by how many pages it ever ran.
+	// capacity, not by how many pages it ever ran. Its retirement thresholds
+	// (pool.retire_after_pages, pool.retire_heap_bytes: VM_RETIRE_AFTER_PAGES and
+	// VM_RETIRE_HEAP_BYTES, 0 = off) are the runner's to set after page_runner_init,
+	// like orphan_limit; the heap trigger only sees pages heap_sample_every samples.
 	pool:              VM_Pool,
 	epfd:              linux.Fd,
 	allocator:         runtime.Allocator,

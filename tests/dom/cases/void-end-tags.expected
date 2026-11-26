@@ -1,0 +1,26 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome 158.0.8127.88
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-dom.mjs void-end-tags
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     "a"
+|     <br>
+|     "b"
+|     <p>
+|     "c"
+|     <br>
+|     "d"
+|     <img>
+|     "ef"
+|     <hr>
+|     "
+"
+#serialize
+<!DOCTYPE html><html><head></head><body>a<br>b<p></p>c<br>d<img>ef<hr>
+</body></html>

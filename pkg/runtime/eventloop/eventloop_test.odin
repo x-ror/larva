@@ -386,85 +386,323 @@ timer_scheduled_by_timer_waits_for_next_turn :: proc(t: ^testing.T) {
 	testing.expect_value(t, pending_count(&loop), 0)
 }
 
-// record_spin_and_schedule_immediate stands in for a timer callback that burns 5 ms of
-// wall clock and then queues an immediate: on the virtual clock the spin is advance_time,
-// which moves now_ms exactly as set_timer's sync_real_clock does in real_time mode.
-record_spin_and_schedule_immediate :: proc(loop: ^Loop, user_data: rawptr) {
+// The timer tests below pin the HTML event loop as Chrome runs it, not node's phases:
+// a timer whose deadline has passed is QUEUED, as a task, the moment the loop next looks
+// for a task to run, and queued tasks run in the order they were queued. A 0 ms timer is
+// queued when it is created. Each rule was recorded in Chrome 158 (tests/web/cases,
+// real time); the virtual clock here moves only through advance_time, which stands in
+// for a callback that spins on the wall clock.
+
+// spin_400_then_zero_timer is A of timers-due-mid-callback: it burns 400 ms, past B's
+// deadline, then creates a 0 ms timer C.
+spin_400_then_zero_timer :: proc(loop: ^Loop, user_data: rawptr) {
 	rec := cast(^Recorder)user_data
 	append(&rec.events, 1)
-	advance_time(loop, 5)
-	set_immediate(loop, record_2, user_data)
+	advance_time(loop, 400)
+	set_timeout(loop, record_3, 0, user_data)
 }
 
-// A timer that falls due WHILE the timers phase runs waits for the next turn, behind
-// this turn's immediates. Node (26.13.0, measured): A due at +10 spins 5 ms, B due at
-// +12 — prints A,imm,B, because processTimers compares every list against the `now`
-// it was entered with. Comparing against the clock as it stands after A printed A,B,imm.
+// A 0 ms timer created while another timer's callback runs fires BEFORE an older timer
+// that fell due during that callback: C is queued when it is created, B only when the
+// loop next looks for a task, after A returns. Chrome prints A,C,B
+// (tests/web/cases/timers-due-mid-callback); ordering by deadline gave A,B,C.
 @(test)
-timer_due_during_timers_phase_waits_for_next_turn :: proc(t: ^testing.T) {
+zero_delay_timer_runs_before_a_timer_that_fell_due_during_its_creator :: proc(t: ^testing.T) {
 	loop := init()
 	defer destroy(&loop)
 
 	rec := Recorder{}
 	defer delete(rec.events)
 
-	set_timeout(&loop, record_spin_and_schedule_immediate, 10, &rec)
-	set_timeout(&loop, record_3, 12, &rec)
+	set_timeout(&loop, spin_400_then_zero_timer, 10, &rec)
+	set_timeout(&loop, record_2, 210, &rec)
 
-	// run_next fast-forwards to A's deadline (10); A moves the clock to 15, past B's 12.
-	testing.expect(t, run_next(&loop))
-	expect_events(t, rec.events[:], []int{1, 2})
-	testing.expect_value(t, pending_count(&loop), 1)
-
-	// B is due at the clock A left behind, so it fires with no clock movement. run_next,
-	// not run_once: with B gone (the bug), run_once would block forever in poll(-1).
-	testing.expect(t, run_next(&loop))
-	expect_events(t, rec.events[:], []int{1, 2, 3})
+	testing.expect(t, run_until_idle(&loop))
+	expect_events(t, rec.events[:], []int{1, 3, 2})
 	testing.expect_value(t, pending_count(&loop), 0)
 }
 
-// record_and_spin_3 stands in for a timer callback that burns 3 ms of wall clock; on the
-// virtual clock the spin is advance_time.
-record_and_spin_3 :: proc(loop: ^Loop, user_data: rawptr) {
+// spin_100_then_zero_timer is X of timers-ready-order: it burns 100 ms, past T's
+// deadline, then creates a 0 ms timer Z.
+spin_100_then_zero_timer :: proc(loop: ^Loop, user_data: rawptr) {
 	rec := cast(^Recorder)user_data
 	append(&rec.events, 1)
-	advance_time(loop, 3)
+	advance_time(loop, 100)
+	set_timeout(loop, record_3, 0, user_data)
 }
 
-// record_fire_time_and_spin_4 is an interval callback that records the clock it fired
-// at, then burns 4 ms; it clears itself on its second fire.
-record_fire_time_and_spin_4 :: proc(loop: ^Loop, user_data: rawptr) {
+// record_2_then_zero_timer is Y of timers-ready-order: it creates a 0 ms timer W.
+record_2_then_zero_timer :: proc(loop: ^Loop, user_data: rawptr) {
+	rec := cast(^Recorder)user_data
+	append(&rec.events, 2)
+	set_timeout(loop, record_5, 0, user_data)
+}
+
+// A timer found due between two tasks is queued right there, behind what is already
+// queued and ahead of what the next task queues. T (10 ms) falls due while X spins; X
+// queues Z, the loop then queues T, and Y queues W: Chrome prints X,Y,Z,T,W
+// (tests/web/cases/timers-ready-order). Looking for due timers only once per turn put
+// T behind W; ordering them by deadline put T ahead of Z.
+@(test)
+due_timer_is_queued_between_tasks :: proc(t: ^testing.T) {
+	loop := init()
+	defer destroy(&loop)
+
+	rec := Recorder{}
+	defer delete(rec.events)
+
+	set_timeout(&loop, record_4, 10, &rec)
+	set_timeout(&loop, spin_100_then_zero_timer, 0, &rec)
+	set_timeout(&loop, record_2_then_zero_timer, 0, &rec)
+
+	testing.expect(t, run_until_idle(&loop))
+	expect_events(t, rec.events[:], []int{1, 2, 3, 4, 5})
+	testing.expect_value(t, pending_count(&loop), 0)
+}
+
+// record_fire_time_overrun_700 is an interval callback that records the clock it fired
+// at; its first fire burns 700 ms (three and a half 200 ms periods), its third clears it.
+record_fire_time_overrun_700 :: proc(loop: ^Loop, user_data: rawptr) {
 	rec := cast(^Recorder)user_data
 	append(&rec.events, int(now(loop)))
-	advance_time(loop, 4)
+
+	if len(rec.events) == 1 {
+		advance_time(loop, 700)
+	}
 
 	if len(rec.events) == 3 {
 		clear_interval(loop, rec.interval_id)
 	}
 }
 
-// An interval re-arms from the clock read just BEFORE its callback, so neither a slow
-// callback nor a slow timer ahead of it in the same turn drags its schedule. Node 26.13.0's
-// listOnTimeout takes `start = binding.getLibuvNow()` before the callback and re-inserts
-// with it (read via --expose-internals); measured: a 100 ms timer that spins 40 ms ahead
-// of a 100 ms interval whose first fire spins 30 ms prints I1 at 143 and I2 at 243.
-// Here A (due 10) spins 3, the interval (due 10) fires at 13 and spins 4: node's rule
-// fires it again at 13+10=23. The turn's `now` would give 20, the clock after the
-// callback 27.
+// An interval stays on its schedule grid: before each callback it re-arms for the first
+// multiple of its period after the scheduled time that is still ahead of the clock. A
+// 200 ms interval whose first fire (200) runs 700 ms fires once more at once (900, the
+// 400 beat it missed), skips 600 and 800, and is back on the grid at 1000. Chrome prints
+// I1,I2,S0,I3,S1 for sentinels at 950 and 1050 (tests/web/cases/timers-interval-overrun).
+// Re-arming from the clock before the callback (node, #99) gives 200,900,1100; from the
+// clock after it 200,1100,1300; catching up every missed beat 200,900,900.
 @(test)
-interval_rearms_from_clock_before_its_callback :: proc(t: ^testing.T) {
+interval_rearms_on_its_schedule_grid :: proc(t: ^testing.T) {
 	loop := init()
 	defer destroy(&loop)
 
 	rec := Recorder{}
 	defer delete(rec.events)
 
-	set_timeout(&loop, record_and_spin_3, 10, &rec)
-	rec.interval_id = set_interval(&loop, record_fire_time_and_spin_4, 10, &rec)
+	rec.interval_id = set_interval(&loop, record_fire_time_overrun_700, 200, &rec)
 
 	testing.expect(t, run_until_idle(&loop))
-	expect_events(t, rec.events[:], []int{1, 13, 23})
+	expect_events(t, rec.events[:], []int{200, 900, 1000})
 	testing.expect_value(t, pending_count(&loop), 0)
+}
+
+// record_interval_zero_timer_first_fire is a 0 ms interval's callback: its first fire
+// creates a 0 ms timer (3); its third clears the interval.
+record_interval_zero_timer_first_fire :: proc(loop: ^Loop, user_data: rawptr) {
+	rec := cast(^Recorder)user_data
+	append(&rec.events, 1)
+	fires := 0
+
+	for e in rec.events {
+		if e == 1 {
+			fires += 1
+		}
+	}
+
+	if fires == 1 {
+		set_timeout(loop, record_3, 0, user_data)
+	}
+
+	if fires == 3 {
+		clear_interval(loop, rec.interval_id)
+	}
+}
+
+// An interval re-arms BEFORE its callback runs, so its next fire is queued ahead of
+// anything the callback queues: a 0 ms interval whose first fire creates a 0 ms timer Z
+// prints I1,I2,Z,I3 in Chrome (recorded with a MessageChannel-started probe, Chrome 158).
+// Re-arming after the callback gave I1,Z,I2,I3.
+@(test)
+interval_rearms_before_its_callback :: proc(t: ^testing.T) {
+	loop := init()
+	defer destroy(&loop)
+
+	rec := Recorder{}
+	defer delete(rec.events)
+
+	rec.interval_id = set_interval(&loop, record_interval_zero_timer_first_fire, 0, &rec)
+
+	testing.expect(t, run_until_idle(&loop))
+	expect_events(t, rec.events[:], []int{1, 1, 3, 1})
+	testing.expect_value(t, pending_count(&loop), 0)
+}
+
+// record_fire_time_and_chain_zero_timer records the clock it fired at and, ten times
+// over, creates a 0 ms timer running itself: each one is a level deeper.
+record_fire_time_and_chain_zero_timer :: proc(loop: ^Loop, user_data: rawptr) {
+	rec := cast(^Recorder)user_data
+	append(&rec.events, int(now(loop)))
+
+	if len(rec.events) < 10 {
+		set_timeout(loop, record_fire_time_and_chain_zero_timer, 0, user_data)
+	}
+}
+
+// The HTML timer nesting clamp: a timer created by a timer task whose nesting level is
+// past 5 waits at least 4 ms. A chain of 0 ms timers started outside any timer runs
+// its first six at once and every later one 4 ms apart, as Chrome does (the 7th of a
+// chain started from a MessageChannel task waits 4 ms; recorded in
+// tests/web/cases/timers-nesting-clamp by order instead of by clock).
+@(test)
+nested_timeouts_clamp_to_4ms_past_level_5 :: proc(t: ^testing.T) {
+	loop := init()
+	defer destroy(&loop)
+
+	rec := Recorder{}
+	defer delete(rec.events)
+
+	set_timeout(&loop, record_fire_time_and_chain_zero_timer, 0, &rec)
+
+	testing.expect(t, run_until_idle(&loop))
+	expect_events(t, rec.events[:], []int{0, 0, 0, 0, 0, 0, 4, 8, 12, 16})
+	testing.expect_value(t, pending_count(&loop), 0)
+}
+
+// record_fire_time_clear_at_10 is an interval callback that records the clock it fired
+// at and clears the interval on its tenth fire.
+record_fire_time_clear_at_10 :: proc(loop: ^Loop, user_data: rawptr) {
+	rec := cast(^Recorder)user_data
+	append(&rec.events, int(now(loop)))
+
+	if len(rec.events) == 10 {
+		clear_interval(loop, rec.interval_id)
+	}
+}
+
+// Each fire of an interval is one nesting level deeper than the last, so an interval
+// under 4 ms is clamped to 4 ms from its 7th fire on and stays there: a 0 ms interval
+// fires six times at once, a 1 ms one six times 1 ms apart, then both every 4 ms
+// (Chrome 158, probed in real time; tests/web/cases/timers-interval-nesting-clamp pins
+// the 4 ms side).
+@(test)
+nested_intervals_clamp_to_4ms_past_level_5 :: proc(t: ^testing.T) {
+	{
+		loop := init()
+		defer destroy(&loop)
+
+		rec := Recorder{}
+		defer delete(rec.events)
+
+		rec.interval_id = set_interval(&loop, record_fire_time_clear_at_10, 0, &rec)
+
+		testing.expect(t, run_until_idle(&loop))
+		expect_events(t, rec.events[:], []int{0, 0, 0, 0, 0, 0, 4, 8, 12, 16})
+	}
+
+	{
+		loop := init()
+		defer destroy(&loop)
+
+		rec := Recorder{}
+		defer delete(rec.events)
+
+		rec.interval_id = set_interval(&loop, record_fire_time_clear_at_10, 1, &rec)
+
+		testing.expect(t, run_until_idle(&loop))
+		expect_events(t, rec.events[:], []int{1, 2, 3, 4, 5, 6, 10, 14, 18, 22})
+	}
+}
+
+// Rearming_Dispose is the binding of a timer whose dispose re-enters the loop and arms
+// 64 timers of `delay` ms, with an allocation between each so the containers they grow
+// cannot grow in place: whatever clear_timeout still held into the heap or the ready
+// queue across the dispose now points at freed or reshuffled memory. `kept` holds those
+// allocations until the test frees them.
+Rearming_Dispose :: struct {
+	loop:     ^Loop,
+	delay:    u64,
+	fires:    int,
+	disposed: int,
+	kept:     [dynamic]^int,
+}
+
+rearming_dispose_fire :: proc(loop: ^Loop, user_data: rawptr) {
+	(cast(^Rearming_Dispose)user_data).fires += 1
+}
+
+rearming_dispose_noop :: proc(loop: ^Loop, user_data: rawptr) {}
+
+rearming_dispose :: proc(user_data: rawptr) {
+	r := cast(^Rearming_Dispose)user_data
+	r.disposed += 1
+
+	for _ in 0 ..< 64 {
+		set_timeout(r.loop, rearming_dispose_noop, r.delay)
+		append(&r.kept, new(int))
+	}
+}
+
+// A cleared timer stays cleared when its dispose arms more timers: clear_timeout takes
+// it out (or marks it) BEFORE the dispose runs, as it does for an immediate. Marked
+// after, through a pointer into the ready queue taken before the dispose, the write
+// landed in the queue's old buffer once the dispose grew it, and the cleared timer still
+// fired on the binding its dispose had released; removed after, by a heap slot read
+// before, it removed whichever timer the dispose had sifted into that slot. Both shapes:
+// a queued 0 ms timer and a 10 ms one waiting in the heap.
+@(test)
+cleared_timer_stays_cleared_when_its_dispose_arms_timers :: proc(t: ^testing.T) {
+	for delay in ([2]u64{0, 10}) {
+		loop := init()
+		r := Rearming_Dispose {
+			loop  = &loop,
+			delay = delay == 0 ? 0 : 1,
+		}
+		id := set_timeout(&loop, rearming_dispose_fire, delay, &r, rearming_dispose)
+		testing.expect(t, clear_timeout(&loop, id))
+		testing.expect(t, !timer_is_live(&loop, id), "the cleared timer is still live")
+		run_until_idle(&loop)
+		testing.expectf(t, r.fires == 0 && r.disposed == 1, "delay %d: fires=%d disposed=%d", delay, r.fires, r.disposed)
+		testing.expect_value(t, active_timer_count(&loop), 0)
+		destroy(&loop)
+		for p in r.kept {
+			free(p)
+		}
+		delete(r.kept)
+	}
+}
+
+// record_and_rearm_debounced clears and re-arms the 0 ms timer in rec.interval_id 1000
+// times in one task, a debounce written as clearTimeout(t); t = setTimeout(f, 0), then
+// records how many queued timers ready_index holds — read inside the task, before the
+// timers phase drops the tombstones off the front of the queue.
+record_and_rearm_debounced :: proc(loop: ^Loop, user_data: rawptr) {
+	rec := cast(^Recorder)user_data
+
+	for _ in 0 ..< 1000 {
+		clear_timeout(loop, rec.interval_id)
+		rec.interval_id = set_timeout(loop, record_3, 0, user_data)
+	}
+
+	append(&rec.events, len(loop.ready_index))
+}
+
+// Clearing a queued timer drops it from ready_index at once, so the index holds only the
+// live queued timers and a clear never scans the queue's tombstones: a debounce that
+// clears and re-arms a 0 ms timer 1000 times leaves one live entry indexed (not 1000),
+// and only that one fires.
+@(test)
+ready_index_holds_only_live_queued_timers :: proc(t: ^testing.T) {
+	loop := init()
+	defer destroy(&loop)
+
+	rec := Recorder{}
+	defer delete(rec.events)
+
+	set_timeout(&loop, record_and_rearm_debounced, 0, &rec)
+	run_until_idle(&loop)
+	expect_events(t, rec.events[:], []int{1, 3})
+	testing.expect_value(t, len(loop.ready_index), 0)
 }
 
 record_4 :: proc(loop: ^Loop, user_data: rawptr) {

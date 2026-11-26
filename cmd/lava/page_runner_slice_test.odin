@@ -9,10 +9,12 @@ import lava "lava:pkg/runtime"
 // can see it, because `lava run` and the oracle suites evaluate one page at a time and a
 // single page never slices.
 
-// Event-loop oracle cases whose ordering a slice between two due timers could break:
-// FIFO (03), microtasks between timers (04, 09), a 0 ms timer created in a timer waits
-// for the next turn (05), interval cancellation (06), the turn's `now` (12), the
-// interval re-arm (13), timers before the turn's immediates (14). Each asserts its own
+// Event-loop cases whose ordering a slice between two timer tasks could break: FIFO
+// (03), microtasks between timers (04, 09), a 0 ms timer created in a timer waits for
+// the next turn (05), interval cancellation (06), a timer due mid-callback waits for the
+// next turn (12), timers before the turn's immediates (14), and the HTML timer order
+// recorded in Chrome (tests/web/cases; their oracle runs print, which a runner page
+// does not have, so they are restated below with an assertion). Each asserts its own
 // order and throws on a mismatch, which ends the page with an error.
 @(private = "file")
 SLICED_CASES := [?]struct {
@@ -25,13 +27,69 @@ SLICED_CASES := [?]struct {
 	{"06", #load("../../tests/runtime/eventloop/cases/06-interval-cancellation.js", string)},
 	{"09", #load("../../tests/runtime/eventloop/cases/09-nexttick-microtask-interleave.js", string)},
 	{"12", #load("../../tests/runtime/eventloop/cases/12-timer-due-mid-phase-waits.js", string)},
-	{"13", #load("../../tests/runtime/eventloop/cases/13-interval-rearms-from-callback-start.js", string)},
 	{"14", #load("../../tests/runtime/eventloop/cases/14-timers-before-immediate.js", string)},
+	{"timers-due-mid-callback", WEB_DUE_MID_CALLBACK},
+	{"timers-ready-order", WEB_READY_ORDER},
+	{"timers-interval-rearm", WEB_INTERVAL_REARM},
 }
 
-// The event-loop cases keep node's order when every turn is sliced: each runs as a
+// WEB_DUE_MID_CALLBACK is tests/web/cases/timers-due-mid-callback.js: Chrome prints A,C,B.
+@(private = "file")
+WEB_DUE_MID_CALLBACK :: `
+const ev = [];
+setTimeout(() => {
+  ev.push('A');
+  const end = performance.now() + 400;
+  while (performance.now() < end);
+  setTimeout(() => ev.push('C'), 0);
+}, 10);
+setTimeout(() => ev.push('B'), 210);
+setTimeout(() => { if (ev.join() !== 'A,C,B') throw new Error(ev.join()); }, 700);
+`
+
+// WEB_READY_ORDER is tests/web/cases/timers-ready-order.js: Chrome prints X,Y,Z,T,W.
+@(private = "file")
+WEB_READY_ORDER :: `
+const ev = [];
+setTimeout(() => ev.push('T'), 10);
+setTimeout(() => {
+  ev.push('X');
+  const end = performance.now() + 100;
+  while (performance.now() < end);
+  setTimeout(() => ev.push('Z'), 0);
+}, 0);
+setTimeout(() => { ev.push('Y'); setTimeout(() => ev.push('W'), 0); }, 0);
+setTimeout(() => { if (ev.join() !== 'X,Y,Z,T,W') throw new Error(ev.join()); }, 300);
+`
+
+// WEB_INTERVAL_REARM is tests/web/cases/timers-interval-rearm.js: Chrome prints
+// A,interval1,interval2,early,late.
+@(private = "file")
+WEB_INTERVAL_REARM :: `
+const ev = [];
+const spin = (ms) => { const end = performance.now() + ms; while (performance.now() < end); };
+setTimeout(() => { ev.push('A'); spin(200); }, 300);
+let fires = 0;
+const interval = setInterval(() => {
+  fires++;
+  ev.push('interval' + fires);
+  if (fires === 1) {
+    setTimeout(() => ev.push('early'), 200);
+    setTimeout(() => ev.push('late'), 400);
+    spin(200);
+    setTimeout(() => {}, 0);
+  } else {
+    clearInterval(interval);
+  }
+}, 300);
+setTimeout(() => {
+  if (ev.join() !== 'A,interval1,interval2,early,late') throw new Error(ev.join());
+}, 1400);
+`
+
+// The event-loop cases keep their order when every turn is sliced: each runs as a
 // runner page with a 1 µs quantum, which a timer callback always spends, so the timers
-// phase suspends before every due timer after the first. One page at a time, alone on
+// phase suspends before every timer task after the first. One page at a time, alone on
 // its runner, so the cases' wall-clock margins are not eaten by a sibling. Case 14 is
 // the one that sees a slice falling through to check (t1,micro,imm,t2).
 @(test)

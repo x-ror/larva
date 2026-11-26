@@ -206,6 +206,94 @@ outer_html_reports_a_refused_allocation :: proc(t: ^testing.T) {
 	)
 }
 
+// The tree read API answers its zero value for a node of the wrong kind instead of
+// reading it through the wrong lexbor struct: a text node has no attribute list, and
+// the Document no name. The oracle (tests/dom) only ever asks the right node.
+@(test)
+tree_read_on_the_wrong_node_kind_is_empty :: proc(t: ^testing.T) {
+	p: Parser
+	defer destroy(&p)
+	parse(t, &p, `<!DOCTYPE html><p a=1>text<!--c--></p>`)
+	s: Selectors
+	testing.expect(t, selectors_init(&s), "no selector engine")
+	defer selectors_destroy(&s)
+
+	para := first(t, &s, &p, "p")
+	txt := first_child(para)
+	testing.expectf(t, node_type(txt) == .Text, "first child of <p> is %v", node_type(txt))
+	testing.expect(t, first_attr(txt) == nil, "a text node answered an attribute list")
+	testing.expect(t, local_name(txt) == "", "a text node answered a name")
+	testing.expect(t, namespace_of(txt) == .None, "a text node answered a namespace")
+	_, _, _, is_doctype := doctype(txt)
+	testing.expect(t, !is_doctype, "a text node answered as a doctype")
+	data, ok := char_data(txt)
+	testing.expectf(t, ok && data == "text", "text data: (%q, %v)", data, ok)
+
+	_, ok = char_data(para)
+	testing.expect(t, !ok, "an element answered character data")
+	testing.expect(t, template_content(para) == nil, "<p> answered template content")
+	testing.expect(t, local_name(document(&p)) == "", "the Document answered a name")
+	testing.expect(t, first_attr(document(&p)) == nil, "the Document answered an attribute list")
+
+	testing.expect(t, node_type(nil) == .Undefined, "nil has a node type")
+	testing.expect(t, first_child(nil) == nil && next_sibling(nil) == nil, "nil has relatives")
+	testing.expect(t, next_attr(nil) == nil && attr_value(nil) == "", "a nil attribute has a value")
+	testing.expect(t, attr_namespace(nil) == .None && attr_local_name(nil) == "", "a nil attribute has a name")
+}
+
+// lexbor gives an attribute its element's namespace unless foreign content adjusted it;
+// DOM puts every unadjusted attribute in no namespace. Names keep the case the parser
+// adjusts in SVG (`viewBox`), which lexbor's own local name folds.
+@(test)
+attributes_are_in_no_namespace_unless_adjusted :: proc(t: ^testing.T) {
+	p: Parser
+	defer destroy(&p)
+	parse(t, &p, `<p data-x=1></p><svg viewbox=0 xlink:href=#a></svg>`)
+	s: Selectors
+	testing.expect(t, selectors_init(&s), "no selector engine")
+	defer selectors_destroy(&s)
+
+	a := first_attr(first(t, &s, &p, "p"))
+	testing.expectf(t, attr_namespace(a) == .None, "data-x on <p> is in %v", attr_namespace(a))
+	testing.expectf(t, attr_local_name(a) == "data-x" && attr_value(a) == "1", "data-x reads %q", attr_local_name(a))
+
+	svg := first(t, &s, &p, "svg")
+	testing.expectf(t, namespace_of(svg) == .SVG, "<svg> is in %v", namespace_of(svg))
+	a = first_attr(svg)
+	testing.expectf(t, attr_namespace(a) == .None, "viewBox on <svg> is in %v", attr_namespace(a))
+	testing.expectf(t, attr_local_name(a) == "viewBox", "viewbox adjusted to %q", attr_local_name(a))
+	a = next_attr(a)
+	testing.expectf(t, attr_namespace(a) == .XLink, "xlink:href is in %v", attr_namespace(a))
+	testing.expectf(t, attr_local_name(a) == "href", "xlink:href local name %q", attr_local_name(a))
+	testing.expect(t, next_attr(a) == nil, "a third attribute on <svg>")
+}
+
+// The context decides how a fragment parses: `<td>` is a cell under a `tr` and a parse
+// error dropped under a `div`. The parse is over when parse_fragment returns.
+@(test)
+a_fragment_parses_in_its_context :: proc(t: ^testing.T) {
+	src := transmute([]byte)string("<td>a")
+
+	p: Parser
+	defer destroy(&p)
+	root, ok := parse_fragment(&p, "tr", src)
+	testing.expectf(t, ok, "fragment parse failed: %s", error_message(&p))
+	cell := first_child(root)
+	testing.expectf(t, local_name(cell) == "td", "under a tr: first child %q", local_name(cell))
+	inner, inner_ok := inner_html(root, context.temp_allocator)
+	testing.expectf(t, inner_ok && inner == "<td>a</td>", "under a tr: %q", inner)
+	testing.expect(t, !write(&p, "<b>"), "write accepted after a fragment parse")
+	_, status := pump(&p)
+	testing.expectf(t, status == .Done, "pump after a fragment parse: %v", status)
+
+	q: Parser
+	defer destroy(&q)
+	root, ok = parse_fragment(&q, "div", src)
+	testing.expect(t, ok, "fragment parse under a div failed")
+	inner, inner_ok = inner_html(root, context.temp_allocator)
+	testing.expectf(t, inner_ok && inner == "a", "under a div: %q", inner)
+}
+
 @(private = "file")
 capped :: proc(c: ^Capped) -> runtime.Allocator {
 	return {capped_proc, c}

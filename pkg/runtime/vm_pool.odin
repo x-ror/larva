@@ -12,7 +12,8 @@ import jsc "lava:pkg/jsc"
 // against A (a fresh implicit VM per page), each page evaluating 8 embedded runtime
 // modules plus a 200k-iteration loop, mean of 100 pages per launch — medians of 5
 // interleaved launches per arm, 7.40 vs 12.61 ms/page (2026-11-13). So VMs are created
-// at most `capacity` times per thread and reused one context at a time.
+// at most `capacity` times per thread, plus one per retirement (VM_RETIRE_AFTER_PAGES),
+// and reused one context at a time.
 //
 // A VM's timer on the thread's WTF::RunLoop holds a timerfd, which used to outlive the
 // VM for the life of the thread: the timer's GSource is finalized, and the fd closed,
@@ -78,6 +79,10 @@ VM :: struct {
 	// page_create on this VM runs a full synchronous collection first (page.odin says
 	// why there). Survives vm_release, unlike every per-holder field above.
 	collect_pending: bool,
+	// The last heap sample page_close took on this VM (Result.heap_bytes), 0 when none
+	// was: what vm_release compares against VM_Pool.retire_heap_bytes. Survives
+	// vm_release, like collect_pending.
+	heap_bytes:      i64,
 	// CPU quantum of one page tick (#35), nanoseconds; 0 = none. Set by the page runner
 	// (Page_Runner.slice_us) and cleared by vm_acquire, so eval, page_eval and
 	// page_run_until never slice. tick_mark_ns is the thread CPU clock at the outermost
@@ -118,11 +123,18 @@ Kill_Reason :: enum {
 VM_Pool :: struct {
 	// Idle VMs are kept in release order: the last idle entry is the one released
 	// most recently.
-	vms:       [dynamic]^VM,
-	capacity:  int,
+	vms:                [dynamic]^VM,
+	capacity:           int,
 	// VMs ever created by this pool.
-	created:   int,
-	allocator: runtime.Allocator,
+	created:            int,
+	// VMs this pool retired at vm_release (vm_retire_due).
+	retired:            int,
+	// Retirement thresholds, VM_RETIRE_AFTER_PAGES and VM_RETIRE_HEAP_BYTES unless the
+	// owner changes them after vm_pool_init (a page runner's embedder sets them on
+	// Page_Runner.pool); 0 turns that trigger off.
+	retire_after_pages: int,
+	retire_heap_bytes:  i64,
+	allocator:          runtime.Allocator,
 }
 
 VM_Pool_Error :: enum {
@@ -136,6 +148,27 @@ VM_Pool_Error :: enum {
 // nested on one thread (each holds its own VM while it runs). Pages (#3) size their
 // pools explicitly.
 DEFAULT_VM_POOL_CAPACITY :: 16
+
+// VM retirement (#3, docs/LARVA.md decision 2): vm_release destroys a VM instead of
+// pooling it again once it has hosted VM_RETIRE_AFTER_PAGES pages, or once the last
+// heap sample taken on it (Page_Runner.heap_sample_every) was at least
+// VM_RETIRE_HEAP_BYTES, whichever comes first; the next vm_acquire creates a fresh VM.
+// A long-lived VM's heap keeps what no collection reclaims (JIT code, structures, the
+// high-water mark of its blocks), and nothing else bounds it.
+//
+// What a retirement costs is one cold page: 12.61 vs 7.40 ms/page, bench/jsc-vm
+// scenario A vs C (see the top of this file), so ~5.2 ms, or 0.026 ms a page amortised
+// over 200. It costs no descriptor: with the RunLoop driven the VM's timerfd closes at
+// the retirement (vm_retire). What it buys, measured with a standalone C probe on JSC
+// 2.52.6 (session notes "runloop-design" p7: 200 pages on one thread, each a fresh
+// context with a JIT-warm loop keeping 50k objects, one drive per page, three runs per
+// arm, Ryzen 7 7700X): end RSS growth +94-97 MB never retiring, +69-72 MB retiring
+// every 10 pages, +27-29 MB retiring every page at 3.6 against 2.4 ms/page. The heap
+// trigger bounds a VM's heap at about the threshold, where the page cap alone does not.
+// The Lava-level numbers, retirement on vs off, are bench/pages': docs/LARVA.md
+// decision 2. Both thresholds approved by the project owner on 2026-11-26.
+VM_RETIRE_AFTER_PAGES :: 200
+VM_RETIRE_HEAP_BYTES :: i64(64 * 1024 * 1024)
 
 @(private = "file", thread_local)
 g_thread_pool: VM_Pool
@@ -175,6 +208,8 @@ vm_pool_init :: proc(pool: ^VM_Pool, capacity: int, allocator: runtime.Allocator
 	pool^ = {}
 	pool.capacity = max(capacity, 1)
 	pool.allocator = allocator
+	pool.retire_after_pages = VM_RETIRE_AFTER_PAGES
+	pool.retire_heap_bytes = VM_RETIRE_HEAP_BYTES
 	// Reserved at full capacity, so vm_acquire's append never has to grow it.
 	pool.vms = make([dynamic]^VM, 0, pool.capacity, allocator)
 }
@@ -259,8 +294,13 @@ vm_acquire :: proc(pool: ^VM_Pool) -> (^VM, VM_Pool_Error) {
 	return vm, .None
 }
 
-// vm_release returns a VM to its pool. The caller must have released every context it
-// created in this VM. Any execution limit set while it was held is cleared.
+// vm_release returns a VM to its pool, or retires it (vm_retire_due). The caller must
+// have released every context it created in this VM, and must not use `vm` afterwards:
+// a retired VM's record is freed. Any execution limit set while it was held is cleared.
+//
+// Thread level only, never inside a VM entry: a retirement iterates the thread's
+// RunLoop (vm_retire). Its callers, page_close and a failed page_create, run between
+// ticks.
 vm_release :: proc(vm: ^VM) {
 	if vm == nil {
 		return
@@ -277,6 +317,12 @@ vm_release :: proc(vm: ^VM) {
 	vm.cpu_used_ns = 0
 	vm.cpu_depth = 0
 	vm.in_use = false
+
+	if vm_retire_due(vm) {
+		vm_retire(vm)
+		return
+	}
+
 	// Move it to the end, so the backward scan in vm_acquire finds the most recently
 	// released VM first. O(capacity), on a list of a few entries.
 	vms := &vm.pool.vms
@@ -529,12 +575,61 @@ vm_request_stop :: proc(vm: ^VM) {
 	jsc.JSContextGroupSetExecutionTimeLimit(vm.group, STOP_LIMIT, vm_watchdog_terminate, vm)
 }
 
-// vm_pool_stats reports how many VMs are busy and how many the pool has ever created.
-vm_pool_stats :: proc(pool: ^VM_Pool) -> (busy, created: int) {
+// vm_pool_stats reports how many VMs are busy, how many the pool has ever created and
+// how many of those it retired.
+vm_pool_stats :: proc(pool: ^VM_Pool) -> (busy, created, retired: int) {
 	for vm in pool.vms {
 		if vm.in_use {
 			busy += 1
 		}
 	}
-	return busy, pool.created
+	return busy, pool.created, pool.retired
+}
+
+// vm_retire_due reports whether a VM being released has reached one of its pool's
+// retirement thresholds (VM_RETIRE_AFTER_PAGES says why they exist).
+//
+// The heap trigger reads the sample page_close already took, and takes no reading of
+// its own: the only exported read is jsc.heap_size_bytes, which walks the heap — 0.18-
+// 0.28 ms on an empty one, 1.45-2.38 ms at 50k objects, 5.2-9.3 ms at 200k (page.odin
+// gives the method) — so a reading here would be a sampling policy of its own, beside
+// heap_sample_every, for the same number. A VM whose pages are never sampled is bounded
+// by the page cap alone (runner_does_not_retire_on_heap_without_a_sample).
+@(private = "file")
+vm_retire_due :: proc(vm: ^VM) -> bool {
+	pool := vm.pool
+
+	if pool.retire_after_pages > 0 && vm.pages_hosted >= pool.retire_after_pages {
+		return true
+	}
+
+	return pool.retire_heap_bytes > 0 && vm.heap_bytes >= pool.retire_heap_bytes
+}
+
+// vm_retire destroys an idle VM and drops it from its pool, so the pool's next acquire
+// creates a fresh one in its slot. The RunLoop is iterated once after the release, as
+// vm_pool_destroy does and for the same reason: the VM's timer source closes its
+// timerfd only then, and without it every retirement would leave one descriptor open
+// for the life of the thread (vm_retirement_closes_the_retired_vms_timerfd). A thread
+// with no drive keeps that old cost, one timerfd per retirement.
+//
+// The iteration may run RunLoop work other VMs on the thread posted; what it runs is
+// what the runner's own between-rounds dispatch would have, routed through the posting
+// page's loop by the deferred shim (deferred.odin). Nor can it enter a VM with a kill
+// still armed (runloop_dispatch's warning): a page a limit ended is closed in the
+// tick that ended it, so the only VM that can carry one here is this one, released.
+@(private = "file")
+vm_retire :: proc(vm: ^VM) {
+	pool := vm.pool
+	for i in 0 ..< len(pool.vms) {
+		if pool.vms[i] == vm {
+			ordered_remove(&pool.vms, i)
+			break
+		}
+	}
+
+	jsc.JSContextGroupRelease(vm.group)
+	free(vm, pool.allocator)
+	pool.retired += 1
+	jsc.runloop_dispatch()
 }

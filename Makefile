@@ -25,7 +25,7 @@ endif
 SOURCE ?= console.log('hello from Lava')
 FILE ?=
 
-.PHONY: gates test-stdio test-web record-web help env sdk-diff test-one bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-html-odin test-http-odin test-sqlite-odin test-odin-green test-eventloop-node test-eventloop-lava test-fetch-smoke bench bench-gate fmt clean test-bench-pages-smoke bench-pages
+.PHONY: gates test-stdio test-web record-web test-dom record-dom help env sdk-diff test-one bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-html-odin test-http-odin test-sqlite-odin test-odin-green test-eventloop-node test-eventloop-lava test-fetch-smoke bench bench-gate fmt clean test-bench-pages-smoke bench-pages
 
 help:
 	@printf '%s\n' 'Lava commands'
@@ -78,6 +78,8 @@ help:
 	@printf '%s\n' '  make test-stdio         node:test over tests/stdio (needs bin/lava)'
 	@printf '%s\n' '  make test-web           Window-profile cases vs their Chrome recordings (tests/web)'
 	@printf '%s\n' '  make record-web [CASES=a b]  Re-record tests/web cases in headless Chrome'
+	@printf '%s\n' '  make test-dom           lava html tree/serialization vs Chrome recordings (tests/dom)'
+	@printf '%s\n' '  make record-dom [CASES=a b]  Re-record tests/dom cases in headless Chrome'
 	@printf '%s\n' '  make test-property      Differential property tests (PROPERTY_RUNS=N)'
 	@printf '%s\n' '  make test-scripts       node:test over scripts/ only (also inside check-js)'
 	@printf '%s\n' '  make test-mutation      Mutation gate (CHANGED=1: only what the diff affects; FILTER=name)'
@@ -253,6 +255,17 @@ test-web: build
 
 record-web:
 	node scripts/record-chrome.mjs $(CASES)
+
+# The DOM oracle (tests/dom, stage 3a of docs/LARVA.md): every HTML case is parsed by
+# `lava html` and two views of the result — the html5lib-format tree (--tree) and the
+# serialization — must equal what headless Chrome recorded byte for byte; a gap is
+# listed per view in tests/dom/known-gaps.txt with a stage and held to its pin. Needs
+# bin/lava, not Chrome. record-dom re-records (needs google-chrome), CASES= for a subset.
+test-dom: build
+	LAVA_BIN="$(LAVA)" node scripts/run-dom-oracle.mjs
+
+record-dom:
+	node scripts/record-dom.mjs $(CASES)
 
 check-jsc:
 	$(RUNSCRIPT) ./scripts/check-jsc.sh
