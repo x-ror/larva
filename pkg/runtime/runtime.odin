@@ -125,8 +125,8 @@ result_destroy :: proc(res: ^Result) {
 //   and paid for by the warm-VM speedup measured in vm_pool.odin; a thread that runs
 //   one eval and ends (a worker) destroys its pool. A JSValueProtect left unbalanced
 //   (a defect under CLAUDE.md §4 regardless) now pins the old global object graph
-//   until the pool is destroyed, where VM destruction used to hide it. Page-level
-//   heap accounting and VM retirement are #4's memory work.
+//   until the pool is destroyed, where VM destruction used to hide it — or until the
+//   pool retires the VM (VM_RETIRE_AFTER_PAGES, which eval's thread pool applies too).
 create_eval_context :: proc(
 	global_class: jsc.JSClassRef,
 	pool: ^VM_Pool = nil,

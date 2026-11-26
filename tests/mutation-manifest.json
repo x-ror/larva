@@ -878,6 +878,69 @@
       "expect_detail": "vm_pool_destroy leaked"
     },
     {
+      "name": "vm_pool_retires_a_vm_at_its_page_cap dies when the page cap stops retiring",
+      "why": "Without the page-cap trigger a pooled VM is reused forever, and its heap's leftovers grow without bound on a page runner that never samples heaps.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tif pool.retire_after_pages > 0 && vm.pages_hosted >= pool.retire_after_pages {",
+      "replace": "\tif false {",
+      "gate": "odin:cmd/lava:main.vm_pool_retires_a_vm_at_its_page_cap",
+      "expect_detail": "expected created to be 3, got 1"
+    },
+    {
+      "name": "runner_retires_a_vm_at_its_page_cap dies when page_close's release stops retiring at the cap",
+      "why": "The pool-level case does not show the runner's own release path retiring, nor the page after a retirement running on a fresh VM.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tif vm_retire_due(vm) {",
+      "replace": "\tif false {",
+      "gate": "odin:cmd/lava:main.runner_retires_a_vm_at_its_page_cap",
+      "expect_detail": "expected created to be 3, got 1"
+    },
+    {
+      "name": "runner_retires_a_vm_whose_sampled_heap_crossed_the_threshold dies when page_close stops recording the sample on the VM",
+      "why": "The heap trigger reads VM.heap_bytes; a sample that only reaches Result.heap_bytes never retires a VM however large its heap.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\t\tpage.vm.heap_bytes = bytes\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.runner_retires_a_vm_whose_sampled_heap_crossed_the_threshold",
+      "expect_detail": "expected created to be 2, got 1"
+    },
+    {
+      "name": "runner_does_not_retire_on_heap_without_a_sample dies when the heap trigger fires on an unsampled VM",
+      "why": "An unsampled VM's heap_bytes is 0, not a reading; a trigger that treats it as one retires VMs on no evidence.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "vm.heap_bytes >= pool.retire_heap_bytes",
+      "replace": "vm.heap_bytes >= 0",
+      "gate": "odin:cmd/lava:main.runner_does_not_retire_on_heap_without_a_sample",
+      "expect_detail": "expected created to be 1, got 3"
+    },
+    {
+      "name": "vm_pool_starts_with_the_retirement_defaults dies when vm_pool_init drops the page-cap default",
+      "why": "A pool without the default cap never retires a VM unless every embedder remembers to set one, eval's thread pool included.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tpool.retire_after_pages = VM_RETIRE_AFTER_PAGES\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.vm_pool_starts_with_the_retirement_defaults",
+      "expect_detail": "expected pool.retire_after_pages to be 200, got 0"
+    },
+    {
+      "name": "vm_retirement_closes_the_retired_vms_timerfd dies when vm_retire stops iterating the RunLoop",
+      "why": "A released VM's timer source closes its timerfd only at the next RunLoop iteration; without one each retirement outside a runner leaves a descriptor open for the life of the thread.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tpool.retired += 1\n\tjsc.runloop_dispatch()",
+      "replace": "\tpool.retired += 1",
+      "gate": "odin:cmd/lava:main.vm_retirement_closes_the_retired_vms_timerfd",
+      "expect_detail": "timerfd(s) outlived the retired VM"
+    },
+    {
+      "name": "runner_churn_with_retirement_keeps_fds_flat_and_rss_bounded dies when a retired VM's group is never released",
+      "why": "A retirement that only drops the VM from the pool keeps its heap and timerfd alive: ~8 MB and one descriptor per retirement.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tjsc.JSContextGroupRelease(vm.group)\n\tfree(vm, pool.allocator)",
+      "replace": "\tfree(vm, pool.allocator)",
+      "gate": "odin:cmd/lava:main.runner_churn_with_retirement_keeps_fds_flat_and_rss_bounded",
+      "expect_detail": "descriptors grew from"
+    },
+    {
       "name": "eval_reports_exhausted_vm_pool dies when pool exhaustion is reported as a missing runtime",
       "why": "A busy VM pool would tell the user to install JavaScriptCoreGTK, hiding the real cause.",
       "source": "pkg/runtime/page.odin",

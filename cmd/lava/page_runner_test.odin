@@ -274,7 +274,7 @@ runner_fd_count_stays_flat_over_10k_pages :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, c.finished, c.total)
 	testing.expect_value(t, c.failed, 0)
-	busy, created := lava.vm_pool_stats(&runner.pool)
+	busy, created, _ := lava.vm_pool_stats(&runner.pool)
 	testing.expect_value(t, busy, 0)
 	testing.expectf(t, created <= 8, "runner created %d VMs for 8 pages in flight", created)
 }
@@ -394,7 +394,7 @@ runner_second_page_in_a_reused_vm_sees_nothing_of_a_killed_first :: proc(t: ^tes
 		"second page saw the first: %s",
 		describe_outcome(r.second),
 	)
-	_, created := lava.vm_pool_stats(&runner.pool)
+	_, created, _ := lava.vm_pool_stats(&runner.pool)
 	testing.expect_value(t, created, 1)
 }
 
@@ -605,7 +605,7 @@ runner_refuses_a_page_without_a_cpu_budget :: proc(t: ^testing.T) {
 		testing.expectf(t, !outcomes[i].done, "limits %v: refusal reported from inside page_runner_open", limits)
 	}
 	testing.expect_value(t, lava.page_runner_live(&runner), 0)
-	_, created := lava.vm_pool_stats(&runner.pool)
+	_, created, _ := lava.vm_pool_stats(&runner.pool)
 	testing.expect_value(t, created, 0)
 	lava.page_runner_run(&runner)
 	for o, i in outcomes {
@@ -748,7 +748,7 @@ runner_vm_reused_after_process_exit_runs_the_next_page :: proc(t: ^testing.T) {
 	lava.page_runner_run(&runner)
 	testing.expectf(t, r.first.done && r.first.status == .Ok && r.first.exit == 2, "first page: %s", describe_outcome(r.first))
 	testing.expectf(t, r.second.done && r.second.status == .Ok && r.second.exit == 11, "second page: %s", describe_outcome(r.second))
-	_, created := lava.vm_pool_stats(&runner.pool)
+	_, created, _ := lava.vm_pool_stats(&runner.pool)
 	testing.expect_value(t, created, 1)
 }
 
