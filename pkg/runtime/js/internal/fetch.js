@@ -15,6 +15,7 @@
   // because the loader keys natives by module id and native.request is bound to
   // `internal/fetch` (globals.odin). It also installs the globals.
   var Headers = require('internal/fetch/headers').Headers;
+  var appendRawHeader = require('internal/fetch/headers').appendRaw;
   var Request = require('internal/fetch/request').Request;
   var Response = require('internal/fetch/response').Response;
   var bodyModule = require('internal/fetch/body');
@@ -397,7 +398,8 @@
         // when the body settles (onEnd), fails (onError), or is cancelled.
         var headers = new Headers();
         var pairs = raw.headers || [];
-        for (var i = 0; i + 1 < pairs.length; i += 2) headers._append(pairs[i], pairs[i + 1]);
+        for (var i = 0; i + 1 < pairs.length; i += 2)
+          appendRawHeader(headers, pairs[i], pairs[i + 1]);
 
         var bodyArg = null;
         if (raw.hasBody) {
@@ -495,8 +497,8 @@
   // The interface objects and the operation a page sees (internal/native_shape), with
   // the members Lava has in Blink's relative order (Chrome 158,
   // tests/web/cases/shape-fetch.expected). What is still missing or extra — Request's and
-  // Response's attributes are instance properties, the Body mixin is a parent class,
-  // Headers has `_append`/`_entryList` — is the S4d gap that case pins.
+  // Response's attributes are instance properties and the Body mixin is a parent class —
+  // is the S4d gap that case pins.
   var native_shape = require('internal/native_shape');
   var PublicHeaders = native_shape.defineInterface({
     name: 'Headers',

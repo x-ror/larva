@@ -4,7 +4,6 @@ global console data -cw object [object console]
 object [object console] [[Prototype]] [object Object]
 own debug data ecw fn name="debug" length=0 own=[length,name] prototype=false ctor=false src="function debug() { [native code] }"
 own error data ecw fn name="error" length=0 own=[length,name] prototype=false ctor=false src="function error() { [native code] }"
-own Console data ecw fn name="Console" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Console() {\n    return console;\n  }"
 own info data ecw fn name="info" length=0 own=[length,name] prototype=false ctor=false src="function info() { [native code] }"
 own log data ecw fn name="log" length=0 own=[length,name] prototype=false ctor=false src="function log() { [native code] }"
 own warn data ecw fn name="warn" length=0 own=[length,name] prototype=false ctor=false src="function warn() { [native code] }"

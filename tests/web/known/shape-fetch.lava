@@ -9,9 +9,7 @@ call: TypeError: Failed to construct 'Headers': Please use the 'new' operator, t
 static prototype data --- object [object Headers]
 prototype [[Prototype]] Object.prototype
 proto append data ecw fn name="append" length=2 own=[length,name] prototype=false ctor=false src="function append() { [native code] }"
-proto _append data -cw fn name="_append" length=2 own=[length,name] prototype=false ctor=false src="_append(name, value) {\n      var key = normalizeName(name);\n      if (key === 'set-cookie') {\n        this._cookies.push(String(value));\n        return;\n      }\n      var existing = this._map.get(key);\n      this._map.set(key, existing === undefined ? String(value) : existing + ', ' + value);\n    }"
 proto delete data ecw fn name="delete" length=1 own=[length,name] prototype=false ctor=false src="function delete() { [native code] }"
-proto _entryList data -cw fn name="_entryList" length=0 own=[length,name] prototype=false ctor=false src="_entryList() {\n      var out = [];\n      this._map.forEach((value, key) => out.push([key, value]));\n      for (var i = 0; i < this._cookies.length; i++) out.push(['set-cookie', this._cookies[i]]);\n      return out;\n    }"
 proto get data ecw fn name="get" length=1 own=[length,name] prototype=false ctor=false src="function get() { [native code] }"
 proto getSetCookie data ecw fn name="getSetCookie" length=0 own=[length,name] prototype=false ctor=false src="function getSetCookie() { [native code] }"
 proto has data ecw fn name="has" length=1 own=[length,name] prototype=false ctor=false src="function has() { [native code] }"

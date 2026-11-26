@@ -22,9 +22,9 @@ robust-console-poisoned unplanned: bootstrap/console.js reads Array.prototype.sl
 robust-resizable-views unplanned: Chrome refuses a view over a resizable ArrayBuffer in every WebIDL byte argument (no [AllowResizable]); Lava reads the view's current bytes. Closes with WebIDL conversions (#12)
 robust-view-probe unplanned: as robust-resizable-views: Chrome refuses the resizable-backed window, Lava decodes it as empty (it never reads the stale bytes this case guards against)
 shape-abort unplanned: EventTarget is not a global (#114): AbortSignal's [[Prototype]] is Function.prototype and its prototype's Object.prototype, and AbortSignal.prototype carries addEventListener/removeEventListener/dispatchEvent itself; everything else matches Chrome
-shape-console unplanned: console has no context/createTask/memory, and keeps node's Console member (#114); every other member matches Chrome's shape
+shape-console unplanned: console has no context/createTask/memory (#114); every other member matches Chrome's shape
 shape-crypto unplanned: no crypto.subtle (SubtleCrypto is not implemented); the Crypto interface and getRandomValues/randomUUID match Chrome (#114)
-shape-fetch S4d: Request's and Response's attributes are instance properties, Body is their parent class, Request.prototype has no blob/clone/formData/textStream, Response no blob/formData/textStream/redirect, and Headers.prototype has _append/_entryList; every member Lava has is native-shaped (#114)
+shape-fetch S4d: Request's and Response's attributes are instance properties, Body is their parent class, Request.prototype has no blob/clone/formData/textStream, and Response no blob/formData/textStream/redirect; every member Lava has is native-shaped (#114)
 shape-missing unplanned: the Chrome globals of the shape-* families Larva does not implement (TextEncoderStream, FormData, EventTarget, SubtleCrypto, Performance, reportError, …) — one line each, so implementing one is a visible change
 shape-performance unplanned: performance is a plain data property holding a plain object — no Performance interface, getter, toJSON, mark/measure or entries (as perf-now); now() alone is native-shaped (#114)
 streams-byte unplanned: no readable byte streams (ReadableByteStreamController, type 'bytes', BYOB reads)

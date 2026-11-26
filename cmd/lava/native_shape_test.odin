@@ -53,9 +53,9 @@ native_shape_mask_is_per_page :: proc(t: ^testing.T) {
 	}
 
 	run_page(t, SHAPE_POLLUTER)
-	_, created_before := lava.vm_pool_stats(lava.thread_vm_pool())
+	_, created_before, _ := lava.vm_pool_stats(lava.thread_vm_pool())
 	run_page(t, SHAPE_CHECKER)
-	_, created_after := lava.vm_pool_stats(lava.thread_vm_pool())
+	_, created_after, _ := lava.vm_pool_stats(lava.thread_vm_pool())
 	// The second page ran in the VM the first one released, which is what makes this
 	// an isolation test rather than two fresh starts.
 	testing.expect_value(t, created_after, created_before)

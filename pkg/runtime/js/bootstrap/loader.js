@@ -146,6 +146,8 @@
     'timeStamp',
     '@@toStringTag',
   ]);
+  // node's console.Console constructor: not a member of Chrome's console namespace.
+  if (web) delete globalThis.console.Console;
   // FinalizationRegistry cleanups and WebAssembly settlements back onto the page's own
   // loop (#91, #97). Before any module that could allocate a registry, and before user
   // code, which must only ever see the wrapped constructors.
