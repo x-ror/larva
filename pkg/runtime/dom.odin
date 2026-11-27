@@ -3,6 +3,7 @@ package lava_runtime
 import "base:runtime"
 import "core:c"
 import "core:strings"
+import "core:sync"
 import html "lava:pkg/html"
 import jsc "lava:pkg/jsc"
 
@@ -145,10 +146,10 @@ Dom_Page :: struct {
 	// The page's document and its parse; html.destroy frees every node at once.
 	parser:    html.Parser,
 	selectors: html.Selectors,
-	// The page's root wrapper class: the parent of every interface class, and the brand.
+	// The wrapper classes: the root (the parent of every interface class, and the brand)
+	// and one per interface. Process-wide, never released: dom_create_classes says why.
 	class:     jsc.JSClassRef,
-	// One class per interface, named as it is: what a wrapper is made with.
-	classes:   [Dom_Interface]jsc.JSClassRef,
+	classes:   ^[Dom_Interface]jsc.JSClassRef,
 	// node -> its wrapper, each JSValueProtect'ed until dom_release. Bound to `allocator`
 	// at creation (CLAUDE.md §4): natives insert from `proc "c"` callbacks.
 	wrappers:  map[html.Node]jsc.JSObjectRef,
@@ -167,6 +168,19 @@ Dom_Page :: struct {
 	// The page's script elements: what has started, what waits to run (page_script.odin).
 	scripts:   Page_Scripts,
 }
+
+// The wrapper classes, created once per process by dom_create_classes and never
+// released. Process-global and shared-safe like fetch.odin's classes: a JSClassRef
+// belongs to no context group, and these hold no callbacks or data, only names and the
+// parent link — a wrapper's node sits in its own private slot.
+@(private = "file")
+g_dom_classes_once: sync.Once
+@(private = "file")
+g_dom_root_class: jsc.JSClassRef
+@(private = "file")
+g_dom_classes: [Dom_Interface]jsc.JSClassRef
+@(private = "file")
+g_dom_classes_error: string
 
 // dom_install creates the page's document and installs the DOM on the page's realm —
 // `document`, `window` and the node interfaces — before any of the page's scripts run.
@@ -202,28 +216,14 @@ dom_install :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) -> string {
 		return "lexbor could not create the selector engine"
 	}
 
-	root := jsc.JSClassDefinition {
-		class_name = "Node",
-		attributes = .NoAutomaticPrototype,
-	}
-	dom.class = jsc.JSClassCreate(&root)
+	sync.once_do(&g_dom_classes_once, dom_create_classes)
 
-	if dom.class == nil {
-		return "JavaScriptCore could not create the node class"
+	if g_dom_classes_error != "" {
+		return g_dom_classes_error
 	}
 
-	for name, iface in DOM_INTERFACE_NAMES {
-		def := jsc.JSClassDefinition {
-			class_name   = strings.clone_to_cstring(name, context.temp_allocator),
-			attributes   = .NoAutomaticPrototype,
-			parent_class = dom.class,
-		}
-		dom.classes[iface] = jsc.JSClassCreate(&def)
-
-		if dom.classes[iface] == nil {
-			return "JavaScriptCore could not create an interface class"
-		}
-	}
+	dom.class = g_dom_root_class
+	dom.classes = &g_dom_classes
 
 	install := get_named(ctx, cast(jsc.JSObjectRef)state.loader, "installDom")
 
@@ -317,19 +317,7 @@ dom_release :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) {
 	html.selectors_destroy(&dom.selectors)
 	html.destroy(&dom.parser)
 
-	// A class outlives this call in every wrapper JSC has not collected yet: a
-	// JSCallbackObject retains its class (and a class its parent), so this drops only
-	// the page's references.
-	for class in dom.classes {
-		if class != nil {
-			jsc.JSClassRelease(class)
-		}
-	}
-
-	if dom.class != nil {
-		jsc.JSClassRelease(dom.class)
-	}
-
+	// The wrapper classes are not the page's to release (dom_create_classes).
 	free(dom, dom.allocator)
 }
 
@@ -1725,4 +1713,48 @@ dom_created :: proc(call: Dom_Call, exception: ^jsc.JSValueRef, node: html.Node,
 	}
 
 	return dom_wrap(call.ctx, call.dom, node)
+}
+
+// dom_create_classes makes the root wrapper class ("Node", the brand dom_node_of checks)
+// and one class per interface under it, once per process.
+//
+// Why never per page, and never released: JSC's OpaqueJSClass holds `parentClass` as a
+// raw pointer — its destructor releases only the automatic prototype class, never the
+// parent (JSClassRelease's ~OpaqueJSClass in libjavascriptcoregtk-6.0) — yet each
+// wrapper's finalization walks that chain to call every class's `finalize`. A wrapper
+// retains its own class; nothing retains the root but the page and its global object's
+// per-class context data, and JSC frees the global (a precise allocation, swept as the
+// collection ends) before it lazily sweeps the wrappers' blocks on a later allocation.
+// Per-page classes released at dom_release so left every closed page's wrappers walking
+// a freed root: benign until something reused the block, then a call through garbage —
+// the parallel test runner's segfault in a different test each run, where another
+// thread's allocation did the reusing. Pinned by
+// dom_wrapper_class_parent_outlives_its_page. Sharing them also spares each page
+// 1 + len(Dom_Interface) class creations.
+@(private = "file")
+dom_create_classes :: proc() {
+	root := jsc.JSClassDefinition {
+		class_name = "Node",
+		attributes = .NoAutomaticPrototype,
+	}
+	g_dom_root_class = jsc.JSClassCreate(&root)
+
+	if g_dom_root_class == nil {
+		g_dom_classes_error = "JavaScriptCore could not create the node class"
+		return
+	}
+
+	for name, iface in DOM_INTERFACE_NAMES {
+		def := jsc.JSClassDefinition {
+			class_name   = strings.clone_to_cstring(name, context.temp_allocator),
+			attributes   = .NoAutomaticPrototype,
+			parent_class = g_dom_root_class,
+		}
+		g_dom_classes[iface] = jsc.JSClassCreate(&def)
+
+		if g_dom_classes[iface] == nil {
+			g_dom_classes_error = "JavaScriptCore could not create an interface class"
+			return
+		}
+	}
 }

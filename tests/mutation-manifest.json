@@ -3934,6 +3934,38 @@
       "expect_detail": "data-r=\"false,false"
     },
     {
+      "name": "dom_wrapper_class_parent_outlives_its_page dies when a page releases the root wrapper class again",
+      "why": "JSC does not retain a class's parentClass, so a root freed while a closed page's wrappers await their lazy sweep sends their finalization through freed memory — the parallel cmd/lava suite's random segfault.",
+      "source": "pkg/runtime/dom.odin",
+      "find": "\t// The wrapper classes are not the page's to release (dom_create_classes).\n",
+      "replace": "\tjsc.JSClassRelease(dom.class)\n",
+      "gate": "odin:cmd/lava:main.dom_wrapper_class_parent_outlives_its_page",
+      "expect_detail": [
+        "classes they never had",
+        "Signal caught: Segmentation_Fault",
+        "Signal caught: Unhandled_Trap",
+        "odin test exited -1"
+      ]
+    },
+    {
+      "name": "storage-named dies when the named setter ignores the receiver",
+      "why": "An assignment through an object inheriting from localStorage would store an item instead of defining a property on that object, as Chrome does.",
+      "source": "pkg/runtime/js/internal/storage.js",
+      "find": "if (receiver === proxy && typeof p === 'string' && !ReflectHas(t, p)) {",
+      "replace": "if (typeof p === 'string' && !ReflectHas(t, p)) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL storage-named"
+    },
+    {
+      "name": "storage-errors dies when setItem stops checking the quota",
+      "why": "A page could grow an area without bound where Chrome throws QuotaExceededError past 5 MiB code units.",
+      "source": "pkg/runtime/js/internal/storage.js",
+      "find": "if (next > QUOTA) {",
+      "replace": "if (false) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL storage-errors"
+    },
+    {
       "name": "tests/dom dom-window-events.page dies when a node's path stops at the document",
       "why": "Without the window on the path a window listener sees nothing of a node's event and composedPath() lacks it (the 4a known gap).",
       "source": "pkg/runtime/js/internal/event_target.js",
