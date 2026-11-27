@@ -17,4 +17,9 @@ error 0 default false
 clone cloned cloned
 bytes Uint8Array 3
 arrayBuffer ArrayBuffer 3
-FAILED TypeError: new Response('abc').blob is not a function. (In 'new Response('abc').blob()', 'new Response('abc').blob' is undefined)
+blob Blob 3 ""
+blob type text/x-lava x
+stream body stream true
+second read TypeError
+derived PUT 1 z
+body null null null

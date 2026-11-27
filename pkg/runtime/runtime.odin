@@ -255,6 +255,11 @@ reported :: proc(result: Result, report: Result_Hook, report_data: rawptr) -> Re
 // nextTick drain, both of which exist for CommonJS and process.nextTick. eval hands
 // it to page_open, which applies all three (page.odin).
 //
+// ORIGIN: `origin` is the page's origin as the embedder gives it — a URL or an
+// origin; "" (the default) is an opaque origin. Only the Window surface's object URLs
+// read it today (`blob:<origin>/<uuid>`, internal/blob.js), until a page has a real
+// URL (stage 4). It is borrowed for the install only (Runtime_State.page_origin).
+//
 // LIMITS: `limits` (Page_Limits, vm_pool.odin) puts the eval under a per-entry CPU
 // limit and a cumulative CPU budget on its VM. The budget is charged from runtime
 // install to the last loop tick; the first entry or tick that ends over a limit stops
@@ -274,6 +279,7 @@ eval :: proc(
 	report_data: rawptr = nil,
 	surface: Global_Surface = .Node,
 	limits: Page_Limits = {},
+	origin := "",
 ) -> Result {
 	// Per-eval temp arena boundary, mirroring the per-tick reset in
 	// eventloop.run_once and the per-require reset in native_require_cb. It
@@ -289,7 +295,7 @@ eval :: proc(
 	// drives the same three steps for many pages interleaved on one thread.
 	page: Page
 
-	if page_open(&page, source, source_name, loop, echo_result, script_args, limits, surface = surface) &&
+	if page_open(&page, source, source_name, loop, echo_result, script_args, limits, surface = surface, origin = origin) &&
 	   loop != nil {
 		// nil hook: just run. false: skip the loop; the teardown below still runs.
 		if pre_run == nil || pre_run(pre_run_data) {
@@ -357,8 +363,8 @@ process_exit_code :: proc(ctx: jsc.JSContextRef) -> int {
 }
 
 // run_file reads `path` and runs it through eval with echo off, as `lava run` does.
-// `surface` is passed through unchanged (Global_Surface); the CLI selects `.Web`
-// only for `lava run --surface=web` (cmd/lava/main.odin parse_run_args).
+// `surface` and `origin` are passed through unchanged; the CLI sets them from
+// `lava run --surface=web` and `--origin=` (cmd/lava/main.odin parse_run_args).
 run_file :: proc(
 	path: string,
 	loop: ^eventloop.Loop = nil,
@@ -366,6 +372,7 @@ run_file :: proc(
 	report: Result_Hook = nil,
 	report_data: rawptr = nil,
 	surface: Global_Surface = .Node,
+	origin := "",
 ) -> Result {
 	if len(path) == 0 {
 		if loop != nil {
@@ -404,6 +411,7 @@ run_file :: proc(
 		report = report,
 		report_data = report_data,
 		surface = surface,
+		origin = origin,
 	)
 }
 

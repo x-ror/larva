@@ -121,6 +121,7 @@ page_open :: proc(
 	pool: ^VM_Pool = nil,
 	runner_page := false,
 	surface: Global_Surface = .Node,
+	origin := "",
 ) -> bool {
 	page^ = {}
 
@@ -128,7 +129,7 @@ page_open :: proc(
 		return page_finish_early(page, loop, refusal)
 	}
 
-	if !page_create(page, source_name, loop, script_args, limits, pool, runner_page, surface) {
+	if !page_create(page, source_name, loop, script_args, limits, pool, runner_page, surface, origin) {
 		return false
 	}
 
@@ -154,7 +155,8 @@ page_open :: proc(
 //   No counterpart (a Larva page step). Its failures are page_open's, with page_open's
 //   messages and exit codes, pinned by every suite running through `lava eval`.
 //
-// The other parameters are page_open's.
+// The other parameters are page_open's. `origin` is the page's origin as the embedder
+// gives it ("" for an opaque one); it is read only during the install here.
 page_create :: proc(
 	page: ^Page,
 	source_name := "<eval>",
@@ -164,6 +166,7 @@ page_create :: proc(
 	pool: ^VM_Pool = nil,
 	runner_page := false,
 	surface: Global_Surface = .Node,
+	origin := "",
 ) -> bool {
 	page^ = {}
 	page.surface = surface
@@ -246,6 +249,8 @@ page_create :: proc(
 	state.ctx = cast(jsc.JSContextRef)ctx
 	state.vm = vm
 	state.page_runner = runner_page
+	// Borrowed for the install below only (Runtime_State.page_origin).
+	state.page_origin = origin
 	page.state = state
 	// From here the loop is torn down by page_close, with the state and context
 	// still alive around it.

@@ -1,0 +1,38 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-26
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs clone-transfer
+# ---
+transfer moves: 4 0 1,2,3,4 true
+transfer detached again: DOMException DataCloneError: Failed to execute 'structuredClone' on 'Window': ArrayBuffer at index 0 is already detached. code=25
+clone detached: DOMException DataCloneError: Failed to execute 'structuredClone' on 'Window': An ArrayBuffer is detached and could not be cloned. code=25
+transfer under a view: true 7 2 0 0
+transfer not in value: 1 0
+transfer duplicate: DOMException DataCloneError: Failed to execute 'structuredClone' on 'Window': ArrayBuffer at index 1 is a duplicate of an earlier ArrayBuffer. code=25
+transfer non-transferable: DOMException DataCloneError: Failed to execute 'structuredClone' on 'Window': Value at index 0 does not have a transferable type. code=25
+transfer typed array: DOMException DataCloneError: Failed to execute 'structuredClone' on 'Window': Value at index 0 does not have a transferable type. code=25
+transfer not iterable: TypeError TypeError: Failed to execute 'structuredClone' on 'Window': Failed to read the 'transfer' property from 'StructuredSerializeOptions': The provided value cannot be converted to a sequence. code=undefined
+transfer string: TypeError TypeError: Failed to execute 'structuredClone' on 'Window': Failed to read the 'transfer' property from 'StructuredSerializeOptions': The provided value cannot be converted to a sequence. code=undefined
+transfer null: TypeError TypeError: Failed to execute 'structuredClone' on 'Window': Failed to read the 'transfer' property from 'StructuredSerializeOptions': The provided value cannot be converted to a sequence. code=undefined
+transfer undefined: 2
+transfer empty: 3
+options 5: TypeError TypeError: Failed to execute 'structuredClone' on 'Window': The provided value is not of type 'StructuredSerializeOptions'. code=undefined
+options null: 4
+options function: 5
+failed clone keeps buffer: DataCloneError 4
+order: 1
+order transfer,value
+function: DOMException DataCloneError: Failed to execute 'structuredClone' on 'Window': function named() {} could not be cloned. code=25
+arrow: DOMException DataCloneError: Failed to execute 'structuredClone' on 'Window': () => 1 could not be cloned. code=25
+symbol: DOMException DataCloneError: Failed to execute 'structuredClone' on 'Window': Symbol(desc) could not be cloned. code=25
+nested function: DOMException DataCloneError: Failed to execute 'structuredClone' on 'Window': function max() { [native code] } could not be cloned. code=25
+promise: DOMException DataCloneError: Failed to execute 'structuredClone' on 'Window': #<Promise> could not be cloned. code=25
+weakmap: DOMException DataCloneError: Failed to execute 'structuredClone' on 'Window': #<WeakMap> could not be cloned. code=25
+weakref: DOMException DataCloneError: Failed to execute 'structuredClone' on 'Window': #<WeakRef> could not be cloned. code=25
+no argument: TypeError TypeError: Failed to execute 'structuredClone' on 'Window': 1 argument required, but only 0 present. code=undefined
+error is DOMException: true 25 0
+boxed BigInt: [object BigInt] 5 object
+boxed Symbol: DOMException DataCloneError: Failed to execute 'structuredClone' on 'Window': [object Symbol] could not be cloned. code=25
+blob clone true true 5 text/plain hello
+file clone [object File] n.txt 42 a/b true xy

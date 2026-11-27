@@ -93,7 +93,7 @@ async function runCase(name) {
   const source = readFileSync(join(CASES_DIR, `${name}.js`), 'utf8');
   const file = join(tmp, `${name}.js`);
   writeFileSync(file, lavaPrelude(server.origin) + source);
-  const actual = await runLava(file);
+  const actual = await runLava(file, server.origin);
 
   if (update) {
     if (!known.has(name)) die(`${name} is not in known-gaps.txt; only a listed gap is pinned`);
@@ -117,9 +117,11 @@ async function runCase(name) {
   return { name, ...judge({ name, expected, actual, known: known.get(name), snapshot }) };
 }
 
-function runLava(file) {
+// `origin` is the fixture server's, the origin Chrome loaded the case from, so a
+// page's object URLs are minted under the same origin on both sides (blob-object-url).
+function runLava(file, origin) {
   return new Promise((resolveRun) => {
-    const child = spawn(LAVA, ['run', '--surface=web', file], {
+    const child = spawn(LAVA, ['run', '--surface=web', `--origin=${origin}`, file], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';

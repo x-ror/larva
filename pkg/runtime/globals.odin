@@ -102,6 +102,11 @@ Runtime_State :: struct {
 	// and read by install_process. Empty for embedders that don't set it (then
 	// install_process falls back to os.args).
 	script_argv:       []string,
+	// The page's origin as the embedder gave it (`lava run --origin=`), "" for an opaque
+	// one. BORROWED, not owned: read only while page_create installs the runtime, when
+	// install_internal_modules copies it into a JS string for internal/blob, so it need
+	// outlive nothing but that call.
+	page_origin:       string,
 	// Embedded builtin factories compiled so far (builtin_compile_cb). Only an
 	// observable for cmd/lava/lazy_builtins_test.odin; nothing branches on it.
 	builtin_compiles:  int,
@@ -1789,6 +1794,29 @@ microtask_report_uncaught_cb :: proc "c" (
 	return jsc.JSValueMakeUndefined(ctx)
 }
 
+// make_blob_bindings returns internal/blob's natives: the two UTF-8 codecs it shares
+// with the buffer bindings (the same function objects, so Blob's bytes are Buffer's
+// bytes for every string, lone surrogates included) and `origin`, the page's origin
+// as given, from which createObjectURL mints `blob:<origin>/<uuid>`. A separate object
+// rather than the buffer bindings themselves: the origin is per page, and nothing of
+// node:buffer's table needs to reach Blob.
+make_blob_bindings :: proc(
+	ctx: jsc.JSContextRef,
+	buffer_bindings: jsc.JSObjectRef,
+	origin: string,
+) -> jsc.JSObjectRef {
+	bindings := jsc.JSObjectMake(ctx, nil, nil)
+
+	for name in ([]string{"utf8Encode", "utf8Decode"}) {
+		if fn := get_named(ctx, buffer_bindings, name); fn != nil {
+			set_named(ctx, bindings, name, fn)
+		}
+	}
+
+	set_named(ctx, bindings, "origin", js_string_value(ctx, origin))
+	return bindings
+}
+
 // install_internal_modules hands the module loader a native `compile(id)` and the
 // per-module natives, and stores the resulting resolver on Runtime_State.
 // native_require_cb consults that resolver before hitting the filesystem. The
@@ -1852,6 +1880,7 @@ install_internal_modules :: proc(
 	buffer_bindings := make_buffer_bindings(ctx)
 	set_named(ctx, natives, "node/buffer", cast(jsc.JSValueRef)buffer_bindings)
 	set_named(ctx, natives, "internal/encoding", cast(jsc.JSValueRef)buffer_bindings)
+	set_named(ctx, natives, "internal/blob", cast(jsc.JSValueRef)make_blob_bindings(ctx, buffer_bindings, state.page_origin))
 	set_named(ctx, natives, "internal/fetch", cast(jsc.JSValueRef)make_fetch_bindings(ctx))
 	set_named(ctx, natives, "internal/stdio", cast(jsc.JSValueRef)make_stdio_bindings(ctx))
 	set_named(ctx, natives, "internal/deferred", cast(jsc.JSValueRef)make_deferred_bindings(ctx))

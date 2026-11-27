@@ -22,6 +22,12 @@
   var chunkToBytes = bodyModule.chunkToBytes;
   var concatChunks = bodyModule.concatChunks;
   var makeTransportStream = bodyModule.makeTransportStream;
+  // fetchObjectURL's captures (this module is eager, so they are pristine).
+  var P = require('internal/primordials');
+  var PromiseResolveP = P.PromiseResolve;
+  var PromiseRejectP = P.PromiseReject;
+  var TypeErrorP = P.TypeError;
+  var StringP = P.String;
 
   // collectStreamBody materializes a known-length streaming body (a Blob) to a
   // single Uint8Array so it can be sent with Content-Length framing — matching
@@ -109,6 +115,9 @@
       return Promise.reject(error);
     }
 
+    // A blob: URL never reaches the network: the object-URL registry answers it.
+    if (req.url.slice(0, 5) === 'blob:') return fetchObjectURL(req); // primordials-ok: method — req.url is the parser's href, a primitive string
+
     if (!native || typeof native.request !== 'function') {
       return Promise.reject(new TypeError('fetch: native network backend unavailable'));
     }
@@ -123,6 +132,41 @@
     }
 
     return runFetch(req, signal, 0, false);
+  }
+
+  /**
+   * fetch() of an object URL: the File API's blob URL resolution plus the fetch
+   * standard's scheme fetch for `blob:`.
+   * @param {Request} req
+   * @returns {Promise<Response>} 200 "OK" with the Blob's bytes, Content-Length and
+   *   Content-Type; a rejected TypeError "Failed to fetch" (Chrome's network error)
+   *   for a URL that names no registered Blob (revoked, or never minted) or a method
+   *   other than GET.
+   * @node Chrome 158 (tests/web/cases/blob-object-url): the content type is the
+   *       Blob's; a File reads back as a Blob of its bytes and type.
+   * @deviates none
+   */
+  function fetchObjectURL(req) {
+    var blobModule = require('internal/blob');
+    var blob = req.method === 'GET' ? blobModule.resolveForFetch(req.url) : undefined;
+    if (blob === undefined) {
+      return PromiseRejectP(
+        require('internal/web_errors').pageError(new TypeErrorP('Failed to fetch')),
+      );
+    }
+
+    var bytes = blobModule.blobBytes(blob);
+    var response = new Response(bytes.length === 0 ? null : bytes, {
+      status: 200,
+      statusText: 'OK',
+      headers: [
+        ['content-length', StringP(bytes.length)],
+        ['content-type', blobModule.typeOf(blob)],
+      ],
+      url: req.url,
+    });
+    response.type = 'basic';
+    return PromiseResolveP(response);
   }
 
   // Statuses that trigger a redirect when accompanied by a Location header.
@@ -527,6 +571,7 @@
     members: [
       'bodyUsed',
       'arrayBuffer:0',
+      'blob:0',
       'json:0',
       'text:0',
       'body',
@@ -544,6 +589,7 @@
       'body',
       'bodyUsed',
       'arrayBuffer:0',
+      'blob:0',
       'clone:0',
       'json:0',
       'text:0',

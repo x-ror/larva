@@ -6,6 +6,21 @@
  * so the Window surface has them without a node/ module; internal/url.js copies the
  * statics onto the URL class when it replaces the stub.
  *
+ * No Buffer (stage S4c of the Node-profile removal): strings are encoded and text()
+ * decoded by the UTF-8 natives the loader hands in as the factory's fourth argument
+ * (pkg/runtime/globals.odin make_blob_bindings), the same function objects Buffer
+ * uses, so the bytes are unchanged for every string, lone surrogates included.
+ *
+ * Errors follow the profile (docs/LARVA.md decision 1). On `.Web` they are Chrome's:
+ * the WebIDL conversions in Blink's order — the `sequence<BlobPart>` (iterated through
+ * its @@iterator, each part converted as it comes), then the BlobPropertyBag members
+ * `endings` and `type` — with Blink's text and no `code`, a foreign receiver throwing
+ * "Illegal invocation" (a rejected promise from text/arrayBuffer/bytes). Recorded in
+ * tests/web/cases/blob-errors, blob-object-url (Chrome 158). `.Node` keeps the errors
+ * it had (a plain TypeError for non-iterable parts, ERR_INVALID_ARG_TYPE /
+ * ERR_MISSING_ARGS from the object-URL statics) and takes the web text for the checks
+ * it never had, until S5b deletes that arm.
+ *
  * Instantiated eagerly: node/buffer.js requires it at its top level, before user
  * code runs, so the module-eval captures below are pristine (the loader also names
  * it as a root of its own).
@@ -13,48 +28,83 @@
  * @module lava/internal/blob
  */
 
-(function (require, module, _exports) {
+(function (require, module, _exports, native) {
   'use strict';
 
   var P = require('internal/primordials');
   var defineInterface = require('internal/native_shape').defineInterface;
   var StringG = P.String;
+  var NumberG = P.Number;
+  var ErrorG = P.Error;
   var TypeErrorG = P.TypeError;
   var Uint8ArrayG = P.Uint8Array;
-  var ArrayBufferPrototype = P.ArrayBuffer.prototype;
-  var DataViewPrototype = P.DataViewPrototype;
-  var brandedAs = P.brandedAs;
-  var ArrayFrom = P.ArrayFrom;
+  var ArrayIsArray = P.ArrayIsArray;
   var ArrayBufferIsView = P.ArrayBufferIsView;
   var ArrayPrototypePush1 = P.ArrayPrototypePush1;
-  var ObjectDefineProperty = P.ObjectDefineProperty;
   var MathMax = P.MathMax;
   var MathMin = P.MathMin;
+  var MathFloor = P.MathFloor;
+  var MathTrunc = P.MathTrunc;
+  var NumberIsNaN = P.NumberIsNaN;
+  var ReflectApply = P.ReflectApply;
   var SymbolIterator = P.Symbol.iterator;
   var PromiseResolve = P.FunctionPrototypeBind(P.Promise.resolve, P.Promise);
+  var PromiseReject = P.PromiseReject;
   var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;
   var StringPrototypeSlice = P.StringPrototypeSlice;
   var StringPrototypeIndexOf = P.StringPrototypeIndexOf;
   var StringPrototypeToLowerCase = P.StringPrototypeToLowerCase;
   var ArrayBufferPrototypeSlice = P.ArrayBufferPrototypeSlice;
+  var ArrayBufferPrototypeGetByteLength = P.ArrayBufferPrototypeGetByteLength;
   var Uint8ArrayPrototypeSet = P.Uint8ArrayPrototypeSet;
   var TypedArrayPrototypeSubarray = P.TypedArrayPrototypeSubarray;
   var TypedArrayPrototypeGetBuffer = P.TypedArrayPrototypeGetBuffer;
   var TypedArrayPrototypeGetByteOffset = P.TypedArrayPrototypeGetByteOffset;
   var TypedArrayPrototypeGetByteLength = P.TypedArrayPrototypeGetByteLength;
+  var TypedArrayPrototypeGetLength = P.TypedArrayPrototypeGetLength;
+  var TypedArrayPrototypeGetSymbolToStringTag = P.TypedArrayPrototypeGetSymbolToStringTag;
   var DataViewPrototypeGetBuffer = P.DataViewPrototypeGetBuffer;
   var DataViewPrototypeGetByteOffset = P.DataViewPrototypeGetByteOffset;
   var DataViewPrototypeGetByteLength = P.DataViewPrototypeGetByteLength;
+  // The array fast path in convertParts: an Array whose iteration nobody replaced.
+  // Captured here, at this eager eval, so the comparison is against the intrinsics.
+  var ArrayPrototypeValues = Array.prototype.values;
+  var ArrayIteratorPrototype = P.ObjectGetPrototypeOf([][SymbolIterator]());
+  var ArrayIteratorPrototypeNext = ArrayIteratorPrototype.next;
 
+  var webErrors = require('internal/web_errors');
+  var web = webErrors.web;
+  var context = webErrors.context;
+  var typeError = webErrors.typeError;
+  var argumentsRequired = webErrors.argumentsRequired;
+  var illegalInvocation = webErrors.illegalInvocation;
+  var pageError = webErrors.pageError;
   var errors = require('internal/errors');
+  var nodeError = errors.nodeError;
   var ERR_INVALID_ARG_TYPE = errors.ERR_INVALID_ARG_TYPE;
   var ERR_MISSING_ARGS = errors.ERR_MISSING_ARGS;
+
+  function requireNative(name) {
+    var fn = native && native[name];
+    if (typeof fn !== 'function') throw new ErrorG('internal/blob requires the native ' + name);
+    return fn;
+  }
+  var utf8EncodeNative = requireNative('utf8Encode');
+  var utf8DecodeNative = requireNative('utf8Decode');
+  // The page's origin as the embedder gave it ('' for an opaque one), serialized on
+  // first use (pageOrigin).
+  var ORIGIN_RAW = native && typeof native.origin === 'string' ? native.origin : '';
 
   // The platform terminator for `endings: 'native'`, fixed when this module loads (before
   // user code; install_process runs ahead of the loader). Node fixes it at startup too:
   // with process.platform redefined to 'win32' on darwin, node 26.13.0 still writes '\n'.
   // Pinned by tests/node-compat/cases/78-blob-pristine-reads.js.
   var EOL = process.platform === 'win32' ? '\r\n' : '\n';
+
+  // Hands a prepared part list and type to the constructor (File, slice, clone,
+  // resolveObjectURL). Module-private, so a page passing extra constructor arguments
+  // cannot reach the internal path.
+  var INTERNAL = { __proto__: null };
 
   // toNativeEndings is `str.replace(/\r?\n/g, EOL)` — every CRLF or lone LF
   // becomes the platform terminator. No regex: a GLOBAL replace under a forged
@@ -84,38 +134,281 @@
     return from < str.length ? out + StringPrototypeSlice(str, from) : out;
   }
 
-  // Kept out of the constructor, which would otherwise run past ~40 lines.
-  //
-  // A view's window comes from the engine's slots through the captured getters, not the
-  // configurable %TypedArray% / DataView accessors — read live, a forged trio selects a
-  // window across a shared allocUnsafe pool (the same gadget encoding.js's toBytes
-  // closed). DataView's accessors are separate properties, hence two arms. Deviates:
-  // node's Blob reads all three live (node 26.13.0, spy getters), so a forged trio steers
-  // node and not Lava; pinned Lava-only by blob_view_window_ignores_forged_accessors in
-  // cmd/lava/blob_class_test.odin.
-  // The copy still goes through ArrayBufferPrototypeSlice, which reads the source's
-  // `constructor` / Symbol.species: node's Blob copies through the same primordial, so
-  // that read is parity, not a leftover.
-  //
-  // UTF-8 goes through the loader's pristine Buffer table, read at CALL time: it is
-  // attached only after node/buffer.js (which requires this module) has finished, and a
-  // top-level `require('buffer')` would be a cycle. The functions are the ones Buffer.from
-  // uses, so the bytes are identical for every string, lone surrogates included.
-  function blobPartToChunks(part, nativeEndings) {
-    if (part instanceof Blob) return part._parts;
-    if (brandedAs(part, ArrayBufferPrototype)) {
-      return [new Uint8ArrayG(ArrayBufferPrototypeSlice(part, 0))];
+  // --- WebIDL conversions ----------------------------------------------------
+  // Shared with internal/file.js, whose constructor converts the same parts and bag but
+  // must convert its `fileName` between them.
+
+  // A TypeError for a failed conversion: Blink's text on `.Web`; on `.Node` the same
+  // detail without the context prefix, for the checks node's arm never had.
+  function conversionError(iface, op, detail) {
+    if (web) return typeError(iface, op, detail);
+    return new TypeErrorG(detail);
+  }
+
+  // WebIDL's DOMString/USVString conversion: ToString, refusing a Symbol (JSC's
+  // String() would have answered "Symbol(…)"). `member` names the dictionary member
+  // being read, which Blink puts in front of the detail. USVString's lone-surrogate
+  // replacement happens in the UTF-8 encoder, so both conversions are this one.
+  function toStringArg(value, iface, op, member) {
+    if (typeof value === 'symbol') {
+      throw conversionError(iface, op, member + 'Cannot convert a Symbol value to a string');
     }
-    if (ArrayBufferIsView(part)) {
-      var dv = brandedAs(part, DataViewPrototype);
-      var buf = dv ? DataViewPrototypeGetBuffer(part) : TypedArrayPrototypeGetBuffer(part);
-      var off = dv ? DataViewPrototypeGetByteOffset(part) : TypedArrayPrototypeGetByteOffset(part);
-      var len = dv ? DataViewPrototypeGetByteLength(part) : TypedArrayPrototypeGetByteLength(part);
-      return [new Uint8ArrayG(ArrayBufferPrototypeSlice(buf, off, off + len))];
+
+    return StringG(value);
+  }
+
+  // WebIDL's ToNumber step for an integer type: a Symbol or a BigInt throws Blink's
+  // text (Number(1n) would have answered 1).
+  function toNumberArg(value, iface, op, member) {
+    if (typeof value === 'symbol') {
+      throw conversionError(iface, op, member + 'Cannot convert a Symbol value to a number');
     }
-    var str = StringG(part);
-    if (nativeEndings) str = toNativeEndings(str);
-    return [new Uint8ArrayG(require.pristineBuffer.from(str, 'utf8'))];
+
+    if (typeof value === 'bigint') {
+      throw conversionError(iface, op, member + 'Cannot convert a BigInt value to a number');
+    }
+
+    return NumberG(value);
+  }
+
+  // An ArrayBuffer by its [[ArrayBufferData]] slot: the byteLength getter throws for
+  // anything else (a SharedArrayBuffer included, which Lava does not expose). Only
+  // reached once the Blob and view arms have missed.
+  function isArrayBuffer(value) {
+    if (value === null || typeof value !== 'object') return false;
+    try {
+      ArrayBufferPrototypeGetByteLength(value);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // One BlobPart, converted as WebIDL's (Blob or BufferSource or USVString) union
+  // does: a Blob or a buffer is kept as is (its bytes are copied once the whole
+  // argument list is converted, as the File API's "process blob parts" does),
+  // anything else becomes a string now, so its toString runs in iteration order.
+  function convertPart(value, iface) {
+    if (value !== null && typeof value === 'object') {
+      if (isBlob(value) || ArrayBufferIsView(value) || isArrayBuffer(value)) return value;
+    }
+
+    return toStringArg(value, iface, undefined, '');
+  }
+
+  /**
+   * Converts a `sequence<BlobPart>` argument.
+   * @param {*} parts
+   * @param {string} iface 'Blob' or 'File', for the error text.
+   * @returns {Array<*>} the parts, each a Blob, a buffer or a string.
+   * @throws {TypeError} not an object, no callable @@iterator, a `next()` result that is
+   *   not an object, or a Symbol part; whatever the iterator itself throws.
+   * @node Chrome 158 (tests/web/cases/blob-errors): a string, number or null is "cannot
+   *       be converted to a sequence", an array-like without @@iterator is refused, and a
+   *       Set is accepted. The iterator protocol is followed, so a replaced
+   *       Array.prototype[Symbol.iterator] is honoured, as in Chrome.
+   * @deviates none
+   */
+  function convertParts(parts, iface) {
+    var out = [];
+    if (parts === undefined) return out;
+    if (parts === null || (typeof parts !== 'object' && typeof parts !== 'function')) {
+      if (web) {
+        throw typeError(iface, undefined, 'The provided value cannot be converted to a sequence.');
+      }
+
+      throw new TypeErrorG('The "parts" argument must be an iterable object');
+    }
+
+    var method = parts[SymbolIterator];
+    // An Array iterated by the intrinsics yields exactly its indices in order, so it is
+    // read by index; anything else goes through the protocol.
+    if (
+      method === ArrayPrototypeValues &&
+      ArrayIsArray(parts) &&
+      ArrayIteratorPrototype.next === ArrayIteratorPrototypeNext
+    ) {
+      for (var i = 0; i < parts.length; i++) ArrayPrototypePush1(out, convertPart(parts[i], iface));
+      return out;
+    }
+
+    if (typeof method !== 'function') {
+      if (web) {
+        throw typeError(iface, undefined, 'The object must have a callable @@iterator property.');
+      }
+
+      throw new TypeErrorG('The "parts" argument must be an iterable object');
+    }
+
+    var iterator = ReflectApply(method, parts, []);
+    if (iterator === null || (typeof iterator !== 'object' && typeof iterator !== 'function')) {
+      throw conversionError(
+        iface,
+        undefined,
+        'The object must have a callable @@iterator property.',
+      );
+    }
+
+    var next = iterator.next;
+    for (;;) {
+      var step = ReflectApply(next, iterator, []);
+      if (step === null || (typeof step !== 'object' && typeof step !== 'function')) {
+        throw conversionError(iface, undefined, 'Expected iterator.next() to return an Object.');
+      }
+
+      if (step.done) return out;
+      ArrayPrototypePush1(out, convertPart(step.value, iface));
+    }
+  }
+
+  /**
+   * Converts a BlobPropertyBag (or, for File, a FilePropertyBag).
+   * @param {*} options
+   * @param {string} iface 'Blob' or 'File'.
+   * @returns {{native: boolean, type: string, lastModified: (number|undefined)}}
+   *   `type` already normalized; `lastModified` only for File, undefined when absent.
+   * @throws {TypeError} a non-object bag, a bad `endings` enum value, or a Symbol or
+   *   BigInt member.
+   * @node Chrome 158 (tests/web/cases/blob-errors): members are read in WebIDL's order
+   *       — the inherited `endings` and `type`, then File's `lastModified` — and an error
+   *       in an inherited member names BlobPropertyBag even under File.
+   * @deviates none
+   */
+  function convertBag(options, iface) {
+    var bag = { __proto__: null, native: false, type: '', lastModified: undefined };
+    if (options === undefined || options === null) return bag;
+    var isFile = iface === 'File';
+    if (typeof options !== 'object' && typeof options !== 'function') {
+      throw conversionError(
+        iface,
+        undefined,
+        "The provided value is not of type '" +
+          (isFile ? 'FilePropertyBag' : 'BlobPropertyBag') +
+          "'.",
+      );
+    }
+
+    var endings = options.endings;
+    if (endings !== undefined) {
+      var member = "Failed to read the 'endings' property from 'BlobPropertyBag': ";
+      endings = toStringArg(endings, iface, undefined, member);
+      if (endings !== 'transparent' && endings !== 'native') {
+        throw conversionError(
+          iface,
+          undefined,
+          member +
+            "The provided value '" +
+            endings +
+            "' is not a valid enum value of type EndingType.",
+        );
+      }
+
+      bag.native = endings === 'native';
+    }
+
+    var type = options.type;
+    if (type !== undefined) {
+      bag.type = normalizeType(
+        toStringArg(
+          type,
+          iface,
+          undefined,
+          "Failed to read the 'type' property from 'BlobPropertyBag': ",
+        ),
+      );
+    }
+
+    if (isFile) {
+      var lastModified = options.lastModified;
+      if (lastModified !== undefined) {
+        bag.lastModified = toLongLong(
+          toNumberArg(
+            lastModified,
+            iface,
+            undefined,
+            "Failed to read the 'lastModified' property from 'FilePropertyBag': ",
+          ),
+        );
+      }
+    }
+
+    return bag;
+  }
+
+  // WebIDL `long long` without [Clamp]: NaN and the infinities are 0, the rest is
+  // truncated and wrapped modulo 2^64 into the signed range.
+  var TWO_64 = 18446744073709551616;
+  var TWO_63 = 9223372036854775808;
+  function toLongLong(n) {
+    if (NumberIsNaN(n) || n === Infinity || n === -Infinity) return 0;
+    n = MathTrunc(n);
+    // In range already: no wrap. The general form below loses a negative near 0 to
+    // rounding (-1 + 2^64 is 2^64 in a double, and wraps to 0).
+    if (n >= -TWO_63 && n < TWO_63) return n + 0;
+    n -= MathFloor(n / TWO_64) * TWO_64;
+    return n >= TWO_63 ? n - TWO_64 : n + 0;
+  }
+
+  // WebIDL `[Clamp] long long`: NaN is 0, the rest clamped into range and rounded to
+  // the nearest integer, ties to even.
+  function toClampedLongLong(n) {
+    if (NumberIsNaN(n)) return 0;
+    n = MathMin(MathMax(n, -TWO_63), TWO_63 - 1);
+    var f = MathFloor(n);
+    var diff = n - f;
+    if (diff > 0.5 || (diff === 0.5 && f % 2 !== 0)) f += 1;
+    return f + 0;
+  }
+
+  // The File API's type rule: a type with any code unit outside U+0020-U+007E is
+  // dropped whole, otherwise it is lowercased.
+  function normalizeType(type) {
+    for (var k = 0; k < type.length; k++) {
+      var code = StringPrototypeCharCodeAt(type, k);
+      if (code < 0x20 || code > 0x7e) return '';
+    }
+
+    return StringPrototypeToLowerCase(type);
+  }
+
+  // The File API's "process blob parts": the converted parts as the byte chunks a Blob
+  // keeps, each a Uint8Array of its own (a Blob part's chunks are shared, never
+  // written). A view's window comes from the engine's slots through the captured
+  // getters — read live, a forged trio selected a window across a neighbouring
+  // allocation. Deviates: node's Blob reads all three live (node 26.13.0, spy getters);
+  // pinned Lava-only by blob_view_window_ignores_forged_accessors in
+  // cmd/lava/blob_class_test.odin. The copy goes through ArrayBufferPrototypeSlice,
+  // which reads the source's `constructor` / Symbol.species, as node's does.
+  function buildChunks(parts, nativeEndings) {
+    var chunks = [];
+    for (var i = 0; i < parts.length; i++) {
+      var part = parts[i];
+      if (typeof part === 'string') {
+        if (part.length !== 0) {
+          ArrayPrototypePush1(
+            chunks,
+            utf8EncodeNative(nativeEndings ? toNativeEndings(part) : part),
+          );
+        }
+      } else if (isBlob(part)) {
+        var inner = partsOf(part);
+        for (var j = 0; j < inner.length; j++) ArrayPrototypePush1(chunks, inner[j]);
+      } else {
+        var bytes = copyBytes(part);
+        if (TypedArrayPrototypeGetLength(bytes) !== 0) ArrayPrototypePush1(chunks, bytes);
+      }
+    }
+
+    return chunks;
+  }
+
+  function copyBytes(part) {
+    if (!ArrayBufferIsView(part)) return new Uint8ArrayG(ArrayBufferPrototypeSlice(part, 0));
+    var typed = TypedArrayPrototypeGetSymbolToStringTag(part) !== undefined;
+    var buf = typed ? TypedArrayPrototypeGetBuffer(part) : DataViewPrototypeGetBuffer(part);
+    var off = typed ? TypedArrayPrototypeGetByteOffset(part) : DataViewPrototypeGetByteOffset(part);
+    var len = typed ? TypedArrayPrototypeGetByteLength(part) : DataViewPrototypeGetByteLength(part);
+    return new Uint8ArrayG(ArrayBufferPrototypeSlice(buf, off, off + len));
   }
 
   // Three callers (arrayBuffer, bytes, text), so it stays a function.
@@ -124,75 +417,108 @@
       off = 0;
     for (var i = 0; i < parts.length; i++) {
       Uint8ArrayPrototypeSet(merged, parts[i], off);
-      off += parts[i].length;
+      off += TypedArrayPrototypeGetLength(parts[i]);
     }
     return merged;
   }
 
+  function sizeOfChunks(chunks) {
+    var total = 0;
+    for (var i = 0; i < chunks.length; i++) total += TypedArrayPrototypeGetLength(chunks[i]);
+    return total;
+  }
+
+  // What a foreign receiver gets from the promise-returning operations: a rejection,
+  // which in Chrome carries the context prefix the synchronous ones do not.
+  function rejectReceiver(op) {
+    if (web) return PromiseReject(typeError('Blob', op, 'Illegal invocation'));
+    return PromiseReject(invalidThis());
+  }
+
+  function invalidThis() {
+    if (web) return illegalInvocation();
+    return nodeError(TypeErrorG, 'ERR_INVALID_THIS', 'Value of "this" must be of type Blob');
+  }
+
+  // Bound in Blob's static block: the only code that can read its private fields.
+  var isBlob, partsOf, sizeOf, typeOf;
+
   /**
-   * Minimal Blob: stores parts without eager concat; materializes on demand.
+   * Blob: its bytes kept as the parts it was built from, joined on demand. State is in
+   * private fields — nothing a page can read or forge, and the brand every member checks.
    * @node Chrome 158's shape (tests/web/cases/shape-blob.expected): the interface object
    *   and every member are built by internal/native_shape around this class, so they
    *   read as native, members enumerable, and a call without `new` throws Blink's text.
-   * @deviates none in shape. Instances still carry non-enumerable `_parts`/`_size`/
-   *   `_type` own properties (S4c).
+   *   An instance has no own properties (tests/web/cases/blob-errors).
+   * @deviates none
    */
   class Blob {
+    #parts;
+    #size;
+    #type;
+
+    static {
+      isBlob = function (value) {
+        return value !== null && typeof value === 'object' && #parts in value;
+      };
+      partsOf = function (blob) {
+        return blob.#parts;
+      };
+      sizeOf = function (blob) {
+        return blob.#size;
+      };
+      typeOf = function (blob) {
+        return blob.#type;
+      };
+    }
+
     /**
      * @param {Iterable<*>} [parts]
      * @param {{type?: string, endings?: string}} [options]
+     * @throws {TypeError} as convertParts and convertBag.
+     * @node Chrome 158 (tests/web/cases/blob-errors): the parts are converted before
+     *       the options, `endings` before `type`.
+     * @deviates none
      */
-    constructor(parts, options) {
-      var chunks = [],
-        total = 0;
-      if (parts !== undefined && parts !== null) {
-        if (typeof parts !== 'object' || typeof parts[SymbolIterator] !== 'function') {
-          throw new TypeErrorG('The "parts" argument must be an iterable object');
-        }
-        var nativeEndings = !!(options && options.endings === 'native');
-        var list = ArrayFrom(parts);
-        for (var i = 0; i < list.length; i++) {
-          var cs = blobPartToChunks(list[i], nativeEndings);
-          for (var j = 0; j < cs.length; j++) {
-            if (cs[j].length === 0) continue;
-            ArrayPrototypePush1(chunks, cs[j]);
-            total += cs[j].length;
-          }
-        }
+    constructor(parts, options, internal, type) {
+      if (internal === INTERNAL) {
+        // A prepared chunk list (`parts`) and an already-normalized type.
+        this.#parts = parts;
+        this.#size = sizeOfChunks(parts);
+        this.#type = type;
+        return;
       }
-      // A type with any byte outside printable ASCII is dropped whole, per the File API.
-      var type = '';
-      if (options && options.type !== undefined) {
-        type = StringG(options.type);
-        for (var k = 0; k < type.length; k++) {
-          var code = StringPrototypeCharCodeAt(type, k);
-          if (code < 0x20 || code > 0x7e) break;
-        }
-        type = k < type.length ? '' : StringPrototypeToLowerCase(type);
-      }
-      ObjectDefineProperty(this, '_parts', { value: chunks });
-      ObjectDefineProperty(this, '_size', { value: total });
-      ObjectDefineProperty(this, '_type', { value: type });
+
+      var list = convertParts(parts, 'Blob');
+      var bag = convertBag(options, 'Blob');
+      this.#parts = buildChunks(list, bag.native);
+      this.#size = sizeOfChunks(this.#parts);
+      this.#type = bag.type;
     }
 
     get size() {
-      return this._size;
+      if (!isBlob(this)) throw invalidThis();
+      return this.#size;
     }
 
     get type() {
-      return this._type;
+      if (!isBlob(this)) throw invalidThis();
+      return this.#type;
     }
 
     arrayBuffer() {
-      return PromiseResolve(TypedArrayPrototypeGetBuffer(blobJoin(this._parts, this._size)));
+      if (!isBlob(this)) return rejectReceiver('arrayBuffer');
+      return PromiseResolve(TypedArrayPrototypeGetBuffer(blobJoin(this.#parts, this.#size)));
     }
 
     bytes() {
-      return PromiseResolve(blobJoin(this._parts, this._size));
+      if (!isBlob(this)) return rejectReceiver('bytes');
+      return PromiseResolve(blobJoin(this.#parts, this.#size));
     }
 
     stream() {
-      var parts = this._parts;
+      if (!isBlob(this)) throw invalidThis();
+      var parts = this.#parts;
       var ReadableStream = require('internal/webstreams/index').ReadableStream;
       return new ReadableStream({
         start: function (controller) {
@@ -202,40 +528,63 @@
       });
     }
 
+    /**
+     * The contents decoded as UTF-8.
+     * @returns {Promise<string>}
+     * @node Chrome 158 (tests/web/cases/blob-errors): the Encoding standard's "UTF-8
+     *       decode", so ONE leading BOM is stripped and an invalid byte is U+FFFD.
+     * @deviates none
+     */
     text() {
-      // Decoded in place: the pristine Buffer#toString reads any Uint8Array, so the
-      // joined bytes need no Buffer copy first. The change that dropped it (with the
-      // primordial captures beside it) took 20000 text() calls on a 96-char string from
-      // 93.6 to 77.0 ms — medians of 7 interleaved launches per arm, darwin.
-      return PromiseResolve(
-        require.pristineBuffer.bufferToString(blobJoin(this._parts, this._size), 'utf8'),
-      );
+      if (!isBlob(this)) return rejectReceiver('text');
+      var text = utf8DecodeNative(blobJoin(this.#parts, this.#size));
+      if (StringPrototypeCharCodeAt(text, 0) === 0xfeff) text = StringPrototypeSlice(text, 1);
+      return PromiseResolve(text);
     }
 
+    /**
+     * @param {number} [start]
+     * @param {number} [end]
+     * @param {string} [contentType]
+     * @returns {Blob}
+     * @throws {TypeError} a Symbol or BigInt offset, a Symbol type, a foreign receiver.
+     * @node Chrome 158 (tests/web/cases/blob-errors): the offsets are `[Clamp] long
+     *       long` (strings convert, NaN is 0, out-of-range clamps), converted in order
+     *       start, end, contentType; a type with a byte outside printable ASCII is ''.
+     * @deviates none
+     */
     slice(start, end, contentType) {
-      var len = this._size;
-      var s = start === undefined ? 0 : start < 0 ? MathMax(len + start, 0) : MathMin(start, len);
-      var e = end === undefined ? len : end < 0 ? MathMax(len + end, 0) : MathMin(end, len);
+      if (!isBlob(this)) throw invalidThis();
+      var len = this.#size;
+      var s = start === undefined ? 0 : toClampedLongLong(toNumberArg(start, 'Blob', 'slice', ''));
+      var e = end === undefined ? len : toClampedLongLong(toNumberArg(end, 'Blob', 'slice', ''));
+      var type =
+        contentType === undefined
+          ? ''
+          : normalizeType(toStringArg(contentType, 'Blob', 'slice', ''));
+      s = s < 0 ? MathMax(len + s, 0) : MathMin(s, len);
+      e = e < 0 ? MathMax(len + e, 0) : MathMin(e, len);
       if (e < s) e = s;
       var out = [];
       var pos = 0;
-      var parts = this._parts;
+      var parts = this.#parts;
       for (var i = 0; i < parts.length && pos < e; i++) {
         var part = parts[i];
-        var pEnd = pos + part.length;
+        var partLength = TypedArrayPrototypeGetLength(part);
+        var pEnd = pos + partLength;
         if (pEnd > s) {
           ArrayPrototypePush1(
             out,
             TypedArrayPrototypeSubarray(
               part,
               pos < s ? s - pos : 0,
-              pEnd > e ? e - pos : part.length,
+              pEnd > e ? e - pos : partLength,
             ),
           );
         }
         pos = pEnd;
       }
-      return new Blob(out, contentType === undefined ? undefined : { type: contentType });
+      return new Blob(out, undefined, INTERNAL, type);
     }
 
     /**
@@ -245,6 +594,7 @@
      * @deviates none
      */
     textStream() {
+      if (!isBlob(this)) throw invalidThis();
       // Late-bound: webstreams and encoding load after this eager module.
       var TransformStream = require('internal/webstreams/index').TransformStream;
       var TextDecoder = require('internal/encoding').TextDecoder;
@@ -285,37 +635,129 @@
     ],
   });
 
+  /**
+   * A Blob's bytes, joined, for code that consumes a Blob without its promise API
+   * (a fetch body); null for anything that is not a Blob.
+   * @param {*} value
+   * @returns {Uint8Array|null}
+   */
+  function blobBytes(value) {
+    if (!isBlob(value)) return null;
+    return blobJoin(partsOf(value), sizeOf(value));
+  }
+
+  /**
+   * A Blob's structured-clone serialization: a new Blob over the same bytes (a Blob's
+   * chunks are never written, so they are shared) and type. File's own clone is
+   * internal/file's, which calls this for a plain Blob.
+   * @param {*} value
+   * @returns {Blob|undefined} undefined for anything that is not a Blob.
+   */
+  function cloneBlob(value) {
+    if (!isBlob(value)) return undefined;
+    return new Blob(partsOf(value), undefined, INTERNAL, typeOf(value));
+  }
+
   // A null-prototype dictionary rather than a Map: its get/set/delete are plain property
   // operations, so a replaced Map.prototype method has nothing to steer, and no Map
-  // primordials are needed for it. Keys are strings either way (`${id}` / String(url)),
-  // and with no prototype a key such as '__proto__' or 'toString' is just an own key.
+  // primordials are needed for it. Keys are strings either way, and with no prototype a
+  // key such as '__proto__' or 'toString' is just an own key.
   var objectUrlRegistry = { __proto__: null };
 
-  /** @param {Blob|File} obj @returns {string} blob: URL */
+  // The page's origin, serialized as an origin (`scheme://host[:port]`), or 'null' for an
+  // opaque one: what the embedder passed (`lava run --origin=`) is a URL or an origin,
+  // so it goes through the URL parser once, on the first object URL. A value the parser
+  // refuses is an opaque origin too — what Chrome mints for one — rather than a URL
+  // that names text the embedder never meant as an origin.
+  var pageOriginText = null;
+  function pageOrigin() {
+    if (pageOriginText !== null) return pageOriginText;
+    pageOriginText = 'null';
+    if (ORIGIN_RAW !== '') {
+      try {
+        // Late-bound: internal/url loads after this eager module (it copies the statics
+        // below onto its URL class).
+        pageOriginText = new (require('internal/url').URL)(ORIGIN_RAW).origin;
+      } catch {}
+    }
+
+    return pageOriginText;
+  }
+
+  // The key an object URL is registered under: the URL without its fragment, which the
+  // File API's resolution ignores.
+  function registryKey(url) {
+    var hash = StringPrototypeIndexOf(url, '#', 0);
+    return hash === -1 ? url : StringPrototypeSlice(url, 0, hash);
+  }
+
+  /**
+   * Registers a Blob (or File) and returns its object URL.
+   * @param {Blob} obj
+   * @returns {string} `blob:<origin>/<uuid>`, the origin the page's (`null` when opaque).
+   * @throws {TypeError} no argument, or not a Blob (by its private brand).
+   * @node Chrome 158 (tests/web/cases/blob-object-url, blob-errors): the argument count
+   *       first, then "Overload resolution failed." (the overload is Blob or
+   *       MediaSource), even for an object that only inherits from Blob.prototype.
+   *       `.Node` keeps node's ERR_INVALID_ARG_TYPE and its `blob:nodedata:` URLs.
+   * @deviates none
+   */
   function createObjectURL(obj) {
-    if (!(obj instanceof Blob)) {
+    if (web && arguments.length < 1) {
+      throw typeError('URL', 'createObjectURL', argumentsRequired(1, 0));
+    }
+
+    if (!isBlob(obj)) {
+      if (web) throw typeError('URL', 'createObjectURL', 'Overload resolution failed.');
       throw ERR_INVALID_ARG_TYPE('obj', 'Blob', obj);
     }
+
     // The loader's pristine crypto.randomUUID (see bootstrap/loader.js); crypto is eager,
-    // so it always exists and the hand-rolled Math.random fallback that stood here was dead.
-    var id = 'blob:nodedata:' + require.pristineRandomUUID();
+    // so it always exists.
+    var id = (web ? 'blob:' + pageOrigin() + '/' : 'blob:nodedata:') + require.pristineRandomUUID();
     objectUrlRegistry[id] = obj;
     return id;
   }
 
-  /** @param {string} url */
+  /**
+   * Revokes an object URL; anything that names none is ignored.
+   * @param {string} url
+   * @throws {TypeError} no argument, or a Symbol.
+   * @node Chrome 158 (tests/web/cases/blob-errors): `undefined` is converted, not
+   *       refused. `.Node` keeps node's ERR_MISSING_ARGS for an undefined url.
+   * @deviates none
+   */
   function revokeObjectURL(url) {
-    if (url === undefined) {
-      throw ERR_MISSING_ARGS('url');
+    if (web) {
+      if (arguments.length < 1) {
+        throw typeError('URL', 'revokeObjectURL', argumentsRequired(1, 0));
+      }
+
+      url = toStringArg(url, 'URL', 'revokeObjectURL', '');
+    } else {
+      if (url === undefined) throw ERR_MISSING_ARGS('url');
+      url = StringG(url);
     }
-    delete objectUrlRegistry[StringG(url)];
+
+    delete objectUrlRegistry[registryKey(url)];
   }
 
-  /** @param {string} id @returns {Blob|File|null} */
+  /**
+   * What fetch() reads for a `blob:` URL: the registered Blob, or undefined for one
+   * that names none (never registered, or revoked).
+   * @param {string} url The request URL, serialized.
+   * @returns {Blob|undefined}
+   */
+  function resolveForFetch(url) {
+    var blob = objectUrlRegistry[registryKey(url)];
+    return blob === undefined ? undefined : blob;
+  }
+
+  /** node:buffer.resolveObjectURL: a copy of the registered Blob, or undefined. */
   function resolveObjectURL(id) {
     var blob = objectUrlRegistry[`${id}`];
     if (blob === undefined) return;
-    return new Blob([blob], { type: blob.type });
+    return new Blob(partsOf(blob), undefined, INTERNAL, typeOf(blob));
   }
 
   // The first web globals installed, in the order node/buffer.js installed them before
@@ -335,8 +777,20 @@
   }
   module.exports = {
     Blob: PublicBlob,
+    BlobImpl: Blob,
+    INTERNAL: INTERNAL,
+    isBlob: isBlob,
+    typeOf: typeOf,
+    partsOf: partsOf,
+    blobBytes: blobBytes,
+    cloneBlob: cloneBlob,
+    convertParts: convertParts,
+    convertBag: convertBag,
+    buildChunks: buildChunks,
+    toStringArg: toStringArg,
     createObjectURL: createObjectURL,
     revokeObjectURL: revokeObjectURL,
+    resolveForFetch: resolveForFetch,
     resolveObjectURL: resolveObjectURL,
   };
 });

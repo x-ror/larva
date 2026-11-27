@@ -16,7 +16,7 @@ import lava "lava:pkg/runtime"
 run_args_surface_flag :: proc(t: ^testing.T) {
 	web, web_rest, web_err := parse_run_args({"--surface=web", "a.js", "x"})
 	testing.expect_value(t, web_err, "")
-	testing.expect_value(t, web, lava.Global_Surface.Web)
+	testing.expect_value(t, web.surface, lava.Global_Surface.Web)
 	testing.expect_value(t, len(web_rest), 2)
 
 	if len(web_rest) == 2 {
@@ -27,14 +27,15 @@ run_args_surface_flag :: proc(t: ^testing.T) {
 	// No flag keeps the default every other caller gets.
 	node, node_rest, node_err := parse_run_args({"a.js"})
 	testing.expect_value(t, node_err, "")
-	testing.expect_value(t, node, lava.Global_Surface.Node)
+	testing.expect_value(t, node.surface, lava.Global_Surface.Node)
+	testing.expect_value(t, node.origin, "")
 	testing.expect_value(t, len(node_rest), 1)
 
 	// After the script path the flag belongs to the script (process.argv), as every
 	// option after the entry does under node.
 	late, late_rest, late_err := parse_run_args({"a.js", "--surface=web"})
 	testing.expect_value(t, late_err, "")
-	testing.expect_value(t, late, lava.Global_Surface.Node)
+	testing.expect_value(t, late.surface, lava.Global_Surface.Node)
 	testing.expect_value(t, len(late_rest), 2)
 
 	// A misspelt surface or a flag with no file is a usage error, never a silent
@@ -43,6 +44,20 @@ run_args_surface_flag :: proc(t: ^testing.T) {
 	testing.expect(t, bogus_err != "", "--surface=window must be refused")
 	_, _, alone_err := parse_run_args({"--surface=web"})
 	testing.expect(t, alone_err != "", "--surface=web without a file must be refused")
+
+	// --origin, in either order with --surface; the value is handed on as given.
+	both, both_rest, both_err := parse_run_args({"--origin=http://a.test:8080", "--surface=web", "a.js"})
+	testing.expect_value(t, both_err, "")
+	testing.expect_value(t, both.surface, lava.Global_Surface.Web)
+	testing.expect_value(t, both.origin, "http://a.test:8080")
+	testing.expect_value(t, len(both_rest), 1)
+
+	// An empty or repeated flag is a usage error, not a silent opaque origin or a
+	// last-one-wins.
+	_, _, empty_err := parse_run_args({"--origin=", "a.js"})
+	testing.expect(t, empty_err != "", "an empty --origin must be refused")
+	_, _, twice_err := parse_run_args({"--origin=http://a.test", "--origin=http://b.test", "a.js"})
+	testing.expect(t, twice_err != "", "a repeated --origin must be refused")
 }
 
 // run_file must hand the surface to eval: with `.Web` the Node names are gone, and
@@ -91,4 +106,38 @@ run_refuses_lava_workers :: proc(t: ^testing.T) {
 	for v in ([]string{"2", "auto", "0", "1 ", "x"}) {
 		testing.expectf(t, workers_env_error(v, true) != "", "LAVA_WORKERS=%q must be refused", v)
 	}
+}
+
+// run_file must hand the origin on to the page: object URLs are minted under it, as the
+// origin it serializes to (a URL's path dropped), and without one under Chrome's form
+// for an opaque origin, `blob:null/`. The case behind `--origin` is
+// tests/web/cases/blob-object-url.js; this pins the default and the serialization,
+// which the oracle runner (it always passes the fixture origin) cannot see.
+@(test)
+run_file_threads_origin :: proc(t: ^testing.T) {
+	check :: proc(t: ^testing.T, name: string, origin: string, want_prefix: string) {
+		source := fmt.aprintf(
+			"const u = URL.createObjectURL(new Blob(['x']));\nif (!u.startsWith(%q) || u.length !== %d + 36) throw new Error('minted ' + u);\n",
+			want_prefix,
+			len(want_prefix),
+		)
+		defer delete(source)
+		path := fmt.aprintf("/tmp/lava-run-origin-%d-%s.js", os.get_pid(), name)
+		defer delete(path)
+
+		if err := os.write_entire_file(path, transmute([]u8)source); err != nil {
+			testing.expectf(t, false, "%s: cannot write %s: %v", name, path, err)
+			return
+		}
+
+		defer os.remove(path)
+		result := lava.run_file(path, surface = .Web, origin = origin)
+		defer lava.result_destroy(&result)
+		testing.expectf(t, result.status == .Ok, "%s: status=%v message=%q", name, result.status, result.message)
+	}
+
+	check(t, "opaque", "", "blob:null/")
+	check(t, "url", "http://a.test:8080/some/page?q#f", "blob:http://a.test:8080/")
+	check(t, "default-port", "https://b.test:443", "blob:https://b.test/")
+	check(t, "unparsable", "not a url", "blob:null/")
 }

@@ -381,8 +381,8 @@
       "name": "regexp_pollution_immunity blob dies when native line endings go back to a global replace",
       "why": "new Blob([text], {endings:'native'}) runs this over caller text; the global replace spins under a forged exec. node hangs here too.",
       "source": "pkg/runtime/js/internal/blob.js",
-      "find": "    if (nativeEndings) str = toNativeEndings(str);",
-      "replace": "    if (nativeEndings) str = str.replace(/\\r?\\n/g, EOL);",
+      "find": "utf8EncodeNative(nativeEndings ? toNativeEndings(part) : part)",
+      "replace": "utf8EncodeNative(nativeEndings ? part.replace(/\\r?\\n/g, EOL) : part)",
       "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
       "expect_detail": [
         "timed out",
@@ -2863,8 +2863,8 @@
       "name": "77-blob-file-module blob dies when string parts stop being encoded as utf-8",
       "why": "The split moved Blob's string encoder off the public Buffer onto the loader's pristine table; a wrong codec there changes every non-ASCII part's bytes and size.",
       "source": "pkg/runtime/js/internal/blob.js",
-      "find": "    return [new Uint8ArrayG(require.pristineBuffer.from(str, 'utf8'))];",
-      "replace": "    return [new Uint8ArrayG(require.pristineBuffer.from(str, 'latin1'))];",
+      "find": "utf8EncodeNative(nativeEndings ? toNativeEndings(part) : part)",
+      "replace": "require.pristineBuffer.from(nativeEndings ? toNativeEndings(part) : part, 'latin1')",
       "gate": "compat:tests/node-compat/cases/77-blob-file-module.js",
       "expect_detail": "node: blob 6 \"text/plain\""
     },
@@ -2872,8 +2872,8 @@
       "name": "78-blob-pristine-reads dies when createObjectURL mints its id from the live globalThis.crypto",
       "why": "A replaced crypto.randomUUID then chooses every blob: URL id, so user code can make them predictable; node mints them from its binding and is immune.",
       "source": "pkg/runtime/js/internal/blob.js",
-      "find": "    var id = 'blob:nodedata:' + require.pristineRandomUUID();",
-      "replace": "    var id = 'blob:nodedata:' + globalThis.crypto.randomUUID();",
+      "find": "'blob:nodedata:') + require.pristineRandomUUID();",
+      "replace": "'blob:nodedata:') + globalThis.crypto.randomUUID();",
       "gate": "compat:tests/node-compat/cases/78-blob-pristine-reads.js",
       "expect_detail": "globalThis.crypto.randomUUID"
     },
@@ -2881,8 +2881,8 @@
       "name": "blob_view_window_ignores_forged_accessors dies when a view part reads byteOffset through the live accessor",
       "why": "A forged %TypedArray%.prototype.byteOffset then picks which bytes of the backing store a Blob copies, i.e. a neighbouring Buffer in a shared pool.",
       "source": "pkg/runtime/js/internal/blob.js",
-      "find": "      var off = dv ? DataViewPrototypeGetByteOffset(part) : TypedArrayPrototypeGetByteOffset(part);",
-      "replace": "      var off = part.byteOffset;",
+      "find": "    var off = typed ? TypedArrayPrototypeGetByteOffset(part) : DataViewPrototypeGetByteOffset(part);",
+      "replace": "    var off = part.byteOffset;",
       "gate": "odin:cmd/lava:main.blob_view_window_ignores_forged_accessors",
       "expect_detail": "view window came from forged accessors"
     },
@@ -3088,8 +3088,8 @@
       "name": "global_surface_alternates_on_one_thread dies when eval's default surface is not .Node",
       "why": "run_file, the CLI and every existing embedder call eval without a surface; the default is what keeps them byte-identical to the pre-seam runtime.",
       "source": "pkg/runtime/runtime.odin",
-      "find": "\tsurface: Global_Surface = .Node,\n\tlimits: Page_Limits = {},\n) -> Result {",
-      "replace": "\tsurface: Global_Surface = .Web,\n\tlimits: Page_Limits = {},\n) -> Result {",
+      "find": "\tsurface: Global_Surface = .Node,\n\tlimits: Page_Limits = {},\n\torigin := \"\",\n) -> Result {",
+      "replace": "\tsurface: Global_Surface = .Web,\n\tlimits: Page_Limits = {},\n\torigin := \"\",\n) -> Result {",
       "gate": "odin:cmd/lava:main.global_surface_alternates_on_one_thread",
       "expect_detail": "node before web: status=Execution_Error"
     },
@@ -4401,17 +4401,17 @@
       "name": "run_args_surface_flag dies when --surface=web selects the Node surface",
       "why": "The web oracle suite runs every case under this flag; a flag that silently keeps the Node globals makes the Chrome comparison run on the wrong profile.",
       "source": "cmd/lava/main.odin",
-      "find": "\t\tcase \"web\":\n\t\t\tsurface = .Web\n",
-      "replace": "\t\tcase \"web\":\n\t\t\tsurface = .Node\n",
+      "find": "\t\t\tcase \"web\":\n\t\t\t\topts.surface = .Web\n",
+      "replace": "\t\t\tcase \"web\":\n\t\t\t\topts.surface = .Node\n",
       "gate": "odin:cmd/lava:main.run_args_surface_flag",
-      "expect_detail": "expected web to be Web"
+      "expect_detail": "expected web.surface to be Web"
     },
     {
       "name": "run_file_threads_surface dies when run_file drops its surface",
       "why": "run_file is the CLI path to eval; losing the parameter there leaves require/process/Buffer reachable under --surface=web.",
       "source": "pkg/runtime/runtime.odin",
-      "find": "\t\treport_data = report_data,\n\t\tsurface = surface,\n\t)",
-      "replace": "\t\treport_data = report_data,\n\t)",
+      "find": "\t\tsurface = surface,\n\t\torigin = origin,\n\t)",
+      "replace": "\t\torigin = origin,\n\t)",
       "gate": "odin:cmd/lava:main.run_file_threads_surface",
       "expect_detail": "web sees"
     },
@@ -5328,6 +5328,132 @@
       "replace": "        return this.#stripBOM(fast);",
       "gate": "make:test-web",
       "expect_detail": "FAIL encoding-webidl"
+    },
+    {
+      "name": "blob-errors dies when a Blob getter skips the receiver brand check",
+      "why": "Without the private-field brand a foreign `this` reads undefined where Chrome throws Illegal invocation.",
+      "source": "pkg/runtime/js/internal/blob.js",
+      "find": "    get size() {\n      if (!isBlob(this)) throw invalidThis();",
+      "replace": "    get size() {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL blob-errors"
+    },
+    {
+      "name": "blob-errors dies when Blob converts its options before its parts",
+      "why": "WebIDL converts arguments left to right: a part's toString runs before the bag's getters, and a bad part wins over a bad `endings`.",
+      "source": "pkg/runtime/js/internal/blob.js",
+      "find": "      var list = convertParts(parts, 'Blob');\n      var bag = convertBag(options, 'Blob');",
+      "replace": "      var bag = convertBag(options, 'Blob');\n      var list = convertParts(parts, 'Blob');",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL blob-errors"
+    },
+    {
+      "name": "blob-errors dies when File converts its name before its parts",
+      "why": "Blink converts File's arguments in order: parts, name, then the bag.",
+      "source": "pkg/runtime/js/internal/file.js",
+      "find": "      var list = convertParts(parts, 'File');\n      var fileName = toStringArg(name, 'File', undefined, '');",
+      "replace": "      var fileName = toStringArg(name, 'File', undefined, '');\n      var list = convertParts(parts, 'File');",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL blob-errors"
+    },
+    {
+      "name": "blob-errors dies when Blob.text() keeps a leading BOM",
+      "why": "The Encoding standard's UTF-8 decode strips one BOM; Buffer's utf8 toString did not.",
+      "source": "pkg/runtime/js/internal/blob.js",
+      "find": "      if (StringPrototypeCharCodeAt(text, 0) === 0xfeff) text = StringPrototypeSlice(text, 1);\n",
+      "replace": "",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL blob-errors"
+    },
+    {
+      "name": "blob-errors dies when long long conversion wraps an in-range negative",
+      "why": "-1.9 + 2^64 rounds to 2^64 in a double, so the modulo alone turns lastModified -1.9 into 0 where Chrome has -1.",
+      "source": "pkg/runtime/js/internal/blob.js",
+      "find": "    if (n >= -TWO_63 && n < TWO_63) return n + 0;\n",
+      "replace": "",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL blob-errors"
+    },
+    {
+      "name": "blob-errors dies when createObjectURL accepts any object",
+      "why": "Overload resolution is by the Blob brand: an object that only inherits from Blob.prototype has no bytes to register.",
+      "source": "pkg/runtime/js/internal/blob.js",
+      "find": "    if (!isBlob(obj)) {\n      if (web) throw typeError('URL', 'createObjectURL', 'Overload resolution failed.');",
+      "replace": "    if (obj === null || typeof obj !== 'object') {\n      if (web) throw typeError('URL', 'createObjectURL', 'Overload resolution failed.');",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL blob-errors"
+    },
+    {
+      "name": "blob-object-url dies when object URLs keep the node: form on .Web",
+      "why": "Chrome mints blob:<origin>/<uuid>; blob:nodedata: names the runtime.",
+      "source": "pkg/runtime/js/internal/blob.js",
+      "find": "(web ? 'blob:' + pageOrigin() + '/' : 'blob:nodedata:')",
+      "replace": "'blob:nodedata:'",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL blob-object-url"
+    },
+    {
+      "name": "blob-object-url dies when fetch() sends a blob: URL to the network",
+      "why": "An object URL is answered from the registry; the native transport rejects the scheme.",
+      "source": "pkg/runtime/js/internal/fetch.js",
+      "find": "    if (req.url.slice(0, 5) === 'blob:') return fetchObjectURL(req); // primordials-ok: method — req.url is the parser's href, a primitive string\n",
+      "replace": "",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL blob-object-url"
+    },
+    {
+      "name": "clone-transfer dies when a transferred buffer is not detached",
+      "why": "structuredClone's transfer moves the buffer: the source must read byteLength 0 afterwards.",
+      "source": "pkg/runtime/js/internal/structured_clone.js",
+      "find": "    for (var j = 0; j < transfer.length; j++)\n      ReflectApply(ArrayBufferPrototypeTransfer, transfer[j], []);\n",
+      "replace": "",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL clone-transfer"
+    },
+    {
+      "name": "clone-transfer dies when Blob and File clone as plain objects",
+      "why": "Blob and File are serializable interfaces; without their clone steps a Blob clones to {} with no bytes.",
+      "source": "pkg/runtime/js/internal/structured_clone.js",
+      "find": "    var blobClone = cloneBlobOrFile(value);",
+      "replace": "    var blobClone = undefined;",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL clone-transfer"
+    },
+    {
+      "name": "clone-transfer dies when DataCloneError loses its context prefix on .Web",
+      "why": "Blink's message starts \"Failed to execute 'structuredClone' on 'Window': \".",
+      "source": "pkg/runtime/js/internal/structured_clone.js",
+      "find": "      return pageError(\n        new DOMException(context('Window', 'structuredClone') + detail, 'DataCloneError'),\n      );",
+      "replace": "      return pageError(new DOMException(detail, 'DataCloneError'));",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL clone-transfer"
+    },
+    {
+      "name": "clone-structured dies when a boxed BigInt clones to a plain object",
+      "why": "Chrome clones Object(5n) to a boxed BigInt; the generic object arm yields {}.",
+      "source": "pkg/runtime/js/internal/structured_clone.js",
+      "find": "    if (tag === '[object BigInt]') {",
+      "replace": "    if (false) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL clone-structured"
+    },
+    {
+      "name": "run_file_threads_origin dies when page_create drops the origin",
+      "why": "Without the hand-off every page mints blob:null/ URLs whatever --origin says.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\tstate.page_origin = origin\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.run_file_threads_origin",
+      "expect_detail": "minted blob:null/"
+    },
+    {
+      "name": "run_args_surface_flag dies when a repeated --origin is accepted",
+      "why": "A last-one-wins origin would silently mint URLs under an origin the caller may not have meant.",
+      "source": "cmd/lava/main.odin",
+      "find": "strings.has_prefix(arg, \"--origin=\") && !seen_origin {",
+      "replace": "strings.has_prefix(arg, \"--origin=\") {",
+      "gate": "odin:cmd/lava:main.run_args_surface_flag",
+      "expect_detail": "a repeated --origin must be refused"
     }
   ]
 }
