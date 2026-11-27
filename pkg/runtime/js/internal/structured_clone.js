@@ -33,6 +33,7 @@
   var ArrayBufferPrototypeGetByteLength = P.ArrayBufferPrototypeGetByteLength;
   var StringG = P.String;
   var ObjectP = P.Object;
+  var MapP = P.Map;
   var SymbolIterator = P.Symbol.iterator;
   // Captured at this eager eval: native_shape has already masked toString, so a
   // function's description is the V8-style text Chrome prints (`function max() {
@@ -45,11 +46,12 @@
     'detached',
   ).get;
 
-  // DataCloneError (DOMException code 25), its message carrying Blink's context prefix.
+  // DataCloneError (DOMException code 25), its message carrying Blink's context prefix:
+  // structuredClone's, or that of the operation serializing through cloneFor (a
+  // PerformanceMark's `detail`).
+  var cloneContext = context('Window', 'structuredClone');
   function dataCloneError(detail) {
-    return pageError(
-      new DOMException(context('Window', 'structuredClone') + detail, 'DataCloneError'),
-    );
+    return pageError(new DOMException(cloneContext + detail, 'DataCloneError'));
   }
 
   // A TypeError from the argument conversions, in Blink's text.
@@ -432,7 +434,32 @@
 
   // The global a page sees: internal/native_shape's operation around this one (native
   // toString, no `prototype`, Chrome's length 1; tests/web/cases/shape-operations).
+  /**
+   * StructuredSerialize then StructuredDeserialize of `value` with no transfer list,
+   * for a platform operation that keeps a copy of a page value (User Timing's
+   * `detail`).
+   * @param {*} value
+   * @param {string} iface
+   * @param {string} [op] Omitted for a constructor.
+   * @returns {*} The copy.
+   * @throws {DOMException} DataCloneError, its message in `iface`/`op`'s context:
+   *   `Failed to construct 'PerformanceMark': () => 1 could not be cloned.`
+   * @node n/a — Chrome 158, tests/web/cases/perf-user-timing.expected.
+   * @deviates none
+   */
+  function cloneFor(value, iface, op) {
+    // Saved and restored, not reset: the walk runs page getters, which may clone too.
+    var saved = cloneContext;
+    cloneContext = context(iface, op);
+    try {
+      return clone(value, new MapP());
+    } finally {
+      cloneContext = saved;
+    }
+  }
+
   module.exports = {
+    cloneFor: cloneFor,
     structuredClone: require('internal/native_shape').defineOperation(
       'structuredClone',
       structuredClone,

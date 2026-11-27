@@ -212,26 +212,31 @@
       ]
     },
     {
-      "name": "bench-gate dies when --gate exits 0 without a runnable lava",
-      "why": "rm bin/lava used to make bench-gate exit 0; the GATE branch must fail closed.",
+      "name": "bench-gate dies when --gate runs without a runnable lava",
+      "why": "rm bin/lava once made bench-gate exit 0; the runnable check must fail closed before anything is timed.",
       "source": "bench/run.mjs",
-      "find": "  if (GATE) {\n    console.error('benchmark gate FAILED — lava not runnable (LAVA_BIN must work under --gate)');\n    process.exit(1);\n  }\n  process.exit(0);",
-      "replace": "  if (GATE) {\n    // mutated: silent green\n  }\n  process.exit(0);",
+      "find": "      `benchmark run FAILED — ${label} lava not runnable: ${bin} (${e.code ?? e.status})`,\n    );\n    process.exit(1);",
+      "replace": "      `mutated: silent green`,\n    );\n    return;",
       "gate": "node-test:runtime/gates/bench-gate-integrity.test.mjs",
-      "expect_detail": "lava not runnable"
+      "expect_detail": "new lava not runnable"
     },
     {
-      "name": "bench-gate dies when the uncapped-bench check is disabled",
-      "why": "Without this, a new micro bench ships with no cap and never fails the gate.",
+      "name": "bench-gate dies when a new/base ratio above its cap is not recorded as a breach",
+      "why": "The comparison is the gate; dropping it passes every regression.",
       "source": "bench/run.mjs",
-      "find": "  if (uncapped.length > 0) {",
-      "replace": "  if (false && uncapped.length > 0) {",
+      "find": "    if (cap != null && r > cap) breaches.push({ name, r, cap });",
+      "replace": "    if (false && cap != null && r > cap) breaches.push({ name, r, cap });",
       "gate": "node-test:runtime/gates/bench-gate-integrity.test.mjs",
-      "expect_detail": [
-        "if (uncapped.length > 0)",
-        "uncapped",
-        "false &&"
-      ]
+      "expect_detail": "3x must breach"
+    },
+    {
+      "name": "bench-gate dies when a run without ##BENCH-DONE## is accepted",
+      "why": "A bench file that throws midway must not drop out of the gate as a short, fast run.",
+      "source": "bench/run.mjs",
+      "find": "  if (!done) throw new Error('no ##BENCH-DONE## line');",
+      "replace": "",
+      "gate": "node-test:runtime/gates/bench-gate-integrity.test.mjs",
+      "expect_detail": "a truncated run must fail --gate"
     },
     {
       "name": "check-global-replace dies when allowKey goes back to file:line",

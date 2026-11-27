@@ -575,8 +575,8 @@
   // The interface objects and the operation a page sees (internal/native_shape), with
   // the members Lava has in Blink's relative order (Chrome 158,
   // tests/web/cases/shape-fetch.expected): the Body mixin's members laid on each
-  // interface, its attributes as prototype getters. formData() and textStream() are
-  // missing (no FormData in Larva) — the gap that case pins.
+  // interface, its attributes as prototype getters. textStream() is missing — the gap
+  // that case pins.
   var native_shape = require('internal/native_shape');
   var PublicHeaders = native_shape.defineInterface({
     name: 'Headers',
@@ -622,6 +622,7 @@
       'arrayBuffer:0',
       'blob:0',
       'clone:0',
+      'formData:0',
       'json:0',
       'text:0',
       'targetAddressSpace',
@@ -650,6 +651,7 @@
       'arrayBuffer:0',
       'blob:0',
       'clone:0',
+      'formData:0',
       'json:0',
       'text:0',
       'bytes:0',

@@ -30,6 +30,7 @@
   var initBody = bodyModule.initBody;
   var bodyUsedOf = bodyModule.bodyUsedOf;
   var extractContentType = bodyModule.extractContentType;
+  var extractFormData = bodyModule.extractFormData;
   var isStreamLikeBody = bodyModule.isStreamLikeBody;
   var isBlob = bodyModule.isBlob;
   var streamInternal = require('internal/webstreams/index')._internal;
@@ -267,6 +268,9 @@
       // stream reference is shared, not teed, so fetching both the source and the
       // derived request is not supported.)
       var initBodyGiven = bodyInit !== undefined && bodyInit !== null;
+      // A FormData is its multipart bytes from here on; its type carries the boundary.
+      var form = initBodyGiven ? extractFormData(bodyInit) : null;
+      if (form !== null) bodyInit = form.bytes;
       var inputBody =
         src === undefined ? null : src.streamBody !== null ? src.streamBody : src.bodyBytes;
       if (inputBody === undefined) inputBody = null;
@@ -295,7 +299,7 @@
       }
 
       if (initBodyGiven) {
-        var type = extractContentType(bodyInit);
+        var type = form !== null ? form.type : extractContentType(bodyInit);
         if (type !== null && getRaw(headers, 'content-type') === null) {
           appendRaw(headers, 'content-type', type);
         }

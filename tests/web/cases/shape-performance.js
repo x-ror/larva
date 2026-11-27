@@ -118,3 +118,7 @@ function shape(name) {
   }
 }
 shape('performance');
+shape('Performance');
+shape('PerformanceEntry');
+shape('PerformanceMark');
+shape('PerformanceMeasure');

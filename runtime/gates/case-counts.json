@@ -15,10 +15,10 @@
     }
   },
   "//dom": "tests/dom/cases: run-dom-oracle.mjs holds the 60 to the hand-written cases only (scripts/lib/dom-oracle.mjs FLOOR_KEY). The 1784 generated html5lib-* cases are held to exactly what the vendored tests/dom/html5lib/*.dat generate by scripts/gen-html5lib-cases.test.mjs, which also holds those inputs to the tests/dom/html5lib floor.",
-  "//removed": "S3 of the Node-profile removal (docs/LARVA.md decision 1) deleted node:fs and node:sqlite outright, so tests/std/fs/cases (min 4) and tests/std/sqlite/cases (min 8) went with their runners, and bench/macro/fs.js went with node:fs, lowering bench min_files 6 -> 5 (buffer, encoding, json, require, url in bench/micro). S5b made the Window surface the only one and deleted the node-vs-Lava suites with it: tests/node-compat/cases (min 70) and tests/runtime/eventloop/cases (min 12) went with their runners; their Web API halves had already been re-recorded against Chrome in tests/web.",
+  "//removed": "S3 of the Node-profile removal (docs/LARVA.md decision 1) deleted node:fs and node:sqlite outright, so tests/std/fs/cases (min 4) and tests/std/sqlite/cases (min 8) went with their runners, and bench/macro/fs.js went with node:fs, lowering bench min_files 6 -> 5 (buffer, encoding, json, require, url in bench/micro); the Window re-base of bench/micro (S5b) dropped buffer and require and added blob, events, fetch and structured-clone, raising it to 7. S5b made the Window surface the only one and deleted the node-vs-Lava suites with it: tests/node-compat/cases (min 70) and tests/runtime/eventloop/cases (min 12) went with their runners; their Web API halves had already been re-recorded against Chrome in tests/web.",
   "bench": {
     "dirs": ["bench/micro"],
     "exclude": ["noop.js"],
-    "min_files": 5
+    "min_files": 7
   }
 }

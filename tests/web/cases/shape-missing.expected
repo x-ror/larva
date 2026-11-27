@@ -6,7 +6,6 @@
 # ---
 TextEncoderStream function
 TextDecoderStream function
-FormData function
 FileReader function
 ReadableByteStreamController function
 ReadableStreamBYOBRequest function
@@ -14,5 +13,4 @@ CompressionStream function
 DecompressionStream function
 SubtleCrypto function
 CryptoKey function
-Performance function
 reportError function

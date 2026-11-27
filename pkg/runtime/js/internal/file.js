@@ -38,7 +38,7 @@
   }
 
   // Bound in File's static block, the only code that can read its private fields.
-  var isFile, cloneFileOf;
+  var isFile, cloneFileOf, renameFile, fileName;
 
   /**
    * A Blob with a name and a lastModified stamp, both in private fields.
@@ -63,6 +63,17 @@
           __proto__: null,
           type: typeOfBlob(file),
           lastModified: file.#lastModified,
+        });
+      };
+      fileName = function (file) {
+        return file.#name;
+      };
+      // The same bytes and type under `name`; a File keeps its stamp, a Blob gets now.
+      renameFile = function (blob, name) {
+        return new File(partsOfBlob(blob), name, INTERNAL, {
+          __proto__: null,
+          type: typeOfBlob(blob),
+          lastModified: isFile(blob) ? blob.#lastModified : DateNow(),
         });
       };
     }
@@ -153,5 +164,43 @@
     return cloneBlob(value);
   }
 
-  module.exports = { File: PublicFile, cloneBlobOrFile: cloneBlobOrFile };
+  /**
+   * The File a FormData entry holds for a Blob value (XHR's "create an entry"): a File
+   * with no new name is kept as it is; a Blob, or a File given a name, becomes a new
+   * File over the same bytes named `name`, else "blob".
+   * @param {Blob} blob
+   * @param {string|undefined} name
+   * @returns {File}
+   * @node n/a — Chrome 158, tests/web/cases/formdata-basic.expected (a renamed File
+   *   keeps its lastModified).
+   * @deviates none
+   */
+  function entryFile(blob, name) {
+    if (isFile(blob) && name === undefined) return blob;
+    return renameFile(blob, name === undefined ? 'blob' : name);
+  }
+
+  /**
+   * A File over `bytes` (a parsed multipart part): stamped now.
+   * @param {Uint8Array} bytes
+   * @param {string} name
+   * @param {string} type
+   * @returns {File}
+   */
+  function fileFromBytes(bytes, name, type) {
+    return new File(bytes.length === 0 ? [] : [bytes], name, INTERNAL, {
+      __proto__: null,
+      type: type,
+      lastModified: DateNow(),
+    });
+  }
+
+  module.exports = {
+    File: PublicFile,
+    cloneBlobOrFile: cloneBlobOrFile,
+    // A File's name from its private field (no page-replaceable getter on the way).
+    fileName: fileName,
+    entryFile: entryFile,
+    fileFromBytes: fileFromBytes,
+  };
 });

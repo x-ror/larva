@@ -1,0 +1,62 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs perf-user-timing
+# ---
+chain EventTarget true
+new Performance THREW TypeError: Failed to construct 'Performance': Illegal constructor
+new PerformanceEntry THREW TypeError: Failed to construct 'PerformanceEntry': Illegal constructor
+new PerformanceMeasure THREW TypeError: Failed to construct 'PerformanceMeasure': Illegal constructor
+new PerformanceMark() THREW TypeError: Failed to construct 'PerformanceMark': 1 argument required, but only 0 present.
+ctor mark x mark 5 0 {"a":1}
+ctor not buffered 0
+ctor negative THREW TypeError: Failed to construct 'PerformanceMark': 'y' cannot have a negative start time.
+ctor detail fn THREW DOMException: Failed to construct 'PerformanceMark': () => 1 could not be cloned.
+mark bad options THREW TypeError: Failed to execute 'mark' on 'Performance': The provided value is not of type 'PerformanceMarkOptions'.
+mark no args THREW TypeError: Failed to execute 'mark' on 'Performance': 1 argument required, but only 0 present.
+mark timing name THREW DOMException: Failed to execute 'mark' on 'Performance': 'navigationStart' is part of the PerformanceTiming interface, and cannot be used as a mark name.
+mark NaN THREW TypeError: Failed to execute 'mark' on 'Performance': Failed to read the 'startTime' property from 'PerformanceMarkOptions': The provided double value is non-finite.
+mark true a mark number 0 null
+mark b 0.25 d
+detail cloned true stable true 0.5
+name coerced obj
+measure PerformanceMeasure measure 0.25 0.25 null
+m2 2 5 9
+m3 2 3
+m4 17 3
+m5 0 true
+m6 0.25
+m7 0 0.5
+m8 0.25
+m9 0
+unknown mark THREW DOMException: Failed to execute 'measure' on 'Performance': The mark 'nope' does not exist.
+number is a mark name THREW DOMException: Failed to execute 'measure' on 'Performance': The mark '5' does not exist.
+a measure is no mark THREW DOMException: Failed to execute 'measure' on 'Performance': The mark 'm2' does not exist.
+start+duration+end THREW TypeError: Failed to execute 'measure' on 'Performance': If a non-empty PerformanceMeasureOptions object was passed, it must not have all of its 'start', 'duration', and 'end' properties defined
+options and endMark THREW TypeError: Failed to execute 'measure' on 'Performance': If a non-empty PerformanceMeasureOptions object was passed, |end_mark| must not be passed.
+detail only THREW TypeError: Failed to execute 'measure' on 'Performance': If a non-empty PerformanceMeasureOptions object was passed, at least one of its 'start' or 'end' properties must be present.
+negative THREW TypeError: Failed to execute 'measure' on 'Performance': 'e' cannot have a negative time stamp.
+measure no args THREW TypeError: Failed to execute 'measure' on 'Performance': 1 argument required, but only 0 present.
+marks b,c,obj
+measures m5,m7,m9,m1,m6,m8,m2,m3,m4
+all m5,m7,m9,b,m1,m6,m8,c,obj,m2,m3,m4
+byName 1 0 1
+fresh arrays true true
+mark json ["name","entryType","startTime","duration","navigationId"] ["b",0.25,0]
+measure json ["measure",5]
+getEntriesByName() THREW TypeError: Failed to execute 'getEntriesByName' on 'Performance': 1 argument required, but only 0 present.
+getEntriesByType() THREW TypeError: Failed to execute 'getEntriesByType' on 'Performance': 1 argument required, but only 0 present.
+clearMarks undefined
+after clearMarks(a) b,c,obj
+after clearMarks() 0 9
+after clearMeasures(m1) 8
+after clearMeasures() 0
+foreign this THREW TypeError: Illegal invocation
+foreign entry THREW TypeError: Illegal invocation
+tags [object PerformanceMark] [object PerformanceMeasure]
+interactionCount 0
+onresourcetimingbufferfull null
+setResourceTimingBufferSize undefined
+clearResourceTimings undefined
+replaceable number
