@@ -443,6 +443,12 @@ page_run_element_script :: proc(page: ^Page, source, source_name: string) -> boo
 		return false
 	}
 
+	// HTML's microtask checkpoint before a parser-inserted script: the nodes parsed
+	// since the last one reach a MutationObserver first.
+	if !dom_parser_checkpoint(cast(jsc.JSContextRef)page.ctx, page) {
+		return false
+	}
+
 	vm_cpu_enter(page.vm)
 	_, exception, alloc_failure := page_evaluate(page, source, source_name)
 	vm_cpu_exit(page.vm)

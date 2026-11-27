@@ -158,6 +158,9 @@ Dom_Page :: struct {
 	// internal/dom's advance, which moves the document's readiness on and fires its
 	// events (dom_advance); protected.
 	advance:   jsc.JSValueRef,
+	// internal/mutation_observer's `parsed`, which queues the records of the nodes the
+	// parser inserted (dom_parser_checkpoint); protected.
+	parsed:    jsc.JSValueRef,
 }
 
 // The wrapper classes, created once per process by dom_create_classes and never
@@ -264,6 +267,15 @@ dom_install :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) -> string {
 
 	jsc.JSValueProtect(ctx, advance)
 	dom.advance = advance
+
+	parsed := get_named(ctx, cast(jsc.JSObjectRef)installed, "parsed")
+
+	if parsed == nil || !jsc.JSValueIsObject(ctx, parsed) {
+		return "internal/dom answered no parser record step"
+	}
+
+	jsc.JSValueProtect(ctx, parsed)
+	dom.parsed = parsed
 	return ""
 }
 
@@ -293,6 +305,11 @@ dom_release :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) {
 	}
 
 	unprotect_before_eval_exit(ctx, dom.advance)
+
+	if dom.parsed != nil {
+		unprotect_before_eval_exit(ctx, dom.parsed)
+	}
+
 	html.selectors_destroy(&dom.selectors)
 	html.destroy(&dom.parser)
 
@@ -335,6 +352,12 @@ dom_advance :: proc(ctx: jsc.JSContextRef, page: ^Page, stage: Dom_Readiness) ->
 		return false
 	}
 
+	// The parse is over: what it inserted since the last script is reported before
+	// DOMContentLoaded, at the checkpoint that ends the parser's task.
+	if stage == .Interactive && !dom_parser_checkpoint(ctx, page) {
+		return false
+	}
+
 	name := "interactive" if stage == .Interactive else "complete"
 	args := [1]jsc.JSValueRef{js_string_value(ctx, name)}
 	exception: jsc.JSValueRef
@@ -372,6 +395,50 @@ dom_advance :: proc(ctx: jsc.JSContextRef, page: ^Page, stage: Dom_Readiness) ->
 			return true
 		}
 	}
+}
+
+// dom_parser_checkpoint queues the MutationObserver records of the nodes the parser
+// inserted since the last checkpoint (html.take_inserted; recorded only while an
+// observer is registered) — one JS call, so JSC's microtask drain as it returns
+// delivers them: HTML's microtask checkpoint before a parser-inserted script runs, and
+// at the end of the parse.
+//
+// Returns:
+//   false when the page ended in the call (a limit, a stop); true otherwise, including
+//   when there was nothing to report.
+// Chrome:
+//   Chrome 158, tests/dom/cases/dom-mutation-observer-parser.page: the nodes parsed
+//   between two scripts reach the observer's callback before the second script runs.
+dom_parser_checkpoint :: proc(ctx: jsc.JSContextRef, page: ^Page) -> bool {
+	state := page.state
+
+	if state == nil || state.dom == nil || state.dom.parsed == nil {
+		return true
+	}
+
+	dom := state.dom
+	nodes := html.take_inserted(&dom.parser)
+
+	if len(nodes) == 0 {
+		return true
+	}
+
+	exception: jsc.JSValueRef
+	vm_cpu_enter(page.vm)
+	args := [1]jsc.JSValueRef{dom_nodes_array(ctx, dom, nodes)}
+	jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)dom.parsed, nil, 1, raw_data(args[:]), &exception)
+	vm_cpu_exit(page.vm)
+
+	if ended, end := page_ended(page); ended {
+		page_fail(page, end)
+		return false
+	}
+
+	if exception != nil {
+		report_internal_exception(ctx, "internal:dom", exception)
+	}
+
+	return true
 }
 
 // dom_wrap returns `node`'s wrapper, making, recording and protecting it on first use;
@@ -568,6 +635,7 @@ make_dom_bindings :: proc(ctx: jsc.JSContextRef) -> jsc.JSObjectRef {
 		{"createText", dom_create_text_cb},
 		{"createComment", dom_create_comment_cb},
 		{"createFragment", dom_create_fragment_cb},
+		{"observeParser", dom_observe_parser_cb},
 	}
 
 	object := jsc.JSObjectMake(ctx, nil, nil)
@@ -1073,6 +1141,26 @@ dom_remove_cb :: proc "c" (
 
 	if ok {
 		html.detach(call.node)
+	}
+
+	return dom_undefined(ctx)
+}
+
+// observeParser(on): whether the parser records the nodes it inserts for
+// MutationObserver (html.observe_inserted). No receiver: it is the page's parser.
+dom_observe_parser_cb :: proc "c" (
+	ctx: jsc.JSContextRef,
+	function: jsc.JSObjectRef,
+	this_object: jsc.JSObjectRef,
+	argc: c.size_t,
+	argv: [^]jsc.JSValueRef,
+	exception: ^jsc.JSValueRef,
+) -> jsc.JSValueRef {
+	context = runtime.default_context()
+	state := get_state_from_ctx(ctx)
+
+	if state != nil && state.dom != nil {
+		html.observe_inserted(&state.dom.parser, argc >= 1 && jsc.JSValueToBoolean(ctx, argv[0]))
 	}
 
 	return dom_undefined(ctx)

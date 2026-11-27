@@ -184,7 +184,7 @@ pump :: proc(p: ^Parser) -> (script: Node, status: Pump_Status) {
 
 			p.ended = true
 
-			if lxb_html_document_parse_chunk_end(p.doc) != LXB_STATUS_OK {
+			if larva_html_parse_end(p.hook, p.doc) != LXB_STATUS_OK {
 				return nil, fail(p, "pkg/html: lexbor failed to end the document")
 			}
 
@@ -198,7 +198,7 @@ pump :: proc(p: ^Parser) -> (script: Node, status: Pump_Status) {
 			return nil, .Need_Input
 		}
 
-		if lxb_html_document_parse_chunk(p.doc, raw_data(src.buf[src.off:]), c.size_t(n)) != LXB_STATUS_OK {
+		if larva_html_parse_chunk(p.hook, p.doc, raw_data(src.buf[src.off:]), c.size_t(n)) != LXB_STATUS_OK {
 			return nil, fail(p, "pkg/html: lexbor failed to parse")
 		}
 
@@ -253,6 +253,44 @@ parse_all :: proc(
 			return false
 		}
 	}
+}
+
+// observe_inserted starts (or stops) recording the nodes the parser inserts, for a
+// MutationObserver: a page's DOM turns it on while any observer is registered, and
+// take_inserted hands the record out at each microtask checkpoint. Stopping drops what
+// was recorded. Insertions a script makes through the DOM are never recorded: only
+// those made inside pump's calls into lexbor are.
+//
+// Chrome:
+//   Nodes the parser inserts under an observed node are reported as childList records,
+//   one per node, delivered at the checkpoint before the next script runs; Chrome 158,
+//   tests/dom/cases/dom-mutation-observer-parser.page.
+// Deviates:
+//   A node lexbor inserts without its mutation steps — foster-parented before a table,
+//   or moved by the adoption agency algorithm — is not recorded (lexbor's tree builder
+//   inserts those with lxb_dom_node_insert_*_wo_events). Text the parser appends to an
+//   existing text node is not a record in Chrome either.
+observe_inserted :: proc(p: ^Parser, on: bool) {
+	if p.hook != nil {
+		larva_html_observe(p.hook, on)
+	}
+}
+
+// take_inserted returns the nodes recorded since the last call, oldest first, and
+// empties the record. The slice is the shim's and is valid until the parser runs again.
+take_inserted :: proc(p: ^Parser) -> []Node {
+	if p.hook == nil {
+		return nil
+	}
+
+	n: c.size_t
+	nodes := larva_html_take_inserted(p.hook, &n)
+
+	if n == 0 || nodes == nil {
+		return nil
+	}
+
+	return nodes[:n]
 }
 
 // parse_fragment parses `data` as the children of an HTML element named `context`

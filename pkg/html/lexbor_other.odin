@@ -30,6 +30,12 @@ lxb_html_document_parse_chunk_end :: proc(doc: lxb_document) -> lxb_status_t {re
 larva_html_begin :: proc(doc: lxb_document) -> larva_hook {return nil}
 larva_html_take_script :: proc(h: larva_hook, closed: ^c.size_t) -> Node {closed^ = 0; return nil}
 larva_html_hook_free :: proc(h: larva_hook) {}
+larva_html_parse_chunk :: proc(h: larva_hook, doc: lxb_document, data: [^]u8, len: c.size_t) -> lxb_status_t {return(
+		LXB_STATUS_ERROR \
+	)}
+larva_html_parse_end :: proc(h: larva_hook, doc: lxb_document) -> lxb_status_t {return LXB_STATUS_ERROR}
+larva_html_observe :: proc(h: larva_hook, on: bool) {}
+larva_html_take_inserted :: proc(h: larva_hook, len: ^c.size_t) -> [^]Node {len^ = 0; return nil}
 larva_html_document_node :: proc(doc: lxb_document) -> Node {return nil}
 lxb_dom_node_text_content :: proc(node: Node, len: ^c.size_t) -> [^]u8 {return nil}
 larva_html_text_free :: proc(node: Node, text: [^]u8) {}

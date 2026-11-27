@@ -1,0 +1,734 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-dom.mjs dom-mutation-observer.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "mutation observer"
+|   "
+"
+|   <body>
+|     "
+"
+|     <div>
+|       id="root"
+|       <ul>
+|         id="list"
+|         <i>
+|         "ft"
+|         <li>
+|           id="h2"
+|           "two"
+|       <p>
+|         id="para2"
+|         class="y"
+|       <em>
+|     "
+"
+|     <div>
+|       id="side"
+|       data-x="1"
+|       drop="1"
+|       keep="4"
+|       hop="1"
+|       <!-- c1 -->
+|     "
+"
+|     <pre>
+|       id="log"
+|       "typeof function function 1 MutationObserver
+"
+|       "proto disconnect,observe,takeRecords,constructor
+"
+|       "record proto type,target,addedNodes,removedNodes,previousSibling,nextSibling,attributeName,attributeNamespace,oldValue,constructor
+"
+|       "call TypeError: Failed to construct 'MutationObserver': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+"
+|       "no callback TypeError: Failed to construct 'MutationObserver': 1 argument required, but only 0 present.
+"
+|       "bad callback TypeError: Failed to construct 'MutationObserver': parameter 1 is not of type 'Function'.
+"
+|       "record ctor TypeError: Failed to construct 'MutationRecord': Illegal constructor
+"
+|       "tag [object MutationObserver]
+"
+|       "observe() TypeError: Failed to execute 'observe' on 'MutationObserver': 1 argument required, but only 0 present.
+"
+|       "observe(1) TypeError: Failed to execute 'observe' on 'MutationObserver': parameter 1 is not of type 'Node'.
+"
+|       "observe(node) TypeError: Failed to execute 'observe' on 'MutationObserver': The options object must set at least one of 'attributes', 'characterData', or 'childList' to true.
+"
+|       "observe({}) TypeError: Failed to execute 'observe' on 'MutationObserver': The options object must set at least one of 'attributes', 'characterData', or 'childList' to true.
+"
+|       "observe(5) TypeError: Failed to execute 'observe' on 'MutationObserver': The provided value is not of type 'MutationObserverInit'.
+"
+|       "subtree only TypeError: Failed to execute 'observe' on 'MutationObserver': The options object must set at least one of 'attributes', 'characterData', or 'childList' to true.
+"
+|       "oldValue w/o attributes TypeError: Failed to execute 'observe' on 'MutationObserver': The options object may only set 'attributeOldValue' to true when 'attributes' is true or not present.
+"
+|       "filter w/o attributes TypeError: Failed to execute 'observe' on 'MutationObserver': The options object may only set 'attributeFilter' when 'attributes' is true or not present.
+"
+|       "cdOld w/o characterData TypeError: Failed to execute 'observe' on 'MutationObserver': The options object may only set 'characterDataOldValue' to true when 'characterData' is true or not present.
+"
+|       "bad filter TypeError: Failed to execute 'observe' on 'MutationObserver': Failed to read the 'attributeFilter' property from 'MutationObserverInit': The provided value cannot be converted to a sequence.
+"
+|       "member order TypeError: Failed to execute 'observe' on 'MutationObserver': The options object must set at least one of 'attributes', 'characterData', or 'childList' to true. attributeFilter,attributeOldValue,attributes,characterData,characterDataOldValue,childList,subtree
+"
+|       "takeRecords empty 0 true
+"
+|       "disconnect undefined
+"
+|       "illegal TypeError: Illegal invocation
+"
+|       "sync end
+"
+|       "promise before
+"
+|       "maintruetrue 13
+"
+|       "  childList UL#list +[LI#d] -[] prev=LI#c next=null old=null
+"
+|       "  childList UL#list +[LI] -[] prev=null next=LI#a old=null
+"
+|       "  childList UL#list +[] -[LI#b] prev=LI#a next=LI#c old=null
+"
+|       "  childList UL#list +[LI#r] -[LI#c] prev=LI#a next=LI#d old=null
+"
+|       "  childList UL#list +[] -[LI#d] prev=LI#r next=null old=null
+"
+|       "  attributes P#para2 name=title ns=null old=null
+"
+|       "  attributes P#para2 name=title ns=null old=t1
+"
+|       "  attributes P#para2 name=id ns=null old=para
+"
+|       "  attributes P#para2 name=class ns=null old=x
+"
+|       "  attributes P#para2 name=title ns=null old=t2
+"
+|       "  characterData #text(TEXT3) name=null ns=null old=text
+"
+|       "  characterData #text(TEXT3) name=null ns=null old=TEXT
+"
+|       "  characterData #text(TEXT3) name=null ns=null old=TEXT2
+"
+|       "  record [object MutationRecord] true true
+"
+|       "promise after
+"
+|       "first 1
+"
+|       "  childList DIV#side +[#comment(c1)] -[] prev=null next=null old=null
+"
+|       "second 1
+"
+|       "  attributes DIV#side name=data-x ns=null old=null
+"
+|       "taken 2
+"
+|       "  attributes DIV#side name=keep ns=null old=null
+"
+|       "  attributes DIV#side name=keep ns=null old=1
+"
+|       "after disconnect 0
+"
+|       "maintruetrue 5
+"
+|       "  childList UL#list +[] -[LI,LI#a,LI#r] prev=null next=null old=null
+"
+|       "  childList UL#list +[LI#h1,LI#h2] -[] prev=null next=null old=null
+"
+|       "  childList UL#list +[] -[LI#h1] prev=null next=LI#h2 old=null
+"
+|       "  childList UL#list +[LI#h1] -[] prev=LI#h2 next=null old=null
+"
+|       "  childList UL#list +[I,#text(ft)] -[] prev=null next=LI#h2 old=null
+"
+|       "  record [object MutationRecord] true true
+"
+|       "first 2
+"
+|       "  childList DIV#side +[EM] -[] prev=#comment(c1) next=null old=null
+"
+|       "  childList DIV#side +[] -[EM] prev=#comment(c1) next=null old=null
+"
+|       "second 5
+"
+|       "  attributes DIV#side name=drop ns=null old=null
+"
+|       "  attributes DIV#side name=keep ns=null old=null
+"
+|       "  attributes DIV#side name=keep ns=null old=null
+"
+|       "  attributes DIV#side name=keep ns=null old=null
+"
+|       "  attributes DIV#side name=keep ns=null old=null
+"
+|       "subtree 10
+"
+|       "  childList LI +[#text(zz)] -[] prev=null next=null old=null
+"
+|       "  childList UL#list +[] -[LI,LI#a,LI#r] prev=null next=null old=null
+"
+|       "  childList UL#list +[LI#h1,LI#h2] -[] prev=null next=null old=null
+"
+|       "  childList UL#list +[] -[LI#h1] prev=null next=LI#h2 old=null
+"
+|       "  childList UL#list +[LI#h1] -[] prev=LI#h2 next=null old=null
+"
+|       "  childList #fragment +[] -[I,#text(ft)] prev=null next=null old=null
+"
+|       "  childList UL#list +[I,#text(ft)] -[] prev=null next=LI#h2 old=null
+"
+|       "  childList DIV#root +[EM] -[] prev=P#para2 next=null old=null
+"
+|       "  characterData #text(two) name=null ns=null old=null
+"
+|       "  childList P#para2 +[] -[#text(TEXT3)] prev=null next=null old=null
+"
+|       "maintruetrue 1
+"
+|       "  childList UL#list +[] -[LI#h1] prev=LI#h2 next=null old=null
+"
+|       "  record [object MutationRecord] true true
+"
+|       "subtree 2
+"
+|       "  childList UL#list +[] -[LI#h1] prev=LI#h2 next=null old=null
+"
+|       "  attributes LI#h1 name=late ns=null old=null
+"
+|       "transient 1
+"
+|       "  attributes LI#h1 name=late ns=null old=null
+"
+|       "transient done 0
+"
+|       "promise between
+"
+|       "second 1
+"
+|       "  attributes DIV#side name=hop ns=null old=null
+"
+|       "reentrant 1
+"
+|       "  attributes DIV#side name=hop ns=null old=null
+"
+|       "promise last
+"
+|       "second 1
+"
+|       "  attributes DIV#side name=hop ns=null old=null
+"
+|       "reentrant 1
+"
+|       "  attributes DIV#side name=hop ns=null old=0
+"
+|     "
+"
+|     <script>
+|       "
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function nm(n) {
+  if (n === null) return 'null';
+  if (n === undefined) return 'undefined';
+  if (n.nodeType === 3) return '#text(' + n.data + ')';
+  if (n.nodeType === 8) return '#comment(' + n.data + ')';
+  if (n.nodeType === 11) return '#fragment';
+  return n.nodeName + (n.id ? '#' + n.id : '');
+}
+function list(l) {
+  var out = [];
+  for (var i = 0; i < l.length; i++) out.push(nm(l[i]));
+  return '[' + out.join(',') + ']';
+}
+function fmt(r) {
+  var s = r.type + ' ' + nm(r.target);
+  if (r.type === 'childList') {
+    s += ' +' + list(r.addedNodes) + ' -' + list(r.removedNodes) + ' prev=' + nm(r.previousSibling) + ' next=' + nm(r.nextSibling);
+  } else {
+    s += ' name=' + r.attributeName + ' ns=' + r.attributeNamespace;
+  }
+  return s + ' old=' + r.oldValue;
+}
+function logAll(tag, recs) {
+  log(tag + ' ' + recs.length);
+  for (var i = 0; i < recs.length; i++) log('  ' + fmt(recs[i]));
+}
+function err(f) {
+  try {
+    f();
+    return 'no throw';
+  } catch (e) {
+    return e.name + ': ' + e.message;
+  }
+}
+
+var root = document.getElementById('root');
+var ul = document.getElementById('list');
+var a = document.getElementById('a');
+var b = document.getElementById('b');
+var c = document.getElementById('c');
+var para = document.getElementById('para');
+var side = document.getElementById('side');
+
+// Shape.
+log('typeof ' + typeof MutationObserver + ' ' + typeof MutationRecord + ' ' + MutationObserver.length + ' ' + MutationObserver.name);
+log('proto ' + Object.getOwnPropertyNames(MutationObserver.prototype).join(','));
+log('record proto ' + Object.getOwnPropertyNames(MutationRecord.prototype).join(','));
+log('call ' + err(function () { MutationObserver(function () {}); }));
+log('no callback ' + err(function () { new MutationObserver(); }));
+log('bad callback ' + err(function () { new MutationObserver(1); }));
+log('record ctor ' + err(function () { new MutationRecord(); }));
+
+// WebIDL conversions and option validation.
+var mo0 = new MutationObserver(function () {});
+log('tag ' + Object.prototype.toString.call(mo0));
+log('observe() ' + err(function () { mo0.observe(); }));
+log('observe(1) ' + err(function () { mo0.observe(1, { childList: true }); }));
+log('observe(node) ' + err(function () { mo0.observe(side); }));
+log('observe({}) ' + err(function () { mo0.observe(side, {}); }));
+log('observe(5) ' + err(function () { mo0.observe(side, 5); }));
+log('subtree only ' + err(function () { mo0.observe(side, { subtree: true }); }));
+log('oldValue w/o attributes ' + err(function () { mo0.observe(side, { attributes: false, attributeOldValue: true }); }));
+log('filter w/o attributes ' + err(function () { mo0.observe(side, { attributes: false, attributeFilter: ['x'] }); }));
+log('cdOld w/o characterData ' + err(function () { mo0.observe(side, { characterData: false, characterDataOldValue: true }); }));
+log('bad filter ' + err(function () { mo0.observe(side, { attributeFilter: 5 }); }));
+var order = [];
+var probe = {};
+['childList', 'attributes', 'characterData', 'subtree', 'attributeOldValue', 'characterDataOldValue', 'attributeFilter'].forEach(function (k) {
+  Object.defineProperty(probe, k, { get: function () { order.push(k); return undefined; } });
+});
+log('member order ' + err(function () { mo0.observe(side, probe); }) + ' ' + order.join(','));
+log('takeRecords empty ' + mo0.takeRecords().length + ' ' + Array.isArray(mo0.takeRecords()));
+log('disconnect ' + mo0.disconnect());
+log('illegal ' + err(function () { MutationObserver.prototype.observe.call({}, side, { childList: true }); }));
+
+// childList on #list, attributes with oldValue on #para, characterData with oldValue
+// on its text; all batched into one callback.
+var main = new MutationObserver(function (recs, obs) {
+  logAll('main' + (obs === main) + (this === main), recs);
+  log('  record ' + Object.prototype.toString.call(recs[0]) + ' ' + (recs[0].addedNodes instanceof NodeList) + ' ' + (recs[0].addedNodes === recs[0].addedNodes));
+});
+main.observe(ul, { childList: true });
+main.observe(para, { attributes: true, attributeOldValue: true });
+main.observe(para.firstChild, { characterDataOldValue: true });
+
+Promise.resolve().then(function () { log('promise before'); });
+var d = document.createElement('li');
+d.id = 'd';
+ul.appendChild(d);
+ul.insertBefore(document.createElement('li'), a);
+ul.removeChild(b);
+var r = document.createElement('li');
+r.id = 'r';
+ul.replaceChild(r, c);
+d.remove();
+para.setAttribute('title', 't1');
+para.setAttribute('title', 't2');
+para.id = 'para2';
+para.className = 'y';
+para.removeAttribute('title');
+para.removeAttribute('missing');
+para.firstChild.data = 'TEXT';
+para.firstChild.nodeValue = 'TEXT2';
+para.firstChild.textContent = 'TEXT3';
+Promise.resolve().then(function () { log('promise after'); });
+log('sync end');
+"
+|     "
+"
+|     <script>
+|       "
+
+// Two observers: notified in creation order, whatever order they got records in.
+var first = new MutationObserver(function (recs) { logAll('first', recs); });
+var second = new MutationObserver(function (recs) { logAll('second', recs); });
+second.observe(side, { attributes: true });
+first.observe(side, { childList: true });
+side.setAttribute('data-x', '1');
+side.appendChild(document.createComment('c1'));
+
+"
+|     "
+"
+|     <script>
+|       "
+// takeRecords and disconnect.
+(function () {
+  var tr = new MutationObserver(function (recs) { logAll('tr callback', recs); });
+  tr.observe(side, { attributes: true, attributeFilter: ['keep'], attributeOldValue: true });
+  side.setAttribute('drop', '1');
+  side.setAttribute('keep', '1');
+  side.setAttribute('keep', '2');
+  logAll('taken', tr.takeRecords());
+  side.setAttribute('keep', '3');
+  tr.disconnect();
+  logAll('after disconnect', tr.takeRecords());
+  side.setAttribute('keep', '4');
+
+  // subtree, textContent and innerHTML replace-all, moves, fragments.
+  var sub = new MutationObserver(function (recs) { logAll('subtree', recs); });
+  sub.observe(root, { childList: true, subtree: true, characterData: true, attributes: true });
+  ul.firstChild.textContent = 'zz';
+  ul.textContent = '';
+  ul.textContent = '';
+  ul.innerHTML = '<li id="h1">1</li><li id="h2">2</li>';
+  ul.appendChild(document.getElementById('h1'));
+  side.appendChild(document.createElement('em'));
+  var frag = document.createDocumentFragment();
+  frag.appendChild(document.createElement('i'));
+  frag.appendChild(document.createTextNode('ft'));
+  sub.observe(frag, { childList: true });
+  ul.insertBefore(frag, document.getElementById('h2'));
+  root.appendChild(side.lastChild);
+  document.getElementById('h2').firstChild.data = 'two';
+  para.innerHTML = '';
+  para.innerHTML = '';
+})();
+"
+|     "
+"
+|     <script>
+|       "
+// Transient registrations: a node removed from an observed subtree is still observed
+// until the records are delivered.
+var tw = null;
+var gone = null;
+(function () {
+  tw = new MutationObserver(function (recs) { logAll('transient', recs); });
+  tw.observe(root, { attributes: true, subtree: true });
+  gone = document.getElementById('h1');
+  gone.remove();
+  gone.setAttribute('late', '1');
+})();
+"
+|     "
+"
+|     <script>
+|       "
+gone.setAttribute('later', '1');
+log('transient done ' + tw.takeRecords().length);
+tw.disconnect();
+"
+|     "
+"
+|     <script>
+|       "
+// Records queued by a callback go to a later notification; re-observing replaces options.
+(function () {
+  var hops = 0;
+  var re = new MutationObserver(function (recs) {
+    logAll('reentrant', recs);
+    if (hops++ === 0) side.setAttribute('hop', '1');
+  });
+  re.observe(side, { attributes: true });
+  re.observe(side, { childList: true, attributes: true, attributeOldValue: true });
+  Promise.resolve().then(function () { log('promise between'); });
+  side.setAttribute('hop', '0');
+  Promise.resolve().then(function () { log('promise last'); });
+})();
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head><title>mutation observer</title></head>
+<body>
+<div id="root"><ul id="list"><i></i>ft<li id="h2">two</li></ul><p id="para2" class="y"></p><em></em></div>
+<div id="side" data-x="1" drop="1" keep="4" hop="1"><!--c1--></div>
+<pre id="log">typeof function function 1 MutationObserver
+proto disconnect,observe,takeRecords,constructor
+record proto type,target,addedNodes,removedNodes,previousSibling,nextSibling,attributeName,attributeNamespace,oldValue,constructor
+call TypeError: Failed to construct 'MutationObserver': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+no callback TypeError: Failed to construct 'MutationObserver': 1 argument required, but only 0 present.
+bad callback TypeError: Failed to construct 'MutationObserver': parameter 1 is not of type 'Function'.
+record ctor TypeError: Failed to construct 'MutationRecord': Illegal constructor
+tag [object MutationObserver]
+observe() TypeError: Failed to execute 'observe' on 'MutationObserver': 1 argument required, but only 0 present.
+observe(1) TypeError: Failed to execute 'observe' on 'MutationObserver': parameter 1 is not of type 'Node'.
+observe(node) TypeError: Failed to execute 'observe' on 'MutationObserver': The options object must set at least one of 'attributes', 'characterData', or 'childList' to true.
+observe({}) TypeError: Failed to execute 'observe' on 'MutationObserver': The options object must set at least one of 'attributes', 'characterData', or 'childList' to true.
+observe(5) TypeError: Failed to execute 'observe' on 'MutationObserver': The provided value is not of type 'MutationObserverInit'.
+subtree only TypeError: Failed to execute 'observe' on 'MutationObserver': The options object must set at least one of 'attributes', 'characterData', or 'childList' to true.
+oldValue w/o attributes TypeError: Failed to execute 'observe' on 'MutationObserver': The options object may only set 'attributeOldValue' to true when 'attributes' is true or not present.
+filter w/o attributes TypeError: Failed to execute 'observe' on 'MutationObserver': The options object may only set 'attributeFilter' when 'attributes' is true or not present.
+cdOld w/o characterData TypeError: Failed to execute 'observe' on 'MutationObserver': The options object may only set 'characterDataOldValue' to true when 'characterData' is true or not present.
+bad filter TypeError: Failed to execute 'observe' on 'MutationObserver': Failed to read the 'attributeFilter' property from 'MutationObserverInit': The provided value cannot be converted to a sequence.
+member order TypeError: Failed to execute 'observe' on 'MutationObserver': The options object must set at least one of 'attributes', 'characterData', or 'childList' to true. attributeFilter,attributeOldValue,attributes,characterData,characterDataOldValue,childList,subtree
+takeRecords empty 0 true
+disconnect undefined
+illegal TypeError: Illegal invocation
+sync end
+promise before
+maintruetrue 13
+  childList UL#list +[LI#d] -[] prev=LI#c next=null old=null
+  childList UL#list +[LI] -[] prev=null next=LI#a old=null
+  childList UL#list +[] -[LI#b] prev=LI#a next=LI#c old=null
+  childList UL#list +[LI#r] -[LI#c] prev=LI#a next=LI#d old=null
+  childList UL#list +[] -[LI#d] prev=LI#r next=null old=null
+  attributes P#para2 name=title ns=null old=null
+  attributes P#para2 name=title ns=null old=t1
+  attributes P#para2 name=id ns=null old=para
+  attributes P#para2 name=class ns=null old=x
+  attributes P#para2 name=title ns=null old=t2
+  characterData #text(TEXT3) name=null ns=null old=text
+  characterData #text(TEXT3) name=null ns=null old=TEXT
+  characterData #text(TEXT3) name=null ns=null old=TEXT2
+  record [object MutationRecord] true true
+promise after
+first 1
+  childList DIV#side +[#comment(c1)] -[] prev=null next=null old=null
+second 1
+  attributes DIV#side name=data-x ns=null old=null
+taken 2
+  attributes DIV#side name=keep ns=null old=null
+  attributes DIV#side name=keep ns=null old=1
+after disconnect 0
+maintruetrue 5
+  childList UL#list +[] -[LI,LI#a,LI#r] prev=null next=null old=null
+  childList UL#list +[LI#h1,LI#h2] -[] prev=null next=null old=null
+  childList UL#list +[] -[LI#h1] prev=null next=LI#h2 old=null
+  childList UL#list +[LI#h1] -[] prev=LI#h2 next=null old=null
+  childList UL#list +[I,#text(ft)] -[] prev=null next=LI#h2 old=null
+  record [object MutationRecord] true true
+first 2
+  childList DIV#side +[EM] -[] prev=#comment(c1) next=null old=null
+  childList DIV#side +[] -[EM] prev=#comment(c1) next=null old=null
+second 5
+  attributes DIV#side name=drop ns=null old=null
+  attributes DIV#side name=keep ns=null old=null
+  attributes DIV#side name=keep ns=null old=null
+  attributes DIV#side name=keep ns=null old=null
+  attributes DIV#side name=keep ns=null old=null
+subtree 10
+  childList LI +[#text(zz)] -[] prev=null next=null old=null
+  childList UL#list +[] -[LI,LI#a,LI#r] prev=null next=null old=null
+  childList UL#list +[LI#h1,LI#h2] -[] prev=null next=null old=null
+  childList UL#list +[] -[LI#h1] prev=null next=LI#h2 old=null
+  childList UL#list +[LI#h1] -[] prev=LI#h2 next=null old=null
+  childList #fragment +[] -[I,#text(ft)] prev=null next=null old=null
+  childList UL#list +[I,#text(ft)] -[] prev=null next=LI#h2 old=null
+  childList DIV#root +[EM] -[] prev=P#para2 next=null old=null
+  characterData #text(two) name=null ns=null old=null
+  childList P#para2 +[] -[#text(TEXT3)] prev=null next=null old=null
+maintruetrue 1
+  childList UL#list +[] -[LI#h1] prev=LI#h2 next=null old=null
+  record [object MutationRecord] true true
+subtree 2
+  childList UL#list +[] -[LI#h1] prev=LI#h2 next=null old=null
+  attributes LI#h1 name=late ns=null old=null
+transient 1
+  attributes LI#h1 name=late ns=null old=null
+transient done 0
+promise between
+second 1
+  attributes DIV#side name=hop ns=null old=null
+reentrant 1
+  attributes DIV#side name=hop ns=null old=null
+promise last
+second 1
+  attributes DIV#side name=hop ns=null old=null
+reentrant 1
+  attributes DIV#side name=hop ns=null old=0
+</pre>
+<script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function nm(n) {
+  if (n === null) return 'null';
+  if (n === undefined) return 'undefined';
+  if (n.nodeType === 3) return '#text(' + n.data + ')';
+  if (n.nodeType === 8) return '#comment(' + n.data + ')';
+  if (n.nodeType === 11) return '#fragment';
+  return n.nodeName + (n.id ? '#' + n.id : '');
+}
+function list(l) {
+  var out = [];
+  for (var i = 0; i < l.length; i++) out.push(nm(l[i]));
+  return '[' + out.join(',') + ']';
+}
+function fmt(r) {
+  var s = r.type + ' ' + nm(r.target);
+  if (r.type === 'childList') {
+    s += ' +' + list(r.addedNodes) + ' -' + list(r.removedNodes) + ' prev=' + nm(r.previousSibling) + ' next=' + nm(r.nextSibling);
+  } else {
+    s += ' name=' + r.attributeName + ' ns=' + r.attributeNamespace;
+  }
+  return s + ' old=' + r.oldValue;
+}
+function logAll(tag, recs) {
+  log(tag + ' ' + recs.length);
+  for (var i = 0; i < recs.length; i++) log('  ' + fmt(recs[i]));
+}
+function err(f) {
+  try {
+    f();
+    return 'no throw';
+  } catch (e) {
+    return e.name + ': ' + e.message;
+  }
+}
+
+var root = document.getElementById('root');
+var ul = document.getElementById('list');
+var a = document.getElementById('a');
+var b = document.getElementById('b');
+var c = document.getElementById('c');
+var para = document.getElementById('para');
+var side = document.getElementById('side');
+
+// Shape.
+log('typeof ' + typeof MutationObserver + ' ' + typeof MutationRecord + ' ' + MutationObserver.length + ' ' + MutationObserver.name);
+log('proto ' + Object.getOwnPropertyNames(MutationObserver.prototype).join(','));
+log('record proto ' + Object.getOwnPropertyNames(MutationRecord.prototype).join(','));
+log('call ' + err(function () { MutationObserver(function () {}); }));
+log('no callback ' + err(function () { new MutationObserver(); }));
+log('bad callback ' + err(function () { new MutationObserver(1); }));
+log('record ctor ' + err(function () { new MutationRecord(); }));
+
+// WebIDL conversions and option validation.
+var mo0 = new MutationObserver(function () {});
+log('tag ' + Object.prototype.toString.call(mo0));
+log('observe() ' + err(function () { mo0.observe(); }));
+log('observe(1) ' + err(function () { mo0.observe(1, { childList: true }); }));
+log('observe(node) ' + err(function () { mo0.observe(side); }));
+log('observe({}) ' + err(function () { mo0.observe(side, {}); }));
+log('observe(5) ' + err(function () { mo0.observe(side, 5); }));
+log('subtree only ' + err(function () { mo0.observe(side, { subtree: true }); }));
+log('oldValue w/o attributes ' + err(function () { mo0.observe(side, { attributes: false, attributeOldValue: true }); }));
+log('filter w/o attributes ' + err(function () { mo0.observe(side, { attributes: false, attributeFilter: ['x'] }); }));
+log('cdOld w/o characterData ' + err(function () { mo0.observe(side, { characterData: false, characterDataOldValue: true }); }));
+log('bad filter ' + err(function () { mo0.observe(side, { attributeFilter: 5 }); }));
+var order = [];
+var probe = {};
+['childList', 'attributes', 'characterData', 'subtree', 'attributeOldValue', 'characterDataOldValue', 'attributeFilter'].forEach(function (k) {
+  Object.defineProperty(probe, k, { get: function () { order.push(k); return undefined; } });
+});
+log('member order ' + err(function () { mo0.observe(side, probe); }) + ' ' + order.join(','));
+log('takeRecords empty ' + mo0.takeRecords().length + ' ' + Array.isArray(mo0.takeRecords()));
+log('disconnect ' + mo0.disconnect());
+log('illegal ' + err(function () { MutationObserver.prototype.observe.call({}, side, { childList: true }); }));
+
+// childList on #list, attributes with oldValue on #para, characterData with oldValue
+// on its text; all batched into one callback.
+var main = new MutationObserver(function (recs, obs) {
+  logAll('main' + (obs === main) + (this === main), recs);
+  log('  record ' + Object.prototype.toString.call(recs[0]) + ' ' + (recs[0].addedNodes instanceof NodeList) + ' ' + (recs[0].addedNodes === recs[0].addedNodes));
+});
+main.observe(ul, { childList: true });
+main.observe(para, { attributes: true, attributeOldValue: true });
+main.observe(para.firstChild, { characterDataOldValue: true });
+
+Promise.resolve().then(function () { log('promise before'); });
+var d = document.createElement('li');
+d.id = 'd';
+ul.appendChild(d);
+ul.insertBefore(document.createElement('li'), a);
+ul.removeChild(b);
+var r = document.createElement('li');
+r.id = 'r';
+ul.replaceChild(r, c);
+d.remove();
+para.setAttribute('title', 't1');
+para.setAttribute('title', 't2');
+para.id = 'para2';
+para.className = 'y';
+para.removeAttribute('title');
+para.removeAttribute('missing');
+para.firstChild.data = 'TEXT';
+para.firstChild.nodeValue = 'TEXT2';
+para.firstChild.textContent = 'TEXT3';
+Promise.resolve().then(function () { log('promise after'); });
+log('sync end');
+</script>
+<script>
+
+// Two observers: notified in creation order, whatever order they got records in.
+var first = new MutationObserver(function (recs) { logAll('first', recs); });
+var second = new MutationObserver(function (recs) { logAll('second', recs); });
+second.observe(side, { attributes: true });
+first.observe(side, { childList: true });
+side.setAttribute('data-x', '1');
+side.appendChild(document.createComment('c1'));
+
+</script>
+<script>
+// takeRecords and disconnect.
+(function () {
+  var tr = new MutationObserver(function (recs) { logAll('tr callback', recs); });
+  tr.observe(side, { attributes: true, attributeFilter: ['keep'], attributeOldValue: true });
+  side.setAttribute('drop', '1');
+  side.setAttribute('keep', '1');
+  side.setAttribute('keep', '2');
+  logAll('taken', tr.takeRecords());
+  side.setAttribute('keep', '3');
+  tr.disconnect();
+  logAll('after disconnect', tr.takeRecords());
+  side.setAttribute('keep', '4');
+
+  // subtree, textContent and innerHTML replace-all, moves, fragments.
+  var sub = new MutationObserver(function (recs) { logAll('subtree', recs); });
+  sub.observe(root, { childList: true, subtree: true, characterData: true, attributes: true });
+  ul.firstChild.textContent = 'zz';
+  ul.textContent = '';
+  ul.textContent = '';
+  ul.innerHTML = '<li id="h1">1</li><li id="h2">2</li>';
+  ul.appendChild(document.getElementById('h1'));
+  side.appendChild(document.createElement('em'));
+  var frag = document.createDocumentFragment();
+  frag.appendChild(document.createElement('i'));
+  frag.appendChild(document.createTextNode('ft'));
+  sub.observe(frag, { childList: true });
+  ul.insertBefore(frag, document.getElementById('h2'));
+  root.appendChild(side.lastChild);
+  document.getElementById('h2').firstChild.data = 'two';
+  para.innerHTML = '';
+  para.innerHTML = '';
+})();
+</script>
+<script>
+// Transient registrations: a node removed from an observed subtree is still observed
+// until the records are delivered.
+var tw = null;
+var gone = null;
+(function () {
+  tw = new MutationObserver(function (recs) { logAll('transient', recs); });
+  tw.observe(root, { attributes: true, subtree: true });
+  gone = document.getElementById('h1');
+  gone.remove();
+  gone.setAttribute('late', '1');
+})();
+</script>
+<script>
+gone.setAttribute('later', '1');
+log('transient done ' + tw.takeRecords().length);
+tw.disconnect();
+</script>
+<script>
+// Records queued by a callback go to a later notification; re-observing replaces options.
+(function () {
+  var hops = 0;
+  var re = new MutationObserver(function (recs) {
+    logAll('reentrant', recs);
+    if (hops++ === 0) side.setAttribute('hop', '1');
+  });
+  re.observe(side, { attributes: true });
+  re.observe(side, { childList: true, attributes: true, attributeOldValue: true });
+  Promise.resolve().then(function () { log('promise between'); });
+  side.setAttribute('hop', '0');
+  Promise.resolve().then(function () { log('promise last'); });
+})();
+</script>
+
+
+</body></html>

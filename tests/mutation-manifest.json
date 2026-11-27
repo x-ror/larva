@@ -4036,6 +4036,51 @@
       "replace": "if (false) {",
       "gate": "make:test-web",
       "expect_detail": "FAIL streams-byob-errors"
+    },
+    {
+      "name": "dom-mutation-observer.page dies when MutationObserver delivers synchronously instead of in a microtask",
+      "why": "DOM's 'queue a mutation observer microtask' batches every record of a task into one callback after the script; a synchronous call reports each mutation alone and before the script's later lines and promise jobs.",
+      "source": "pkg/runtime/js/internal/mutation_observer.js",
+      "find": "    ReflectApply(PromiseThen, resolved, [notify]);",
+      "replace": "    notify();",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-mutation-observer.page"
+    },
+    {
+      "name": "dom-mutation-observer.page dies when observers are notified in record order instead of creation order",
+      "why": "Notify mutation observers walks the observers in the order they were created; the case queues the later observer's record first.",
+      "source": "pkg/runtime/js/internal/mutation_observer.js",
+      "find": "      while (j >= 0 && list[j].id > s.id) {",
+      "replace": "      while (false) {",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-mutation-observer.page"
+    },
+    {
+      "name": "dom-mutation-observer.page dies when remove() stops leaving a transient registration",
+      "why": "A node removed from an observed subtree stays observed until the records are delivered; without the transient registration its attribute change right after the removal is lost.",
+      "source": "pkg/runtime/js/internal/mutation_observer.js",
+      "find": "      addTransients(parent, node);\n      queueTree(parent, [], [node], prev, next);\n      return result;",
+      "replace": "      queueTree(parent, [], [node], prev, next);\n      return result;",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-mutation-observer.page"
+    },
+    {
+      "name": "dom-mutation-observer-parser.page dies when the checkpoint before a parser-inserted script is dropped",
+      "why": "Nodes the parser inserted between two scripts must reach the observer before the second script runs, as in Chrome; without the checkpoint they arrive only at the end of the parse.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\tif !dom_parser_checkpoint(cast(jsc.JSContextRef)page.ctx, page) {",
+      "replace": "\tif false {",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-mutation-observer-parser.page"
+    },
+    {
+      "name": "dom-mutation-observer-parser.page dies when the parser records insertions a script made through the DOM",
+      "why": "Only lexbor's own parse calls may count as parser insertions; a recording flag left on outside them reports a script's appendChild twice.",
+      "source": "pkg/html/shim/larva_html.c",
+      "find": "\tif (!h->parsing || !h->observe || node->owner_document != h->doc) {",
+      "replace": "\tif (!h->observe || node->owner_document != h->doc) {",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-mutation-observer-parser.page"
     }
   ]
 }

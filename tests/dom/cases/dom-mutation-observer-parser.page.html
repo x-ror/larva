@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head><title>mutation observer parser</title></head>
+<body>
+<pre id="log"></pre>
+<div id="host"><script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function nm(n) {
+  if (n === null) return 'null';
+  if (n.nodeType === 3) return '#text(' + n.data + ')';
+  if (n.nodeType === 8) return '#comment(' + n.data + ')';
+  return n.nodeName + (n.id ? '#' + n.id : '');
+}
+function logAll(tag, recs) {
+  log(tag + ' ' + recs.length);
+  for (var i = 0; i < recs.length; i++) {
+    var r = recs[i];
+    var added = [];
+    for (var j = 0; j < r.addedNodes.length; j++) added.push(nm(r.addedNodes[j]));
+    log('  ' + r.type + ' ' + nm(r.target) + ' +[' + added.join(',') + '] -' + r.removedNodes.length + ' prev=' + nm(r.previousSibling) + ' next=' + nm(r.nextSibling));
+  }
+}
+var host = document.getElementById('host');
+var mo = new MutationObserver(function (recs) { logAll('parsed', recs); });
+mo.observe(host, { childList: true, subtree: true, attributes: true, characterData: true });
+log('observing');
+</script><p id="p1" title="t">one</p><!--note--><span>two<b>three</b></span><script>
+log('second script');
+host.appendChild(document.createElement('em'));
+</script><i id="tail">tail</i></div><div id="after">after</div>
+<script>
+log('third script ' + mo.takeRecords().length);
+document.addEventListener('DOMContentLoaded', function () {
+  log('DOMContentLoaded ' + mo.takeRecords().length);
+});
+</script>
+<div id="late"></div>
+<script>
+mo.observe(document.getElementById('late'), { childList: true });
+log('observing late');
+</script>
+</body>
+</html>

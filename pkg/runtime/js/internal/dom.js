@@ -37,6 +37,7 @@
   var webErrors = require('internal/web_errors');
   var nativeShape = require('internal/native_shape');
   var events = require('internal/event_target');
+  var mutationObserver = require('internal/mutation_observer');
   var DOMException = require('internal/domexception').DOMException;
   var ObjectDefineProperty = P.ObjectDefineProperty;
   var ObjectFreeze = P.ObjectFreeze;
@@ -1243,8 +1244,10 @@
    * `window` and `document`.
    * @param {Object} native pkg/runtime/dom.odin's bindings.
    * @param {string[]} names The interfaces Odin makes wrappers of, in its order.
-   * @returns {{protos: Object[], fire: Function}} The prototypes for `names`, in order,
-   *   and the trusted-event dispatcher the page loader fires DOMContentLoaded with.
+   * @returns {{protos: Object[], advance: Function, parsed: Function}} The prototypes
+   *   for `names`, in order; the readiness step the page loader fires DOMContentLoaded
+   *   and load with; and the step it hands parser-inserted nodes to for
+   *   MutationObserver.
    * @throws {TypeError} for a name this file does not define: Odin and this file
    *   disagree, and no page may run on a half-built DOM.
    */
@@ -1286,6 +1289,20 @@
     nCreateComment = native.createComment;
     nCreateFragment = native.createFragment;
 
+    // The natives that change the tree, wrapped with the records MutationObserver
+    // queues for them (internal/mutation_observer); every mutation below goes through
+    // these.
+    var observed = mutationObserver.attach(native, staticList);
+    nInsertBefore = observed.insertBefore;
+    nRemoveChild = observed.removeChild;
+    nReplaceChild = observed.replaceChild;
+    nRemove = observed.remove;
+    nSetTextContent = observed.setTextContent;
+    nSetData = observed.setData;
+    nSetInnerHTML = observed.setInnerHTML;
+    nSetAttribute = observed.setAttribute;
+    nRemoveAttribute = observed.removeAttribute;
+
     var global = globalThis;
     events.setHostTargets(nIsNode, nParent, global, isDocument);
     nativeShape.defineGlobalAttribute('window', function () {
@@ -1303,7 +1320,7 @@
       protos[j] = impl.prototype;
     }
 
-    return { __proto__: null, protos: protos, advance: advance };
+    return { __proto__: null, protos: protos, advance: advance, parsed: observed.parsed };
   }
 
   function isDocument(o) {
