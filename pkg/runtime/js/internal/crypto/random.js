@@ -8,7 +8,6 @@
 (function (require, module, exports, native) {
   'use strict';
 
-  var Buffer = require('buffer').Buffer;
   var util = require('internal/crypto/util');
   var invalidArgType = util.invalidArgType;
   var outOfRange = util.outOfRange;
@@ -26,6 +25,10 @@
   var QuotaExceededError = domexception.QuotaExceededError;
   var webErrors = require('internal/web_errors');
   var web = webErrors.web;
+  // node:buffer on the Node surface only: `.Web` instantiates no node/ module, and none
+  // of its entry points (getRandomValues, randomUUID) touches one. Captured here, at
+  // module-eval, because this file is eager — before user code can replace the export.
+  var Buffer = web ? null : require('buffer').Buffer;
   var context = webErrors.context;
   var typeError = webErrors.typeError;
   var argumentsRequired = webErrors.argumentsRequired;
@@ -155,7 +158,9 @@
   var HEX = '0123456789abcdef';
 
   function randomUUID() {
-    var b = randomBytes(16);
+    // A plain Uint8Array, not randomBytes(16)'s Buffer: the bytes never escape (only the
+    // string does), and `.Web` has no Buffer.
+    var b = fillRandom(new Uint8ArrayP(16));
     b[6] = (b[6] & 0x0f) | 0x40;
     b[8] = (b[8] & 0x3f) | 0x80;
     var s = '';

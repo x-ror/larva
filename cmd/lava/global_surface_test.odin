@@ -369,14 +369,13 @@ global_surface_web_loads_no_node_module :: proc(t: ^testing.T) {
 	testing.expectf(t, probed > len(WEB_NODE_MODULES), "probed %d node/ modules — the embedded table is empty", probed)
 }
 
-// The node/ modules `.Web` init still instantiates, and why. Must only shrink.
-//   node/buffer  The loader instantiates it unconditionally, and shared Web API code is
-//                still Buffer-backed: internal/crypto/random and crypto/util, base64
-//                (atob/btoa), blob and structured_clone through the loader's
-//                pristineBuffer, and the streams under fetch. internal/encoding no
-//                longer is (S4b); stages S4c-S4d take Buffer out of the rest.
+// The node/ modules `.Web` init still instantiates, and why. Must only shrink, and is
+// empty: node/buffer, the last entry, went when the loader stopped instantiating it on
+// `.Web` and the shared code still reaching Buffer took the codec natives instead
+// (internal/base64) or captures Buffer on the Node surface only (internal/crypto/*).
+// Kept as a list so a regression names the module rather than editing the loop.
 @(private = "file")
-WEB_NODE_MODULES :: [?]string{"node/buffer"}
+WEB_NODE_MODULES :: [?]string{}
 
 // surface_resolve_compiles inits a context on `surface` and returns how many builtin
 // factories init compiled, then how many one resolve of `spec` compiled on top, and

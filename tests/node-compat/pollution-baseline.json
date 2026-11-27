@@ -243,7 +243,7 @@
     "method": 31,
     "invoke": 2,
     "accessor": 0,
-    "global": 14
+    "global": 6
   },
   "internal/util.js": {
     "method": 1,

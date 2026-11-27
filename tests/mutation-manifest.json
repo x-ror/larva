@@ -2852,8 +2852,8 @@
       "name": "76-coded-error-shape dies when the URL constructor throws the JS shape",
       "why": "node parses URLs in C++, so `new URL('nope')` stringifies as `TypeError: Invalid URL` with no [code]; only the href setter throws the JS shape.",
       "source": "pkg/runtime/js/internal/url.js",
-      "find": "      if (baseRecord === FAILURE) throw invalidURL(nativeError, input, base);",
-      "replace": "      if (baseRecord === FAILURE) throw invalidURL(nodeError, input, base);",
+      "find": "    var err = nativeError(TypeErrorG, 'ERR_INVALID_URL', 'Invalid URL');",
+      "replace": "    var err = nodeError(TypeErrorG, 'ERR_INVALID_URL', 'Invalid URL');",
       "gate": "compat:tests/node-compat/cases/76-coded-error-shape.js",
       "expect_detail": [
         "url invalid base | TypeError | ERR_INVALID_URL | TypeError [ERR_INVALID_URL]:"
@@ -4766,6 +4766,33 @@
       "replace": "    var message = nodeMessage;\n    if (false) {",
       "gate": "make:test-web",
       "expect_detail": "FAIL base64-errors"
+    },
+    {
+      "name": "url-errors dies when the URL constructor's Window-surface error falls back to node's",
+      "why": "A page then sees ERR_INVALID_URL and node's bare 'Invalid URL' where Chrome throws a plain TypeError naming the constructor, and 'Invalid base URL' for a bad base.",
+      "source": "pkg/runtime/js/internal/url.js",
+      "find": "    if (web) return typeError('URL', undefined, badBase ? 'Invalid base URL' : 'Invalid URL');",
+      "replace": "    if (false) return typeError('URL', undefined, badBase ? 'Invalid base URL' : 'Invalid URL');",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL url-errors"
+    },
+    {
+      "name": "url-webidl dies when URLSearchParams stops checking its receiver",
+      "why": "A member called on a foreign object then fails inside our code with JSC's text naming our source, where Chrome throws 'Illegal invocation'.",
+      "source": "pkg/runtime/js/internal/url.js",
+      "find": "    if (list === undefined) throw invalidThis('URLSearchParams');",
+      "replace": "",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL url-webidl"
+    },
+    {
+      "name": "url-webidl dies when a Symbol argument is stringified instead of refused",
+      "why": "String(Symbol('x')) is 'Symbol(x)', which parses as a URL with an opaque path and serializes into a query: Chrome refuses the conversion.",
+      "source": "pkg/runtime/js/internal/url.js",
+      "find": "    if (typeof value === 'symbol') {",
+      "replace": "    if (false) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL url-webidl"
     },
     {
       "name": "errors-stack dies when pageError stops dropping the leading internal frames",

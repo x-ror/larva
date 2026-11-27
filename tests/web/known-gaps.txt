@@ -21,6 +21,5 @@ shape-missing unplanned: the Chrome globals of the shape-* families Larva does n
 shape-performance unplanned: performance is a plain data property holding a plain object — no Performance interface, getter, toJSON, mark/measure or entries (as perf-now); now() alone is native-shaped (#114)
 streams-byte unplanned: no readable byte streams (ReadableByteStreamController, type 'bytes', BYOB reads)
 timers-string-handler unplanned: a non-function handler is ignored (no timer, the delay not converted) where Chrome converts it to a string and runs it as a script when the timer fires; needs a native that evaluates source in the page's global scope
-url-errors S4e: node's ERR_INVALID_URL and URLSearchParams messages where Chrome has WebIDL text and no code (createObjectURL already matches, S4c)
 url-host-space unplanned: Chrome percent-encodes a space in a special URL's host and accepts it; Lava follows the WHATWG parser and throws. Deciding whether to follow Chrome here is parser work, not message work
 wasm-streaming unplanned: no WebAssembly.compileStreaming/instantiateStreaming (Blink's, over a Response; JSC GTK has none) — a fingerprint; not stubbed, since a stub that rejects breaks loaders that would take their ArrayBuffer path; the implementation over Response needs an issue of its own

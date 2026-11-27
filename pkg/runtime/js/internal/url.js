@@ -79,12 +79,23 @@
   var ArrayFrom = P.ArrayFrom;
   // Free globals / statics, captured pristine at module-eval.
   var StringG = String;
+  var SymbolIterator = Symbol.iterator;
   var NumberG = P.Number;
   var TypeErrorG = P.TypeError;
   var errors = require('internal/errors');
   var nodeError = errors.nodeError;
   var nativeError = errors.nativeError;
   var ERR_INVALID_ARG_TYPE = errors.ERR_INVALID_ARG_TYPE;
+  // The Window surface's error text (Blink's WebIDL wording, no `code`). Each throw
+  // below picks its arm on `web`; the node arm goes with the Node surface (S5b).
+  var webErrors = require('internal/web_errors');
+  var web = webErrors.web;
+  var context = webErrors.context;
+  var typeError = webErrors.typeError;
+  var argumentsRequired = webErrors.argumentsRequired;
+  var notOfType = webErrors.notOfType;
+  var illegalInvocation = webErrors.illegalInvocation;
+  var pageError = webErrors.pageError;
   var StringFromCharCode = String.fromCharCode;
   var StringFromCodePoint = String.fromCodePoint;
   var MathFloor = Math.floor;
@@ -655,12 +666,8 @@
         return url.scheme + '://' + serializeHostPort(url);
       case 'blob': {
         var pathStr = url.opaque ? url.path : serializePath(url);
-        try {
-          var inner = parseURLOrThrow(pathStr);
-          return serializeOrigin(inner);
-        } catch {
-          return 'null';
-        }
+        var inner = basicURLParse(pathStr);
+        return inner === FAILURE ? 'null' : serializeOrigin(inner);
       }
       default:
         return 'null';
@@ -1204,28 +1211,87 @@
     ArrayPrototypePop(path);
   }
 
+  // The constructor's parse. The arguments convert in order, `url` then `base`, and only
+  // `undefined` skips the base: `null` is the string "null", an invalid base, in Chrome
+  // and node alike (tests/web/cases/url-webidl.expected; node's `${base}`).
   function parseURLOrThrow(input, base) {
+    var str = typeof input === 'string' ? input : toStringArg(input, 'URL');
+    var baseStr;
     var baseRecord;
-    if (base !== undefined && base !== null) {
-      baseRecord = basicURLParse(StringG(base));
-      if (baseRecord === FAILURE) throw invalidURL(nativeError, input, base);
+    if (base !== undefined) {
+      baseStr = typeof base === 'string' ? base : toStringArg(base, 'URL');
+      baseRecord = basicURLParse(baseStr);
+      if (baseRecord === FAILURE) throw invalidURL(str, baseStr, true);
     }
-    var record = basicURLParse(StringG(input), baseRecord);
-    if (record === FAILURE) {
-      throw invalidURL(nativeError, input, baseRecord === undefined ? undefined : base);
-    }
+    var record = basicURLParse(str, baseRecord);
+    if (record === FAILURE) throw invalidURL(str, baseStr, false);
     return record;
   }
 
-  // ERR_INVALID_URL in node's two shapes: the constructor's parse runs in C++, so
-  // String(e) is `TypeError: Invalid URL`; the href setter throws from JS, so it is
-  // `TypeError [ERR_INVALID_URL]: Invalid URL`. Both carry `input`, and `base` when the
-  // parse ran against one (node 26.13.0, case 76).
-  function invalidURL(make, input, base) {
-    var err = make(TypeErrorG, 'ERR_INVALID_URL', 'Invalid URL');
-    err.input = StringG(input);
-    if (base !== undefined) err.base = StringG(base);
+  // canParse/parse: the constructor's conversions, which throw (a Symbol argument), and
+  // its parse, which does not — FAILURE for a bad `url` or a bad `base`.
+  function parseURLOrFailure(input, base, op) {
+    var str = typeof input === 'string' ? input : toStringArg(input, 'URL', op);
+    var baseRecord;
+    if (base !== undefined) {
+      baseRecord = basicURLParse(typeof base === 'string' ? base : toStringArg(base, 'URL', op));
+      if (baseRecord === FAILURE) return FAILURE;
+    }
+    return basicURLParse(str, baseRecord);
+  }
+
+  // The constructor's parse failure. Window: Chrome's TypeError, which names the base
+  // when it is the base that failed (tests/web/cases/url-errors.expected). Node:
+  // ERR_INVALID_URL in its C++ shape — String(e) is `TypeError: Invalid URL` — carrying
+  // `input`, and `base` when the parse ran against one (node 26.13.0, case 76).
+  function invalidURL(input, base, badBase) {
+    if (web) return typeError('URL', undefined, badBase ? 'Invalid base URL' : 'Invalid URL');
+    var err = nativeError(TypeErrorG, 'ERR_INVALID_URL', 'Invalid URL');
+    err.input = input;
+    if (base !== undefined) err.base = base;
     return err;
+  }
+
+  // The href setter's parse failure. Window: Chrome's attribute-setter TypeError. Node:
+  // ERR_INVALID_URL in its JS shape, `TypeError [ERR_INVALID_URL]: Invalid URL`, since
+  // node's setter throws from JS (node 26.13.0, case 76).
+  function invalidHref(input) {
+    if (web) return pageError(new TypeErrorG(setterContext('href') + 'Invalid URL'));
+    var err = nodeError(TypeErrorG, 'ERR_INVALID_URL', 'Invalid URL');
+    err.input = input;
+    return err;
+  }
+
+  // Blink's prefix for an error raised while setting a URL attribute. web_errors'
+  // context() covers operations and constructors; an attribute setter is URL's alone.
+  function setterContext(attr) {
+    return "Failed to set the '" + attr + "' property on 'URL': ";
+  }
+
+  // WebIDL's string conversion of a non-string argument: ToString, which throws on a
+  // Symbol where String() would answer "Symbol(…)" — and "Symbol(x)" parses, as a URL
+  // with an opaque path. `attr` names the URL attribute being set; otherwise iface/op
+  // place the error as web_errors' context() does. Node throws the same TypeError
+  // without a prefix (V8's text, from its `${value}`).
+  function toStringArg(value, iface, op, attr) {
+    if (typeof value === 'symbol') {
+      var detail = 'Cannot convert a Symbol value to a string';
+      if (!web) throw new TypeErrorG(detail);
+      if (attr !== undefined) throw pageError(new TypeErrorG(setterContext(attr) + detail));
+      throw typeError(iface, op, detail);
+    }
+
+    return StringG(value);
+  }
+
+  // A member called on something that is not a URL / URLSearchParams (`this` is null,
+  // a primitive, or an object without the private slot): Blink's "Illegal invocation".
+  // Node: URLSearchParams throws ERR_INVALID_THIS, URL fails V8's private-field brand
+  // check (node 26, probed).
+  function invalidThis(iface) {
+    if (web) return illegalInvocation();
+    if (iface === 'URL') return new TypeErrorG('Receiver must be an instance of class URL');
+    return nodeError(TypeErrorG, 'ERR_INVALID_THIS', 'Value of "this" must be of type ' + iface);
   }
 
   // ------------------------------------------------------------------ //
@@ -1310,14 +1376,27 @@
         var idx = 0;
         for (var pair of init) {
           if (typeof pair !== 'object' && typeof pair !== 'function') {
-            throw new TypeError('The provided value cannot be converted to a sequence.');
+            throw initError('The provided value cannot be converted to a sequence.');
+          }
+          // Node lets for-of throw its own TypeError, as before.
+          if (web && typeof pair[SymbolIterator] !== 'function') {
+            throw initError('The object must have a callable @@iterator property.');
           }
           var arr = [];
           for (var v of pair) ArrayPrototypePush(arr, v);
           if (arr.length !== 2) {
-            throw new TypeError('Each query pair must be an iterable [name, value] tuple');
+            // Blink's text repeats the context prefix; copied from the recording.
+            throw initError(
+              web
+                ? context('URLSearchParams') +
+                    'Sequence initializer must only contain pair elements'
+                : 'Each query pair must be an iterable [name, value] tuple',
+            );
           }
-          ArrayPrototypePush(this[kList], [toUSVString(arr[0]), toUSVString(arr[1])]);
+          ArrayPrototypePush(this[kList], [
+            toUSVString(arr[0], 'URLSearchParams'),
+            toUSVString(arr[1], 'URLSearchParams'),
+          ]);
           idx++;
         }
         return;
@@ -1325,14 +1404,39 @@
       // Record of string -> string.
       var keys = ObjectKeys(init);
       for (var k = 0; k < keys.length; k++) {
-        ArrayPrototypePush(this[kList], [toUSVString(keys[k]), toUSVString(init[keys[k]])]);
+        ArrayPrototypePush(this[kList], [
+          toUSVString(keys[k], 'URLSearchParams'),
+          toUSVString(init[keys[k]], 'URLSearchParams'),
+        ]);
       }
       return;
     }
     // String init: strip a single leading '?'.
-    var str = toUSVString(init);
+    var str = toUSVString(init, 'URLSearchParams');
     if (str[0] === '?') str = str.slice(1);
     this[kList] = formUrlencodedParse(str);
+  }
+
+  // A sequence-initializer error from the constructor: Chrome's, with the context
+  // prefix; node's plain TypeError otherwise.
+  function initError(detail) {
+    if (web) return typeError('URLSearchParams', undefined, detail);
+    return new TypeErrorG(detail);
+  }
+
+  // The list behind a URLSearchParams receiver, or the foreign-receiver error. One
+  // load on the success path, the one every member made already.
+  function listOf(sp) {
+    var list = sp === null || sp === undefined ? undefined : sp[kList];
+    if (list === undefined) throw invalidThis('URLSearchParams');
+    return list;
+  }
+
+  // Blink's argument-count check for a URLSearchParams operation. Node checks only
+  // append/set (with its own text, kept), so it is the Window surface's alone.
+  function requireArgs(op, required, present) {
+    if (present < required)
+      throw typeError('URLSearchParams', op, argumentsRequired(required, present));
   }
 
   // Convert to a USVString: stringify, then replace any unpaired surrogate with
@@ -1348,8 +1452,11 @@
   //
   // The pre-scan stays because it is the common case and it now decides a real fast
   // path — most strings have no surrogate at all and are returned untouched.
-  function toUSVString(value) {
-    var str = typeof value === 'string' ? value : StringG(value);
+  //
+  // iface/op/attr place a Symbol's conversion error (toStringArg); internal callers
+  // pass only strings and omit them.
+  function toUSVString(value, iface, op, attr) {
+    var str = typeof value === 'string' ? value : toStringArg(value, iface, op, attr);
     var n = str.length;
     var hasSurrogate = false;
     for (var i = 0; i < n; i++) {
@@ -1381,6 +1488,12 @@
     return out;
   }
 
+  // append/set called with fewer than two arguments: Blink's count, or node's text.
+  function missingNameValue(op, present) {
+    if (web) return typeError('URLSearchParams', op, argumentsRequired(2, present));
+    return new TypeErrorG('The "name" and "value" arguments must be specified');
+  }
+
   function spUpdate(sp) {
     var urlObj = sp[kURLObject];
     if (urlObj === null) return;
@@ -1392,10 +1505,12 @@
     configurable: true,
     writable: true,
     value: function append(name, value) {
-      if (arguments.length < 2) {
-        throw new TypeError('The "name" and "value" arguments must be specified');
-      }
-      ArrayPrototypePush(this[kList], [toUSVString(name), toUSVString(value)]);
+      var list = listOf(this);
+      if (arguments.length < 2) throw missingNameValue('append', arguments.length);
+      ArrayPrototypePush(list, [
+        toUSVString(name, 'URLSearchParams', 'append'),
+        toUSVString(value, 'URLSearchParams', 'append'),
+      ]);
       spUpdate(this);
     },
   });
@@ -1404,10 +1519,11 @@
     configurable: true,
     writable: true,
     value: function del(name) {
-      var n = toUSVString(name);
-      var list = this[kList];
+      var list = listOf(this);
+      if (web) requireArgs('delete', 1, arguments.length);
+      var n = toUSVString(name, 'URLSearchParams', 'delete');
       if (arguments.length > 1 && arguments[1] !== undefined) {
-        var val = toUSVString(arguments[1]);
+        var val = toUSVString(arguments[1], 'URLSearchParams', 'delete');
         for (var i = list.length - 1; i >= 0; i--) {
           if (list[i][0] === n && list[i][1] === val) ArrayPrototypeSplice(list, i, 1);
         }
@@ -1424,8 +1540,9 @@
     configurable: true,
     writable: true,
     value: function get(name) {
-      var n = toUSVString(name);
-      var list = this[kList];
+      var list = listOf(this);
+      if (web) requireArgs('get', 1, arguments.length);
+      var n = toUSVString(name, 'URLSearchParams', 'get');
       for (var i = 0; i < list.length; i++) {
         if (list[i][0] === n) return list[i][1];
       }
@@ -1437,8 +1554,9 @@
     configurable: true,
     writable: true,
     value: function getAll(name) {
-      var n = toUSVString(name);
-      var list = this[kList];
+      var list = listOf(this);
+      if (web) requireArgs('getAll', 1, arguments.length);
+      var n = toUSVString(name, 'URLSearchParams', 'getAll');
       var out = [];
       for (var i = 0; i < list.length; i++) {
         if (list[i][0] === n) ArrayPrototypePush(out, list[i][1]);
@@ -1451,10 +1569,11 @@
     configurable: true,
     writable: true,
     value: function has(name) {
-      var n = toUSVString(name);
-      var list = this[kList];
+      var list = listOf(this);
+      if (web) requireArgs('has', 1, arguments.length);
+      var n = toUSVString(name, 'URLSearchParams', 'has');
       if (arguments.length > 1 && arguments[1] !== undefined) {
-        var val = toUSVString(arguments[1]);
+        var val = toUSVString(arguments[1], 'URLSearchParams', 'has');
         for (var i = 0; i < list.length; i++) {
           if (list[i][0] === n && list[i][1] === val) return true;
         }
@@ -1471,12 +1590,10 @@
     configurable: true,
     writable: true,
     value: function set(name, value) {
-      if (arguments.length < 2) {
-        throw new TypeError('The "name" and "value" arguments must be specified');
-      }
-      var n = toUSVString(name);
-      var v = toUSVString(value);
-      var list = this[kList];
+      var list = listOf(this);
+      if (arguments.length < 2) throw missingNameValue('set', arguments.length);
+      var n = toUSVString(name, 'URLSearchParams', 'set');
+      var v = toUSVString(value, 'URLSearchParams', 'set');
       // Set the first matching tuple in place and drop the rest (URL Standard).
       var found = false;
       for (var i = 0; i < list.length;) {
@@ -1500,7 +1617,7 @@
     writable: true,
     value: function sort() {
       // Stable sort by code units of the name only.
-      ArrayPrototypeSort(this[kList], function (a, b) {
+      ArrayPrototypeSort(listOf(this), function (a, b) {
         return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0;
       });
       spUpdate(this);
@@ -1511,10 +1628,13 @@
     configurable: true,
     writable: true,
     value: function forEach(callback, thisArg) {
+      var list = listOf(this);
       if (typeof callback !== 'function') {
-        throw new TypeError('Callback must be a function');
+        if (!web) throw new TypeErrorG('Callback must be a function');
+        requireArgs('forEach', 1, arguments.length);
+        throw typeError('URLSearchParams', 'forEach', notOfType(1, 'Function'));
       }
-      var list = this[kList];
+
       // Read length lazily so callbacks that append are observed (per spec).
       for (var i = 0; i < list.length; i++) {
         callback.call(thisArg, list[i][1], list[i][0], this);
@@ -1553,7 +1673,7 @@
     configurable: true,
     enumerable: true,
     get: function size() {
-      return this[kList].length;
+      return listOf(this).length;
     },
   });
 
@@ -1561,7 +1681,7 @@
     configurable: true,
     writable: true,
     value: function toString() {
-      return formUrlencodedSerialize(this[kList]);
+      return formUrlencodedSerialize(listOf(this));
     },
   });
 
@@ -1571,6 +1691,7 @@
   });
 
   function makeSearchParamsIterator(sp, kind) {
+    listOf(sp);
     var index = 0;
     var iterator = {
       next: function next() {
@@ -1616,11 +1737,17 @@
     if (!(this instanceof URL)) {
       throw new TypeError("Class constructor URL cannot be invoked without 'new'");
     }
-    if (arguments.length === 0) {
-      throw new TypeError("Failed to construct 'URL': 1 argument required, but only 0 present.");
-    }
+    if (arguments.length === 0) throw typeError('URL', undefined, argumentsRequired(1, 0));
     this[kRecord] = parseURLOrThrow(input, base);
     this[kSearchParams] = null;
+  }
+
+  // The record behind a URL receiver, or the foreign-receiver error. One load on the
+  // success path, the one every member made already.
+  function recordOf(url) {
+    var record = url === null || url === undefined ? undefined : url[kRecord];
+    if (record === undefined) throw invalidThis('URL');
+    return record;
   }
 
   function refreshSearchParams(url) {
@@ -1634,11 +1761,13 @@
     configurable: true,
     enumerable: true,
     get: function () {
-      return serializeURL(this[kRecord]);
+      return serializeURL(recordOf(this));
     },
     set: function (value) {
-      var record = basicURLParse(toUSVString(value));
-      if (record === FAILURE) throw invalidURL(nodeError, value);
+      recordOf(this);
+      var str = toUSVString(value, 'URL', undefined, 'href');
+      var record = basicURLParse(str);
+      if (record === FAILURE) throw invalidHref(str);
       this[kRecord] = record;
       refreshSearchParams(this);
     },
@@ -1648,7 +1777,7 @@
     configurable: true,
     enumerable: true,
     get: function () {
-      return serializeOrigin(this[kRecord]);
+      return serializeOrigin(recordOf(this));
     },
   });
 
@@ -1656,10 +1785,12 @@
     configurable: true,
     enumerable: true,
     get: function () {
-      return this[kRecord].scheme + ':';
+      return recordOf(this).scheme + ':';
     },
     set: function (value) {
-      basicURLParse(toUSVString(value) + ':', undefined, this[kRecord], SCHEME_START);
+      var url = recordOf(this);
+      var str = toUSVString(value, 'URL', undefined, 'protocol');
+      basicURLParse(str + ':', undefined, url, SCHEME_START);
     },
   });
 
@@ -1667,12 +1798,13 @@
     configurable: true,
     enumerable: true,
     get: function () {
-      return this[kRecord].username;
+      return recordOf(this).username;
     },
     set: function (value) {
-      var url = this[kRecord];
+      var url = recordOf(this);
+      var str = toUSVString(value, 'URL', undefined, 'username');
       if (cannotHaveUsernamePasswordPort(url)) return;
-      url.username = utf8PercentEncode(toUSVString(value), inUserinfoSet);
+      url.username = utf8PercentEncode(str, inUserinfoSet);
     },
   });
 
@@ -1680,12 +1812,13 @@
     configurable: true,
     enumerable: true,
     get: function () {
-      return this[kRecord].password;
+      return recordOf(this).password;
     },
     set: function (value) {
-      var url = this[kRecord];
+      var url = recordOf(this);
+      var str = toUSVString(value, 'URL', undefined, 'password');
       if (cannotHaveUsernamePasswordPort(url)) return;
-      url.password = utf8PercentEncode(toUSVString(value), inUserinfoSet);
+      url.password = utf8PercentEncode(str, inUserinfoSet);
     },
   });
 
@@ -1693,12 +1826,13 @@
     configurable: true,
     enumerable: true,
     get: function () {
-      return serializeHostPort(this[kRecord]);
+      return serializeHostPort(recordOf(this));
     },
     set: function (value) {
-      var url = this[kRecord];
+      var url = recordOf(this);
+      var str = toUSVString(value, 'URL', undefined, 'host');
       if (url.opaque) return;
-      basicURLParse(toUSVString(value), undefined, url, HOST);
+      basicURLParse(str, undefined, url, HOST);
     },
   });
 
@@ -1706,12 +1840,14 @@
     configurable: true,
     enumerable: true,
     get: function () {
-      return this[kRecord].host === null ? '' : this[kRecord].host;
+      var url = recordOf(this);
+      return url.host === null ? '' : url.host;
     },
     set: function (value) {
-      var url = this[kRecord];
+      var url = recordOf(this);
+      var str = toUSVString(value, 'URL', undefined, 'hostname');
       if (url.opaque) return;
-      basicURLParse(toUSVString(value), undefined, url, HOSTNAME);
+      basicURLParse(str, undefined, url, HOSTNAME);
     },
   });
 
@@ -1719,12 +1855,13 @@
     configurable: true,
     enumerable: true,
     get: function () {
-      return this[kRecord].port === null ? '' : StringG(this[kRecord].port);
+      var url = recordOf(this);
+      return url.port === null ? '' : StringG(url.port);
     },
     set: function (value) {
-      var url = this[kRecord];
+      var url = recordOf(this);
+      var str = toUSVString(value, 'URL', undefined, 'port');
       if (cannotHaveUsernamePasswordPort(url)) return;
-      var str = toUSVString(value);
       if (str === '') {
         url.port = null;
         return;
@@ -1737,13 +1874,14 @@
     configurable: true,
     enumerable: true,
     get: function () {
-      return serializePath(this[kRecord]);
+      return serializePath(recordOf(this));
     },
     set: function (value) {
-      var url = this[kRecord];
+      var url = recordOf(this);
+      var str = toUSVString(value, 'URL', undefined, 'pathname');
       if (url.opaque) return;
       url.path = [];
-      basicURLParse(toUSVString(value), undefined, url, PATH_START);
+      basicURLParse(str, undefined, url, PATH_START);
     },
   });
 
@@ -1751,12 +1889,12 @@
     configurable: true,
     enumerable: true,
     get: function () {
-      var q = this[kRecord].query;
+      var q = recordOf(this).query;
       return q === null || q === '' ? '' : '?' + q;
     },
     set: function (value) {
-      var url = this[kRecord];
-      var str = toUSVString(value);
+      var url = recordOf(this);
+      var str = toUSVString(value, 'URL', undefined, 'search');
       if (str === '') {
         url.query = null;
         refreshSearchParams(this);
@@ -1773,6 +1911,7 @@
     configurable: true,
     enumerable: true,
     get: function () {
+      recordOf(this);
       if (this[kSearchParams] === null) {
         this[kSearchParams] = newBoundSearchParams(this);
       }
@@ -1784,12 +1923,12 @@
     configurable: true,
     enumerable: true,
     get: function () {
-      var f = this[kRecord].fragment;
+      var f = recordOf(this).fragment;
       return f === null || f === '' ? '' : '#' + f;
     },
     set: function (value) {
-      var url = this[kRecord];
-      var str = toUSVString(value);
+      var url = recordOf(this);
+      var str = toUSVString(value, 'URL', undefined, 'hash');
       if (str === '') {
         url.fragment = null;
         return;
@@ -1804,7 +1943,7 @@
     configurable: true,
     writable: true,
     value: function toString() {
-      return serializeURL(this[kRecord]);
+      return serializeURL(recordOf(this));
     },
   });
 
@@ -1812,7 +1951,7 @@
     configurable: true,
     writable: true,
     value: function toJSON() {
-      return serializeURL(this[kRecord]);
+      return serializeURL(recordOf(this));
     },
   });
 
@@ -1826,15 +1965,8 @@
     configurable: true,
     writable: true,
     value: function canParse(input, base) {
-      if (arguments.length === 0) {
-        throw new TypeError("Failed to execute 'canParse' on 'URL': 1 argument required.");
-      }
-      try {
-        parseURLOrThrow(input, base);
-        return true;
-      } catch {
-        return false;
-      }
+      if (arguments.length === 0) throw typeError('URL', 'canParse', argumentsRequired(1, 0));
+      return parseURLOrFailure(input, base, 'canParse') !== FAILURE;
     },
   });
 
@@ -1842,14 +1974,14 @@
     configurable: true,
     writable: true,
     value: function parse(input, base) {
-      if (arguments.length === 0) {
-        throw new TypeError("Failed to execute 'parse' on 'URL': 1 argument required.");
-      }
-      try {
-        return new URL(input, base);
-      } catch {
-        return null;
-      }
+      if (arguments.length === 0) throw typeError('URL', 'parse', argumentsRequired(1, 0));
+      var record = parseURLOrFailure(input, base, 'parse');
+      if (record === FAILURE) return null;
+      // The constructor's object without its second parse.
+      var url = ObjectCreate(URL.prototype);
+      url[kRecord] = record;
+      url[kSearchParams] = null;
+      return url;
     },
   });
 
