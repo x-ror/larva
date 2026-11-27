@@ -296,8 +296,8 @@ global_surface_alternates_on_one_thread :: proc(t: ^testing.T) {
 // the state outlives init and the counter can be read.
 @(test)
 global_surface_web_skips_stdio :: proc(t: ^testing.T) {
-	node_init, node_events, node_ok, _ := surface_resolve_compiles(.Node, "events")
-	web_init, web_events, web_ok, _ := surface_resolve_compiles(.Web, "events")
+	node_init, node_events, node_ok := surface_resolve_compiles(.Node, "events")
+	web_init, web_events, web_ok := surface_resolve_compiles(.Web, "events")
 	testing.expect(t, node_ok, "node: the builtin resolver did not answer 'events'")
 	testing.expect(t, web_ok, "web: the builtin resolver did not answer 'events'")
 
@@ -346,7 +346,7 @@ global_surface_web_loads_no_node_module :: proc(t: ^testing.T) {
 			// Not the temp allocator: surface_resolve_compiles frees it on return.
 			id := strings.concatenate({dir.prefix, "/", file.name[:len(file.name) - len(".js")]})
 			defer delete(id)
-			_, compiles, answered, _ := surface_resolve_compiles(.Web, id[len("node/"):])
+			_, compiles, answered := surface_resolve_compiles(.Web, id[len("node/"):])
 			loaded := answered && compiles == 0
 			allowed := false
 
@@ -377,48 +377,18 @@ global_surface_web_loads_no_node_module :: proc(t: ^testing.T) {
 @(private = "file")
 WEB_NODE_MODULES :: [?]string{}
 
-// A coded error raised on `.Web` does not load node:util: `.Web` must not instantiate a
-// node/ module (global_surface_web_loads_no_node_module), and internal/errors.js used to
-// reach node:util for its text. Lava-only: which factories ran is not observable from a
-// page.
-//
-// The trigger is `new Request()`'s ERR_INVALID_URL, a Node shape on the Window surface
-// until stage S4d/S4e. It used to be URL.createObjectURL's ERR_INVALID_ARG_TYPE, which
-// also took the inspect path (determineSpecificType) for its "Received …" tail; S4c
-// turned that into Chrome's TypeError, and no `.Web` entry point renders a received
-// value any more, so the inspect half of this check has nothing left to reach. Once no
-// web arm reaches internal/errors at all, delete the test.
-@(test)
-global_surface_web_coded_error_loads_no_node_util :: proc(t: ^testing.T) {
-	_, compiles, answered, prelude_ok := surface_resolve_compiles(
-		.Web,
-		"util",
-		`(() => { try { new Request(); return false; } catch (e) { return e.code === 'ERR_INVALID_URL'; } })()`,
-	)
-	testing.expect(t, prelude_ok, "prelude: new Request() did not raise the coded ERR_INVALID_URL")
-	testing.expect(t, answered, "the builtin resolver did not answer 'util'")
-	testing.expectf(
-		t,
-		compiles > 0,
-		"resolving util after the coded error compiled nothing — raising the error loaded node:util",
-	)
-}
-
-// surface_resolve_compiles inits a context on `surface`, evaluates `prelude` when one
-// is given, and returns how many builtin factories init and the prelude compiled, then
-// how many one resolve of `spec` compiled on top, whether the resolver answered it
-// with exports (false for an unknown or excluded id and for a factory that threw), and
-// whether the prelude completed with a truthy value (true when there is none).
+// surface_resolve_compiles inits a context on `surface` and returns how many builtin
+// factories init compiled, then how many one resolve of `spec` compiled on top, and
+// whether the resolver answered it with exports (false for an unknown or excluded id
+// and for a factory that threw).
 @(private = "file")
 surface_resolve_compiles :: proc(
 	surface: lava.Global_Surface,
 	spec: string,
-	prelude := "",
 ) -> (
 	at_init: int,
 	compiles: int,
 	answered: bool,
-	prelude_ok: bool,
 ) {
 	jsc.lava_jsc_init()
 	gclass := lava.make_global_class()
@@ -441,7 +411,6 @@ surface_resolve_compiles :: proc(
 	lava.setup_module_environment(ctx, "<global-surface-resolve-test>", nil, surface)
 	defer free_all(context.temp_allocator)
 
-	prelude_ok = prelude == "" || eval_truthy(ctx, prelude)
 	at_init = state.builtin_compiles
 	exception: jsc.JSValueRef
 	exports := lava.require_builtin(ctx, lava.js_string_value(ctx, spec), &exception)
