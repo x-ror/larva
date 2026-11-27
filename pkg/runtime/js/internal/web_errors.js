@@ -47,6 +47,18 @@
   }
 
   /**
+   * The prefix Blink puts on an error an attribute's setter throws.
+   * @param {string} iface
+   * @param {string} attr
+   * @returns {string} `Failed to set the 'href' property on 'Location': `
+   * @node n/a — Chrome 158, tests/web/cases/location-errors.expected.
+   * @deviates none
+   */
+  function setterContext(iface, attr) {
+    return "Failed to set the '" + attr + "' property on '" + iface + "': ";
+  }
+
+  /**
    * A WebIDL TypeError as Chrome throws it: plain TypeError, no `code`.
    * @param {string} iface
    * @param {string|undefined} op
@@ -303,6 +315,7 @@
     TypeError: TypeErrorP,
     RangeError: P.RangeError,
     context: context,
+    setterContext: setterContext,
     typeError: typeError,
     argumentsRequired: argumentsRequired,
     notOfType: notOfType,

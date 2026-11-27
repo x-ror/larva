@@ -1,0 +1,201 @@
+# exit 0
+== navigator
+global navigator accessor ec
+  get name="get navigator" length=0 own=[length,name] prototype=false ctor=false src="function get navigator() { [native code] }"
+  set undefined
+object [object Navigator] [[Prototype]] Navigator.prototype
+proto maxTouchPoints accessor ec
+  get name="get maxTouchPoints" length=0 own=[length,name] prototype=false ctor=false src="function get maxTouchPoints() { [native code] }"
+  set undefined
+proto doNotTrack accessor ec
+  get name="get doNotTrack" length=0 own=[length,name] prototype=false ctor=false src="function get doNotTrack() { [native code] }"
+  set undefined
+proto hardwareConcurrency accessor ec
+  get name="get hardwareConcurrency" length=0 own=[length,name] prototype=false ctor=false src="function get hardwareConcurrency() { [native code] }"
+  set undefined
+proto cookieEnabled accessor ec
+  get name="get cookieEnabled" length=0 own=[length,name] prototype=false ctor=false src="function get cookieEnabled() { [native code] }"
+  set undefined
+proto appCodeName accessor ec
+  get name="get appCodeName" length=0 own=[length,name] prototype=false ctor=false src="function get appCodeName() { [native code] }"
+  set undefined
+proto appName accessor ec
+  get name="get appName" length=0 own=[length,name] prototype=false ctor=false src="function get appName() { [native code] }"
+  set undefined
+proto appVersion accessor ec
+  get name="get appVersion" length=0 own=[length,name] prototype=false ctor=false src="function get appVersion() { [native code] }"
+  set undefined
+proto platform accessor ec
+  get name="get platform" length=0 own=[length,name] prototype=false ctor=false src="function get platform() { [native code] }"
+  set undefined
+proto product accessor ec
+  get name="get product" length=0 own=[length,name] prototype=false ctor=false src="function get product() { [native code] }"
+  set undefined
+proto productSub accessor ec
+  get name="get productSub" length=0 own=[length,name] prototype=false ctor=false src="function get productSub() { [native code] }"
+  set undefined
+proto userAgent accessor ec
+  get name="get userAgent" length=0 own=[length,name] prototype=false ctor=false src="function get userAgent() { [native code] }"
+  set undefined
+proto vendor accessor ec
+  get name="get vendor" length=0 own=[length,name] prototype=false ctor=false src="function get vendor() { [native code] }"
+  set undefined
+proto vendorSub accessor ec
+  get name="get vendorSub" length=0 own=[length,name] prototype=false ctor=false src="function get vendorSub() { [native code] }"
+  set undefined
+proto language accessor ec
+  get name="get language" length=0 own=[length,name] prototype=false ctor=false src="function get language() { [native code] }"
+  set undefined
+proto languages accessor ec
+  get name="get languages" length=0 own=[length,name] prototype=false ctor=false src="function get languages() { [native code] }"
+  set undefined
+proto onLine accessor ec
+  get name="get onLine" length=0 own=[length,name] prototype=false ctor=false src="function get onLine() { [native code] }"
+  set undefined
+proto webdriver accessor ec
+  get name="get webdriver" length=0 own=[length,name] prototype=false ctor=false src="function get webdriver() { [native code] }"
+  set undefined
+proto javaEnabled data ecw fn name="javaEnabled" length=0 own=[length,name] prototype=false ctor=false src="function javaEnabled() { [native code] }"
+proto constructor data -cw fn name="Navigator" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Navigator() { [native code] }"
+proto deviceMemory accessor ec
+  get name="get deviceMemory" length=0 own=[length,name] prototype=false ctor=false src="function get deviceMemory() { [native code] }"
+  set undefined
+proto [Symbol(Symbol.toStringTag)] data -c- string "Navigator"
+== Navigator
+global Navigator data -cw fn name="Navigator" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Navigator() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object Navigator]
+prototype [[Prototype]] Object.prototype
+proto maxTouchPoints accessor ec
+  get name="get maxTouchPoints" length=0 own=[length,name] prototype=false ctor=false src="function get maxTouchPoints() { [native code] }"
+  set undefined
+proto doNotTrack accessor ec
+  get name="get doNotTrack" length=0 own=[length,name] prototype=false ctor=false src="function get doNotTrack() { [native code] }"
+  set undefined
+proto hardwareConcurrency accessor ec
+  get name="get hardwareConcurrency" length=0 own=[length,name] prototype=false ctor=false src="function get hardwareConcurrency() { [native code] }"
+  set undefined
+proto cookieEnabled accessor ec
+  get name="get cookieEnabled" length=0 own=[length,name] prototype=false ctor=false src="function get cookieEnabled() { [native code] }"
+  set undefined
+proto appCodeName accessor ec
+  get name="get appCodeName" length=0 own=[length,name] prototype=false ctor=false src="function get appCodeName() { [native code] }"
+  set undefined
+proto appName accessor ec
+  get name="get appName" length=0 own=[length,name] prototype=false ctor=false src="function get appName() { [native code] }"
+  set undefined
+proto appVersion accessor ec
+  get name="get appVersion" length=0 own=[length,name] prototype=false ctor=false src="function get appVersion() { [native code] }"
+  set undefined
+proto platform accessor ec
+  get name="get platform" length=0 own=[length,name] prototype=false ctor=false src="function get platform() { [native code] }"
+  set undefined
+proto product accessor ec
+  get name="get product" length=0 own=[length,name] prototype=false ctor=false src="function get product() { [native code] }"
+  set undefined
+proto productSub accessor ec
+  get name="get productSub" length=0 own=[length,name] prototype=false ctor=false src="function get productSub() { [native code] }"
+  set undefined
+proto userAgent accessor ec
+  get name="get userAgent" length=0 own=[length,name] prototype=false ctor=false src="function get userAgent() { [native code] }"
+  set undefined
+proto vendor accessor ec
+  get name="get vendor" length=0 own=[length,name] prototype=false ctor=false src="function get vendor() { [native code] }"
+  set undefined
+proto vendorSub accessor ec
+  get name="get vendorSub" length=0 own=[length,name] prototype=false ctor=false src="function get vendorSub() { [native code] }"
+  set undefined
+proto language accessor ec
+  get name="get language" length=0 own=[length,name] prototype=false ctor=false src="function get language() { [native code] }"
+  set undefined
+proto languages accessor ec
+  get name="get languages" length=0 own=[length,name] prototype=false ctor=false src="function get languages() { [native code] }"
+  set undefined
+proto onLine accessor ec
+  get name="get onLine" length=0 own=[length,name] prototype=false ctor=false src="function get onLine() { [native code] }"
+  set undefined
+proto webdriver accessor ec
+  get name="get webdriver" length=0 own=[length,name] prototype=false ctor=false src="function get webdriver() { [native code] }"
+  set undefined
+proto javaEnabled data ecw fn name="javaEnabled" length=0 own=[length,name] prototype=false ctor=false src="function javaEnabled() { [native code] }"
+proto constructor data -cw fn name="Navigator" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Navigator() { [native code] }"
+proto deviceMemory accessor ec
+  get name="get deviceMemory" length=0 own=[length,name] prototype=false ctor=false src="function get deviceMemory() { [native code] }"
+  set undefined
+proto [Symbol(Symbol.toStringTag)] data -c- string "Navigator"
+== screen
+global screen accessor ec
+  get name="get screen" length=0 own=[length,name] prototype=false ctor=false src="function get screen() { [native code] }"
+  set name="set screen" length=1 own=[length,name] prototype=false ctor=false src="function set screen() { [native code] }"
+object [object Screen] [[Prototype]] Screen.prototype
+proto availWidth accessor ec
+  get name="get availWidth" length=0 own=[length,name] prototype=false ctor=false src="function get availWidth() { [native code] }"
+  set undefined
+proto availHeight accessor ec
+  get name="get availHeight" length=0 own=[length,name] prototype=false ctor=false src="function get availHeight() { [native code] }"
+  set undefined
+proto width accessor ec
+  get name="get width" length=0 own=[length,name] prototype=false ctor=false src="function get width() { [native code] }"
+  set undefined
+proto height accessor ec
+  get name="get height" length=0 own=[length,name] prototype=false ctor=false src="function get height() { [native code] }"
+  set undefined
+proto colorDepth accessor ec
+  get name="get colorDepth" length=0 own=[length,name] prototype=false ctor=false src="function get colorDepth() { [native code] }"
+  set undefined
+proto pixelDepth accessor ec
+  get name="get pixelDepth" length=0 own=[length,name] prototype=false ctor=false src="function get pixelDepth() { [native code] }"
+  set undefined
+proto availLeft accessor ec
+  get name="get availLeft" length=0 own=[length,name] prototype=false ctor=false src="function get availLeft() { [native code] }"
+  set undefined
+proto availTop accessor ec
+  get name="get availTop" length=0 own=[length,name] prototype=false ctor=false src="function get availTop() { [native code] }"
+  set undefined
+proto constructor data -cw fn name="Screen" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Screen() { [native code] }"
+proto onchange accessor ec
+  get name="get onchange" length=0 own=[length,name] prototype=false ctor=false src="function get onchange() { [native code] }"
+  set name="set onchange" length=1 own=[length,name] prototype=false ctor=false src="function set onchange() { [native code] }"
+proto isExtended accessor ec
+  get name="get isExtended" length=0 own=[length,name] prototype=false ctor=false src="function get isExtended() { [native code] }"
+  set undefined
+proto [Symbol(Symbol.toStringTag)] data -c- string "Screen"
+== Screen
+global Screen data -cw fn name="Screen" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Screen() { [native code] }"
+[[Prototype]] function EventTarget
+call: TypeError: Illegal constructor
+static prototype data --- object [object Screen]
+prototype [[Prototype]] EventTarget.prototype
+proto availWidth accessor ec
+  get name="get availWidth" length=0 own=[length,name] prototype=false ctor=false src="function get availWidth() { [native code] }"
+  set undefined
+proto availHeight accessor ec
+  get name="get availHeight" length=0 own=[length,name] prototype=false ctor=false src="function get availHeight() { [native code] }"
+  set undefined
+proto width accessor ec
+  get name="get width" length=0 own=[length,name] prototype=false ctor=false src="function get width() { [native code] }"
+  set undefined
+proto height accessor ec
+  get name="get height" length=0 own=[length,name] prototype=false ctor=false src="function get height() { [native code] }"
+  set undefined
+proto colorDepth accessor ec
+  get name="get colorDepth" length=0 own=[length,name] prototype=false ctor=false src="function get colorDepth() { [native code] }"
+  set undefined
+proto pixelDepth accessor ec
+  get name="get pixelDepth" length=0 own=[length,name] prototype=false ctor=false src="function get pixelDepth() { [native code] }"
+  set undefined
+proto availLeft accessor ec
+  get name="get availLeft" length=0 own=[length,name] prototype=false ctor=false src="function get availLeft() { [native code] }"
+  set undefined
+proto availTop accessor ec
+  get name="get availTop" length=0 own=[length,name] prototype=false ctor=false src="function get availTop() { [native code] }"
+  set undefined
+proto constructor data -cw fn name="Screen" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Screen() { [native code] }"
+proto onchange accessor ec
+  get name="get onchange" length=0 own=[length,name] prototype=false ctor=false src="function get onchange() { [native code] }"
+  set name="set onchange" length=1 own=[length,name] prototype=false ctor=false src="function set onchange() { [native code] }"
+proto isExtended accessor ec
+  get name="get isExtended" length=0 own=[length,name] prototype=false ctor=false src="function get isExtended() { [native code] }"
+  set undefined
+proto [Symbol(Symbol.toStringTag)] data -c- string "Screen"

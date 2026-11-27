@@ -1,0 +1,38 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs location-basic
+# ---
+href ORIGIN/page/location-basic
+origin ORIGIN
+protocol http:
+host true
+hostname 127.0.0.1
+port true
+pathname /page/location-basic
+search ""
+hash ""
+toString ORIGIN/page/location-basic
+String ORIGIN/page/location-basic ORIGIN/page/location-basic ORIGIN/page/location-basic
+valueOf true true
+same object true
+same function true true
+own keys valueOf,ancestorOrigins,href,origin,protocol,host,hostname,port,pathname,search,hash,assign,reload,replace,toString,Symbol(Symbol.toPrimitive)
+prototype keys constructor,Symbol(Symbol.toStringTag)
+extensible true
+expando 1 true
+redefine href TypeError
+delete href false string
+redefine toString TypeError
+delete toString false function
+strict write TypeError
+ancestorOrigins [object DOMStringList] 0 true
+item null null contains false
+iterate 0 true
+new Location TypeError: Failed to construct 'Location': Illegal constructor
+Location() TypeError: Illegal constructor
+new DOMStringList TypeError: Failed to construct 'DOMStringList': Illegal constructor
+instanceof true true
+global ["get","set","enumerable","configurable"]
+after delete object true

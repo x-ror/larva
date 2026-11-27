@@ -65,6 +65,23 @@ export const FAMILIES = {
     'PerformanceMeasure',
   ],
   console: ['console'],
+  location: ['location', 'Location', 'history', 'History', 'DOMStringList'],
+  navigator: ['navigator', 'Navigator', 'screen', 'Screen'],
+  viewport: [
+    'innerWidth',
+    'innerHeight',
+    'scrollX',
+    'pageXOffset',
+    'scrollY',
+    'pageYOffset',
+    'screenX',
+    'screenY',
+    'outerWidth',
+    'outerHeight',
+    'devicePixelRatio',
+    'screenLeft',
+    'screenTop',
+  ],
 };
 
 // Chrome globals of the families above that Larva does not install (Chrome 158).
@@ -79,6 +96,9 @@ export const MISSING = [
   'SubtleCrypto',
   'CryptoKey',
   'reportError',
+  'ScreenOrientation',
+  'PopStateEvent',
+  'HashChangeEvent',
 ];
 
 // The printer every case shares. Page code, so plain JS; it reads through captured

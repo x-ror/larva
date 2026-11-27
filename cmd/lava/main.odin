@@ -56,8 +56,9 @@ Usage:
   lava eval <source>    Evaluate a classic script with the Window globals
   lava run [--origin=<origin>] <file>
                         Run a classic script file with the Window globals;
-                        --origin sets the page origin object URLs are minted
-                        under (default: opaque, blob:null/<uuid>)
+                        --origin sets the page's URL (location) and the origin
+                        object URLs are minted under (default: about:blank,
+                        opaque, blob:null/<uuid>)
   lava html [--scripts] [--chunk N] [--select CSS] [--tree|--serialize]
             [--fragment CTX] [--sniff|--charset LABEL] <file|->
                         Parse HTML and print the serialized document (or its

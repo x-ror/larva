@@ -1,0 +1,34 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs history-state
+# ---
+start ORIGIN/page/history-state len+0 state null auto
+push ORIGIN/p/two?q=1#h len+1
+state clone false true {"a":1,"nested":[1,2]}
+fields /p/two ?q=1 #h
+replace ORIGIN/p/three len+1 {"b":2}
+push no url ORIGIN/p/three len+2 null
+push undefined url ORIGIN/p/three len+3 7
+push null url ORIGIN/p/three len+4 s
+replace query ORIGIN/p/three?only=query len+4 undefined
+replace absolute ORIGIN/p/abs len+4
+scrollRestoration manual
+scrollRestoration bogus manual
+scrollRestoration carried manual ORIGIN/p/abs#carried len+5
+hash while loading ORIGIN/p/abs#loading len+5 #loading
+same hash ORIGIN/p/abs#loading len+5
+empty hash ORIGIN/p/abs# len+5 ""
+hash after load ORIGIN/p/abs#one len+6
+assign fragment ORIGIN/p/abs#two len+7
+assign same url ORIGIN/p/abs#two len+7
+replace fragment ORIGIN/p/abs#three len+7
+href fragment ORIGIN/p/abs#four len+8
+same hash ORIGIN/p/abs#four len+8
+back is queued ORIGIN/p/abs#four len+8
+after back ORIGIN/p/abs#three len+8 null
+after go(-2) ORIGIN/p/abs# len+8 null
+after forward ORIGIN/p/abs#one len+8 null
+push drops forward entries ORIGIN/p/fresh len+7
+forward past the end ORIGIN/p/fresh len+7 fresh
