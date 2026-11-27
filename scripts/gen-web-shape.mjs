@@ -28,7 +28,7 @@ export const CASES_DIR = join(ROOT, 'tests/web/cases');
 export const FAMILIES = {
   url: ['URL', 'URLSearchParams'],
   encoding: ['TextEncoder', 'TextDecoder'],
-  fetch: ['fetch', 'Headers', 'Request', 'Response'],
+  fetch: ['fetch', 'Headers', 'Request', 'Response', 'FormData'],
   blob: ['Blob', 'File'],
   streams: [
     'ReadableStream',
@@ -71,7 +71,6 @@ export const FAMILIES = {
 export const MISSING = [
   'TextEncoderStream',
   'TextDecoderStream',
-  'FormData',
   'FileReader',
   'ReadableByteStreamController',
   'ReadableStreamBYOBRequest',

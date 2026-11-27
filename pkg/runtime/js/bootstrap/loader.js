@@ -77,6 +77,8 @@
   // Named here because they install the Blob/File/atob/btoa globals and the URL statics.
   req('internal/blob');
   req('internal/file');
+  // FormData, whose entries hold Files.
+  req('internal/formdata');
   req('internal/base64');
   req('internal/webstreams/index');
   req('internal/fetch');

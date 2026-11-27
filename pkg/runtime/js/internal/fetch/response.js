@@ -30,6 +30,7 @@
   var initBody = bodyModule.initBody;
   var bodyUsedOf = bodyModule.bodyUsedOf;
   var extractContentType = bodyModule.extractContentType;
+  var extractFormData = bodyModule.extractFormData;
 
   var webErrors = require('internal/web_errors');
   var context = webErrors.context;
@@ -132,6 +133,8 @@
 
       var headers = new Headers();
       if (headersInit !== undefined) fillHeaders(headers, headersInit, ctx);
+      var form = extractFormData(body);
+      if (form !== null) body = form.bytes;
       if (body !== undefined && body !== null) {
         if (ArrayPrototypeIncludes(NULL_BODY_STATUSES, status)) {
           throw responseError(TypeErrorP, ctx, 'Response with null body status cannot have body');
@@ -139,7 +142,12 @@
 
         // Response.json's body is typed application/json, any other the way the fetch
         // standard's "extract a body" types it.
-        var type = via === JSON_VIA ? 'application/json' : extractContentType(body);
+        var type =
+          via === JSON_VIA
+            ? 'application/json'
+            : form !== null
+              ? form.type
+              : extractContentType(body);
         if (type !== null && getRaw(headers, 'content-type') === null) {
           appendRaw(headers, 'content-type', type);
         }

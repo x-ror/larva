@@ -2008,5 +2008,7 @@
   module.exports = {
     URL: PublicURL,
     URLSearchParams: PublicURLSearchParams,
+    // For Body.formData() on an application/x-www-form-urlencoded body (internal/formdata).
+    formUrlencodedParse: formUrlencodedParse,
   };
 });

@@ -107,6 +107,12 @@
     "accessor": 0,
     "global": 0
   },
+  "internal/formdata.js": {
+    "method": 0,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 0
+  },
   "internal/idna.js": {
     "method": 4,
     "invoke": 0,

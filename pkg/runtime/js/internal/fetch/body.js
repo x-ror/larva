@@ -106,6 +106,13 @@
     return require('internal/blob').isBlob(value);
   }
 
+  // A FormData body's multipart bytes and Content-Type, or null for any other body.
+  // Request and Response extract it before anything else looks at the body: the
+  // boundary in the type must be the one in the bytes.
+  function extractFormData(body) {
+    return require('internal/formdata').extractFormData(body);
+  }
+
   function isURLSearchParams(value) {
     return value instanceof require('internal/url').URLSearchParams;
   }
@@ -391,8 +398,7 @@
    *   `… body stream is locked` for an unusable body.
    * @node Chrome 158 (tests/web/cases/fetch-webidl): the rejections, their text and
    *   their order.
-   * @deviates formData() and textStream() are absent (no FormData in Larva;
-   *   shape-fetch's known gap).
+   * @deviates textStream() is absent (shape-fetch's known gap).
    */
   function defineBody(proto, iface) {
     var members = {
@@ -426,6 +432,15 @@
           });
         });
       },
+      // The body parsed by its Content-Type (internal/formdata parseBody).
+      formData() {
+        var state = stateOf(this, iface);
+        if (state === undefined) return rejectReceiver(iface, 'formData');
+        var type = require('internal/fetch/headers').getRaw(state.headers, 'content-type');
+        return consume(state, 'formData', function (bytes) {
+          return require('internal/formdata').parseBody(bytes, type);
+        });
+      },
       bytes() {
         var state = stateOf(this, iface);
         if (state === undefined) return rejectReceiver(iface, 'bytes');
@@ -454,6 +469,7 @@
     initBody: initBody,
     defineBody: defineBody,
     extractContentType: extractContentType,
+    extractFormData: extractFormData,
     isStreamLikeBody: isStreamLikeBody,
     isBlob: isBlob,
     bodyStreamOf: bodyStreamOf,

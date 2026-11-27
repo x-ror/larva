@@ -3,7 +3,6 @@
 for (const name of [
   'TextEncoderStream',
   'TextDecoderStream',
-  'FormData',
   'FileReader',
   'ReadableByteStreamController',
   'ReadableStreamBYOBRequest',

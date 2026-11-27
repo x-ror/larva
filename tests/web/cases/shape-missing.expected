@@ -6,7 +6,6 @@
 # ---
 TextEncoderStream function
 TextDecoderStream function
-FormData function
 FileReader function
 ReadableByteStreamController function
 ReadableStreamBYOBRequest function

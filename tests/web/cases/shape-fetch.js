@@ -121,3 +121,4 @@ shape('fetch');
 shape('Headers');
 shape('Request');
 shape('Response');
+shape('FormData');

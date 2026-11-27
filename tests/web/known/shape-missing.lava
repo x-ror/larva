@@ -1,7 +1,6 @@
 # exit 0
 TextEncoderStream undefined
 TextDecoderStream undefined
-FormData undefined
 FileReader undefined
 ReadableByteStreamController undefined
 ReadableStreamBYOBRequest undefined
