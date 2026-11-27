@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head><title>load</title></head>
+<body>
+<pre id="log"></pre>
+<script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function name(n) {
+  return n === window ? 'window' : n === document ? 'document' : n === null ? 'null' : n.nodeName;
+}
+log('script ' + document.readyState + ' ' + typeof document.readyState);
+document.addEventListener('readystatechange', function (e) {
+  log('readystatechange ' + document.readyState + ' ' + e.isTrusted + ' ' + e.bubbles + ' ' + e.cancelable + ' ' +
+    e.eventPhase + ' ' + name(e.target));
+});
+window.addEventListener('readystatechange', function () {
+  log('window readystatechange ' + document.readyState);
+});
+document.addEventListener('DOMContentLoaded', function (e) {
+  log('DOMContentLoaded ' + document.readyState + ' ' + e.bubbles + ' ' + e.cancelable);
+  Promise.resolve().then(function () { log('microtask after DOMContentLoaded ' + document.readyState); });
+});
+window.addEventListener('load', function (e) {
+  log('load ' + document.readyState + ' ' + e.isTrusted + ' ' + e.bubbles + ' ' + e.cancelable + ' ' + e.eventPhase +
+    ' target=' + name(e.target) + ' current=' + name(e.currentTarget) + ' path=' + e.composedPath().map(name).join(',') +
+    ' ' + (e instanceof Event) + ' ' + Object.prototype.toString.call(e));
+  Promise.resolve().then(function () { log('microtask after load'); });
+});
+window.addEventListener('load', function (e) {
+  log('load capture ' + e.eventPhase);
+}, true);
+document.addEventListener('load', function () { log('document load (never)'); }, true);
+document.addEventListener('load', function () { log('document load bubble (never)'); });
+document.body.addEventListener('load', function () { log('body load (never)'); });
+window.onload = function (e) {
+  log('onload ' + (this === window) + ' ' + e.type);
+};
+log('onload property ' + typeof window.onload);
+window.onload = function (e) {
+  log('onload replaced ' + e.type);
+};
+log('end of script ' + document.readyState);
+</script>
+<script>
+log('second script ' + document.readyState);
+</script>
+</body>
+</html>
