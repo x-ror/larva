@@ -131,10 +131,8 @@ typedef struct {
 	size_t value;
 } larva_html_layout_entry;
 
-#define LARVA_OFF(key, type, field)                                                                                    \
-	{ key, offsetof(type, field) }
-#define LARVA_VAL(key, v)                                                                                              \
-	{ key, (size_t)(v) }
+#define LARVA_OFF(key, type, field) {key, offsetof(type, field)}
+#define LARVA_VAL(key, v) {key, (size_t)(v)}
 
 static const larva_html_layout_entry larva_layout[] = {
 	LARVA_VAL("node.size", sizeof(lxb_dom_node_t)),
