@@ -297,15 +297,13 @@ host_dispatch_fail :: #force_no_inline proc "c" (ctx: jsc.JSContextRef, why: str
 //   unavailable or the registry declined, and the caller must fall back to
 //   JSObjectMakeFunctionWithCallback (inject_native_function already does).
 // Node:
-//   `.length` is observable only for the natives injected as globals —
-//   setTimeout/setInterval report 2, the rest 1 (node 26.13.0, verified by
-//   tests/node-compat/cases/56-native-function-arity.js).
+//   `.length` is observable only for the natives injected as globals — Chrome's
+//   lengths (tests/web/cases/shape-operations).
 // Deviates:
 //   The C-API fallback reports 0 and cannot carry an arity through the public
-//   API; analysis at inject_native_function (require.odin). Pinned by
-//   tests/node-compat/cases/56-native-function-arity.js in the default
-//   configuration, and by host_native_create_declines_without_state for the
-//   fallback value itself.
+//   API; analysis at inject_native_function (below). Pinned by
+//   tests/web/cases/shape-operations in the default configuration, and by
+//   host_native_create_declines_without_state for the fallback value itself.
 //
 // `arity` is part of the cache key only indirectly: the key is (ctx, cb, name),
 // and a given callback is always injected under one name with one arity, so two
@@ -422,4 +420,79 @@ host_natives_release_context :: proc(ctx: jsc.JSContextRef, alloc: mem.Allocator
 		// hash a freed string.
 		delete(key.name, alloc)
 	}
+}
+
+// inject_native_function attaches a native function to `object`, preferring
+// JSC's internal host-call convention (no per-call lock drop or argument
+// re-marshaling): an explicitly supplied `host` wrapper is used directly;
+// otherwise the callback goes through the generic callee-keyed trampoline
+// (host_natives.odin), which also caches — repeated injections of the same
+// callback (fs.Stats methods, per-instance handles) share one function object.
+// When the host path is unavailable the portable C-API callback is used.
+// `arity` is the function's `.length`. It defaults to 1 because that is right for
+// almost every `native.*` binding, which JS-internal code reaches through the
+// factory's fourth argument where `.length` is unobservable. It matters for the
+// few natives injected onto globalThis (setTimeout & co, globals.odin), where
+// `.length` IS user-visible and Node is the oracle.
+//
+// THE TWO CREATION PATHS ARE NOT OBSERVABLY EQUIVALENT, which earlier comments
+// left the reader to assume. Measured on setTimeout (2026-07-28; node row re-probed
+// 2026-11-16):
+//
+//	host path (jsc.host_function_create): .length == arity, constructible
+//	C-API fallback:                       .length == 0,     `new` throws TypeError
+//	node 26.13.0:                         .length == 2,     constructible
+//
+// "Constructible" on the host path is itself only half of Node: create_raw
+// reuses the call callback as the constructor slot, so `new setTimeout(fn)`
+// evaluates to the CALL result — undefined, where Node (like any ordinary
+// function) yields an object. Nothing observed in the wild constructs timers;
+// recorded and pinned (host_native_construct_returns_call_result,
+// cmd/lava/host_native_registry_test.odin), not repaired.
+//
+// Neither difference is repairable from the public C API. JSObjectSetProperty
+// routes through defineOwnProperty only when the property is ABSENT, and it tests
+// that with hasProperty, which walks the prototype chain — `length` is inherited
+// from Function.prototype, so the call always degrades to a [[Set]] against a
+// writable:false slot and silently no-ops (deleting the own copy first does not
+// help, for the same reason). Fixing it needs a JS-level defineProperty, i.e.
+// evaluating script during global installation, which is not worth it for a path
+// taken only when the private ABI is missing.
+//
+// So the divergence is pinned instead of papered over:
+// tests/web/cases/shape-operations asserts Chrome's lengths in the DEFAULT
+// configuration. A JSC upgrade that renamed the mangled symbol
+// pkg/jsc dlsyms silently demotes every native to the fallback — that case is
+// what turns it into a loud failure rather than a `.length` that quietly became 0.
+inject_native_function :: proc(
+	ctx: jsc.JSContextRef,
+	object: jsc.JSObjectRef,
+	name: string,
+	callback: jsc.JSObjectCallAsFunctionCallback,
+	host: jsc.Host_Function_Proc = nil,
+	arity: int = 1,
+	constructible := true,
+) {
+	c_name, err := strings.clone_to_cstring(name, context.temp_allocator)
+
+	if err != nil {
+		return
+	}
+
+	js_name := jsc.JSStringCreateWithUTF8CString(c_name)
+	defer jsc.JSStringRelease(js_name)
+
+	fn: jsc.JSObjectRef
+
+	if host != nil {
+		fn, _ = jsc.host_function_create(ctx, name, host, arity, constructible = constructible)
+	} else {
+		fn = host_native_create(ctx, name, callback, arity, constructible = constructible)
+	}
+
+	if fn == nil {
+		fn = jsc.JSObjectMakeFunctionWithCallback(ctx, js_name, callback)
+	}
+
+	jsc.JSObjectSetProperty(ctx, object, js_name, cast(jsc.JSValueRef)fn, {}, nil)
 }

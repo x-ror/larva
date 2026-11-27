@@ -21,8 +21,8 @@ observed. `ORIGIN` is the fixture server's origin (`/fx/text`, `/fx/json`,
 paths relative to it, never the port.
 
 - **No Node names**: no `require`, `process`, `Buffer`. Lava runs the case with
-  `lava run --surface=web`, which does not define them, and the `globals-window`
-  case pins that against Chrome.
+  `lava run`, which does not define them, and the `globals-window` case pins that
+  against Chrome.
 - **No `'use strict'` directive** at the top: Lava's one-line prelude goes in
   front of the case's first line (so stack line numbers match Chrome's), and that
   would turn the directive into a plain expression. Put strict code in a function.

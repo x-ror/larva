@@ -233,13 +233,13 @@ function ratchetSandbox() {
   return { root, cli: join(root, 'scripts', 'check-primordials.mjs') };
 }
 
-// One pollutable method call added to a lazy module must fail the CLI and name the
+// One pollutable method call added to a scanned module must fail the CLI and name the
 // file. A CLI that echoes the baseline instead of scanning, or never runs compare(),
 // exits 0 with its OK line here.
 test('ratchet CLI fails and names the file when a scanned module gains a site', () => {
   const { root, cli } = ratchetSandbox();
   try {
-    const key = 'node/querystring.js';
+    const key = 'internal/punycode.js';
     const base = JSON.parse(
       readFileSync(join(root, 'tests', 'node-compat', 'pollution-baseline.json'), 'utf8'),
     )[key].method;

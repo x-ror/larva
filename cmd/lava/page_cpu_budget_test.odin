@@ -251,25 +251,6 @@ cpu_budget_kills_many_timers_in_one_tick :: proc(t: ^testing.T) {
 	testing.expectf(t, spent < 1.0, "one tick ran %.3fs of CPU past a 0.2s budget", spent)
 }
 
-// A nextTick/promise ping-pong never returns from the nextTick drain, so the loop
-// never reaches a tick boundary; each drain pass is charged instead.
-@(test)
-cpu_budget_kills_a_next_tick_ping_pong :: proc(t: ^testing.T) {
-	src := `
-	function f() {
-		const s = Date.now(); while (Date.now() - s < 2) {}
-		process.nextTick(() => Promise.resolve().then(f));
-	}
-	setTimeout(f, 0);
-	`
-	before := thread_cpu_seconds()
-	result := eval_limited(src, {cpu_budget = 0.2})
-	defer lava.result_destroy(&result)
-	spent := thread_cpu_seconds() - before
-	testing.expect_value(t, result.kill, lava.Kill_Reason.Cpu_Budget)
-	testing.expectf(t, spent < 1.0, "ping-pong ran %.3fs of CPU past a 0.2s budget", spent)
-}
-
 // A kill must latch. After the watchdog cuts an entry, JSC still drains the promise
 // jobs queued before the cut as that entry returns, and the next nextTick drain pass
 // is a fresh entry: each used to get a fresh window of the armed limit, so a page

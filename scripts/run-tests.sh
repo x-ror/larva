@@ -1,13 +1,10 @@
 #!/usr/bin/env sh
 set -eu
 
-# One entry point for the regular test suite. It runs Odin unit tests first, then
-# the JS oracle suites. Set RUN_LAVA=1 to compare each oracle case through Lava;
-# set INCLUDE_FETCH_SMOKE=1 to include the socket/TLS fetch smoke.
+# One entry point for the regular Odin test suite. The Chrome-recorded oracles
+# (`make test-web`, `make test-dom`) need bin/lava and run as their own targets.
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 ODIN=${ODIN:-odin}
-RUN_LAVA=${RUN_LAVA:-0}
-INCLUDE_FETCH_SMOKE=${INCLUDE_FETCH_SMOKE:-0}
 
 case "$(uname -s)" in
 	MINGW* | MSYS* | CYGWIN*) is_windows=1 ;;
@@ -44,22 +41,6 @@ else
 		export LIB="$(cygpath -w "$ROOT_DIR/build");${LIB:-}"
 	fi
 	"$ODIN" test "$ROOT_DIR/pkg/std/sqlite"
-fi
-
-printf '%s\n' '== Oracle suites =='
-if [ "$RUN_LAVA" = 1 ]; then
-	RUN_LAVA=1 "$ROOT_DIR/scripts/run-oracles.sh"
-else
-	# shellcheck source=lib/parallel-suites.sh
-	. "$ROOT_DIR/scripts/lib/parallel-suites.sh"
-	suite node-compat "$ROOT_DIR/scripts/run-node-compat-all.sh"
-	suite eventloop "$ROOT_DIR/scripts/run-eventloop-oracle.sh"
-	run_suites || exit 1
-fi
-
-if [ "$INCLUDE_FETCH_SMOKE" = 1 ]; then
-	printf '%s\n' '== Fetch smoke =='
-	"$ROOT_DIR/scripts/run-fetch-smoke.sh"
 fi
 
 printf '%s\n' 'all tests passed'

@@ -13,10 +13,9 @@ VERSION :: "0.1.0-dev"
 
 // Run_Options are what `lava run` reads before the script path.
 Run_Options :: struct {
-	surface: lava_runtime.Global_Surface,
 	// The page's origin, as `--origin=` gave it; "" when absent (an opaque origin).
 	// Aliases `args`.
-	origin:  string,
+	origin: string,
 }
 
 main :: proc() {
@@ -52,10 +51,9 @@ print_help :: proc() {
 		`Lava - an Odin and JavaScriptCore runtime toolkit
 
 Usage:
-  lava eval <source>    Evaluate JavaScript source
-  lava run [--surface=web] [--origin=<origin>] <file>
-                        Run a JavaScript file; --surface=web exposes only the
-                        Window-profile globals (no require/process/Buffer);
+  lava eval <source>    Evaluate a classic script with the Window globals
+  lava run [--origin=<origin>] <file>
+                        Run a classic script file with the Window globals;
                         --origin sets the page origin object URLs are minted
                         under (default: opaque, blob:null/<uuid>)
   lava html [--scripts] [--chunk N] [--select CSS] [--tree|--serialize]
@@ -93,63 +91,45 @@ eval_command :: proc(args: []string) {
 	os.exit(exit_code)
 }
 
-// parse_run_args splits `lava run`'s argv into its options and
-// [scriptPath, ...userArgs].
+// parse_run_args splits `lava run`'s argv into its options and [scriptPath, ...].
 //
 // Returns:
-//   `.Node` unless `--surface=web` selects `.Web`; the `--origin=` value, or "".
-//   Either flag may come first, each at most once. `rest` aliases `args`. A non-empty
-//   `err` is a usage error (exit 2): an unknown `--surface=` value, an empty or
-//   repeated flag, or no script path after the flags.
-// Node:
-//   No counterpart. Options are read only BEFORE the script path; everything after
-//   it reaches the script untouched, as `node file --x` hands `--x` to the script.
+//   The `--origin=` value, or "". The flag may come at most once, before the script
+//   path. `rest` aliases `args`. A non-empty `err` is a usage error (exit 2): an empty
+//   or repeated flag, or no script path after the flags.
 // Deviates:
-//   Lava-only. `--surface` is temporary: it lets `make test-web` (tests/web) run a
-//   case with exactly the Window-profile globals until the Node surface is deleted,
-//   at which point the flag goes with it; `--surface=node` is the explicit default.
-//   `--origin` stands in for the page URL a page will have from stage 4 (location):
-//   object URLs are minted as `blob:<origin>/<uuid>`, and without it as Chrome does
-//   for an opaque origin, `blob:null/<uuid>`. Pinned by
-//   cmd/lava/run_surface_flag_test.odin and, against Chrome, by tests/web/cases
-//   globals-window.js and blob-object-url.js.
+//   Lava-only. `--origin` stands in for the page URL a page will have from stage 4
+//   (location): object URLs are minted as `blob:<origin>/<uuid>`, and without it as
+//   Chrome does for an opaque origin, `blob:null/<uuid>`. Anything after the script
+//   path is ignored: a page has no argv. Pinned by cmd/lava/run_surface_flag_test.odin
+//   and, against Chrome, by tests/web/cases blob-object-url.js.
 parse_run_args :: proc(args: []string) -> (opts: Run_Options, rest: []string, err: string) {
 	rest = args
-	seen_surface, seen_origin := false, false
+	seen_origin := false
 
 	for len(rest) > 0 {
 		arg := rest[0]
 
-		if strings.has_prefix(arg, "--surface=") && !seen_surface {
-			switch arg[len("--surface="):] {
-			case "web":
-				opts.surface = .Web
-			case "node":
-				opts.surface = .Node
-			case:
-				return {}, nil, "unknown --surface value (expected web or node)"
-			}
-
-			seen_surface = true
-		} else if strings.has_prefix(arg, "--origin=") && !seen_origin {
-			opts.origin = arg[len("--origin="):]
-
-			if opts.origin == "" {
-				return {}, nil, "--origin wants a value (an origin or a URL)"
-			}
-
-			seen_origin = true
-		} else if strings.has_prefix(arg, "--surface=") || strings.has_prefix(arg, "--origin=") {
-			return {}, nil, "lava run: a flag was given twice"
-		} else {
+		if !strings.has_prefix(arg, "--origin=") {
 			break
 		}
 
+		if seen_origin {
+			return {}, nil, "lava run: a flag was given twice"
+		}
+
+		opts.origin = arg[len("--origin="):]
+
+		if opts.origin == "" {
+			return {}, nil, "--origin wants a value (an origin or a URL)"
+		}
+
+		seen_origin = true
 		rest = rest[1:]
 	}
 
 	if len(rest) < 1 {
-		return {}, nil, "usage: lava run [--surface=web] [--origin=<origin>] <file>"
+		return {}, nil, "usage: lava run [--origin=<origin>] <file>"
 	}
 
 	return opts, rest, ""
@@ -171,25 +151,16 @@ run_command :: proc(raw_args: []string) {
 	}
 
 	loop := eventloop.init(real_time = true)
-	// args is [scriptPath, ...userArgs]; everything after the script is forwarded to
-	// process.argv.slice(2) (Node parity).
 	// run_file forwards to eval, which tears the loop down before releasing its JS
 	// context and reports through print_result before that teardown (see eval_command).
-	result := lava_runtime.run_file(
-		args[0],
-		&loop,
-		args[1:],
-		report = print_result,
-		surface = opts.surface,
-		origin = opts.origin,
-	)
+	result := lava_runtime.run_file(args[0], &loop, report = print_result, origin = opts.origin)
 	exit_code := result.exit_code
 	lava_runtime.result_destroy(&result)
 	os.exit(exit_code)
 }
 
 // workers_env_error refuses a LAVA_WORKERS value that asks for more than the one page
-// `lava run` now runs. The variable selected Lava's multi-worker supervisor, deleted with
+// `lava run` runs. The variable selected Lava's multi-worker supervisor, deleted with
 // the Node profile (S3); ignoring it would silently run one page where N were asked for,
 // so anything but unset, empty or "1" — what it always meant by the single-page run — is
 // a usage error (exit 2), as an invalid value was before. Returns "" when allowed.

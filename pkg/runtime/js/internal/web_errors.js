@@ -1,25 +1,12 @@
 /**
- * @fileoverview The ONE place shared Web API code takes its error text from: which
- * surface the context runs (docs/LARVA.md decision 1) and the wording each surface's
- * oracle uses (CLAUDE.md §5 "Errors follow the profile").
+ * @fileoverview The ONE place shared Web API code takes its error text from (CLAUDE.md
+ * §5 "Errors follow the profile").
  *
- * On the Window surface a page's errors are what Chrome throws: a plain TypeError /
- * RangeError or a DOMException, no `code` own property, and Blink's WebIDL text —
- * "Failed to execute 'getRandomValues' on 'Crypto': parameter 1 is not of type
- * 'ArrayBufferView'." The builders below produce that text; a shared module never
- * spells "Failed to execute" itself, so the wording lives in one file and changes in
- * one file. On the Node surface the same module keeps node's text, which is what
- * `web` is for: a call site picks between the two strings, and the node arm is deleted
- * with the Node surface (stage S5b of the removal plan) rather than abstracted over
- * now — the two oracles disagree per call site, not per template, so a table keyed by
- * message would only move the per-site choice somewhere harder to read.
- *
- * Node's coded errors stay in internal/errors.js and must not be reached from a web
- * arm: a page never sees an `ERR_*` code (tests/web/cases/*-errors.js print `own code`).
- *
- * `profile` is the fourth factory argument, handed in by bootstrap/loader.js as a
- * frozen `{ web }` — set from Global_Surface before any module runs, never read off a
- * global user code could reach.
+ * A page's errors are what Chrome throws: a plain TypeError / RangeError or a
+ * DOMException, no `code` own property, and Blink's WebIDL text — "Failed to execute
+ * 'getRandomValues' on 'Crypto': parameter 1 is not of type 'ArrayBufferView'." The
+ * builders below produce that text; a shared module never spells "Failed to execute"
+ * itself, so the wording lives in one file and changes in one file.
  *
  * Instantiated eagerly (internal/abort and internal/crypto/random require it at their
  * top level), so the captures below are pristine.
@@ -27,7 +14,7 @@
  * @module lava/internal/web_errors
  */
 
-(function (require, module, _exports, profile) {
+(function (require, module) {
   'use strict';
 
   var P = require('internal/primordials');
@@ -43,8 +30,6 @@
   var StringPrototypeIndexOf = P.StringPrototypeIndexOf;
   var StringPrototypeSlice = P.StringPrototypeSlice;
   var StringPrototypeStartsWith = P.StringPrototypeStartsWith;
-
-  var web = profile !== undefined && profile !== null && profile.web === true;
 
   /**
    * The context prefix Blink puts in front of every WebIDL error message.
@@ -315,7 +300,6 @@
 
   module.exports = P.ObjectFreeze({
     __proto__: null,
-    web: web,
     TypeError: TypeErrorP,
     RangeError: P.RangeError,
     context: context,

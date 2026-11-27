@@ -19,7 +19,6 @@
   var P = require('internal/primordials');
   var DOMException = require('internal/domexception').DOMException;
   var webErrors = require('internal/web_errors');
-  var web = webErrors.web;
   var context = webErrors.context;
   var typeError = webErrors.typeError;
   var argumentsRequired = webErrors.argumentsRequired;
@@ -33,7 +32,6 @@
   var ArrayBufferPrototypeSlice = P.ArrayBufferPrototypeSlice;
   var ArrayBufferPrototypeGetByteLength = P.ArrayBufferPrototypeGetByteLength;
   var StringG = P.String;
-  var TypeErrorP = P.TypeError;
   var ObjectP = P.Object;
   var SymbolIterator = P.Symbol.iterator;
   // Captured at this eager eval: native_shape has already masked toString, so a
@@ -47,23 +45,16 @@
     'detached',
   ).get;
 
-  // DataCloneError (DOMException code 25), on both surfaces: node throws the same
-  // DOMException. On `.Web` its message carries Blink's context prefix.
+  // DataCloneError (DOMException code 25), its message carrying Blink's context prefix.
   function dataCloneError(detail) {
-    if (web) {
-      return pageError(
-        new DOMException(context('Window', 'structuredClone') + detail, 'DataCloneError'),
-      );
-    }
-
-    return new DOMException(detail, 'DataCloneError');
+    return pageError(
+      new DOMException(context('Window', 'structuredClone') + detail, 'DataCloneError'),
+    );
   }
 
-  // A TypeError from the argument conversions: Blink's text on `.Web`, the bare detail
-  // on `.Node`, which never had these checks.
+  // A TypeError from the argument conversions, in Blink's text.
   function conversionError(detail) {
-    if (web) return typeError('Window', 'structuredClone', detail);
-    return new TypeErrorP(detail);
+    return typeError('Window', 'structuredClone', detail);
   }
 
   function isDetached(buffer) {
@@ -370,8 +361,7 @@
    */
   function structuredClone(value, options) {
     if (arguments.length === 0) {
-      if (web) throw typeError('Window', 'structuredClone', argumentsRequired(1, 0));
-      throw new TypeErrorP('structuredClone requires at least 1 argument');
+      throw typeError('Window', 'structuredClone', argumentsRequired(1, 0));
     }
 
     var transfer = convertTransfer(options);

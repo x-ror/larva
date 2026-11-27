@@ -5,13 +5,11 @@ import "core:testing"
 import lava "lava:pkg/runtime"
 import eventloop "lava:pkg/runtime/eventloop"
 
-// Pins the shape of the error atob/btoa throw for a bad character on the Node
-// surface: an InvalidCharacterError DOMException, as node throws, with its legacy code
-// a NUMBER answered by the prototype's getter (no own `code`) and node's text.
-// tests/node-compat/cases/03-buffer.js compares name/code/message against node, but
-// prints the code through console.log, where '5' and 5 look alike, and never asks
-// what the value is an instance of — so those halves live here. The Window surface's
-// shape and Chrome's text are tests/web/cases/base64-errors.js.
+// Pins the shape of the error atob/btoa throw for a bad character: an
+// InvalidCharacterError DOMException with its legacy code a NUMBER answered by the
+// prototype's getter (no own `code`) and Chrome's text. tests/web/cases/base64-errors.js
+// compares name/code/message against Chrome, but prints the code, where '5' and 5 look
+// alike, and never asks what the value is an instance of — so those halves live here.
 ATOB_INVALID_CHARACTER_SCRIPT :: `
 'use strict';
 function check(label, fn, message) {
@@ -28,9 +26,10 @@ function check(label, fn, message) {
     ' DOMException=true ownCode=false';
   if (got !== want) throw new Error(label + ': got ' + got + ', want ' + want);
 }
-check('atob', () => atob('!'), 'Invalid character');
-check('atob-length', () => atob('Z'), 'The string to be decoded is not correctly encoded.');
-check('btoa', () => btoa('Ā'), 'Invalid character');
+const DECODE = "Failed to execute 'atob' on 'Window': The string to be decoded is not correctly encoded.";
+check('atob', () => atob('!'), DECODE);
+check('atob-length', () => atob('Z'), DECODE);
+check('btoa', () => btoa('Ā'), "Failed to execute 'btoa' on 'Window': The string to be encoded contains characters outside of the Latin1 range.");
 console.log('atob-invalid-character ok');
 `
 

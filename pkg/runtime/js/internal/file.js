@@ -24,21 +24,17 @@
   var cloneBlob = blob.cloneBlob;
   var typeOfBlob = blob.typeOf;
   var partsOfBlob = blob.partsOf;
-  var TypeErrorG = P.TypeError;
   var webErrors = require('internal/web_errors');
-  var web = webErrors.web;
   var typeError = webErrors.typeError;
   var argumentsRequired = webErrors.argumentsRequired;
   var illegalInvocation = webErrors.illegalInvocation;
-  var nodeError = require('internal/errors').nodeError;
   // Eager like internal/blob (node/buffer.js requires both before user code), so this
   // module-eval capture is pristine; primordials has no Date.
   var DateNow = Date.now;
   var DateG = Date;
 
   function invalidThis() {
-    if (web) return illegalInvocation();
-    return nodeError(TypeErrorG, 'ERR_INVALID_THIS', 'Value of "this" must be of type File');
+    return illegalInvocation();
   }
 
   // Bound in File's static block, the only code that can read its private fields.
@@ -93,7 +89,7 @@
 
       if (arguments.length < 2) {
         var detail = argumentsRequired(2, arguments.length);
-        throw web ? typeError('File', undefined, detail) : new TypeErrorG(detail);
+        throw typeError('File', undefined, detail);
       }
 
       var list = convertParts(parts, 'File');

@@ -224,18 +224,12 @@ page_runner_destroy :: proc(runner: ^Page_Runner) {
 //           "a page that spins is killed alone" hold for every caller. Negative and
 //           NaN read as "no budget" to vm_set_cpu_budget, and are refused alike.
 //           Pinned by runner_refuses_a_page_without_a_cpu_budget.
-//   surface The global names the page can reach (Global_Surface, runtime.odin).
-//           `.Node` by default; `.Web` hides process, require, Buffer and the rest
-//           (#5). Each page gets a fresh global in its pooled VM, so pages of both
-//           surfaces can take turns in one VM. Pinned by
-//           runner_web_page_sees_no_node_names_in_a_reused_vm.
 page_runner_open :: proc(
 	runner: ^Page_Runner,
 	source: string,
 	source_name: string,
 	limits: Page_Limits,
 	user_data: rawptr = nil,
-	surface: Global_Surface = .Node,
 ) {
 	context.allocator = runner.allocator
 	defer free_all(context.temp_allocator)
@@ -288,11 +282,9 @@ page_runner_open :: proc(
 		source_name,
 		rp.loop,
 		false,
-		nil,
 		limits,
 		&runner.pool,
 		runner_page = true,
-		surface = surface,
 	) {
 		runner_finish(runner, index, deliver = false)
 		return

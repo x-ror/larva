@@ -1,12 +1,10 @@
 package lava_runtime
 
 import "core:os"
-import "core:path/filepath"
 import "core:strings"
 import jsc "lava:pkg/jsc"
 import eventloop "lava:pkg/runtime/eventloop"
 
-NODE_BASELINE :: "22"
 ENGINE_TARGET :: "JavaScriptCore"
 
 when ODIN_OS == .Linux {
@@ -41,63 +39,6 @@ Result :: struct {
 	// page's turn, a page a limit or a cancel ended, a Result built without a page, or a
 	// JSC without the symbol. A sample is always > 0, so 0 is the only sentinel.
 	heap_bytes:     i64,
-}
-
-// Global_Surface selects which global names a context's script can reach — the
-// trailing `surface` parameter of eval, threaded through setup_module_environment
-// into install_globals.
-//
-//   .Node  Everything `lava run` exposes: the web-platform set below plus
-//          `process`, `require`, `module`, `exports`, `__filename`, `__dirname`,
-//          `Buffer`, `global`, `setImmediate`/`clearImmediate`, and the internal
-//          `__lava_precache`/`__lavaDrainNextTicks`/`__lava_tl_drain` hooks.
-//          The default; the CLI selects anything else only for
-//          `lava run --surface=web`, the Chrome-oracle suite's entry (tests/web).
-//   .Web   The web-platform subset only: fetch/Request/Response/Headers,
-//          URL/URLSearchParams, the Web Streams family and its queuing strategies,
-//          TextEncoder/TextDecoder, Blob/File, AbortController/AbortSignal,
-//          structuredClone, atob/btoa, crypto, performance, console,
-//          queueMicrotask, and setTimeout/setInterval/clearTimeout/clearInterval.
-//          A classic script only: an `.mjs` source name is Invalid_Input (exit 2),
-//          because the ESM transform emits `require` and `__lava_precache`.
-// Node:
-//   No counterpart — node has one global surface. `.Node` is the one the oracle
-//   suites check, byte for byte.
-// Deviates:
-//   `.Web` is a Lava-only surface; pinned by cmd/lava/global_surface_test.odin
-//   (every hidden name by `typeof`, every kept API exercised, `.mjs` refused, stdio
-//   never compiled, Node/Web/Node alternating on one thread).
-//
-// How `.Web` gets there, in three groups, because the bootstrap needs some of the
-// Node names while it runs:
-//   1. Never injected: `__filename`, `__dirname`, `require`, `__lava_precache`,
-//      `module`, `exports` (setup_module_environment). Nothing internal reads them —
-//      builtins get `require` as a factory argument. `__lava_tl_drain`/
-//      `__lavaDrainNextTicks` are not defined either (install_microtasks): eval
-//      appends no top-level drain, since nothing a `.Web` script can name queues a
-//      nextTick, so node's nextTick-before-promise ordering has nothing to order.
-//      Native dispatch still drains through Runtime_State.next_tick_drain.
-//   2. Not installed: install_stdio. internal/stdio and the node-streams stack it
-//      pulls in are never compiled; console writes through its own native writer.
-//   3. Installed, then removed as the last step before user code (remove_node_globals):
-//      `process`, `Buffer`, `setImmediate`, `clearImmediate`, `global`. The loader
-//      hands `process` to node:process and microtasks.js installs nextTick on it;
-//      the eager modules capture at module-eval (blob.js's EOL reads
-//      process.platform), so these must exist until the bootstrap is done.
-//
-// What `.Web` does NOT promise yet: most web APIs still hand out Node-shaped values —
-// Buffer-backed bytes, `ERR_*` codes — so `Buffer` stays reachable through a value's
-// `.constructor`. The NAMES are gone, nothing more (x-ror/larva#5). The loader hands
-// the surface to internal/web_errors, the one module shared code takes its error text
-// from; AbortSignal, crypto.getRandomValues, DOMException and TextEncoder/TextDecoder
-// (whose bytes are plain Uint8Arrays) already throw Chrome's shapes through it, and
-// blob/structured clone, fetch/streams and url follow (stages S4c-S4e of the
-// Node-profile removal). And
-// internal/url.js reads `process.platform` live inside fileURLToPath/pathToFileURL;
-// those are node:url APIs, unreachable without `require`.
-Global_Surface :: enum {
-	Node, // everything `lava run` exposes today. Default.
-	Web, // the web-platform subset only.
 }
 
 result_destroy :: proc(res: ^Result) {
@@ -249,11 +190,9 @@ reported :: proc(result: Result, report: Result_Hook, report_data: rawptr) -> Re
 // once the Result is decided and before its teardown (page.odin); a pre-flight
 // rejection page_open makes has destroyed the loop already, as in Lava.
 //
-// SURFACE: `surface` picks the global names the script can reach (Global_Surface).
-// `.Web` runs a classic script only — an `.mjs` source name is refused up front —
-// and the entry is neither registered in the module cache nor given the top-level
-// nextTick drain, both of which exist for CommonJS and process.nextTick. eval hands
-// it to page_open, which applies all three (page.odin).
+// SURFACE: the script runs with the Window globals and nothing of Node's (docs/LARVA.md
+// decision 1), as a classic script: an `.mjs` source name is refused up front
+// (page.odin page_preflight).
 //
 // ORIGIN: `origin` is the page's origin as the embedder gives it — a URL or an
 // origin; "" (the default) is an opaque origin. Only the Window surface's object URLs
@@ -265,26 +204,22 @@ reported :: proc(result: Result, report: Result_Hook, report_data: rawptr) -> Re
 // install to the last loop tick; the first entry or tick that ends over a limit stops
 // the loop (force_exit) and eval returns .Execution_Error with Result.kill naming the
 // limit. Zero limits (the default) read no clocks. Larva policy with no Node counterpart. Pinned by
-// cmd/lava/page_cpu_budget_test.odin. It follows `surface`, Lava's last parameter, so that Lava's positional
-// calls (cmd/lava/eval_report_hook_test.odin) bind the same parameters here.
+// cmd/lava/page_cpu_budget_test.odin.
 eval :: proc(
 	source: string,
 	source_name := "<eval>",
 	loop: ^eventloop.Loop = nil,
 	echo_result := false,
-	script_args: []string = nil,
 	pre_run: Pre_Run_Hook = nil,
 	pre_run_data: rawptr = nil,
 	report: Result_Hook = nil,
 	report_data: rawptr = nil,
-	surface: Global_Surface = .Node,
 	limits: Page_Limits = {},
 	origin := "",
 ) -> Result {
 	// Per-eval temp arena boundary, mirroring the per-tick reset in
-	// eventloop.run_once and the per-require reset in native_require_cb. It
-	// reclaims the scratch allocated around the loop (setup_module_environment,
-	// the .mjs entry wrap, the script/source-name cstrings) — which the per-tick
+	// eventloop.run_once. It reclaims the scratch allocated around the loop
+	// (setup_page_environment, the script/source-name cstrings) — which the per-tick
 	// reset covers only when a loop is attached — so embedders calling eval
 	// repeatedly without a loop do not accumulate it. Result.message is on
 	// context.allocator, so nothing returned escapes through the temp arena.
@@ -295,7 +230,7 @@ eval :: proc(
 	// drives the same three steps for many pages interleaved on one thread.
 	page: Page
 
-	if page_open(&page, source, source_name, loop, echo_result, script_args, limits, surface = surface, origin = origin) &&
+	if page_open(&page, source, source_name, loop, echo_result, limits, origin = origin) &&
 	   loop != nil {
 		// nil hook: just run. false: skip the loop; the teardown below still runs.
 		if pre_run == nil || pre_run(pre_run_data) {
@@ -323,55 +258,24 @@ eval :: proc(
 	return result
 }
 
-// resolve_exit_code computes the final process exit code after the event loop
-// drains. An uncaught async exception or an unhandled promise rejection forces a
-// non-zero exit; otherwise a script-assigned process.exitCode is honored, matching
-// Node. (process.exit() is handled separately and terminates immediately.)
+// resolve_exit_code computes the final exit code after the event loop drains: an
+// uncaught async exception or an unhandled promise rejection forces 1, otherwise 0.
 resolve_exit_code :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) -> int {
 	if state != nil && state.async_failed {
 		return 1
 	}
 
-	return process_exit_code(ctx)
-}
-
-process_exit_code :: proc(ctx: jsc.JSContextRef) -> int {
-	global := jsc.JSContextGetGlobalObject(ctx)
-	process := get_named(ctx, global, "process")
-
-	// JSValueGetType classifies the value in one call (Object vs the Undefined/Null
-	// switch below); the JSValueIs* predicates are equally ABI-safe now that they
-	// return a 1-byte `bool` (see cmd/lava jsc_value_predicates, #159) — the former
-	// "unreliable across the FFI" note described the retired `b32` return.
-	if process == nil || jsc.JSValueGetType(ctx, process) != .Object {
-		return 0
-	}
-
-	code := get_named(ctx, cast(jsc.JSObjectRef)process, "exitCode")
-
-	if code == nil {
-		return 0
-	}
-	#partial switch jsc.JSValueGetType(ctx, code) {
-	case .Undefined, .Null:
-		return 0
-	}
-	n := jsc.JSValueToNumber(ctx, code, nil)
-
-	if n != n {return 0} 	// NaN guard (e.g. exitCode set to a non-numeric value)
-	return int(n)
+	return 0
 }
 
 // run_file reads `path` and runs it through eval with echo off, as `lava run` does.
-// `surface` and `origin` are passed through unchanged; the CLI sets them from
-// `lava run --surface=web` and `--origin=` (cmd/lava/main.odin parse_run_args).
+// `origin` is passed through unchanged; the CLI sets it from `lava run --origin=`
+// (cmd/lava/main.odin parse_run_args).
 run_file :: proc(
 	path: string,
 	loop: ^eventloop.Loop = nil,
-	script_args: []string = nil,
 	report: Result_Hook = nil,
 	report_data: rawptr = nil,
-	surface: Global_Surface = .Node,
 	origin := "",
 ) -> Result {
 	if len(path) == 0 {
@@ -407,49 +311,10 @@ run_file :: proc(
 		path,
 		loop,
 		false,
-		script_args,
 		report = report,
 		report_data = report_data,
-		surface = surface,
 		origin = origin,
 	)
-}
-
-// build_process_argv assembles Node's process.argv: [execPath, scriptPath,
-// ...userArgs]. execPath is the lava binary (absolutized like Node's execPath);
-// scriptPath is the absolute entry path, omitted for `lava eval` (no script file).
-// Allocated in the temp arena (valid for the duration of the eval call).
-build_process_argv :: proc(source_name: string, script_args: []string) -> []string {
-	argv := make([dynamic]string, 0, len(script_args) + 2, context.temp_allocator)
-
-	exec_path := "lava"
-
-	if len(os.args) > 0 {
-		exec_path = os.args[0]
-
-		if abs_exec, abs_err := filepath.abs(exec_path, context.temp_allocator);
-		   abs_err == os.ERROR_NONE && len(abs_exec) > 0 {
-			exec_path = abs_exec
-		}
-	}
-
-	append(&argv, exec_path)
-
-	if source_name != "<eval>" {
-		script_path := source_name
-
-		if abs_script, abs_err := filepath.abs(source_name, context.temp_allocator);
-		   abs_err == os.ERROR_NONE && len(abs_script) > 0 {
-			script_path = abs_script
-		}
-
-		append(&argv, script_path)
-	}
-
-	for arg in script_args {
-		append(&argv, arg)
-	}
-	return argv[:]
 }
 
 native_runtime_unavailable :: proc() -> Result {

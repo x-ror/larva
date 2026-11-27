@@ -47,7 +47,7 @@ native_shape_mask_is_per_page :: proc(t: ^testing.T) {
 	run_page :: proc(t: ^testing.T, source: string) {
 		loop := eventloop.init()
 		// eval consumes (destroys) the loop on every path; do not destroy it here.
-		result := lava.eval(source, "<native-shape-test>", &loop, surface = .Web)
+		result := lava.eval(source, "<native-shape-test>", &loop)
 		defer lava.result_destroy(&result)
 		testing.expectf(t, result.status == .Ok, "page failed: status=%v message=%q", result.status, result.message)
 	}

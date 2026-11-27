@@ -1,17 +1,9 @@
 // Web Streams (WHATWG Streams Standard) — the public ReadableStream /
 // WritableStream / TransformStream surface plus the readers, writers, default
-// controllers, and queuing strategies. This is the pure-JS half: it installs the
-// standard globals on both surfaces and is the export object of
-// `require('node:stream/web')` (node/stream/web.js re-exports it unchanged). fetch
+// controllers, and queuing strategies. It installs the standard globals. fetch
 // (js/internal/fetch/body.js) builds response bodies and consumes request bodies
 // through this same ReadableStream type, so there is one stream implementation, not
-// a fetch-only fork.
-//
-// The globals are installed HERE, not in node/stream/web.js, so the Window surface
-// gets them without instantiating a node/ module (cmd/lava/global_surface_test.odin
-// global_surface_web_loads_no_node_module). The loader instantiates this file at the
-// slot node/stream/web.js used to hold, before fetch, so the install order is the one
-// it always was.
+// a fetch-only fork. The loader instantiates this file before fetch.
 //
 // Scope: the default (chunk) ReadableStream
 // path is implemented in full — reader, async iteration, tee, cancel, locking,
@@ -139,7 +131,7 @@
   };
 
   // Internal helpers fetch.js uses to build/feed a response-body stream without
-  // duplicating controller plumbing. Not part of the public node:stream/web API.
+  // duplicating controller plumbing. Not reachable from a page.
   api._internal = {
     createReadableStreamWithController: function (sourceHooks, highWaterMark, sizeAlgorithm) {
       var captured = { controller: undefined };

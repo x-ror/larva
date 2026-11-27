@@ -15,7 +15,9 @@ stage. What builds and runs today is the Lava runtime below.
 
 The underlying runtime is written in Odin on top of JavaScriptCore (JSC),
 providing the event loop, native I/O transports, and core Web APIs (`fetch`,
-`URL`, Web Streams, timers). See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+`URL`, Web Streams, timers). `lava run` and `lava eval` run a classic script with
+the Window globals only — the Node profile (`require`, `process`, `Buffer`,
+`node:*` modules) is gone. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 for how the runtime pieces fit together.
 
 ## Requirements
@@ -49,9 +51,9 @@ fetch JavaScriptCore/WebKit and the SQLite amalgamation into the ignored `.deps/
 cache. `scripts/build-sqlite-windows.sh` then compiles SQLite into
 `build/sqlite3.lib`; WebKit is linked from `.deps/webkit/bun-webkit/lib`.
 
-Node 26+ (`26.13.0` pinned in [`.nvmrc`](.nvmrc); oracle suites refuse an older major) and Bun are needed for the JavaScript gates — run `bun install` once.
+Node 26+ (`26.13.0` pinned in [`.nvmrc`](.nvmrc)) and Bun are needed for the JavaScript gates and the oracle runners — run `bun install` once.
 They are dev-only (`markdownlint-cli2`, `acorn`/`acorn-walk` for the
-prototype-pollution ratchet, `fast-check` for `make test-property`); `bin/lava`
+prototype-pollution ratchet); `bin/lava`
 links none of them. `make check-js` is an always-gate and now fails without them.
 
 ## Build
@@ -64,7 +66,7 @@ Run it:
 
 ```sh
 make eval SOURCE="console.log('hello from Lava')"
-make run FILE=app.js
+make run FILE=page.js
 ```
 
 Useful project commands:
@@ -76,12 +78,11 @@ make check
 make check-jsc
 make check-native
 make test
-make test-lava
 make test-web
+make test-dom
 make test-sqlite-odin
 make check-js
 make check-md
-make test-property
 make test-mutation
 make bench
 ```
@@ -94,8 +95,8 @@ make bench
 - `pkg/runtime/eventloop` - native event-loop abstraction using io_uring/epoll on Linux
 - `pkg/jsc` - JavaScriptCore foreign declarations and the private-ABI probes
 - `pkg/std/sqlite` - SQLite bindings (kept for storage; nothing links them yet)
-- `tests` - oracle suites (`web`, `node-compat`, `runtime`, `stdio`), differential
-  property tests (`property`) and the mutation manifest
+- `tests` - Chrome-recorded oracle suites (`web`, `dom`), the stdio write test and
+  the mutation manifest
 - `bench` - node-vs-Lava benchmarks, and `bench/jsc-vm` for JSC VM costs
 - `runtime/gates` - gate integrity checks and the oracle case-count assertions
 - `scripts` - build, check and test-runner scripts

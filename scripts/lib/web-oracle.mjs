@@ -5,7 +5,7 @@
 // writes `String(value)` and a newline. Chrome is the oracle (CLAUDE.md §1, §6): the
 // recorder runs the case in headless Chrome and keeps what `print` wrote, with the
 // Chrome version and the command beside it; the runner runs the same bytes under
-// `lava run --surface=web` and compares stdout byte for byte. Node never produces an
+// `lava run` and compares stdout byte for byte. Node never produces an
 // expectation here.
 //
 // Everything a recording and a run must agree on lives in this file, so the two

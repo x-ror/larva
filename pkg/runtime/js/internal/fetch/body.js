@@ -22,7 +22,6 @@
   var streamInternal = webStreams._internal;
   var P = require('internal/primordials');
   var StringP = P.String;
-  var TypeErrorP = P.TypeError;
   var Uint8ArrayP = P.Uint8Array;
   var ArrayBufferP = P.ArrayBuffer;
   var ArrayBufferIsView = P.ArrayBufferIsView;
@@ -44,7 +43,6 @@
   var UnderlyingSourceStart = 'start';
 
   var webErrors = require('internal/web_errors');
-  var web = webErrors.web;
   var typeError = webErrors.typeError;
   var illegalInvocation = webErrors.illegalInvocation;
 
@@ -328,13 +326,11 @@
   // rejection, made just as early, must not overtake it).
   function consume(state, op, finish) {
     if (bodyUsedOf(state)) {
-      if (web) return PromiseReject(typeError(state.kind, op, 'body stream already read'));
-      return PromiseReject(new TypeErrorP('Body is unusable: Body has already been read'));
+      return PromiseReject(typeError(state.kind, op, 'body stream already read'));
     }
 
     if (state.bodyStream && state.bodyStream._reader !== undefined) {
-      if (web) return PromiseReject(typeError(state.kind, op, 'body stream is locked'));
-      return PromiseReject(new TypeErrorP('Body is unusable: ReadableStream is locked'));
+      return PromiseReject(typeError(state.kind, op, 'body stream is locked'));
     }
 
     state.bodyUsed = true;

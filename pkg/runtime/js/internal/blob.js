@@ -6,24 +6,17 @@
  * so the Window surface has them without a node/ module; internal/url.js copies the
  * statics onto the URL class when it replaces the stub.
  *
- * No Buffer (stage S4c of the Node-profile removal): strings are encoded and text()
- * decoded by the UTF-8 natives the loader hands in as the factory's fourth argument
- * (pkg/runtime/globals.odin make_blob_bindings), the same function objects Buffer
- * uses, so the bytes are unchanged for every string, lone surrogates included.
+ * Strings are encoded and text() decoded by the UTF-8 natives the loader hands in as
+ * the factory's fourth argument (pkg/runtime/globals.odin make_blob_bindings).
  *
- * Errors follow the profile (docs/LARVA.md decision 1). On `.Web` they are Chrome's:
- * the WebIDL conversions in Blink's order — the `sequence<BlobPart>` (iterated through
+ * Errors are Chrome's: the WebIDL conversions in Blink's order — the `sequence<BlobPart>` (iterated through
  * its @@iterator, each part converted as it comes), then the BlobPropertyBag members
  * `endings` and `type` — with Blink's text and no `code`, a foreign receiver throwing
  * "Illegal invocation" (a rejected promise from text/arrayBuffer/bytes). Recorded in
- * tests/web/cases/blob-errors, blob-object-url (Chrome 158). `.Node` keeps the errors
- * it had (a plain TypeError for non-iterable parts, ERR_INVALID_ARG_TYPE /
- * ERR_MISSING_ARGS from the object-URL statics) and takes the web text for the checks
- * it never had, until S5b deletes that arm.
+ * tests/web/cases/blob-errors, blob-object-url (Chrome 158).
  *
- * Instantiated eagerly: node/buffer.js requires it at its top level, before user
- * code runs, so the module-eval captures below are pristine (the loader also names
- * it as a root of its own).
+ * Instantiated eagerly by the loader, before page code runs, so the module-eval
+ * captures below are pristine.
  *
  * @module lava/internal/blob
  */
@@ -36,7 +29,6 @@
   var StringG = P.String;
   var NumberG = P.Number;
   var ErrorG = P.Error;
-  var TypeErrorG = P.TypeError;
   var Uint8ArrayG = P.Uint8Array;
   var ArrayIsArray = P.ArrayIsArray;
   var ArrayBufferIsView = P.ArrayBufferIsView;
@@ -73,16 +65,11 @@
   var ArrayIteratorPrototypeNext = ArrayIteratorPrototype.next;
 
   var webErrors = require('internal/web_errors');
-  var web = webErrors.web;
   var context = webErrors.context;
   var typeError = webErrors.typeError;
   var argumentsRequired = webErrors.argumentsRequired;
   var illegalInvocation = webErrors.illegalInvocation;
   var pageError = webErrors.pageError;
-  var errors = require('internal/errors');
-  var nodeError = errors.nodeError;
-  var ERR_INVALID_ARG_TYPE = errors.ERR_INVALID_ARG_TYPE;
-  var ERR_MISSING_ARGS = errors.ERR_MISSING_ARGS;
 
   function requireNative(name) {
     var fn = native && native[name];
@@ -95,11 +82,9 @@
   // first use (pageOrigin).
   var ORIGIN_RAW = native && typeof native.origin === 'string' ? native.origin : '';
 
-  // The platform terminator for `endings: 'native'`, fixed when this module loads (before
-  // user code; install_process runs ahead of the loader). Node fixes it at startup too:
-  // with process.platform redefined to 'win32' on darwin, node 26.13.0 still writes '\n'.
-  // Pinned by tests/node-compat/cases/78-blob-pristine-reads.js.
-  var EOL = process.platform === 'win32' ? '\r\n' : '\n';
+  // The platform terminator for `endings: 'native'`, as the native bindings give it
+  // (make_blob_bindings: CRLF on Windows, LF elsewhere, as Chrome writes them).
+  var EOL = native && native.eol === '\r\n' ? '\r\n' : '\n';
 
   // Hands a prepared part list and type to the constructor (File, slice, clone,
   // resolveObjectURL). Module-private, so a page passing extra constructor arguments
@@ -138,11 +123,9 @@
   // Shared with internal/file.js, whose constructor converts the same parts and bag but
   // must convert its `fileName` between them.
 
-  // A TypeError for a failed conversion: Blink's text on `.Web`; on `.Node` the same
-  // detail without the context prefix, for the checks node's arm never had.
+  // A TypeError for a failed conversion, in Blink's text.
   function conversionError(iface, op, detail) {
-    if (web) return typeError(iface, op, detail);
-    return new TypeErrorG(detail);
+    return typeError(iface, op, detail);
   }
 
   // WebIDL's DOMString/USVString conversion: ToString, refusing a Symbol (JSC's
@@ -213,11 +196,7 @@
     var out = [];
     if (parts === undefined) return out;
     if (parts === null || (typeof parts !== 'object' && typeof parts !== 'function')) {
-      if (web) {
-        throw typeError(iface, undefined, 'The provided value cannot be converted to a sequence.');
-      }
-
-      throw new TypeErrorG('The "parts" argument must be an iterable object');
+      throw typeError(iface, undefined, 'The provided value cannot be converted to a sequence.');
     }
 
     var method = parts[SymbolIterator];
@@ -233,11 +212,7 @@
     }
 
     if (typeof method !== 'function') {
-      if (web) {
-        throw typeError(iface, undefined, 'The object must have a callable @@iterator property.');
-      }
-
-      throw new TypeErrorG('The "parts" argument must be an iterable object');
+      throw typeError(iface, undefined, 'The object must have a callable @@iterator property.');
     }
 
     var iterator = ReflectApply(method, parts, []);
@@ -431,13 +406,11 @@
   // What a foreign receiver gets from the promise-returning operations: a rejection,
   // which in Chrome carries the context prefix the synchronous ones do not.
   function rejectReceiver(op) {
-    if (web) return PromiseReject(typeError('Blob', op, 'Illegal invocation'));
-    return PromiseReject(invalidThis());
+    return PromiseReject(typeError('Blob', op, 'Illegal invocation'));
   }
 
   function invalidThis() {
-    if (web) return illegalInvocation();
-    return nodeError(TypeErrorG, 'ERR_INVALID_THIS', 'Value of "this" must be of type Blob');
+    return illegalInvocation();
   }
 
   // Bound in Blob's static block: the only code that can read its private fields.
@@ -699,22 +672,20 @@
    * @node Chrome 158 (tests/web/cases/blob-object-url, blob-errors): the argument count
    *       first, then "Overload resolution failed." (the overload is Blob or
    *       MediaSource), even for an object that only inherits from Blob.prototype.
-   *       `.Node` keeps node's ERR_INVALID_ARG_TYPE and its `blob:nodedata:` URLs.
    * @deviates none
    */
   function createObjectURL(obj) {
-    if (web && arguments.length < 1) {
+    if (arguments.length < 1) {
       throw typeError('URL', 'createObjectURL', argumentsRequired(1, 0));
     }
 
     if (!isBlob(obj)) {
-      if (web) throw typeError('URL', 'createObjectURL', 'Overload resolution failed.');
-      throw ERR_INVALID_ARG_TYPE('obj', 'Blob', obj);
+      throw typeError('URL', 'createObjectURL', 'Overload resolution failed.');
     }
 
     // The loader's pristine crypto.randomUUID (see bootstrap/loader.js); crypto is eager,
     // so it always exists.
-    var id = (web ? 'blob:' + pageOrigin() + '/' : 'blob:nodedata:') + require.pristineRandomUUID();
+    var id = 'blob:' + pageOrigin() + '/' + require.pristineRandomUUID();
     objectUrlRegistry[id] = obj;
     return id;
   }
@@ -724,20 +695,15 @@
    * @param {string} url
    * @throws {TypeError} no argument, or a Symbol.
    * @node Chrome 158 (tests/web/cases/blob-errors): `undefined` is converted, not
-   *       refused. `.Node` keeps node's ERR_MISSING_ARGS for an undefined url.
+   *       refused.
    * @deviates none
    */
   function revokeObjectURL(url) {
-    if (web) {
-      if (arguments.length < 1) {
-        throw typeError('URL', 'revokeObjectURL', argumentsRequired(1, 0));
-      }
-
-      url = toStringArg(url, 'URL', 'revokeObjectURL', '');
-    } else {
-      if (url === undefined) throw ERR_MISSING_ARGS('url');
-      url = StringG(url);
+    if (arguments.length < 1) {
+      throw typeError('URL', 'revokeObjectURL', argumentsRequired(1, 0));
     }
+
+    url = toStringArg(url, 'URL', 'revokeObjectURL', '');
 
     delete objectUrlRegistry[registryKey(url)];
   }
@@ -753,20 +719,10 @@
     return blob === undefined ? undefined : blob;
   }
 
-  /** node:buffer.resolveObjectURL: a copy of the registered Blob, or undefined. */
-  function resolveObjectURL(id) {
-    var blob = objectUrlRegistry[`${id}`];
-    if (blob === undefined) return;
-    return new Blob(partsOf(blob), undefined, INTERNAL, typeOf(blob));
-  }
-
-  // The first web globals installed, in the order node/buffer.js installed them before
-  // they moved here: the URL statics (on a stub object, which internal/url.js replaces
-  // with the class later in the loader's eager list), then Blob. File, atob and btoa
-  // follow from internal/file.js and internal/base64.js, which node/buffer.js requires
-  // next. The one name whose place moved is Node-only: `Buffer` is installed at the end
-  // of node/buffer.js, so it now follows these five in the global object's property
-  // order instead of following URL. `.Web` deletes Buffer, so its order is unchanged.
+  // The first web globals installed: the URL statics (on a stub object, which
+  // internal/url.js replaces with the class later in the loader's eager list), then
+  // Blob. File, atob and btoa follow from internal/file.js and internal/base64.js, which
+  // the loader instantiates next.
   if (globalThis.URL === undefined) {
     globalThis.URL = { createObjectURL: createObjectURL, revokeObjectURL: revokeObjectURL };
   } else {
@@ -791,6 +747,5 @@
     createObjectURL: createObjectURL,
     revokeObjectURL: revokeObjectURL,
     resolveForFetch: resolveForFetch,
-    resolveObjectURL: resolveObjectURL,
   };
 });

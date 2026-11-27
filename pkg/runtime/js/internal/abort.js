@@ -17,33 +17,20 @@
   var attachHandler = eventTarget.attachHandler;
   var detachHandler = eventTarget.detachHandler;
   var fireEvent = eventTarget.fireEvent;
-  var web = webErrors.web;
   var typeError = webErrors.typeError;
   var pageError = webErrors.pageError;
   var illegalInvocation = webErrors.illegalInvocation;
 
-  // The default reasons are DOMExceptions on both surfaces — Chrome's and node's shape
-  // alike (name AbortError/TimeoutError, legacy code 20/23, no own `code`). Only the text
-  // is per surface: Chrome 158's (tests/web/cases/abort-reason-shape.expected) on the
-  // Window surface, node 26's on the Node one (probed: AbortSignal.abort().reason.message,
-  // AbortSignal.timeout(1)'s reason after it fires). pageError gives each the stack a
-  // page sees in Chrome: from the page's own frame, none of this file's.
+  // The default reasons are DOMExceptions (name AbortError/TimeoutError, legacy code
+  // 20/23, no own `code`) with Chrome 158's text (tests/web/cases/abort-reason-shape.expected).
+  // pageError gives each the stack a page sees in Chrome: from the page's own frame,
+  // none of this file's.
   function abortError() {
-    return pageError(
-      new DOMException(
-        web ? 'signal is aborted without reason' : 'This operation was aborted',
-        'AbortError',
-      ),
-    );
+    return pageError(new DOMException('signal is aborted without reason', 'AbortError'));
   }
 
   function timeoutError() {
-    return pageError(
-      new DOMException(
-        web ? 'signal timed out' : 'The operation was aborted due to timeout',
-        'TimeoutError',
-      ),
-    );
+    return pageError(new DOMException('signal timed out', 'TimeoutError'));
   }
 
   // The platform mints signals through newSignal; a page reaches native_shape's
@@ -202,10 +189,6 @@
     if (!signals || typeof signals[Symbol.iterator] !== 'function') {
       // WebIDL's sequence conversion: a non-object is refused before its iterator is
       // looked at (tests/web/cases/abort-errors.expected).
-      if (!web) {
-        throw new TypeError('AbortSignal.any requires an iterable');
-      }
-
       throw typeError(
         'AbortSignal',
         'any',

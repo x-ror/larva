@@ -29,42 +29,6 @@
   ],
   "mutations": [
     {
-      "name": "55-encoding-pollution U dies when toBytes reads the view window live",
-      "why": "A poisoned byteOffset/byteLength pair selects a window across the shared allocUnsafe pool, so decode() returns a neighbouring Buffer's bytes.",
-      "source": "pkg/runtime/js/internal/encoding.js",
-      "find": "      return new Uint8ArrayG(\n        TypedArrayPrototypeGetBuffer(input),\n        TypedArrayPrototypeGetByteOffset(input),\n        bytesLength,\n      );",
-      "replace": "      return new Uint8ArrayG(input.buffer, input.byteOffset, input.byteLength);",
-      "gate": "compat:tests/node-compat/cases/55-encoding-pollution.js",
-      "expect_detail": "node: U "
-    },
-    {
-      "name": "55-encoding-pollution W dies when toBytes brands with instanceof",
-      "why": "Ctor[Symbol.hasInstance] is a configurable own property, so the brand is forgeable in both directions and misroutes the input into the wrong arm.",
-      "source": "pkg/runtime/js/internal/encoding.js",
-      "find": "    if (ArrayBufferIsView(input)) {\n      bytesLength = DataViewPrototypeGetByteLength(input);",
-      "replace": "    if (input instanceof DataView) {\n      bytesLength = DataViewPrototypeGetByteLength(input);",
-      "gate": "compat:tests/node-compat/cases/55-encoding-pollution.js",
-      "expect_detail": "node: W "
-    },
-    {
-      "name": "13-structured-clone dies when the DataView clone arm reads its window live",
-      "why": "structuredClone copies the whole backing buffer and re-slices the copy, so a poisoned window exposes pool neighbours in the clone.",
-      "source": "pkg/runtime/js/internal/structured_clone.js",
-      "find": "      var srcByteLength = isDataView\n        ? DataViewPrototypeGetByteLength(value)\n        : TypedArrayPrototypeGetByteLength(value);",
-      "replace": "      var srcByteLength = isDataView ? value.byteLength : TypedArrayPrototypeGetByteLength(value);",
-      "gate": "compat:tests/node-compat/cases/13-structured-clone.js",
-      "expect_detail": "DataView clone window must not widen under a poisoned getter"
-    },
-    {
-      "name": "13-structured-clone dies when the DataView brand goes back to instanceof",
-      "why": "A forged DataView[Symbol.hasInstance] misroutes a genuine DataView into the typed-array arm, where the captured getter rejects the receiver.",
-      "source": "pkg/runtime/js/internal/structured_clone.js",
-      "find": "      var isDataView = hasPrototypeInChain(value, DataViewPrototype);",
-      "replace": "      var isDataView = value instanceof DataViewG;",
-      "gate": "compat:tests/node-compat/cases/13-structured-clone.js",
-      "expect_detail": "a forged hasInstance must not break a real DataView clone"
-    },
-    {
       "name": "run_until_idle_waits_out_a_stale_wakeup dies when a no-progress tick ends the drive",
       "why": "A surplus wakeup byte ends the drive with an off-loop completion still in flight, and it returns the did_work an earlier tick latched — so it reports success.",
       "source": "pkg/runtime/eventloop/loop.odin",
@@ -141,24 +105,6 @@
       "expect_detail": "STALE"
     },
     {
-      "name": "54-url-pollution X1 dies when endsInANumber goes back to a live re.test",
-      "why": "Steered true, '4x' reads as numeric and parseInt gives 4, so http://1.2.3.4x/ silently becomes http://1.2.3.4/ — a host substitution.",
-      "source": "pkg/runtime/js/internal/url.js",
-      "find": "    if (allChars(last, isAsciiDigit)) return true;",
-      "replace": "    if (last !== '' && /^[0-9]+$/.test(last)) return true;",
-      "gate": "compat:tests/node-compat/cases/54-url-pollution.js",
-      "expect_detail": "node: X1 http://1.2.3.4x/"
-    },
-    {
-      "name": "54-url-pollution X2 dies when the %2f check goes back to a live re.test",
-      "why": "The path-traversal guard, in the direction that discriminates: a steered validator makes a legitimate path look encoded and throws where node returns one.",
-      "source": "pkg/runtime/js/internal/url.js",
-      "find": "if (reTest(PERCENT_2F_RE, rest) || (isWindows && reTest(PERCENT_5C_RE, rest))) {",
-      "replace": "if (/%2f/i.test(rest) || (isWindows && /%5c/i.test(rest))) {",
-      "gate": "compat:tests/node-compat/cases/54-url-pollution.js",
-      "expect_detail": "node: X2 /tmp/x"
-    },
-    {
       "name": "the Lava-only regexp pollution test dies when the header-name validator goes back to re.test",
       "why": "node ACCEPTS 'X-Evil: 1\\r\\nInjected' under this poison (undici's validator is JS), so this deviation cannot be oracled and CLAUDE.md section 1 requires a Lava-only pin.",
       "source": "pkg/runtime/js/internal/fetch/headers.js",
@@ -178,24 +124,6 @@
       "timeout_ms": 30000
     },
     {
-      "name": "57-format-single-arg dies when util.js drops the single-argument guard",
-      "why": "Without it util.format folds %% even with one argument, where node returns the string verbatim. Pinned separately from console.js because the two are different implementations and one entry would fake coverage of both.",
-      "source": "pkg/runtime/js/internal/util/inspect.js",
-      "find": "    if (args.length === 1 && typeof first === 'string') return first;\n",
-      "replace": "",
-      "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
-      "expect_detail": "node: format('a<p><p>b')"
-    },
-    {
-      "name": "57-format-single-arg dies when console.js drops the single-argument guard",
-      "why": "console.js has its own formatter — it is the bootstrap prelude and has no require to delegate with — so removing util.js's guard leaves console.log correct and vice versa. This entry moves the raw console.log rows, a different line range from the util entry.",
-      "source": "pkg/runtime/js/bootstrap/console.js",
-      "find": "    if (args.length === 1 && typeof first === 'string') return first;\n",
-      "replace": "",
-      "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
-      "expect_detail": "node: a%%b"
-    },
-    {
       "name": "the Lava-only test dies when the header-value scan reads charCodeAt live",
       "why": "Routing the validator off RegExp says nothing about what it scans WITH. A gadget lying only about CR/LF made Lava accept 'a\\r\\nInjected: yes' as a header value where node rejects, and turned res.setHeader('Location', decodeURIComponent(req.url)) into a split response from a remote request line.",
       "source": "pkg/runtime/js/internal/fetch/headers.js",
@@ -203,19 +131,6 @@
       "replace": "      var code = value.charCodeAt(i);",
       "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
       "expect_detail": "got cc-value=ACCEPTED"
-    },
-    {
-      "name": "the Lava-only test dies when normalizeBase64 goes back to a global replace",
-      "why": "A global replace under a forged exec never terminates (or, on some runners, blows up as RangeError from runaway string growth). Buffer.from(x,'base64') is the Basic-auth/JWT path. Either RED detail proves the reintroduced global replace; hang vs throw is runner-dependent, so expect_detail is an alternatives list.",
-      "source": "pkg/runtime/js/internal/buffer.js",
-      "find": "    var src = StringG(str);\n    var n = src.length;\n    var out = '';",
-      "replace": "    return StringG(str)\n      .replaceAll('-', '+')\n      .replaceAll('_', '/')\n      .replaceAll(/[^A-Za-z0-9+/]/g, '');\n    var src = StringG(str);\n    var n = src.length;\n    var out = '';",
-      "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
-      "expect_detail": [
-        "timed out",
-        "got b64=THREW:RangeError"
-      ],
-      "timeout_ms": 30000
     },
     {
       "name": "the Lava-only test dies when toUSVString goes back to the global regex",
@@ -227,153 +142,6 @@
       "expect_detail": [
         "timed out",
         "got usp=THREW:RangeError"
-      ],
-      "timeout_ms": 30000
-    },
-    {
-      "name": "58-esm-pollution targeted dies when the export-default name comes back through .match",
-      "why": "String.prototype.match re-reads R.exec off the receiver, so the declared name is attacker-chosen and the transform interpolates it into the emitted module body as an identifier — code injection, not a wrong answer.",
-      "source": "pkg/runtime/js/bootstrap/esm.js",
-      "find": "        var fn = RegExpPrototypeExec(RE_DEFAULT_FUNCTION, expr);",
-      "replace": "        var fn = expr.match(/^(?:async\\s+)?function\\b\\s*\\*?\\s*([A-Za-z_$][\\w$]*)/);",
-      "gate": "compat:tests/node-compat/cases/58-esm-pollution.js",
-      "expect_detail": "CODE INJECTED"
-    },
-    {
-      "name": "58-esm-pollution blunt dies when the keyword boundary test goes back to a regex",
-      "why": "A forged exec makes /[\\w$]/.test answer true for every character, so keywordAt rejects every import and export and the emitted source keeps raw module syntax JSC cannot parse.",
-      "source": "pkg/runtime/js/bootstrap/esm.js",
-      "find": "      if (after >= 0 && isIdentPart(after)) return null;",
-      "replace": "      if (after >= 0 && /[\\w$]/.test(String.fromCharCode(after))) return null;",
-      "gate": "compat:tests/node-compat/cases/58-esm-pollution.js",
-      "expect_detail": "blunt:"
-    },
-    {
-      "name": "58-esm-pollution charcodeat dies when the mask reads code units live",
-      "why": "Routing the scanner off charAt onto charCodeAt is only a fix if the read is captured: a gadget lying about quote characters makes a string body scan as code, so text the module wrote as DATA is spliced out and re-emitted.",
-      "source": "pkg/runtime/js/bootstrap/esm.js",
-      "find": "      var c = StringPrototypeCharCodeAt(src, i);",
-      "replace": "      var c = src.charCodeAt(i);",
-      "gate": "compat:tests/node-compat/cases/58-esm-pollution.js",
-      "expect_detail": "charcodeat:"
-    },
-    {
-      "name": "58-esm-pollution arrayat dies when the mask stack is read through Array.prototype.at",
-      "why": "The mode stack decides whether the scanner is inside a template literal; a forged at(-1) answering 'code' means it never enters template mode and statement-shaped template text becomes code.",
-      "source": "pkg/runtime/js/bootstrap/esm.js",
-      "find": "      var top = stack[stack.length - 1];",
-      "replace": "      var top = stack.at(-1);",
-      "gate": "compat:tests/node-compat/cases/58-esm-pollution.js",
-      "expect_detail": "arrayat:"
-    },
-    {
-      "name": "58-esm-pollution json dies when emitted literals go back through the live JSON.stringify",
-      "why": "Every string literal in the generated CommonJS — require specifiers, export keys, __filename/__dirname/import.meta.url — is produced here, so a replaced stringify writes the emitted source directly.",
-      "source": "pkg/runtime/js/bootstrap/esm.js",
-      "find": "    return JSONStringify(StringG(value));",
-      "replace": "    return JSON.stringify(String(value));",
-      "gate": "compat:tests/node-compat/cases/58-esm-pollution.js",
-      "expect_detail": "json:"
-    },
-    {
-      "name": "58-esm-pollution tail dies when the export result object inherits from Object.prototype",
-      "why": "transformExport carries an own `tail` on one of eight return shapes; without a null prototype the other seven read Object.prototype.tail and join it into the emitted source, so a data-only merge gadget is code execution in the module body.",
-      "source": "pkg/runtime/js/bootstrap/esm.js",
-      "find": "        return { __proto__: null, body: decl + ';' + assigns, tail: null };",
-      "replace": "        return { body: decl + ';' + assigns };",
-      "gate": "compat:tests/node-compat/cases/58-esm-pollution.js",
-      "expect_detail": "TAIL INJECTED"
-    },
-    {
-      "name": "58-esm-pollution join dies when the wrapper is assembled with a live Array.prototype.join",
-      "why": "The joins assemble the emitted module, so a gadget lying only for the '\\n' separator replaces the WHOLE output rather than one interpolated identifier — a strictly larger win than the export-default carrier. Mutating the capture rather than one call site keeps esm.js syntactically valid, so the gate measures the carrier and not a bootstrap parse error.",
-      "source": "pkg/runtime/js/bootstrap/esm.js",
-      "find": "  var ArrayPrototypeJoin = primordials.ArrayPrototypeJoin;",
-      "replace": "  var ArrayPrototypeJoin = function (a, s) {\n    return a.join(s);\n  };",
-      "gate": "compat:tests/node-compat/cases/58-esm-pollution.js",
-      "expect_detail": "join:"
-    },
-    {
-      "name": "58-esm-pollution strglobal dies when the source coercion reads the live String global",
-      "why": "transform() coerces its `source` argument with String(); the existing json entry reverts JSONStringify and StringG on one line, so the String capture on this line was never proven on its own.",
-      "source": "pkg/runtime/js/bootstrap/esm.js",
-      "find": "    source = StringG(source);",
-      "replace": "    source = String(source);",
-      "gate": "compat:tests/node-compat/cases/58-esm-pollution.js",
-      "expect_detail": "strglobal:"
-    },
-    {
-      "name": "29-esm-transform-edge dies when findStmtEnd drops the seenMeaningful flag",
-      "why": "The old code got this from `'+-*/%=<>&|^,.?:('.indexOf('')` returning 0, so a newline before any meaningful character continued the statement; without the flag an import whose clause starts on the next line ends early and reports an unsupported form.",
-      "source": "pkg/runtime/js/bootstrap/esm.js",
-      "find": "          if (!seenMeaningful || isContinuation(lastMeaningful)) continue;",
-      "replace": "          if (isContinuation(lastMeaningful)) continue;",
-      "gate": "compat:tests/node-compat/cases/29-esm-transform-edge.mjs",
-      "expect_detail": "unsupported import form"
-    },
-    {
-      "name": "29-esm-transform-edge dies when import.meta is rewritten by searching the source, not the mask",
-      "why": "The mask blanks strings and comments, so searching it leaves an `import.meta` written inside a string literal alone; searching the source rewrites it to __import_meta and silently corrupts module data.",
-      "source": "pkg/runtime/js/bootstrap/esm.js",
-      "find": "    var at = StringPrototypeIndexOf(mask, IMPORT_META);",
-      "replace": "    var at = StringPrototypeIndexOf(src, IMPORT_META);",
-      "gate": "compat:tests/node-compat/cases/29-esm-transform-edge.mjs",
-      "expect_detail": "Unexpected keyword 'export'"
-    },
-    {
-      "name": "29-esm-transform-edge dies when isSpace narrows to ASCII",
-      "why": "The `\\s*` strips these helpers replace accept the full ES whitespace set; narrowing to ASCII makes `export const<NBSP>name` emit the key \"const\", which is a silent behavior change the comment explicitly warns against.",
-      "source": "pkg/runtime/js/bootstrap/esm.js",
-      "find": "      c === 0xa0 ||",
-      "replace": "      false ||",
-      "gate": "compat:tests/node-compat/cases/29-esm-transform-edge.mjs",
-      "expect_detail": "Unexpected keyword 'const'"
-    },
-    {
-      "name": "29-esm-transform-edge dies when the identifier class drops `$`",
-      "why": "No other fixture uses `$`, `_` or digits in a binding name, so the `$` arm of the code-unit predicate that replaced [A-Za-z_$] was unexercised and could be dropped without any test noticing.",
-      "source": "pkg/runtime/js/bootstrap/esm.js",
-      "find": "    return (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) || c === 0x5f || c === 0x24;",
-      "replace": "    return (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) || c === 0x5f;",
-      "gate": "compat:tests/node-compat/cases/29-esm-transform-edge.mjs",
-      "expect_detail": "unsupported export declaration: $dollar"
-    },
-    {
-      "name": "59-global-replace-hangs dies when querystring's '+' decode goes back to a global replace",
-      "why": "parse is public node:querystring and a single '+' in a query string reaches it, so a server doing parse(req.url.split('?')[1]) wedges on a crafted request: a global replace under a forged exec only advances lastIndex on an empty match and never returns. node answers correctly under the same poison, so this is a Lava-only defect.",
-      "source": "pkg/runtime/js/node/querystring.js",
-      "find": "    s = replaceCharAll(s, '+', '%20');",
-      "replace": "    if (s.indexOf('+') !== -1) s = s.replace(/\\+/g, '%20');",
-      "gate": "compat:tests/node-compat/cases/59-global-replace-hangs.js",
-      "expect_detail": [
-        "timed out",
-        "plus="
-      ],
-      "timeout_ms": 30000
-    },
-    {
-      "name": "regexp_pollution_immunity glob dies when matchesGlob strips backslashes with a global replace",
-      "why": "Both arguments are caller-supplied, and the global replace spins under a forged exec. node hangs here too, so this is a deviation in Lava's favour and cannot be an oracle case.",
-      "source": "pkg/runtime/js/node/path.js",
-      "find": "      pattern = replaceCharAll(pattern, '\\\\', '/');",
-      "replace": "      pattern = pattern.replace(/\\\\/g, '/');",
-      "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
-      "expect_detail": [
-        "timed out",
-        "THREW:RangeError"
-      ],
-      "timeout_ms": 30000
-    },
-    {
-      "name": "regexp_pollution_immunity inspect dies when the Buffer hex grouping goes back to a global replace",
-      "why": "console.log(buf) on a Buffer holding remote bytes reaches this; the global replace spins under a forged exec. node hangs here too.",
-      "source": "pkg/runtime/js/node/buffer.js",
-      "find": "        hex += StringPrototypeSlice(raw, h, h + 2);",
-      "replace": "        hex += raw.replaceAll(/(.{2})/g, '$1 ').trim();",
-      "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
-      "expect_detail": [
-        "timed out",
-        "THREW:RangeError"
       ],
       "timeout_ms": 30000
     },
@@ -391,57 +159,6 @@
       "timeout_ms": 30000
     },
     {
-      "name": "regexp_pollution_immunity debuglog dies when NODE_DEBUG is compiled by chained global replaces",
-      "why": "Three global replaces run on the FIRST debuglog call, so the process wedges at the point it tries to emit a diagnostic. Lava-only because Lava has no process.stderr, so the outputs cannot match node however the spin is fixed.",
-      "source": "pkg/runtime/js/internal/util/debuglog.js",
-      "find": "    return StringPrototypeToUpperCase(out);",
-      "replace": "    return env.replace(/[|\\\\{}()[\\]^$+?.]/g, '\\\\$&').replace(/\\*/g, '.*').replace(/,/g, '$|^').toUpperCase();",
-      "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
-      "expect_detail": [
-        "timed out",
-        "THREW:RangeError"
-      ],
-      "timeout_ms": 30000
-    },
-    {
-      "name": "59-global-replace-hangs mime dies when the MIME value escape goes back to a global replace",
-      "why": "MIMEType#toString is reachable from a remote Content-Type and node answers correctly under the same poison, so this is a Lava-only spin of the same tier as the querystring bug. The merge gate found it after the first pass claimed the class was closed.",
-      "source": "pkg/runtime/js/internal/mime.js",
-      "find": "  function escapeQuoted(value) {",
-      "replace": "  var ESCAPE_QUOTE_OR_BACKSLASH = /[\\\\\"]/g;\n  function escapeQuoted(value) {\n    return value.replace(ESCAPE_QUOTE_OR_BACKSLASH, '\\\\$&');",
-      "gate": "compat:tests/node-compat/cases/59-global-replace-hangs.js",
-      "expect_detail": [
-        "timed out",
-        "mime="
-      ],
-      "timeout_ms": 30000
-    },
-    {
-      "name": "regexp_pollution_immunity puny dies when the RFC 3490 separator fold goes back to a global replace",
-      "why": "punycode.toASCII on a caller-supplied hostname spun; node hangs identically so it cannot be an oracle case. Pins availability only, because other live .test reads in punycode.js still steer the per-label encode decision.",
-      "source": "pkg/runtime/js/node/punycode.js",
-      "find": "    domain = foldSeparators(domain);",
-      "replace": "    domain = domain.replace(/[\\x2E\\u3002\\uFF0E\\uFF61]/g, '\\x2E');",
-      "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
-      "expect_detail": [
-        "timed out",
-        "THREW:RangeError"
-      ],
-      "timeout_ms": 30000
-    },
-    {
-      "name": "regexp_pollution_immunity dbg-nodot dies when the NODE_DEBUG escaper stops escaping '.'",
-      "why": "Nothing observed debugEnvPattern's OUTPUT before: the poisoned probe passes with NODE_DEBUG unset, i.e. when the function is never called. Dropping the '.' branch makes 'a.b' enable 'axb', which is the escape the compile exists to do.",
-      "source": "pkg/runtime/js/internal/util/debuglog.js",
-      "find": "      c === 0x2e //    .",
-      "replace": "      false //    .",
-      "gate": "odin:cmd/lava:main.regexp_pollution_immunity",
-      "expect_detail": [
-        "want dbg-nodot=false got"
-      ],
-      "timeout_ms": 30000
-    },
-    {
       "name": "stdio-write dies when the writer stops retrying a partial/EAGAIN write",
       "why": "os.write abandons its loop on any errno and the old caller discarded n and err, so a full non-blocking pipe ended the write and reported success: console.log('x'.repeat(300000)) delivered 65536 bytes and exited 0. The flag is inherited from the parent, which is why an ordinary shell pipe never reproduces it. expect_detail keys off the assertion text, not the byte count: the truncated count depends on how fast the reader drains and was measured at both 65536 and 196608.",
       "source": "pkg/runtime/globals.odin",
@@ -453,281 +170,6 @@
         "payload must round-trip exactly"
       ],
       "rebuild": true
-    },
-    {
-      "name": "61-stdio-lifecycle dies when pipe() stops excluding the stdio singletons",
-      "why": "Without node's `dest !== process.stdout/stderr` exclusion, `src.pipe(process.stdout)` calls end() on a process-lifetime singleton. Note what the assertion keys off: since `_destroy` undoes the teardown, the stream RECOVERS a tick later, so `writable` reads true either way and only the spurious 'finish' event proves end() was reached. Before that half existed this dropped every later write and raised 'write after end'.",
-      "source": "pkg/runtime/js/internal/streams/readable.js",
-      "find": "    var doEnd =\n      (!pipeOpts || pipeOpts.end !== false) &&\n      dest !== processRef.stdout &&\n      dest !== processRef.stderr;",
-      "replace": "    var doEnd = !pipeOpts || pipeOpts.end !== false;",
-      "gate": "compat:tests/node-compat/cases/61-stdio-lifecycle.js",
-      "expect_detail": [
-        "pipe() must not even reach end(), so no finish"
-      ]
-    },
-    {
-      "name": "stdio-lifecycle dies when pipe() stops excluding the stdio singletons (pipe shape)",
-      "why": "Same defect as the compat entry, gated on the node:test so both fd shapes are covered — node's stdout is a different class on a pipe. The script counts 'finish' events rather than comparing bytes, because the recovery makes the bytes identical with the exclusion deleted; a byte-only version of this test SURVIVED this mutation.",
-      "source": "pkg/runtime/js/internal/streams/readable.js",
-      "find": "    var doEnd =\n      (!pipeOpts || pipeOpts.end !== false) &&\n      dest !== processRef.stdout &&\n      dest !== processRef.stderr;",
-      "replace": "    var doEnd = !pipeOpts || pipeOpts.end !== false;",
-      "gate": "node-test:tests/stdio/stdio-lifecycle.test.mjs",
-      "expect_detail": [
-        "two finished=0",
-        "lava must match node on a pipe"
-      ],
-      "rebuild": true
-    },
-    {
-      "name": "stdio-lifecycle dies when _destroy stops undoing the teardown",
-      "why": "node's stdio _destroy is a dummy that runs the callback and then calls _undestroy(). Drop the undo and a single process.stdout.end() anywhere in a dependency is permanent: the stream stays ended for the rest of the run and silently drops every later write. Gated on the node:test, not the oracle case: recovery is only observable when the harness controls the fd shape, and the compat harness always gives a case a file.",
-      "source": "pkg/runtime/js/internal/stdio.js",
-      "find": "    cb(err);\n    this._undestroy();",
-      "replace": "    cb(err);",
-      "gate": "node-test:tests/stdio/stdio-lifecycle.test.mjs",
-      "expect_detail": [
-        "recovers from destroy()",
-        "lava must match node byte-for-byte on a file"
-      ],
-      "rebuild": true
-    },
-    {
-      "name": "stdio-lifecycle dies when _undestroy stops clearing the ending flag",
-      "why": "The `writable` getter is `!destroyed && !ending`, so leaving `ending` set makes the stream report unwritable forever even though destroyed was cleared — the recovery looks applied and is not. Pins the individual field, not just the presence of the call.",
-      "source": "pkg/runtime/js/internal/streams/destroy.js",
-      "find": "      w.ended = false;\n      w.ending = false;\n      w.finished = false;",
-      "replace": "      w.ended = false;\n      w.finished = false;",
-      "gate": "node-test:tests/stdio/stdio-lifecycle.test.mjs",
-      "expect_detail": [
-        "lava must match node byte-for-byte on a file"
-      ],
-      "rebuild": true
-    },
-    {
-      "name": "stdio-lifecycle dies when the stdio stream pins autoDestroy/emitClose off",
-      "why": "The recovery is reached THROUGH autoDestroy (end() -> 'finish' -> destroy() -> _undestroy). Setting autoDestroy:false — as the first revision of this file did — leaves _destroy unreached, so end() is permanent even with the dummy in place, and 'close' never fires.",
-      "source": "pkg/runtime/js/internal/stdio.js",
-      "find": "    ReflectApply(Writable, this, [{ decodeStrings: false }]);",
-      "replace": "    ReflectApply(Writable, this, [{ decodeStrings: false, autoDestroy: false, emitClose: false }]);",
-      "gate": "node-test:tests/stdio/stdio-lifecycle.test.mjs",
-      "expect_detail": [
-        "keep writing after end()",
-        "lava must match node byte-for-byte on a file"
-      ],
-      "rebuild": true
-    },
-    {
-      "name": "61-stdio-lifecycle dies when the _isStdio marker is dropped",
-      "why": "node sets an own _isStdio on both singletons and its own stream/net code feature-detects on it, so ecosystem code reads it too. Absent, a library's 'is this stdio?' check silently takes the wrong branch.",
-      "source": "pkg/runtime/js/internal/stdio.js",
-      "find": "    this._isStdio = true;",
-      "replace": "    this._isStdio = undefined;",
-      "gate": "compat:tests/node-compat/cases/61-stdio-lifecycle.js",
-      "expect_detail": [
-        "_isStdio marker"
-      ]
-    },
-    {
-      "name": "stdio_write_payload dies when the buffer length is sampled before the window getters",
-      "why": "byteOffset/byteLength on a DataView may be OWN accessors, so reading them runs arbitrary JS that can resize the backing ArrayBuffer. Sampling the buffer's length first validates the window against a size that no longer exists, and the resolver hands back a slice past the allocation — 4088 bytes of out-of-bounds heap handed to a stdout/stderr write (it was a caller-named file while node:fs existed).",
-      "source": "pkg/runtime/stdio.odin",
-      "find": "\t\t\t\toff_f := jsc.JSValueToNumber(ctx, get_named(ctx, obj, \"byteOffset\"), nil)\n\t\t\t\tlen_f := jsc.JSValueToNumber(ctx, get_named(ctx, obj, \"byteLength\"), nil)\n\t\t\t\t// Now that no further JS can run, sample the authoritative length and take\n\t\t\t\t// the base pointer back to back: the pointer is only valid until the next\n\t\t\t\t// JSC API call (a GC/realloc can move it), so nothing may come between them\n\t\t\t\t// but the pure-Odin validation below.\n\t\t\t\tab_len := f64(jsc.JSObjectGetArrayBufferByteLength(ctx, ab, nil))",
-      "replace": "\t\t\t\tab_len := f64(jsc.JSObjectGetArrayBufferByteLength(ctx, ab, nil))\n\t\t\t\toff_f := jsc.JSValueToNumber(ctx, get_named(ctx, obj, \"byteOffset\"), nil)\n\t\t\t\tlen_f := jsc.JSValueToNumber(ctx, get_named(ctx, obj, \"byteLength\"), nil)",
-      "gate": "odin:cmd/lava:main.stdio_write_payload_rejects_a_window_resized_by_its_own_getter",
-      "expect_detail": [
-        "out-of-bounds read"
-      ]
-    },
-    {
-      "name": "stdio_fd_guard dies when the fd is converted before it is compared",
-      "why": "`this.fd` is a plain writable property, so process.stdout.fd = 1.5 reaches this native. A float->int conversion is undefined in Odin for NaN, +/-Inf and out-of-range values, and truncation lands 1.5 and 2.9 squarely on fd 1 and 2 — so converting first turns the guard into a no-op for exactly the values it exists to catch. NaN and Infinity do NOT catch this on x86 (cvttsd2si yields INT_MIN, rejected either way), which is why the fractional cases are in the list.",
-      "source": "pkg/runtime/stdio.odin",
-      "find": "\tswitch {\n\tcase fd_num == 1:\n\t\ttarget = os.stdout\n\tcase fd_num == 2:\n\t\ttarget = os.stderr",
-      "replace": "\tfd_int := int(fd_num)\n\tswitch fd_int {\n\tcase 1:\n\t\ttarget = os.stdout\n\tcase 2:\n\t\ttarget = os.stderr",
-      "gate": "odin:cmd/lava:main.stdio_write_sync_rejects_every_fd_but_1_and_2",
-      "expect_detail": [
-        "writeSync(1.5, ...) was not rejected"
-      ]
-    },
-    {
-      "name": "57-format-single-arg dies when util.inspect stops quoting a top-level string",
-      "why": "node's util.inspect QUOTES a top-level string ('x' -> \"'x'\") while console.log/format print a string ARGUMENT raw — format goes through stringify(), which short-circuits strings before inspect is reached, so the depth-0 raw arm had no caller left and was deleted. Restoring it un-quotes every message built with util.inspect, which is how fs.js's ERR_INVALID_ARG_VALUE read `Received bogus`.",
-      "source": "pkg/runtime/js/internal/util/inspect.js",
-      "find": "    if (t === 'string') return quote(v);",
-      "replace": "    if (t === 'string') return depth === 0 ? v : quote(v);",
-      "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
-      "expect_detail": [
-        "'x'"
-      ]
-    },
-    {
-      "name": "57-format-single-arg dies when inspect stops choosing the quote character",
-      "why": "node picks the delimiter to avoid escaping — a string containing a single quote is rendered with DOUBLE quotes (\"it's\", not 'it\\'s'). Always using single quotes escapes where node does not, so any inspected value containing an apostrophe differs.",
-      "source": "pkg/runtime/js/internal/util/inspect.js",
-      "find": "    if (StringPrototypeIndexOf(s, \"'\") !== -1) {\n      if (StringPrototypeIndexOf(s, '\"') === -1) q = '\"';\n      else if (StringPrototypeIndexOf(s, '`') === -1 && StringPrototypeIndexOf(s, '${') === -1)\n        q = '`';\n    }\n",
-      "replace": "",
-      "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
-      "expect_detail": [
-        "it\\'s"
-      ]
-    },
-    {
-      "name": "57-format-single-arg dies when inspect drops node's ${ guard",
-      "why": "node's strEscape refuses the backtick delimiter when the string contains '${', because inspect output is meant to read back as a literal and a backtick-delimited '${' is a live template substitution. Omitting the guard also regressed output that was CORRECT before the delimiter rule was introduced.",
-      "source": "pkg/runtime/js/internal/util/inspect.js",
-      "find": "      else if (StringPrototypeIndexOf(s, '`') === -1 && StringPrototypeIndexOf(s, '${') === -1)\n        q = '`';",
-      "replace": "      else if (StringPrototypeIndexOf(s, '`') === -1) q = '`';",
-      "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
-      "expect_detail": [
-        "${d}"
-      ]
-    },
-    {
-      "name": "57-format-single-arg dies when the backtick branch is removed",
-      "why": "A string containing both quote characters is backtick-delimited on node. The earlier manifest entry deleted the whole delimiter block, so it only proved the double-quote arm; deleting just this line survived the case.",
-      "source": "pkg/runtime/js/internal/util/inspect.js",
-      "find": "      else if (StringPrototypeIndexOf(s, '`') === -1 && StringPrototypeIndexOf(s, '${') === -1)\n        q = '`';\n",
-      "replace": "",
-      "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
-      "expect_detail": [
-        "both ' and \""
-      ]
-    },
-    {
-      "name": "57-format-single-arg dies when inspect stops escaping control characters",
-      "why": "node's strEscape escapes the whole C0 range, DEL and C1. Leaving them raw makes an unescaped \\x1B in any inspected value an ANSI-injection vector through the log line, which is why this is a security fix and not a rendering nicety.",
-      "source": "pkg/runtime/js/internal/util/inspect.js",
-      "find": "      else if (c < 0x20 || (c >= 0x7f && c <= 0x9f)) esc = escByte(c);",
-      "replace": "",
-      "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
-      "expect_detail": [
-        "\\\\x1B"
-      ]
-    },
-    {
-      "name": "57-format-single-arg dies when a lone surrogate is not escaped",
-      "why": "node escapes an unpaired surrogate as \\\\udXXX; Lava used to hand it to the string conversion, which replaced it with U+FFFD — the value came back LOSSY, not merely rendered differently.",
-      "source": "pkg/runtime/js/internal/util/inspect.js",
-      "find": "        if (next >= 0xdc00 && next <= 0xdfff) {\n          i++; // consume the pair\n        } else {\n          esc = escUnit(c);\n        }",
-      "replace": "        if (next >= 0xdc00 && next <= 0xdfff) {\n          i++; // consume the pair\n        }",
-      "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
-      "expect_detail": [
-        "\\\\ud800"
-      ]
-    },
-    {
-      "name": "57-format-single-arg dies when Symbol.for is read off the captured Symbol object",
-      "why": "Capturing `Symbol` alone is not enough — `.for` is a writable property on it, so a lazily-evaluated module reading P.Symbol.for at its own module-eval still reads whatever user code left there. The primordials table must expose the METHOD. Pinned through a Buffer, whose util.inspect.custom hook is looked up with that symbol: without it a Buffer renders as a plain Uint8Array. An earlier version of this entry SURVIVED because case 57 inspected no Buffer at all.",
-      "source": "pkg/runtime/js/internal/primordials.js",
-      "find": "    SymbolFor: Symbol.for,",
-      "replace": "    SymbolFor: undefined,",
-      "gate": "compat:tests/node-compat/cases/57-format-single-arg.js",
-      "expect_detail": [
-        "<Buffer 61 62>"
-      ]
-    },
-    {
-      "name": "64-stream-write dies when write() reports errors async instead of throwing",
-      "why": "node throws ERR_STREAM_NULL_VALUES and ERR_INVALID_ARG_TYPE synchronously from write(). Routing them through writeErrorNextTick delivers the right code on the wrong turn, so `assert.throws(() => s.write(null))` passes under node and fails here.",
-      "source": "pkg/runtime/js/internal/streams/writable.js",
-      "find": "    if (chunk === null) throw errNullValues();",
-      "replace": "    if (chunk === null) { writeErrorNextTick(this, errNullValues(), cb); return false; }",
-      "gate": "compat:tests/node-compat/cases/64-stream-write-validation.js",
-      "expect_detail": [
-        "write(null) must throw SYNCHRONOUSLY"
-      ]
-    },
-    {
-      "name": "64-stream-write dies when the accept set goes back to instanceof Uint8Array",
-      "why": "`instanceof Uint8Array` is wrong in BOTH directions: it rejects DataView and Int16Array, which node accepts, and it accepts Object.create(Uint8Array.prototype), which node rejects. ArrayBuffer.isView is the whole test.",
-      "source": "pkg/runtime/js/internal/streams/utils.js",
-      "find": "  function isBytesChunk(chunk) {\n    return ArrayBufferIsView(chunk);\n  }",
-      "replace": "  function isBytesChunk(chunk) {\n    return chunk instanceof Uint8Array;\n  }",
-      "gate": "compat:tests/node-compat/cases/64-stream-write-validation.js",
-      "expect_detail": [
-        "Receiver should be a typed array view",
-        "must be of type string"
-      ]
-    },
-    {
-      "name": "64-stream-write dies when a view is not normalized to a Buffer",
-      "why": "THE regression that got #326's attempt reverted. node hands _write a Buffer with encoding 'buffer' for every view; without the conversion `chunk.length` is undefined for a DataView, writableLength goes NaN, and 'drain' can never fire again because NaN === 0 is false.",
-      "source": "pkg/runtime/js/internal/streams/writable.js",
-      "find": "        chunk = bytesToBuffer(chunk);\n        encoding = 'buffer';\n      } else {\n        throw ERR_INVALID_ARG_TYPE('chunk', CHUNK_EXPECTED, chunk);",
-      "replace": "        encoding = 'buffer';\n      } else {\n        throw ERR_INVALID_ARG_TYPE('chunk', CHUNK_EXPECTED, chunk);",
-      "gate": "compat:tests/node-compat/cases/64-stream-write-validation.js",
-      "expect_detail": [
-        "false, undefined"
-      ]
-    },
-    {
-      "name": "64-stream-write dies when Readable.push does not accept what write does",
-      "why": "Widening only the writable half makes a PassThrough take a view on one side and error on the other — which is how the first attempt shipped. The replacement KEEPS the normalization so the entry pins the brand widening alone — changing both at once would leave a kill ambiguous about which half the case detects.",
-      "source": "pkg/runtime/js/internal/streams/readable.js",
-      "find": "      } else if (isBytesChunk(chunk)) {\n        // The readable half must accept exactly what the writable half does, or a\n        // PassThrough takes a view on one side and errors on the other — which is how the\n        // first attempt at this shipped.\n        chunk = bytesToBuffer(chunk);",
-      "replace": "      } else if (chunk instanceof Uint8Array) {\n        chunk = bytesToBuffer(chunk);",
-      "gate": "compat:tests/node-compat/cases/64-stream-write-validation.js",
-      "expect_detail": [
-        "async:ERR_INVALID_ARG_TYPE"
-      ]
-    },
-    {
-      "name": "64-stream-write dies when the encoding is not validated before the chunk type",
-      "why": "node validates an explicit encoding first, which is observable: write(5, 'bogus') reports ERR_UNKNOWN_ENCODING, not the chunk type.",
-      "source": "pkg/runtime/js/internal/streams/writable.js",
-      "find": "    if (encoding) validateEncoding(encoding);\n",
-      "replace": "",
-      "gate": "compat:tests/node-compat/cases/64-stream-write-validation.js",
-      "expect_detail": [
-        "must be of type string or an instance of Buffer"
-      ]
-    },
-    {
-      "name": "64-stream-write dies when setDefaultEncoding accepts an unknown name",
-      "why": "node throws ERR_UNKNOWN_ENCODING; accepting it silently poisons every later string write on the stream.",
-      "source": "pkg/runtime/js/internal/streams/writable.js",
-      "find": "    validateEncoding(encoding);\n    this._writableState.defaultEncoding = encoding;",
-      "replace": "    this._writableState.defaultEncoding = encoding;",
-      "gate": "compat:tests/node-compat/cases/64-stream-write-validation.js",
-      "expect_detail": [
-        "setDefaultEncoding must validate"
-      ]
-    },
-    {
-      "name": "66-process-console-intrinsic dies when node:process re-reads the global",
-      "why": "The factory used to export the free-var process, so a pre-first-require reassignment of globalThis.process poisoned every later require('node:process'). Node returns the intrinsic regardless (#247).",
-      "source": "pkg/runtime/js/node/process.js",
-      "find": "  module.exports = intrinsic;",
-      "replace": "  module.exports = process;",
-      "gate": "compat:tests/node-compat/cases/66-process-console-intrinsic.js",
-      "expect_detail": "require(\"node:process\") must be the intrinsic"
-    },
-    {
-      "name": "66-process-console-intrinsic dies when node:console re-reads the global",
-      "why": "Same bug on the console factory: a pre-first-require reassignment of globalThis.console was captured as the module export. Console is a separate source file, so a single process entry would leave it unpinned.",
-      "source": "pkg/runtime/js/node/console.js",
-      "find": "  module.exports = intrinsic;",
-      "replace": "  module.exports = console;",
-      "gate": "compat:tests/node-compat/cases/66-process-console-intrinsic.js",
-      "expect_detail": "require(\"node:console\") must be the intrinsic"
-    },
-    {
-      "name": "66-process-console-intrinsic dies when natives stop handing process the intrinsic",
-      "why": "If install_internal_modules stops putting the process object on natives, the factory fail-closes. This pins the Odin wiring half, not just the JS export line.",
-      "source": "pkg/runtime/globals.odin",
-      "find": "\tif process_val := get_named(ctx, global, \"process\"); process_val != nil {\n\t\tset_named(ctx, natives, \"node/process\", process_val)\n\t}",
-      "replace": "\tif false {\n\t\tif process_val := get_named(ctx, global, \"process\"); process_val != nil {\n\t\t\tset_named(ctx, natives, \"node/process\", process_val)\n\t\t}\n\t}",
-      "gate": "compat:tests/node-compat/cases/66-process-console-intrinsic.js",
-      "expect_detail": "node:process intrinsic missing at context init"
-    },
-    {
-      "name": "66-process-console-intrinsic dies when natives stop handing console the intrinsic",
-      "why": "Symmetric to the process natives entry: console is a separate set_named, and leaving only the process one green-washes a console wiring regression.",
-      "source": "pkg/runtime/globals.odin",
-      "find": "\tif console_val := get_named(ctx, global, \"console\"); console_val != nil {\n\t\tset_named(ctx, natives, \"node/console\", console_val)\n\t}",
-      "replace": "\tif false {\n\t\tif console_val := get_named(ctx, global, \"console\"); console_val != nil {\n\t\t\tset_named(ctx, natives, \"node/console\", console_val)\n\t\t}\n\t}",
-      "gate": "compat:tests/node-compat/cases/66-process-console-intrinsic.js",
-      "expect_detail": "node:console intrinsic missing at context init"
     },
     {
       "name": "gate-integrity dies when the NODE_BIN rule is removed",
@@ -804,60 +246,6 @@
         "node/util.js:ansiRegex",
         "Expected values to be strictly equal"
       ]
-    },
-    {
-      "name": "68-resizable-view-bytes dies when typed_array_bytes trusts m_length for every view mode",
-      "why": "A length-tracking view stores 0 in m_length, so every native borrowing its bytes (TextDecoder, Buffer.compare, fs writes, sqlite binds) saw an empty view.",
-      "source": "pkg/jsc/private_view.odin",
-      "find": "\t\tif mode != g_mode_fixed[0] && mode != g_mode_fixed[1] && mode != g_mode_fixed[2] {\n\t\t\treturn nil, false\n\t\t}\n",
-      "replace": "\t\t_ = mode\n",
-      "gate": "compat:tests/node-compat/cases/68-resizable-view-bytes.js",
-      "expect_detail": "auto: TextDecoder#decode"
-    },
-    {
-      "name": "68-resizable-view-bytes dies when Buffer.from copies an out-of-bounds view with set()",
-      "why": "%TypedArray%.prototype.set throws on an out-of-bounds SOURCE even at length 0, where node returns an empty Buffer.",
-      "source": "pkg/runtime/js/node/buffer.js",
-      "find": "        if (viewLength > 0) copy.set(value);\n",
-      "replace": "        copy.set(value);\n",
-      "gate": "compat:tests/node-compat/cases/68-resizable-view-bytes.js",
-      "expect_detail": "out-of-bounds"
-    },
-    {
-      "name": "69-view-probe-pollution dies when the runtime stops priming the typed-array cell probe",
-      "why": "Probed lazily, the mode probe learns from a user-replaced Uint8Array and whitelists the resizable-fixed mode, so natives read stale bytes past a shrunk buffer's end.",
-      "source": "pkg/runtime/page.odin",
-      "find": "\tjsc.prime_view_probe(cast(jsc.JSContextRef)ctx)\n",
-      "replace": "",
-      "gate": "compat:tests/node-compat/cases/69-view-probe-pollution.js",
-      "expect_detail": "\"abc\""
-    },
-    {
-      "name": "46-util-mimetype dies when parsed parameter names fold with String#toLowerCase",
-      "why": "toLowerCase folds KELVIN SIGN (U+212A) to 'k', turning an invalid parameter name into a valid one that node drops.",
-      "source": "pkg/runtime/js/internal/mime.js",
-      "find": "var name = asciiLower(str.slice(nameStart, position));",
-      "replace": "var name = str.slice(nameStart, position).toLowerCase();",
-      "gate": "compat:tests/node-compat/cases/46-util-mimetype.js",
-      "expect_detail": "a/b;k=1"
-    },
-    {
-      "name": "46-util-mimetype dies when a type/subtype error index is reported relative to the whole input",
-      "why": "node reports the offending code point's index within the subtype (`text/p@in` is invalid at 1); an input-relative index says 6.",
-      "source": "pkg/runtime/js/internal/mime.js",
-      "find": "if (bad !== -1) throw mimeError(production, input, bad);",
-      "replace": "if (bad !== -1) throw mimeError(production, input, input.indexOf(value) + bad);",
-      "gate": "compat:tests/node-compat/cases/46-util-mimetype.js",
-      "expect_detail": "is invalid at 6"
-    },
-    {
-      "name": "46-util-mimetype dies when a MIME syntax error quotes the whitespace-trimmed input",
-      "why": "node quotes the input as given, leading whitespace included; quoting the trimmed string changes the message.",
-      "source": "pkg/runtime/js/internal/mime.js",
-      "find": "if (slash === -1) throw mimeError('type', input, -1);",
-      "replace": "if (slash === -1) throw mimeError('type', str, -1);",
-      "gate": "compat:tests/node-compat/cases/46-util-mimetype.js",
-      "expect_detail": "\"garbage\" is invalid"
     },
     {
       "name": "vm_pool_reuses_most_recently_released dies when vm_release stops reordering the pool",
@@ -1102,16 +490,6 @@
       "timeout_ms": 60000
     },
     {
-      "name": "cpu_budget_kills_a_next_tick_ping_pong dies when nextTick drain passes are not checkpointed",
-      "why": "A nextTick/promise ping-pong never returns from the drain, and each pass is a short fresh entry the watchdog never cuts; the per-pass checkpoint is the only stop. Without it the gate hangs.",
-      "source": "pkg/runtime/globals.odin",
-      "find": "\t\tif page_checkpoint(state, &exc) {\n\t\t\treturn\n\t\t}\n\n",
-      "replace": "",
-      "gate": "odin:cmd/lava:main.cpu_budget_kills_a_next_tick_ping_pong",
-      "expect_detail": "timed out",
-      "timeout_ms": 30000
-    },
-    {
       "name": "cpu_budget_is_cleared_on_release dies when vm_acquire keeps budget_hit",
       "why": "A reused VM that keeps its last holder's budget_hit reports the next page killed before it runs: one page's state leaking into the next in a reused VM.",
       "source": "pkg/runtime/vm_pool.odin",
@@ -1166,16 +544,6 @@
       "expect_detail": "runner burned"
     },
     {
-      "name": "runner_fd_count_stays_flat_over_10k_pages dies when a closed page keeps its loop open",
-      "why": "Every page loop owns an epoll or io_uring fd plus a wakeup pipe; a page close that skips close_finish leaks the pipe, two fds per page.",
-      "source": "pkg/runtime/page.odin",
-      "find": "\tif page.loop != nil && busy_loop == nil {\n\t\teventloop.close_finish(page.loop)\n\t}\n\n",
-      "replace": "\n",
-      "gate": "odin:cmd/lava:main.runner_fd_count_stays_flat_over_10k_pages",
-      "expect_detail": "fd count grew",
-      "timeout_ms": 600000
-    },
-    {
       "name": "close_begin_cancels_a_running_job_without_waiting_for_it dies when close_begin skips the cancel hook of a running job",
       "why": "Without the cancel, a job's protected JS callback is unprotected only by its late dispose, after the page's context — or the runner's VM — is gone.",
       "source": "pkg/runtime/eventloop/threadpool.odin",
@@ -1183,38 +551,6 @@
       "replace": "",
       "gate": "odin:pkg/runtime/eventloop:eventloop.close_begin_cancels_a_running_job_without_waiting_for_it",
       "expect_detail": "job.cancel) to be 1"
-    },
-    {
-      "name": "runner_close_does_not_wait_for_a_worker_blocked_on_a_fifo dies when close_begin reports a shared-pool loop busy",
-      "why": "A page loop handed back busy would have to be finished by joining its worker, blocked in open() on the FIFO — the whole runner thread with it (#34); a shared pool's client never waits (#36).",
-      "source": "pkg/runtime/eventloop/threadpool.odin",
-      "find": "\treturn loop.owns_pool && orphans > parked\n",
-      "replace": "\treturn orphans > parked\n",
-      "gate": "odin:cmd/lava:main.runner_close_does_not_wait_for_a_worker_blocked_on_a_fifo",
-      "expect_detail": "handed back busy"
-    },
-    {
-      "name": "runner_refuses_pages_at_its_orphan_bound dies when page_runner_open ignores the orphan bound",
-      "why": "Pages that read FIFOs never release their orphaned workers; without the bound they pile up threads until the process runs out (#34, #36).",
-      "source": "pkg/runtime/page_runner.odin",
-      "find": "\tif page_runner_orphans(runner) >= runner.orphan_limit {\n",
-      "replace": "\tif page_runner_orphans(runner) >= runner.orphan_limit + 1000 {\n",
-      "gate": "odin:cmd/lava:main.runner_refuses_pages_at_its_orphan_bound",
-      "expect_detail": "page_runner_live(&runner) to be 0"
-    },
-    {
-      "name": "runner_close_does_not_wait_for_a_hanging_dns_lookup dies when fetch's DNS_Job is allocated from the request allocator",
-      "why": "req.allocator is the runner's; a detached lookup's worker re-reads job.host per family after the runner allocator is gone (#34). Locally (ubuntu-24.04) the worker faults ('odin test exited'); on CI's ubuntu-26.04 build (run 43699940285) no fault reached the process, and the detached loop's teardown never finished, so the test's own check that the loop's pipe closes after the resolver times out fails (15 s against a ~4 s resolver wait).",
-      "source": "pkg/runtime/fetch_dns.odin",
-      "find": "\tjob := new(DNS_Job, runtime.heap_allocator())\n\tjob.allocator = runtime.heap_allocator()\n",
-      "replace": "\tjob := new(DNS_Job, req.allocator)\n\tjob.allocator = req.allocator\n",
-      "gate": "odin:cmd/lava:main.runner_close_does_not_wait_for_a_hanging_dns_lookup",
-      "expect_detail": [
-        "Segmentation_Fault",
-        "odin test exited",
-        "still running 15 s after the runner was destroyed"
-      ],
-      "timeout_ms": 60000
     },
     {
       "name": "runner_destroy_reports_live_pages_cancelled dies when destroy reports a cut-off page as finished",
@@ -1235,15 +571,6 @@
       "expect_detail": "reported from inside page_runner_open"
     },
     {
-      "name": "runner_wakes_on_io_without_timers dies when a page loop's fd is not in the runner's epoll set",
-      "why": "An I/O-only page has no timer to bound the runner's wait; if its loop fd never reaches the epoll set the runner sleeps forever.",
-      "source": "pkg/runtime/page_runner.odin",
-      "find": "\t\tif linux.epoll_ctl(runner.epfd, .ADD, linux.Fd(fd), &ev) == .NONE {\n\t\t\trp.fd = linux.Fd(fd)\n\t\t}",
-      "replace": "\t\trp.fd = linux.Fd(fd)",
-      "gate": "odin:cmd/lava:main.runner_wakes_on_io_without_timers",
-      "expect_detail": "not in the runner's epoll set"
-    },
-    {
       "name": "backend_fd_wakes_an_outer_epoll_on_watched_io dies when backend_fd hands out a descriptor that never becomes readable",
       "why": "A multi-loop driver blocks on backend_fd; a descriptor that does not reflect the loop's I/O leaves an I/O-only page waiting forever.",
       "source": "pkg/runtime/eventloop/loop_linux.odin",
@@ -1251,15 +578,6 @@
       "replace": "\t\treturn uintptr(loop.platform.wakeup_pipe[1]), loop.platform.ring.fd >= 0\n",
       "gate": "odin:pkg/runtime/eventloop:eventloop.backend_fd_wakes_an_outer_epoll_on_watched_io",
       "expect_detail": "did not wake the outer epoll"
-    },
-    {
-      "name": "runner_process_exit_runs_no_code_after_it dies when process.exit() in a runner page stops raising JSC's termination exception",
-      "why": "Node runs nothing after process.exit() in a worker; without the uncatchable exception the next statement, catch and finally run until the stop watchdog's trap.",
-      "source": "pkg/runtime/globals.odin",
-      "find": "\t\tif term := jsc.termination_exception(ctx); term != nil && exception != nil {\n\t\t\texception^ = term\n\t\t}\n\n",
-      "replace": "",
-      "gate": "odin:cmd/lava:main.runner_process_exit_runs_no_code_after_it",
-      "expect_detail": "ran code after process.exit()"
     },
     {
       "name": "runner_refuses_a_page_without_a_cpu_budget dies when a NaN budget slips past the refusal",
@@ -1278,42 +596,6 @@
       "replace": "\tif false {\n\t\tappend(",
       "gate": "odin:cmd/lava:main.runner_refuses_a_page_without_a_cpu_budget",
       "expect_detail": "page_runner_live"
-    },
-    {
-      "name": "runner_process_exit_bounds_promise_jobs_queued_before_it dies when a requested stop no longer arms the watchdog",
-      "why": "The drained promise jobs are bounded only by the stop's token limit; without it an endless job runs to the page's budget and the exit reads as a kill.",
-      "source": "pkg/runtime/vm_pool.odin",
-      "find": "\tjsc.JSContextGroupSetExecutionTimeLimit(vm.group, STOP_LIMIT, vm_watchdog_terminate, vm)\n",
-      "replace": "",
-      "gate": "odin:cmd/lava:main.runner_process_exit_bounds_promise_jobs_queued_before_it",
-      "expect_detail": "drained promise job"
-    },
-    {
-      "name": "runner_vm_reused_after_process_exit_runs_the_next_page dies when acquiring a VM keeps the last holder's stop request",
-      "why": "A stop left set on a pooled VM ends the next page that takes it at its first check, with exit code 0, before its timer runs.",
-      "source": "pkg/runtime/vm_pool.odin",
-      "find": "\t\t\tvm.budget_hit = false\n\t\t\tvm.stop_requested = false\n",
-      "replace": "\t\t\tvm.budget_hit = false\n",
-      "gate": "odin:cmd/lava:main.runner_vm_reused_after_process_exit_runs_the_next_page",
-      "expect_detail": "second page"
-    },
-    {
-      "name": "runner_wakes_on_io_without_timers_on_the_readiness_backend dies when the readiness switch is ignored",
-      "why": "Without the switch the case re-tests io_uring and the epoll half of backend_fd and the runner never runs in CI.",
-      "source": "pkg/runtime/eventloop/loop_linux.odin",
-      "find": "if !force_readiness_backend && uring.init(",
-      "replace": "if uring.init(",
-      "gate": "odin:cmd/lava:main.runner_wakes_on_io_without_timers_on_the_readiness_backend",
-      "expect_detail": "page loop backend is"
-    },
-    {
-      "name": "runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator dies when fetch's chunk copy goes back to context.allocator",
-      "why": "Same pairing as net's read copy: fetch_deliver_chunk runs in a loop callback under the runner's allocator.",
-      "source": "pkg/runtime/fetch.odin",
-      "find": "copy_buf := make([]byte, len(bytes), runtime.heap_allocator()) // freed by jsc_buffer_deallocator, on the heap",
-      "replace": "copy_buf := make([]byte, len(bytes), context.allocator)",
-      "gate": "odin:cmd/lava:main.runner_bytes_handed_to_jsc_never_come_from_the_runner_allocator",
-      "expect_detail": "odin test exited"
     },
     {
       "name": "agents-mirror dies when a specialist goes back to model: inherit",
@@ -1629,15 +911,6 @@
       "expect_detail": "Native_Runtime_Unavailable"
     },
     {
-      "name": "dispatcher_runaway_page_is_killed_alone dies when a page's limits do not travel with it",
-      "why": "A worker that opens pages under a default budget lets a runaway submitted with a 0.2 s budget run its whole course.",
-      "source": "pkg/runtime/page_dispatcher.odin",
-      "find": "page_runner_open(&w.runner, job.source, job.source_name, job.limits, job, job.surface)",
-      "replace": "page_runner_open(&w.runner, job.source, job.source_name, Page_Limits{cpu_budget = 30}, job, job.surface)",
-      "gate": "odin:cmd/lava:main.dispatcher_runaway_page_is_killed_alone",
-      "expect_detail": "runaway not killed by its budget"
-    },
-    {
       "name": "dispatcher_cancel_shutdown_cancels_running_and_queued dies when shutdown drops the cancel flag",
       "why": "Without it shutdown(cancel) drains instead, and waits for every queued and running page to end on its own.",
       "source": "pkg/runtime/page_dispatcher.odin",
@@ -1870,15 +1143,6 @@
       "expect_detail": "bytes of the pool were never freed"
     },
     {
-      "name": "runner_page_with_stalled_lookups_does_not_starve_a_sibling dies when runner_round does not tick the worker pool",
-      "why": "Nothing else starts an overflow worker: a sibling's lookup waits behind a page whose lookups hang until one of them returns or that page closes (#36).",
-      "source": "pkg/runtime/page_runner.odin",
-      "find": "\teventloop.pool_tick(runner.workers)\n",
-      "replace": "",
-      "gate": "odin:cmd/lava:main.runner_page_with_stalled_lookups_does_not_starve_a_sibling",
-      "expect_detail": "behind a page holding every core worker"
-    },
-    {
       "name": "eval_fetch_dns_jobs_live_on_the_heap dies when fetch's DNS_Job is allocated from the request allocator",
       "why": "req.allocator is the runtime's; a lookup's worker re-reads job.host per family and may outlive that allocator (CLAUDE.md §4, #34) — larva#49's page-runner-gated entry, pinned in Lava by where the allocation comes from.",
       "source": "pkg/runtime/fetch_dns.odin",
@@ -1912,7 +1176,7 @@
       "find": "  function track(fn) {\n",
       "replace": "  function track(fn) {\n    if (fn === apply) return;\n",
       "gate": "odin:cmd/lava:main.function_call_lock",
-      "expect_detail": "want emit-hijack=listener:1 got emit-hijack="
+      "expect_detail": "want ext=false,false,false got ext=false,true,false"
     },
     {
       "name": "function_call_lock dies when the wrapped set stays extensible",
@@ -1922,15 +1186,6 @@
       "replace": "",
       "gate": "odin:cmd/lava:main.function_call_lock",
       "expect_detail": "want push-hijack=0 a=1&b=2&c=3 http://a/b?c got push-hijack="
-    },
-    {
-      "name": "function_call_lock dies when a method wrapped after the lock is not locked on the spot",
-      "why": "The loader wraps Buffer.prototype.toString/indexOf/slice with uncurryThis AFTER lockIntrinsics (pristineBuffer, the http framing path); without lock-on-wrap those held methods stay steerable through an own call.",
-      "source": "pkg/runtime/js/internal/primordials.js",
-      "find": "    if (intrinsicsLocked) preventExtensions(fn);",
-      "replace": "    if (intrinsicsLocked) return;",
-      "gate": "odin:cmd/lava:main.function_call_lock",
-      "expect_detail": "want wrapped-ext=false,false,false,true got wrapped-ext=false,false,true,true"
     },
     {
       "name": "compare.sh dies when the .nvmrc oracle-major check is gutted",
@@ -1983,227 +1238,6 @@
       "expect_detail": "compare_case fails with lava timeout message when only lava hangs (#399)"
     },
     {
-      "name": "70-buffer-size-inspect-parity dies when assertSize names a class instead of the type",
-      "why": "internal/errors classifies `expected` the way node does: 'number' is a type (`must be of type number`), a capitalized 'Number' a class (`must be an instance of Number`). The call site must pass the type.",
-      "source": "pkg/runtime/js/node/buffer.js",
-      "find": "throw ERR_INVALID_ARG_TYPE('size', 'number', size);",
-      "replace": "throw ERR_INVALID_ARG_TYPE('size', 'Number', size);",
-      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
-      "expect_detail": [
-        "The \"size\" argument must be an instance of Number"
-      ]
-    },
-    {
-      "name": "03-buffer dies when node:buffer exports SlowBuffer again",
-      "why": "Node 26 removed SlowBuffer (DEP0030 end-of-life); `'SlowBuffer' in require('buffer')` is false there.",
-      "source": "pkg/runtime/js/node/buffer.js",
-      "find": "    Buffer: Buffer,\n    Blob: Blob,",
-      "replace": "    Buffer: Buffer,\n    SlowBuffer: Buffer,\n    Blob: Blob,",
-      "gate": "compat:tests/node-compat/cases/03-buffer.js",
-      "expect_detail": "node:buffer has no SlowBuffer"
-    },
-    {
-      "name": "70-buffer-size-inspect-parity dies when checkBounds names a class instead of the type",
-      "why": "internal/errors classifies `expected` the way node does: 'number' is a type (`must be of type number`), a capitalized 'Number' a class (`must be an instance of Number`). The call site must pass the type.",
-      "source": "pkg/runtime/js/internal/buffer.js",
-      "find": "throw ERR_INVALID_ARG_TYPE('offset', 'number', offset);",
-      "replace": "throw ERR_INVALID_ARG_TYPE('offset', 'Number', offset);",
-      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
-      "expect_detail": [
-        "The \"offset\" argument must be an instance of Number"
-      ]
-    },
-    {
-      "name": "70-buffer-size-inspect-parity dies when Buffer.concat's length check names a class instead of the type",
-      "why": "internal/errors classifies `expected` the way node does: 'number' is a type (`must be of type number`), a capitalized 'Number' a class (`must be an instance of Number`). The call site must pass the type.",
-      "source": "pkg/runtime/js/node/buffer.js",
-      "find": "throw ERR_INVALID_ARG_TYPE('length', 'number', totalLength);",
-      "replace": "throw ERR_INVALID_ARG_TYPE('length', 'Number', totalLength);",
-      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
-      "expect_detail": [
-        "The \"length\" argument must be an instance of Number"
-      ]
-    },
-    {
-      "name": "70-buffer-size-inspect-parity dies when the deprecated Buffer(n) skips assertSize",
-      "why": "Buffer(-1) would throw JSC's codeless 'length cannot be negative' and Buffer(NaN) return an empty Buffer; node throws ERR_OUT_OF_RANGE.",
-      "source": "pkg/runtime/js/node/buffer.js",
-      "find": "      assertSize(arg);\n",
-      "replace": "",
-      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
-      "expect_detail": [
-        "length cannot be negative"
-      ]
-    },
-    {
-      "name": "70-buffer-size-inspect-parity dies when the more-bytes separator is dropped with no hex shown",
-      "why": "node prints `<Buffer  ... 3 more bytes>` (two spaces) when INSPECT_MAX_BYTES = 0.",
-      "source": "pkg/runtime/js/node/buffer.js",
-      "find": "hex += ' ... ' + remaining",
-      "replace": "hex += (hex ? ' ' : '') + '... ' + remaining",
-      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
-      "expect_detail": [
-        "<Buffer ... 1 more byte>"
-      ]
-    },
-    {
-      "name": "70-buffer-size-inspect-parity dies when Buffer(n) routes through allocUnsafe instead of a fresh zero-filled FastBuffer",
-      "why": "Buffer(n) returns a fresh zero-filled non-pooled Buffer, not a pool slice (#408).",
-      "source": "pkg/runtime/js/node/buffer.js",
-      "find": "      return new FastBuffer(arg); // zero-filled, matching the old `super(number)`",
-      "replace": "      return Buffer.allocUnsafe(arg);",
-      "gate": "compat:tests/node-compat/cases/70-buffer-size-inspect-parity.js",
-      "expect_detail": [
-        "buf=262144"
-      ]
-    },
-    {
-      "name": "73-buffer-type-fill-bigint dies when compare bounds targetStart by the target length",
-      "why": "node bounds compare's *Start by kMaxLength only: Buffer.alloc(3).compare(Buffer.alloc(3), 100) is 1, not a RangeError.",
-      "source": "pkg/runtime/js/node/buffer.js",
-      "find": "validateOffsetArg(targetStart, 'targetStart', K_MAX_LENGTH)",
-      "replace": "validateOffsetArg(targetStart, 'targetStart', target.length)",
-      "gate": "compat:tests/node-compat/cases/73-buffer-type-fill-bigint.js",
-      "expect_detail": [
-        "The value of \"targetStart\" is out of range"
-      ]
-    },
-    {
-      "name": "73-buffer-type-fill-bigint dies when write bounds length by the bytes remaining after offset",
-      "why": "node validates write's length against this.length and then clamps: Buffer.alloc(10).write('abcdef', 5, 8) is 5.",
-      "source": "pkg/runtime/js/node/buffer.js",
-      "find": "max = validateOffsetArg(length, 'length', this.length);",
-      "replace": "max = validateOffsetArg(length, 'length', remaining);",
-      "gate": "compat:tests/node-compat/cases/73-buffer-type-fill-bigint.js",
-      "expect_detail": [
-        "It must be >= 0 && <= 5. Received 8"
-      ]
-    },
-    {
-      "name": "73-buffer-type-fill-bigint dies when write stops clamping length to the remaining bytes",
-      "why": "an in-range length past the end must be clamped; the hex path copies min(bytes, length) and overruns the view without it.",
-      "source": "pkg/runtime/js/node/buffer.js",
-      "find": "        if (max > remaining) max = remaining;\n",
-      "replace": "",
-      "gate": "compat:tests/node-compat/cases/73-buffer-type-fill-bigint.js",
-      "expect_detail": [
-        "lava: write(hex, 5, 8, \"hex\") => THREW RangeError"
-      ]
-    },
-    {
-      "name": "72-events-parity dies when emit() invokes a listener through its own apply",
-      "why": "node invokes listeners with ReflectApply, so a listener's own call/apply is never consulted; handler.apply(this, args) runs the listener's own apply instead of its body.",
-      "source": "pkg/runtime/js/node/events.js",
-      "find": "      apply.call(handler, this, args); // primordials-ok: invoke — receiver is the locked Function.prototype.apply",
-      "replace": "      handler.apply(this, args);",
-      "gate": "compat:tests/node-compat/cases/72-events-parity.js",
-      "expect_detail": [
-        "own.apply"
-      ]
-    },
-    {
-      "name": "72-events-parity dies when a once() wrapper invokes the listener through its own apply",
-      "why": "The once() wrapper is the other listener-invocation site; node ignores the listener's own apply there too.",
-      "source": "pkg/runtime/js/node/events.js",
-      "find": "      return apply.call(listener, target, arguments); // primordials-ok: invoke — receiver is the locked Function.prototype.apply",
-      "replace": "      return listener.apply(target, arguments);",
-      "gate": "compat:tests/node-compat/cases/72-events-parity.js",
-      "expect_detail": [
-        "own.apply"
-      ]
-    },
-    {
-      "name": "events_pollution_immunity dies when emit()'s two-listener snapshot is built by index writes",
-      "why": "An array literal defines its elements; index writes into [] walk Array.prototype, so a setter at [0] throws inside emit() or silently drops a listener where node emits to both.",
-      "source": "pkg/runtime/js/node/events.js",
-      "find": "      case 2:\n        return [list[0], list[1]];\n",
-      "replace": "",
-      "gate": "odin:cmd/lava:main.events_pollution_immunity",
-      "expect_detail": "want setter0=2,0,2,2 got setter0=THREW:TypeError"
-    },
-    {
-      "name": "events_pollution_immunity dies when once() rejects through the live Promise.reject",
-      "why": "Promise.reject is a writable static of the Promise constructor; capturing Promise does not capture it, so a replaced Promise.reject steers once()'s argument errors.",
-      "source": "pkg/runtime/js/node/events.js",
-      "find": "  var PromiseReject = P.PromiseReject;",
-      "replace": "  var PromiseReject = function (e) { return P.Promise.reject(e); };",
-      "gate": "odin:cmd/lava:main.events_pollution_immunity",
-      "expect_detail": "got promise-statics=THREW:Error"
-    },
-    {
-      "name": "events_pollution_immunity dies when events.on() defaults options to a fresh {}",
-      "why": "A {} default inherits signal from a poisoned Object.prototype, so on(emitter, name) throws ERR_INVALID_ARG_TYPE where node (frozen null-prototype default) does not.",
-      "source": "pkg/runtime/js/node/events.js",
-      "find": "    options = options || kEmptyObject;",
-      "replace": "    options = options || {};",
-      "gate": "odin:cmd/lava:main.events_pollution_immunity",
-      "expect_detail": "want options-proto=function got options-proto=THREW:TypeError"
-    },
-    {
-      "name": "events_pollution_immunity dies when events.on()'s queue keeps its slots in an Array",
-      "why": "Queued events written into an Array pass through an Array.prototype index setter, which can read or drop them; the null-prototype slots object walks no chain.",
-      "source": "pkg/runtime/js/node/events.js",
-      "find": "      this.slots = ObjectCreate(null);",
-      "replace": "      this.slots = [];",
-      "gate": "odin:cmd/lava:main.events_pollution_immunity",
-      "expect_detail": "want on-queue=a|b,0 got on-queue="
-    },
-    {
-      "name": "72-events-parity dies when once() stops validating options",
-      "why": "node's events.once rejects a non-object options with ERR_INVALID_ARG_TYPE; without the check once(ee, 'foo', 5) just waits.",
-      "source": "pkg/runtime/js/node/events.js",
-      "find": "      return PromiseReject(ERR_INVALID_ARG_TYPE('options', 'object', options));",
-      "replace": "      options = undefined;",
-      "gate": "compat:tests/node-compat/cases/72-events-parity.js",
-      "expect_detail": [
-        "bad options 5: TypeError ERR_INVALID_ARG_TYPE"
-      ]
-    },
-    {
-      "name": "73-buffer-type-fill-bigint dies when writeBigInt rejects non-BigInt values before the range and offset checks",
-      "why": "node runs checkInt (range, then offset bounds) before the BigInt mask, so Object(5n) writes and a bad range/offset is reported as ERR_OUT_OF_RANGE / ERR_INVALID_ARG_TYPE rather than 'Cannot mix BigInt'.",
-      "source": "pkg/runtime/js/internal/buffer.js",
-      "find": "    checkValueInt(value, -BIG_SIGN_I64, BIG_SIGN_I64 - BIG_1, 7);\n",
-      "replace": "    if (typeof value !== 'bigint') throw new TypeError('Cannot mix BigInt and other types, use explicit conversions');\n    checkValueInt(value, -BIG_SIGN_I64, BIG_SIGN_I64 - BIG_1, 7);\n",
-      "gate": "compat:tests/node-compat/cases/73-buffer-type-fill-bigint.js",
-      "expect_detail": [
-        "lava: writeBigInt64LE(Object(5n)) => THREW TypeError"
-      ]
-    },
-    {
-      "name": "03-buffer dies when atob stops rejecting characters outside the forgiving-base64 alphabet",
-      "why": "node's atob throws InvalidCharacterError 'Invalid character' for '!' and for VT; without the alphabet check they fall through to the length check.",
-      "source": "pkg/runtime/js/internal/base64.js",
-      "find": "      if (!alnum && c !== 0x2b && c !== 0x2f && c !== 0x3d)",
-      "replace": "      if (false)",
-      "gate": "compat:tests/node-compat/cases/03-buffer.js",
-      "expect_detail": [
-        "lava: atob [\"!\"] InvalidCharacterError 5 The string to be decoded is not correctly encoded."
-      ]
-    },
-    {
-      "name": "03-buffer dies when btoa stops rejecting code units above 0xFF",
-      "why": "node's btoa throws InvalidCharacterError for 'Ā'; latin1 encoding would silently truncate it to 0x00.",
-      "source": "pkg/runtime/js/internal/base64.js",
-      "find": "  var NON_LATIN1_RE = /[^\\u0000-\\u00ff]/;",
-      "replace": "  var NON_LATIN1_RE = /[^\\u0000-\\uffff]/;",
-      "gate": "compat:tests/node-compat/cases/03-buffer.js",
-      "expect_detail": [
-        "lava: btoa [\"Ā\"] \"AA==\""
-      ]
-    },
-    {
-      "name": "71-assert-deep-strict-equal dies when a primitive Map key's values are not compared",
-      "why": "the O(n) b.get fast path must still deep-compare the values; skipping it makes Maps with equal keys and different values equal.",
-      "source": "pkg/runtime/js/internal/util/comparisons.js",
-      "find": "} else if (isMap && !deepStrict(v, b.get(key), aStack, bStack)) {",
-      "replace": "} else if (false) {",
-      "gate": "compat:tests/node-compat/cases/71-assert-deep-strict-equal.js",
-      "expect_detail": [
-        "lava: Map prim key, value diff: eq=true"
-      ]
-    },
-    {
       "name": "atob_invalid_character_shape dies when the InvalidCharacterError code stops being the number 5",
       "why": "DOMException's code getter answers from its names table; a string there reads '5' through console.log just as 5 does, so only the Lava-only test sees the type.",
       "source": "pkg/runtime/js/internal/domexception.js",
@@ -2215,28 +1249,6 @@
       ]
     },
     {
-      "name": "03-buffer dies when the atob fast-path regex lets a non-alphabet character through",
-      "why": "the regex fast path skips the per-char loop; if it admits '!' or VT, atob reports the length error instead of node's 'Invalid character'.",
-      "source": "pkg/runtime/js/internal/base64.js",
-      "find": "  var ATOB_SLOW_RE = /[^A-Za-z0-9+/=]|=[^=]|===/;",
-      "replace": "  var ATOB_SLOW_RE = /=[^=]|===/;",
-      "gate": "compat:tests/node-compat/cases/03-buffer.js",
-      "expect_detail": [
-        "lava: atob [\"!\"] InvalidCharacterError 5 The string to be decoded is not correctly encoded."
-      ]
-    },
-    {
-      "name": "03-buffer dies when atob checks '=' padding before the lone-trailing-character rule",
-      "why": "node 26 reports 'not correctly encoded' for 'a=', 'a==' and 'abcde=': the remainder without '=' is tested first.",
-      "source": "pkg/runtime/js/internal/base64.js",
-      "find": "    if ((nonWhitespace - equals) % 4 === 1)\n      throw errInvalidCharacter('The string to be decoded is not correctly encoded.');\n    if (equals && nonWhitespace % 4) throw errInvalidCharacter('Invalid character');\n",
-      "replace": "    if (equals && nonWhitespace % 4) throw errInvalidCharacter('Invalid character');\n    if ((nonWhitespace - equals) % 4 === 1)\n      throw errInvalidCharacter('The string to be decoded is not correctly encoded.');\n",
-      "gate": "compat:tests/node-compat/cases/03-buffer.js",
-      "expect_detail": [
-        "lava: atob [\"a=\"] InvalidCharacterError 5 Invalid character"
-      ]
-    },
-    {
       "name": "run-gates dies when a failing gate no longer sets a non-zero exit code",
       "why": "make gates exists so a red gate cannot be hidden by a pipe's exit status (#360); returning status 0 on failure defeats the runner.",
       "source": "scripts/run-gates.mjs",
@@ -2245,51 +1257,6 @@
       "gate": "node-test:scripts/run-gates.test.mjs",
       "test": "stops at the first failing target and exits non-zero",
       "expect_detail": "stops at the first failing target and exits non-zero"
-    },
-    {
-      "name": "46-util-mimetype dies when a quoted value stops skipping to the next ';'",
-      "why": "node 26 follows WHATWG and discards text after a closing quote up to ';'; resuming parsing there keeps a parameter node drops (`a=\"b\" c=d` gains c=d).",
-      "source": "pkg/runtime/js/internal/mime.js",
-      "find": "        while (position < len && str[position] !== ';') position++;\n      } else {",
-      "replace": "      } else {",
-      "gate": "compat:tests/node-compat/cases/46-util-mimetype.js",
-      "expect_detail": "'text/x;a=b;c=d' strictEqual 'text/x;a=b'"
-    },
-    {
-      "name": "46-util-mimetype dies when the input is no longer trimmed at the trailing end",
-      "why": "node 26 trims the whole input at both ends first (WHATWG step 1), so an unterminated quoted value loses trailing whitespace.",
-      "source": "pkg/runtime/js/internal/mime.js",
-      "find": "    while (end > 0 && isHTTPWhitespace(str[end - 1])) end--;",
-      "replace": "",
-      "gate": "compat:tests/node-compat/cases/46-util-mimetype.js",
-      "expect_detail": "'b\\t' strictEqual 'b'"
-    },
-    {
-      "name": "44-util-parseenv dies when the result goes back to a plain object",
-      "why": "node 26 returns a null-prototype object that keeps `__proto__` as an own key; a plain object swallows the key into the setter and has Object.prototype.",
-      "source": "pkg/runtime/js/internal/parse_env.js",
-      "find": "    var result = { __proto__: null };",
-      "replace": "    var result = {};",
-      "gate": "compat:tests/node-compat/cases/44-util-parseenv.js",
-      "expect_detail": "{} strictEqual null"
-    },
-    {
-      "name": "74-builtin-visibility dies when the public resolver answers internal/ ids",
-      "why": "The directory is the visibility rule: publicReq answers node/ ids only. Without the prefix test, require('internal/primordials') and every other internal/ module reach user code (and shadow npm packages of those names).",
-      "source": "pkg/runtime/js/bootstrap/loader.js",
-      "find": "    if (!hasPrefix(id, 'node/')) return undefined;\n",
-      "replace": "",
-      "gate": "compat:tests/node-compat/cases/74-builtin-visibility.js",
-      "expect_detail": "bare internal/primordials RESOLVED"
-    },
-    {
-      "name": "74-builtin-visibility dies when builtin source names lose the node: scheme",
-      "why": "Stack frames in builtin code read `fn@node:url:N:N`, the shape node's own frames take (`node:internal/url`). Dropping the scheme brings back bare `url`/`encoding` source names that no frame-filtering tool recognizes as a builtin.",
-      "source": "pkg/runtime/globals.odin",
-      "find": "strings.concatenate({\"node:\", spec}, context.temp_allocator)",
-      "replace": "strings.concatenate({\"\", spec}, context.temp_allocator)",
-      "gate": "compat:tests/node-compat/cases/74-builtin-visibility.js",
-      "expect_detail": "stack has node: false"
     },
     {
       "name": "check-js-graph fixtures die when a non-literal require is accepted",
@@ -2462,24 +1429,6 @@
       "expect_detail": "graph CLI [node] (direct path) wrote to stderr on a clean run"
     },
     {
-      "name": "builtin_factories_compile_on_first_require dies when a lazy builtin is compiled before user code",
-      "why": "Restores eager compilation for the one module the test watches (node:os): if the loader compiles it at init, its first require compiles nothing and the startup win this pins is gone without any visible behavior change.",
-      "source": "pkg/runtime/js/bootstrap/loader.js",
-      "find": "  req('internal/structured_clone');\n",
-      "replace": "  req('internal/structured_clone');\n  req('os');\n",
-      "gate": "odin:cmd/lava:main.builtin_factories_compile_on_first_require",
-      "expect_detail": "expected state.builtin_compiles to be"
-    },
-    {
-      "name": "builtin_factories_compile_on_first_require dies when compile matches the directory prefix loosely",
-      "why": "compile(id) is the only gate between a caller-shaped id and the embedded file table; a suffix match lets 'node:node/os' answer as a second public spelling of node:os, the shape of drift that would also let an override build read a file the exact match never names.",
-      "source": "pkg/runtime/globals.odin",
-      "find": "\t\tif dir.prefix != prefix {\n\t\t\tcontinue\n\t\t}\n",
-      "replace": "\t\tif !strings.has_suffix(prefix, dir.prefix) {\n\t\t\tcontinue\n\t\t}\n",
-      "gate": "odin:cmd/lava:main.builtin_factories_compile_on_first_require",
-      "expect_detail": "an id outside the embedded set resolved"
-    },
-    {
       "name": "the detector's fixtures die when a lazy module's module-eval capture is exempted again",
       "why": "#333: a lazy module's factory runs on the user's first require, after user code could replace `String`, so exempting its top-level `var StringG = String` scores a live read as 0.",
       "source": "scripts/lib/primordials-detect.mjs",
@@ -2641,243 +1590,6 @@
       "expect_detail": "eager: a function-body require does not make its target eager"
     },
     {
-      "name": "builtin_factories_compile_on_first_require dies when the ratchet's eager set names a lazy module",
-      "why": "Statically node:crypto stays a loader req() root and so eager to the ratchet, but at run time it now loads after user code; static must stay a subset of what init compiles. This line is node:crypto's only top-level root, so moving it is moving every eager path to it.",
-      "source": "pkg/runtime/js/bootstrap/loader.js",
-      "find": "  if (!web) req('crypto');\n",
-      "replace": "  publicReq.lateCrypto = function () {\n    req('crypto');\n  };\n",
-      "gate": "odin:cmd/lava:main.builtin_factories_compile_on_first_require",
-      "expect_detail": "is listed eager but compiled on first require"
-    },
-    {
-      "name": "75-lazy-global-capture dies when internal/mime.js mints kData from the live Symbol",
-      "why": "`Symbol` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/internal/mime.js",
-      "find": "  var kData = SymbolG('data'); // MIMEParams: the Map of name -> value",
-      "replace": "  var kData = Symbol('data'); // MIMEParams: the Map of name -> value",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "util: ok [\"Symbol()\"]"
-    },
-    {
-      "name": "75-lazy-global-capture dies when internal/mime.js mints kType from the live Symbol",
-      "why": "`Symbol` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/internal/mime.js",
-      "find": "  var kType = SymbolG('type');",
-      "replace": "  var kType = Symbol('type');",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "util: ok [\"Symbol()\"]"
-    },
-    {
-      "name": "75-lazy-global-capture dies when internal/mime.js mints kSubtype from the live Symbol",
-      "why": "`Symbol` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/internal/mime.js",
-      "find": "  var kSubtype = SymbolG('subtype');",
-      "replace": "  var kSubtype = Symbol('subtype');",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "util: ok [\"Symbol()\"]"
-    },
-    {
-      "name": "75-lazy-global-capture dies when internal/mime.js mints kParams from the live Symbol",
-      "why": "`Symbol` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/internal/mime.js",
-      "find": "  var kParams = SymbolG('params');",
-      "replace": "  var kParams = Symbol('params');",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "util: ok [\"Symbol()\"]"
-    },
-    {
-      "name": "75-lazy-global-capture dies when internal/mime.js builds its quoted-string class through the live RegExp and String",
-      "why": "`RegExp` / `String.fromCharCode` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/internal/mime.js",
-      "find": "  var NotHTTPQuotedStringCodePoint = /[^\\t\\x20-\\x7E\\x80-\\xFF]/;",
-      "replace": "  var NotHTTPQuotedStringCodePoint = new RegExp(String.fromCharCode(91, 94, 9) + String.fromCharCode(32) + String.fromCharCode(45, 126) + String.fromCharCode(128) + String.fromCharCode(45, 255, 93));",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "String.fromCharCode"
-    },
-    {
-      "name": "75-lazy-global-capture dies when internal/mime.js keys MIMEParams iteration off the live Symbol",
-      "why": "`Symbol.iterator` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/internal/mime.js",
-      "find": "  MIMEParams.prototype[SymbolG.iterator] = MIMEParams.prototype.entries;",
-      "replace": "  MIMEParams.prototype[Symbol.iterator] = MIMEParams.prototype.entries;",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "util: ok [\"Symbol.iterator\"]"
-    },
-    {
-      "name": "75-lazy-global-capture dies when internal/mime.js defines MIMEType accessors through the live Object",
-      "why": "`Object.defineProperties` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/internal/mime.js",
-      "find": "  ObjectDefineProperties(MIMEType.prototype, {",
-      "replace": "  Object.defineProperties(MIMEType.prototype, {",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "util: ok [\"Object.defineProperties\"]"
-    },
-    {
-      "name": "75-lazy-global-capture dies when util.js reads Symbol.for live for promisify.custom",
-      "why": "`Symbol.for` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/internal/util.js",
-      "find": "  var kCustomPromisify = SymbolFor ? SymbolFor('nodejs.util.promisify.custom') : null;",
-      "replace": "  var kCustomPromisify = Symbol.for('nodejs.util.promisify.custom');",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "util: ok [\"Symbol.for\"]"
-    },
-    {
-      "name": "75-lazy-global-capture dies when util.js builds the ANSI matcher through the live RegExp",
-      "why": "`RegExp` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/internal/util/inspect.js",
-      "find": "  var ansiRegex = /",
-      "replace": "  var ansiRegex = new RegExp('(?:)') && /",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "util: ok [\"new RegExp\""
-    },
-    {
-      "name": "75-lazy-global-capture dies when assert.js reads Object.prototype.hasOwnProperty live",
-      "why": "`Object.prototype.hasOwnProperty` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/assert.js",
-      "find": "  var hasOwn = P.ObjectPrototypeHasOwnProperty;",
-      "replace": "  var hasOwnM = Object.prototype.hasOwnProperty; var hasOwn = function (o, k) { return hasOwnM.call(o, k); };",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "assert: ok [\"Object.prototype\"]"
-    },
-    {
-      "name": "75-lazy-global-capture dies when assert.js reads Object.prototype.propertyIsEnumerable live",
-      "why": "`Object.prototype.propertyIsEnumerable` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/assert.js",
-      "find": "  var isEnum = P.ObjectPrototypePropertyIsEnumerable;",
-      "replace": "  var isEnumM = Object.prototype.propertyIsEnumerable; var isEnum = function (o, k) { return isEnumM.call(o, k); };",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "assert: ok [\"Object.prototype\"]"
-    },
-    {
-      "name": "75-lazy-global-capture dies when diagnostics_channel.js builds its registry with the live Map",
-      "why": "`Map` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/diagnostics_channel.js",
-      "find": "  var channels = new P.Map();",
-      "replace": "  var channels = new Map();",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "diagnostics_channel: ok [\"new Map\""
-    },
-    {
-      "name": "75-lazy-global-capture dies when diagnostics_channel.js defines Channel#hasSubscribers through the live Object",
-      "why": "`Object.defineProperty` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/diagnostics_channel.js",
-      "find": "  ObjectDefineProperty(Channel.prototype, 'hasSubscribers', {",
-      "replace": "  Object.defineProperty(Channel.prototype, 'hasSubscribers', {",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "diagnostics_channel: ok [\"Object.defineProperty\"]"
-    },
-    {
-      "name": "75-lazy-global-capture dies when diagnostics_channel.js defines TracingChannel#hasSubscribers through the live Object",
-      "why": "`Object.defineProperty` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/diagnostics_channel.js",
-      "find": "  ObjectDefineProperty(TracingChannel.prototype, 'hasSubscribers', {",
-      "replace": "  Object.defineProperty(TracingChannel.prototype, 'hasSubscribers', {",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "diagnostics_channel: ok [\"Object.defineProperty\"]"
-    },
-    {
-      "name": "75-lazy-global-capture dies when querystring.js reads Object.prototype.hasOwnProperty live",
-      "why": "`Object.prototype.hasOwnProperty` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/querystring.js",
-      "find": "  var hasOwn = P.ObjectHasOwn;",
-      "replace": "  var hasOwnM = Object.prototype.hasOwnProperty; var hasOwn = function (o, k) { return hasOwnM.call(o, k); };",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "querystring: ok [\"Object.prototype\"]"
-    },
-    {
-      "name": "75-lazy-global-capture dies when util/types.js reads Object.prototype.toString live",
-      "why": "`Object.prototype.toString` is read at module-eval of a LAZY module, i.e. on the user's first require — after user code could replace the global. Node takes it from primordials; measured on node 26.13.0 a spy on the global logged nothing, here it logged the read (#426).",
-      "source": "pkg/runtime/js/node/util/types.js",
-      "find": "  var ObjectPrototypeToString = require('internal/primordials').ObjectPrototypeToStringFast;",
-      "replace": "  var toStringM = Object.prototype.toString; var ObjectPrototypeToString = function (v) { return toStringM.call(v); };",
-      "gate": "compat:tests/node-compat/cases/75-lazy-global-capture.js",
-      "expect_detail": "util/types: ok [\"Object.prototype\"]"
-    },
-    {
-      "name": "76-coded-error-shape dies when nodeError stops splicing the code into String(e)",
-      "why": "node's JS-layer errors stringify as `TypeError [ERR_X]: msg` through an inherited toString; a bare TypeError with a code property prints `TypeError: msg`, which is the C++ shape.",
-      "source": "pkg/runtime/js/internal/errors.js",
-      "find": "    ObjectSetPrototypeOf(e, protoFor(Base, code));",
-      "replace": "",
-      "gate": "compat:tests/node-compat/cases/76-coded-error-shape.js",
-      "expect_detail": [
-        "received string | TypeError | ERR_INVALID_ARG_TYPE | TypeError:"
-      ]
-    },
-    {
-      "name": "76-coded-error-shape dies when a long string is not cut to 25 chars",
-      "why": "determineSpecificType cuts a string longer than 28 to its first 25 plus '...'; exactly 28 is kept whole (the 28/29 pair in the case pins the boundary).",
-      "source": "pkg/runtime/js/internal/errors.js",
-      "find": "      if (value.length > 28) value = StringPrototypeSlice(value, 0, 25) + '...';",
-      "replace": "",
-      "gate": "compat:tests/node-compat/cases/76-coded-error-shape.js",
-      "expect_detail": [
-        "received: type string ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaa')"
-      ]
-    },
-    {
-      "name": "76-coded-error-shape dies when a string with a quote is not JSON-quoted",
-      "why": "node switches to JSON.stringify quoting when the (cut) string contains a single quote: `type string (\"it's\")`.",
-      "source": "pkg/runtime/js/internal/errors.js",
-      "find": "      if (StringPrototypeIndexOf(value, \"'\", 0) === -1) return \"type string ('\" + value + \"')\";",
-      "replace": "      return \"type string ('\" + value + \"')\";",
-      "gate": "compat:tests/node-compat/cases/76-coded-error-shape.js",
-      "expect_detail": [
-        "received: type string ('it's')"
-      ]
-    },
-    {
-      "name": "76-coded-error-shape dies when an object with a constructor is not 'an instance of'",
-      "why": "node names an object by its constructor; only a constructor-less object falls back to util.inspect at depth -1.",
-      "source": "pkg/runtime/js/internal/errors.js",
-      "find": "    if (ctor && 'name' in ctor) return 'an instance of ' + ctor.name;",
-      "replace": "",
-      "gate": "compat:tests/node-compat/cases/76-coded-error-shape.js",
-      "expect_detail": [
-        "received: [Array]"
-      ]
-    },
-    {
-      "name": "76-coded-error-shape dies when a large integer loses node's _ grouping",
-      "why": "ERR_OUT_OF_RANGE groups an integer past +-2 ** 32 with `_` every three digits (1_099_511_627_776); buffer, crypto and os all reach it.",
-      "source": "pkg/runtime/js/internal/errors.js",
-      "find": "      received = addNumericalSeparator(StringP(input));",
-      "replace": "      received = StringP(input);",
-      "gate": "compat:tests/node-compat/cases/76-coded-error-shape.js",
-      "expect_detail": [
-        "received: 1099511627776"
-      ]
-    },
-    {
-      "name": "76-coded-error-shape dies when the URL constructor throws the JS shape",
-      "why": "node parses URLs in C++, so `new URL('nope')` stringifies as `TypeError: Invalid URL` with no [code]; only the href setter throws the JS shape.",
-      "source": "pkg/runtime/js/internal/url.js",
-      "find": "    var err = nativeError(TypeErrorG, 'ERR_INVALID_URL', 'Invalid URL');",
-      "replace": "    var err = nodeError(TypeErrorG, 'ERR_INVALID_URL', 'Invalid URL');",
-      "gate": "compat:tests/node-compat/cases/76-coded-error-shape.js",
-      "expect_detail": [
-        "url invalid base | TypeError | ERR_INVALID_URL | TypeError [ERR_INVALID_URL]:"
-      ]
-    },
-    {
-      "name": "77-blob-file-module blob dies when string parts stop being encoded as utf-8",
-      "why": "The split moved Blob's string encoder off the public Buffer onto the loader's pristine table; a wrong codec there changes every non-ASCII part's bytes and size.",
-      "source": "pkg/runtime/js/internal/blob.js",
-      "find": "utf8EncodeNative(nativeEndings ? toNativeEndings(part) : part)",
-      "replace": "require.pristineBuffer.from(nativeEndings ? toNativeEndings(part) : part, 'latin1')",
-      "gate": "compat:tests/node-compat/cases/77-blob-file-module.js",
-      "expect_detail": "node: blob 6 \"text/plain\""
-    },
-    {
-      "name": "78-blob-pristine-reads dies when createObjectURL mints its id from the live globalThis.crypto",
-      "why": "A replaced crypto.randomUUID then chooses every blob: URL id, so user code can make them predictable; node mints them from its binding and is immune.",
-      "source": "pkg/runtime/js/internal/blob.js",
-      "find": "'blob:nodedata:') + require.pristineRandomUUID();",
-      "replace": "'blob:nodedata:') + globalThis.crypto.randomUUID();",
-      "gate": "compat:tests/node-compat/cases/78-blob-pristine-reads.js",
-      "expect_detail": "globalThis.crypto.randomUUID"
-    },
-    {
       "name": "blob_view_window_ignores_forged_accessors dies when a view part reads byteOffset through the live accessor",
       "why": "A forged %TypedArray%.prototype.byteOffset then picks which bytes of the backing store a Blob copies, i.e. a neighbouring Buffer in a shared pool.",
       "source": "pkg/runtime/js/internal/blob.js",
@@ -2885,213 +1597,6 @@
       "replace": "    var off = part.byteOffset;",
       "gate": "odin:cmd/lava:main.blob_view_window_ignores_forged_accessors",
       "expect_detail": "view window came from forged accessors"
-    },
-    {
-      "name": "79-stream-internal-modules dies when the fromWeb wrapper returns in tail position",
-      "why": "JSC elides a strict-mode `return f()` frame (proper tail calls), so node's readable frame above the adapters frame would silently vanish.",
-      "source": "pkg/runtime/js/internal/streams/readable.js",
-      "find": "    var bridged = lazyAdapters().newStreamReadableFromReadableStream(webStream, options);\n    return bridged;",
-      "replace": "    return lazyAdapters().newStreamReadableFromReadableStream(webStream, options);",
-      "gate": "compat:tests/node-compat/cases/79-stream-internal-modules.js",
-      "expect_detail": "node: Readable.fromWeb(5) wrapper: node:internal/streams/readable true false"
-    },
-    {
-      "name": "79-stream-internal-modules dies when Duplex stops mixing in the Writable API",
-      "why": "The split put Duplex in its own file, reading Writable.prototype across a module seam; a mixin that copies nothing leaves a Duplex without write/end.",
-      "source": "pkg/runtime/js/internal/streams/duplex.js",
-      "find": "      if (k === 'constructor') continue;",
-      "replace": "      if (k !== 'writable') continue;",
-      "gate": "compat:tests/node-compat/cases/79-stream-internal-modules.js",
-      "expect_detail": "node: Duplex has write function"
-    },
-    {
-      "name": "80-webstreams-internal-modules dies when a constructor is defined in the assembling entry again",
-      "why": "A constructor defined in internal/webstreams/index.js (the export assembly node:stream/web re-exports) throws from that file's frame instead of the file node attributes it to, which is what the split moved away from.",
-      "source": "pkg/runtime/js/internal/webstreams/index.js",
-      "find": "  var CountQueuingStrategy = strategies.CountQueuingStrategy;",
-      "replace": "  var CountQueuingStrategy = function CountQueuingStrategy(o) { if (!o) throw new TypeError('init'); return new strategies.CountQueuingStrategy(o); };",
-      "gate": "compat:tests/node-compat/cases/80-webstreams-internal-modules.js",
-      "expect_detail": "node: CountQueuingStrategy(): node:internal/webstreams/queuingstrategies true false"
-    },
-    {
-      "name": "80-webstreams-internal-modules dies when pipeTo loses its writablestream import",
-      "why": "pipeTo's abort path calls writableStreamAbort across the readablestream -> writablestream seam; a dropped import throws out of the abort path (unhandled, exit 1) instead of rejecting the pipe with the signal's reason.",
-      "source": "pkg/runtime/js/internal/webstreams/readablestream.js",
-      "find": "  var writableStreamAbort = writable.writableStreamAbort;",
-      "replace": "  var writableStreamAbort = writable.writableStreamAbortGone;",
-      "gate": "compat:tests/node-compat/cases/80-webstreams-internal-modules.js",
-      "expect_detail": "node: abort stop"
-    },
-    {
-      "name": "82-fetch-internal-modules dies when response.js builds its headers from a different Headers class",
-      "why": "Response and the Headers global now meet across a file seam; a response module holding its own Headers (a stale copy, a wrapper) still passes instanceof but hands user code headers whose constructor is not the global.",
-      "source": "pkg/runtime/js/internal/fetch/response.js",
-      "find": "  var Headers = headersModule.Headers;",
-      "replace": "  var Headers = class Headers extends headersModule.Headers {};",
-      "gate": "compat:tests/node-compat/cases/82-fetch-internal-modules.js",
-      "expect_detail": "node: identities true true true true true true true true true"
-    },
-    {
-      "name": "82-fetch-internal-modules dies when the assembler installs a Response other than response.js's",
-      "why": "internal/fetch only assembles: the global it installs must be the class response.js constructs from, or clone()/json()/error() return instances of a class the global is not.",
-      "source": "pkg/runtime/js/internal/fetch.js",
-      "find": "  var Response = responseModule.Response;",
-      "replace": "  var Response = class Response extends responseModule.Response {};",
-      "gate": "compat:tests/node-compat/cases/82-fetch-internal-modules.js",
-      "expect_detail": "node: identities true true true true true true true true true"
-    },
-    {
-      "name": "22-typed-array-offset dies when the loader stops handing internal/crypto/random the crypto bindings",
-      "why": "Odin keys the crypto natives to node/crypto only; random.js reaches them solely through the loader alias, and without it every CSPRNG entry point (and the WHATWG global) throws on first use instead of at load.",
-      "source": "pkg/runtime/js/bootstrap/loader.js",
-      "find": "  natives['internal/crypto/random'] = natives['node/crypto'];\n",
-      "replace": "",
-      "gate": "compat:tests/node-compat/cases/22-typed-array-offset.js",
-      "expect_detail": "evaluating 'native.randomFill'"
-    },
-    {
-      "name": "84-util-internal-modules dies when util.debug stops being util.debuglog",
-      "why": "debuglog now lives in internal/util/debuglog and node/util exports it twice; an entry that wraps one of the two spellings hands user code a util.debug that is not util.debuglog, where node exports the one function under both names.",
-      "source": "pkg/runtime/js/node/util.js",
-      "find": "    debug: debuglog, // Node aliases util.debug to util.debuglog",
-      "replace": "    debug: function debug(set, cb) {\n      return debuglog(set, cb);\n    }, // Node aliases util.debug to util.debuglog",
-      "gate": "compat:tests/node-compat/cases/84-util-internal-modules.js",
-      "expect_detail": "lava: identities false true true true"
-    },
-    {
-      "name": "84-util-internal-modules dies when styleText reads a copy of util.inspect.colors",
-      "why": "styleText (node/util) and the colors table (internal/util/inspect) now meet across a file seam; a copied table freezes the style set at util load, so a style a caller adds to util.inspect.colors is rejected by styleText instead of applied, as node applies it.",
-      "source": "pkg/runtime/js/node/util.js",
-      "find": "  var inspectColors = inspectModule.inspectColors;",
-      "replace": "  var inspectColors = Object.assign({ __proto__: null }, inspectModule.inspectColors);",
-      "gate": "compat:tests/node-compat/cases/84-util-internal-modules.js",
-      "expect_detail": "node: identities true true true true"
-    },
-    {
-      "name": "85-buffer-internal-modules dies when the loader stops handing internal/buffer the buffer bindings",
-      "why": "Odin keys the buffer natives to node/buffer only; internal/buffer.js reaches them solely through the loader alias, and without it the codecs every Buffer encode/decode runs through cannot load.",
-      "source": "pkg/runtime/js/bootstrap/loader.js",
-      "find": "  natives['internal/buffer'] = natives['node/buffer'];\n",
-      "replace": "",
-      "gate": "compat:tests/node-compat/cases/85-buffer-internal-modules.js",
-      "expect_detail": "node: hidden internal/buffer MODULE_NOT_FOUND node:threw"
-    },
-    {
-      "name": "85-buffer-internal-modules dies when the numeric accessors are defined back in node:buffer",
-      "why": "node frames a readUInt8 bounds error in node:internal/buffer; a copy of the accessor in node/buffer.js (the pre-split layout) shadows the installed one and its frames read node:buffer again.",
-      "source": "pkg/runtime/js/node/buffer.js",
-      "find": "  internalBuffer.addBufferPrototypeMethods(p);\n",
-      "replace": "  internalBuffer.addBufferPrototypeMethods(p);\n  p.readUInt8 = p.readUint8 = function (offset) {\n    if (offset < 0 || offset >= this.length) throw ERR_OUT_OF_RANGE('offset', '>= 0', offset);\n    return this[offset];\n  };\n",
-      "gate": "compat:tests/node-compat/cases/85-buffer-internal-modules.js",
-      "expect_detail": "lava: readUInt8 offset: internal/buffer got node:buffer"
-    },
-    {
-      "name": "87-url-internal-modules dies when fileURLToPath is defined back in node:url",
-      "why": "node frames a fileURLToPath argument error in node:internal/url; a wrapper in node/url.js (the pre-split layout) throws from node:url again, and the case reads the frame, not the message.",
-      "source": "pkg/runtime/js/node/url.js",
-      "find": "    fileURLToPath: internalURL.fileURLToPath,\n",
-      "replace": "    fileURLToPath: function fileURLToPath(input) {\n      if (typeof input !== 'string' && !(input instanceof URL)) {\n        throw ERR_INVALID_ARG_TYPE('path', ['string', 'URL'], input);\n      }\n      return internalURL.fileURLToPath(input);\n    },\n",
-      "gate": "compat:tests/node-compat/cases/87-url-internal-modules.js",
-      "expect_detail": "lava: fileURLToPath type: internal/url got node:url"
-    },
-    {
-      "name": "87-url-internal-modules dies when internal/url hands format the wrong host decoder",
-      "why": "format({unicode: true}) reaches the Punycode decoder only through internal/url's exports; an identity function there prints the xn-- host where node prints the Unicode one.",
-      "source": "pkg/runtime/js/internal/url.js",
-      "find": "    hostToUnicode: domainToUnicode,\n",
-      "replace": "    hostToUnicode: function (host) {\n      return host;\n    },\n",
-      "gate": "compat:tests/node-compat/cases/87-url-internal-modules.js",
-      "expect_detail": "node: format opts http://βόλοσ.com:8080/a%20b#f"
-    },
-    {
-      "name": "88-url-idna-modules dies when internal/idna stops folding the IDNA label separators",
-      "why": "U+3002/U+FF61 are label separators the URL Standard maps to '.'; without the fold in internal/idna the whole run is one label, Punycode-encoded, a different host from node's — the case must see the moved IDNA code, not just that the file loads.",
-      "source": "pkg/runtime/js/internal/idna.js",
-      "find": "    domain = foldIdnaSeparators(domain);\n",
-      "replace": "",
-      "gate": "compat:tests/node-compat/cases/88-url-idna-modules.js",
-      "expect_detail": "node: domain \"a。b｡c．d\" \"a.b.c.d\" \"a.b.c.d\""
-    },
-    {
-      "name": "88-url-idna-modules dies when internal/punycode decodes the wrong code point",
-      "why": "RFC 3492's decode advances n by floor(i / (len+1)); advancing by i decodes xn--maana-pta to another name. domainToUnicode and format's unicode option reach the codec only through internal/idna, so this proves the case watches the far end of the seam.",
-      "source": "pkg/runtime/js/internal/punycode.js",
-      "find": "      n += MathFloor(i / outLen);",
-      "replace": "      n += i;",
-      "gate": "compat:tests/node-compat/cases/88-url-idna-modules.js",
-      "expect_detail": "node: domain \"mañana.com\" \"xn--maana-pta.com\" \"mañana.com\""
-    },
-    {
-      "name": "global_surface_web_hides_node_names dies when Buffer is dropped from the .Web removal list",
-      "why": "WEB_REMOVED_GLOBALS is the only thing that takes the bootstrap-only Node globals back off a .Web context; a name missing from it stays reachable by name, which is exactly what .Web promises it is not.",
-      "source": "pkg/runtime/environment.odin",
-      "find": "[?]cstring{\"process\", \"Buffer\", \"setImmediate\", \"clearImmediate\", \"global\"}",
-      "replace": "[?]cstring{\"process\", \"setImmediate\", \"clearImmediate\", \"global\"}",
-      "gate": "odin:cmd/lava:main.global_surface_web_hides_node_names",
-      "expect_detail": "want Buffer=undefined got Buffer=function"
-    },
-    {
-      "name": "global_surface_web_hides_node_names dies when .Web falls through to the CommonJS entry bindings",
-      "why": "The early return after remove_node_globals is what keeps require, __lava_precache, module and exports off a .Web context; without it a .Web script reaches the filesystem loader.",
-      "source": "pkg/runtime/environment.odin",
-      "find": "\t\tremove_node_globals(ctx, global_obj)\n\t\treturn\n",
-      "replace": "\t\tremove_node_globals(ctx, global_obj)\n",
-      "gate": "odin:cmd/lava:main.global_surface_web_hides_node_names",
-      "expect_detail": "want require=undefined got require=function"
-    },
-    {
-      "name": "global_surface_web_skips_stdio dies when install_stdio runs on .Web",
-      "why": "stdio compiles internal/stdio and the node-streams stack for a process object .Web removes; the surface gate is what keeps that cost off .Web contexts.",
-      "source": "pkg/runtime/globals.odin",
-      "find": "\tif surface == .Node {\n\t\tinstall_stdio(ctx, global)\n\t}",
-      "replace": "\tinstall_stdio(ctx, global)",
-      "gate": "odin:cmd/lava:main.global_surface_web_skips_stdio",
-      "expect_detail": "web: resolving events compiled nothing"
-    },
-    {
-      "name": "global_surface_web_loads_no_node_module dies when the Window surface instantiates node:stream/web again",
-      "why": "The Node-profile removal deletes js/node/; a web global reached only through a node/ module on .Web would vanish with it. The loader gate is what keeps the stream globals' install path internal.",
-      "source": "pkg/runtime/js/bootstrap/loader.js",
-      "find": "  if (!web) req('stream/web');\n",
-      "replace": "  req('stream/web');\n",
-      "gate": "odin:cmd/lava:main.global_surface_web_loads_no_node_module",
-      "expect_detail": "node/stream/web was loaded by .Web init"
-    },
-    {
-      "name": "global_surface_web_rejects_mjs dies when eval stops refusing .mjs on .Web",
-      "why": "The ESM transform emits require and __lava_precache, which .Web never injects; the pre-flight refusal is the contract a .Web caller gets instead of a body that depends on names it cannot have.",
-      "source": "pkg/runtime/page.odin",
-      "find": "if surface == .Web && strings.has_suffix(source_name, \".mjs\") {",
-      "replace": "if false && surface == .Web && strings.has_suffix(source_name, \".mjs\") {",
-      "gate": "odin:cmd/lava:main.global_surface_web_rejects_mjs",
-      "expect_detail": "web .mjs status=Ok (want Invalid_Input)"
-    },
-    {
-      "name": "global_surface_web_hides_node_names dies when install_microtasks defines the drain hooks on .Web",
-      "why": "__lavaDrainNextTicks and __lava_tl_drain are non-configurable, so .Web cannot delete them afterwards; the surface check in install_microtasks is the only thing that keeps them off.",
-      "source": "pkg/runtime/globals.odin",
-      "find": "if surface == .Node && drain != nil && jsc.JSValueIsObject(ctx, drain) {",
-      "replace": "if drain != nil && jsc.JSValueIsObject(ctx, drain) {",
-      "gate": "odin:cmd/lava:main.global_surface_web_hides_node_names",
-      "expect_detail": "want __lavaDrainNextTicks=undefined got __lavaDrainNextTicks=function"
-    },
-    {
-      "name": "global_surface_web_hides_node_names dies when eval appends the top-level drain on .Web",
-      "why": "The appended `var __lava_tl_drain = ...` declares a __lava* global in the script's global scope once the entry body finishes; only the post-body typeof/in check sees it, because JSC keeps the program-level var out of getOwnPropertyNames.",
-      "source": "pkg/runtime/page.odin",
-      "find": "\tif page.surface == .Node {\n\t\tif combined, concat_err := strings.concatenate(",
-      "replace": "\tif true {\n\t\tif combined, concat_err := strings.concatenate(",
-      "gate": "odin:cmd/lava:main.global_surface_web_hides_node_names",
-      "expect_detail": "want tl-drain-after=undefined,false got tl-drain-after=boolean,true"
-    },
-    {
-      "name": "global_surface_alternates_on_one_thread dies when eval's default surface is not .Node",
-      "why": "run_file, the CLI and every existing embedder call eval without a surface; the default is what keeps them byte-identical to the pre-seam runtime.",
-      "source": "pkg/runtime/runtime.odin",
-      "find": "\tsurface: Global_Surface = .Node,\n\tlimits: Page_Limits = {},\n\torigin := \"\",\n) -> Result {",
-      "replace": "\tsurface: Global_Surface = .Web,\n\tlimits: Page_Limits = {},\n\torigin := \"\",\n) -> Result {",
-      "gate": "odin:cmd/lava:main.global_surface_alternates_on_one_thread",
-      "expect_detail": "node before web: status=Execution_Error"
     },
     {
       "name": "attr_without_a_value_is_present dies when the shim returns lexbor's NULL for a valueless attribute",
@@ -3849,15 +2354,6 @@
       "expect_detail": "expected stop to be Finished, got Idle"
     },
     {
-      "name": "page_create_then_run_script_ends_like_page_open dies when page_run_script skips the source pre-flight",
-      "why": "A .Web page created by an embedder would run an .mjs source through the ESM transform, which needs require, instead of being refused as page_open refuses it.",
-      "source": "pkg/runtime/page.odin",
-      "find": "\tif refusal, refused := page_preflight(source, source_name, surface); refused {\n\t\treturn page_fail(page, refusal)\n\t}\n",
-      "replace": "",
-      "gate": "odin:cmd/lava:main.page_create_then_run_script_ends_like_page_open",
-      "expect_detail": "create+run_script"
-    },
-    {
       "name": "page_api_lifecycle_frees_everything_it_allocates dies when page_close keeps the Runtime_State",
       "why": "Proves the tracking allocator sees the page's own allocations: a page that leaked its Runtime_State would otherwise pass unseen.",
       "source": "pkg/runtime/page.odin",
@@ -4131,42 +2627,6 @@
       "expect_detail": "runner allocator leaked"
     },
     {
-      "name": "js_clear_globals_read_an_id_like_node dies when clear_timer_cb truncates a fractional id",
-      "why": "u64() truncates, so clearTimeout(id + 0.5) cancels timer id, which node 26 leaves running.",
-      "source": "pkg/runtime/globals.odin",
-      "find": " || n != math.trunc(n) {",
-      "replace": " {",
-      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_node",
-      "expect_detail": "N+0.5:cancelled"
-    },
-    {
-      "name": "js_clear_globals_read_an_id_like_node dies when clear_timer_cb coerces a non-number, non-string id",
-      "why": "Node never coerces the argument: an array, a String object or a BigInt names no timer, and coercing one runs user valueOf/toString inside clearTimeout.",
-      "source": "pkg/runtime/globals.odin",
-      "find": "\tif jsc.JSValueIsNumber(ctx, v) {\n\t\tn := jsc.JSValueToNumber(ctx, v, nil)\n",
-      "replace": "\tif !jsc.JSValueIsString(ctx, v) {\n\t\tn := jsc.JSValueToNumber(ctx, v, nil)\n",
-      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_node",
-      "expect_detail": "[N]:cancelled"
-    },
-    {
-      "name": "js_clear_globals_read_an_id_like_node dies when a string id with a leading zero is accepted",
-      "why": "node keys its id table by the canonical decimal, so \"0N\" names no timer; accepting it cancels timer N.",
-      "source": "pkg/runtime/globals.odin",
-      "find": "\tif chars[0] == '0' {\n",
-      "replace": "\tif false {\n",
-      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_node",
-      "expect_detail": "\"0N\":cancelled"
-    },
-    {
-      "name": "js_clear_globals_read_an_id_like_chrome dies when .Web reads the id the node way",
-      "why": "A page's clearTimeout(\"N.0\") or clearTimeout(id + 0.5) cancels timer N in Chrome (WebIDL long); the node reading leaves it running.",
-      "source": "pkg/runtime/globals.odin",
-      "find": "\t\tinject_native_function(ctx, global, \"clearTimeout\", clear_timeout_web_cb, arity = 0, constructible = false)\n",
-      "replace": "\t\tinject_native_function(ctx, global, \"clearTimeout\", clear_timer_cb, arity = 0, constructible = false)\n",
-      "gate": "odin:cmd/lava:main.js_clear_globals_read_an_id_like_chrome",
-      "expect_detail": "\"N.0\":fired"
-    },
-    {
       "name": "js_clear_globals_read_an_id_like_chrome dies when the .Web id is not taken modulo 2^32",
       "why": "WebIDL's long conversion is a true modulo, so Chrome's clearTimeout(id + 2^33) cancels timer id; the sign folds after it only undo a single wrap, so only a double one pins the modulo.",
       "source": "pkg/runtime/globals.odin",
@@ -4264,15 +2724,6 @@
       "replace": "\t\t\tif true {\n\t\t\t\tbreak\n\t\t\t}\n",
       "gate": "odin:pkg/runtime/eventloop:eventloop.suspended_timers_phase_resumes_the_same_turn",
       "expect_detail": "expected len(actual) to be 2, got 4"
-    },
-    {
-      "name": "runner_slicing_keeps_event_loop_order dies when a yield breaks out of the timers phase",
-      "why": "Case 14 run as a sliced runner page is the only JS-level check of the slice: no oracle suite runs a page that slices.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\t\tloop.resume_timers = true\n",
-      "replace": "\t\t\tif true {\n\t\t\t\tbreak\n\t\t\t}\n",
-      "gate": "odin:cmd/lava:main.runner_slicing_keeps_event_loop_order",
-      "expect_detail": "[ 't1', 'micro', 'imm', 't2', 't0' ]"
     },
     {
       "name": "suspended_timers_phase_resumes_the_same_turn dies when the resumed phase recomputes its sequence limit",
@@ -4396,24 +2847,6 @@
       "gate": "node-test:scripts/run-web-oracle.test.mjs",
       "test": "the runner exits non-zero when a case does not match its recording",
       "expect_detail": "the runner exits non-zero when a case does not match its recording"
-    },
-    {
-      "name": "run_args_surface_flag dies when --surface=web selects the Node surface",
-      "why": "The web oracle suite runs every case under this flag; a flag that silently keeps the Node globals makes the Chrome comparison run on the wrong profile.",
-      "source": "cmd/lava/main.odin",
-      "find": "\t\t\tcase \"web\":\n\t\t\t\topts.surface = .Web\n",
-      "replace": "\t\t\tcase \"web\":\n\t\t\t\topts.surface = .Node\n",
-      "gate": "odin:cmd/lava:main.run_args_surface_flag",
-      "expect_detail": "expected web.surface to be Web"
-    },
-    {
-      "name": "run_file_threads_surface dies when run_file drops its surface",
-      "why": "run_file is the CLI path to eval; losing the parameter there leaves require/process/Buffer reachable under --surface=web.",
-      "source": "pkg/runtime/runtime.odin",
-      "find": "\t\tsurface = surface,\n\t\torigin = origin,\n\t)",
-      "replace": "\t\torigin = origin,\n\t)",
-      "gate": "odin:cmd/lava:main.run_file_threads_surface",
-      "expect_detail": "web sees"
     },
     {
       "name": "the web oracle recorder refuses a run that raised a page error",
@@ -4675,36 +3108,6 @@
       "expect_detail": "exited"
     },
     {
-      "name": "run-odin-green dies when a skip-listed test that now passes is let through",
-      "why": "The known-red list may only shrink: a listed test that turns green but stays skipped is coverage CI silently stops running.",
-      "source": "scripts/run-odin-green.sh",
-      "find": "\t\tpassing=\"$passing $name\"",
-      "replace": "\t\t:",
-      "gate": "node-test:scripts/run-odin-green.test.mjs",
-      "test": "a listed test that now passes fails the run and is named",
-      "expect_detail": "a listed test that now passes fails the run and is named"
-    },
-    {
-      "name": "run-odin-green dies when discovery is not cross-checked against the @(test) count",
-      "why": "core:testing only warns on an unknown name and cannot list its tests, so a test the parser misses would never be selected and never fail.",
-      "source": "scripts/run-odin-green.sh",
-      "find": "if [ \"$attrs\" != \"$found\" ]; then",
-      "replace": "if false; then",
-      "gate": "node-test:scripts/run-odin-green.test.mjs",
-      "test": "an attribute discovery cannot pair with a name fails the run",
-      "expect_detail": "attributes .* but 5 test names discovered"
-    },
-    {
-      "name": "run-odin-green dies when discovery only accepts a bare @(test) line",
-      "why": "A test written as `@(test) name :: proc`, among other attributes or indented in a `when` block is a real test that an exact-line match never selects.",
-      "source": "scripts/run-odin-green.sh",
-      "find": "\t\t\tif (match(line, /@[ \\t]*\\(([^)]*[, \\t])?test[ \\t]*[,)]/)) {",
-      "replace": "\t\t\tif (match(line, /^@\\(test\\)$/)) {",
-      "gate": "node-test:scripts/run-odin-green.test.mjs",
-      "test": "runs every discovered form and passes while each listed test still fails",
-      "expect_detail": "test names discovered"
-    },
-    {
       "name": "run_refuses_lava_workers dies when LAVA_WORKERS is silently ignored",
       "why": "The multi-worker supervisor is gone; accepting LAVA_WORKERS=4 would run one page where four were asked for, with no diagnostic, where an invalid value used to exit 2.",
       "source": "cmd/lava/main.odin",
@@ -4712,15 +3115,6 @@
       "replace": "\tif true {",
       "gate": "odin:cmd/lava:main.run_refuses_lava_workers",
       "expect_detail": "must be refused"
-    },
-    {
-      "name": "abort-reason-shape dies when the loader stops handing internal/web_errors the surface",
-      "why": "Without the profile every shared module takes node's text on the Window surface: the default abort reason reads 'This operation was aborted' where Chrome reads 'signal is aborted without reason'.",
-      "source": "pkg/runtime/js/bootstrap/loader.js",
-      "find": "  natives['internal/web_errors'] = Object.freeze({ __proto__: null, web: web === true });",
-      "replace": "  natives['internal/web_errors'] = Object.freeze({ __proto__: null, web: false });",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL abort-reason-shape"
     },
     {
       "name": "crypto-random-errors dies when a Window-surface WebIDL TypeError carries a code",
@@ -4759,33 +3153,6 @@
       "expect_detail": "FAIL crypto-random"
     },
     {
-      "name": "base64-errors dies when atob's Window-surface text falls back to node's",
-      "why": "Chrome has one sentence for every atob decode failure, prefixed with its WebIDL context; node's 'Invalid character' is the Node surface's text only.",
-      "source": "pkg/runtime/js/internal/base64.js",
-      "find": "    var message = nodeMessage;\n    if (web) {",
-      "replace": "    var message = nodeMessage;\n    if (false) {",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL base64-errors"
-    },
-    {
-      "name": "url-errors dies when the URL constructor's Window-surface error falls back to node's",
-      "why": "A page then sees ERR_INVALID_URL and node's bare 'Invalid URL' where Chrome throws a plain TypeError naming the constructor, and 'Invalid base URL' for a bad base.",
-      "source": "pkg/runtime/js/internal/url.js",
-      "find": "    if (web) return typeError('URL', undefined, badBase ? 'Invalid base URL' : 'Invalid URL');",
-      "replace": "    if (false) return typeError('URL', undefined, badBase ? 'Invalid base URL' : 'Invalid URL');",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL url-errors"
-    },
-    {
-      "name": "url-webidl dies when URLSearchParams stops checking its receiver",
-      "why": "A member called on a foreign object then fails inside our code with JSC's text naming our source, where Chrome throws 'Illegal invocation'.",
-      "source": "pkg/runtime/js/internal/url.js",
-      "find": "    if (list === undefined) throw invalidThis('URLSearchParams');",
-      "replace": "",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL url-webidl"
-    },
-    {
       "name": "url-webidl dies when a Symbol argument is stringified instead of refused",
       "why": "String(Symbol('x')) is 'Symbol(x)', which parses as a URL with an opaque path and serializes into a query: Chrome refuses the conversion.",
       "source": "pkg/runtime/js/internal/url.js",
@@ -4820,15 +3187,6 @@
       "replace": "    var domException = undefined;",
       "gate": "make:test-web",
       "expect_detail": "FAIL clone-domexception"
-    },
-    {
-      "name": "crypto-random-errors dies when getRandomValues stops brand-checking its receiver",
-      "why": "Chrome throws Illegal invocation for getRandomValues.call({}) and a detached call; without the check Lava fills the view.",
-      "source": "pkg/runtime/js/internal/crypto/random.js",
-      "find": "    if (web && this !== cryptoObject) {",
-      "replace": "    if (false) {",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL crypto-random-errors"
     },
     {
       "name": "the DOM oracle refuses a recording whose views cannot be told apart",
@@ -4914,8 +3272,8 @@
       "name": "the DOM oracle runs a fragment case as a fragment",
       "why": "Without --fragment, lava parses `<td>a` as a document while Chrome parsed it as tr.innerHTML: the case compares two different algorithms.",
       "source": "scripts/lib/dom-oracle.mjs",
-      "find": "...(context ? ['--fragment', context] : []), file];",
-      "replace": "file];",
+      "find": "...(context ? ['--fragment', context] : []), ...sniff, file];",
+      "replace": "...sniff, file];",
       "gate": "node-test:scripts/run-dom-oracle.test.mjs",
       "test": "a fragment case runs lava with --fragment and its context",
       "expect_detail": "a fragment case runs lava with --fragment and its context"
@@ -5184,15 +3542,6 @@
       "expect_detail": "FAIL shape-domexception"
     },
     {
-      "name": "blob_class_node_surface_shape dies when native_shape leaves operations non-enumerable",
-      "why": "WebIDL operations are enumerable on the prototype; a class method is not, so without native_shape's redefinition Object.keys(Blob.prototype) loses every operation.",
-      "source": "pkg/runtime/js/internal/native_shape.js",
-      "find": "            value: fn,\n            writable: true,\n            enumerable: true,\n",
-      "replace": "            value: fn,\n            writable: true,\n            enumerable: false,\n",
-      "gate": "odin:cmd/lava:main.blob_class_node_surface_shape",
-      "expect_detail": "keys: got size,type, want size,type,arrayBuffer"
-    },
-    {
       "name": "shape-url dies when Function.prototype.toString is left the intrinsic",
       "why": "Without the mask every JS-implemented Web API prints its source where Chrome prints `function URL() { [native code] }` — the one-call crawler fingerprint #114 closes.",
       "source": "pkg/runtime/js/internal/native_shape.js",
@@ -5265,33 +3614,6 @@
       "expect_detail": "atob: got op() {"
     },
     {
-      "name": "encoding-webidl dies when decode() skips the receiver brand check",
-      "why": "Without the private-field brand, decode on a foreign `this` fails inside the decoder with JSC's text where Chrome throws Illegal invocation.",
-      "source": "pkg/runtime/js/internal/encoding.js",
-      "find": "      if (!TextDecoder.#is(this)) throw invalidThis('TextDecoder');\n      var hasOptions = options !== undefined && options !== null;",
-      "replace": "      var hasOptions = options !== undefined && options !== null;",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL encoding-webidl"
-    },
-    {
-      "name": "encoding-webidl dies when encode() stringifies a Symbol",
-      "why": "String(symbol) does not throw, so encode(Symbol()) returned the bytes of \"Symbol(s)\" where Chrome's USVString conversion throws.",
-      "source": "pkg/runtime/js/internal/encoding.js",
-      "find": "      else if (web) text = toDOMString(input, 'TextEncoder', 'encode');",
-      "replace": "      else if (web) text = StringG(input);",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL encoding-webidl"
-    },
-    {
-      "name": "encoding-webidl dies when encodeInto() skips its argument count",
-      "why": "Chrome reports `2 arguments required` before converting anything; without the check a missing dest reads as a type mismatch.",
-      "source": "pkg/runtime/js/internal/encoding.js",
-      "find": "        if (arguments.length < 2) {",
-      "replace": "        if (false) {",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL encoding-webidl"
-    },
-    {
       "name": "encoding-webidl dies when encodeInto() accepts any view as dest",
       "why": "The [[TypedArrayName]] slot is the brand: without it a Uint8ClampedArray or DataView dest is written to where Chrome refuses it.",
       "source": "pkg/runtime/js/internal/encoding.js",
@@ -5299,33 +3621,6 @@
       "replace": "    if (ArrayBufferIsView(dest)) {\n      return TypedArrayPrototypeGetLength(dest);",
       "gate": "make:test-web",
       "expect_detail": "FAIL encoding-webidl"
-    },
-    {
-      "name": "encoding-webidl dies when the TextDecoder dictionary is not read before the label lookup",
-      "why": "Chrome converts the options dictionary (running fatal/ignoreBOM getters) before it looks the label up; node's order reads nothing for a bad label.",
-      "source": "pkg/runtime/js/internal/encoding.js",
-      "find": "        if (web) {\n          fatal = !!options.fatal;",
-      "replace": "        if (false) {\n          fatal = !!options.fatal;",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL encoding-webidl"
-    },
-    {
-      "name": "encoding-errors dies when decode() converts options before its input on .Web",
-      "why": "Chrome converts arguments left to right, so decode(5, 5) reports parameter 1; node's order reports the options.",
-      "source": "pkg/runtime/js/internal/encoding.js",
-      "find": "        bytes = toBytes(input);\n        len = bytesLength;\n        if (hasOptions && (bad = badOptions(options, 'decode')) !== null) throw bad;\n      } else {",
-      "replace": "        if (hasOptions && (bad = badOptions(options, 'decode')) !== null) throw bad;\n        bytes = toBytes(input);\n        len = bytesLength;\n      } else {",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL encoding-errors"
-    },
-    {
-      "name": "encoding-errors dies when a fatal decode throws node's coded error on .Web",
-      "why": "A page would see ERR_ENCODING_INVALID_ENCODED_DATA and node's message where Chrome throws a plain TypeError with Blink's text.",
-      "source": "pkg/runtime/js/internal/encoding.js",
-      "find": "    if (web) return typeError('TextDecoder', 'decode', 'The encoded data was not valid.');\n",
-      "replace": "",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL encoding-errors"
     },
     {
       "name": "encoding-errors dies when an unknown label keeps node's text on .Web",
@@ -5391,24 +3686,6 @@
       "expect_detail": "FAIL blob-errors"
     },
     {
-      "name": "blob-errors dies when createObjectURL accepts any object",
-      "why": "Overload resolution is by the Blob brand: an object that only inherits from Blob.prototype has no bytes to register.",
-      "source": "pkg/runtime/js/internal/blob.js",
-      "find": "    if (!isBlob(obj)) {\n      if (web) throw typeError('URL', 'createObjectURL', 'Overload resolution failed.');",
-      "replace": "    if (obj === null || typeof obj !== 'object') {\n      if (web) throw typeError('URL', 'createObjectURL', 'Overload resolution failed.');",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL blob-errors"
-    },
-    {
-      "name": "blob-object-url dies when object URLs keep the node: form on .Web",
-      "why": "Chrome mints blob:<origin>/<uuid>; blob:nodedata: names the runtime.",
-      "source": "pkg/runtime/js/internal/blob.js",
-      "find": "(web ? 'blob:' + pageOrigin() + '/' : 'blob:nodedata:')",
-      "replace": "'blob:nodedata:'",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL blob-object-url"
-    },
-    {
       "name": "blob-object-url dies when fetch() sends a blob: URL to the network",
       "why": "An object URL is answered from the registry; the native transport rejects the scheme.",
       "source": "pkg/runtime/js/internal/fetch.js",
@@ -5436,15 +3713,6 @@
       "expect_detail": "FAIL clone-transfer"
     },
     {
-      "name": "clone-transfer dies when DataCloneError loses its context prefix on .Web",
-      "why": "Blink's message starts \"Failed to execute 'structuredClone' on 'Window': \".",
-      "source": "pkg/runtime/js/internal/structured_clone.js",
-      "find": "      return pageError(\n        new DOMException(context('Window', 'structuredClone') + detail, 'DataCloneError'),\n      );",
-      "replace": "      return pageError(new DOMException(detail, 'DataCloneError'));",
-      "gate": "make:test-web",
-      "expect_detail": "FAIL clone-transfer"
-    },
-    {
       "name": "clone-structured dies when a boxed BigInt clones to a plain object",
       "why": "Chrome clones Object(5n) to a boxed BigInt; the generic object arm yields {}.",
       "source": "pkg/runtime/js/internal/structured_clone.js",
@@ -5463,12 +3731,147 @@
       "expect_detail": "minted blob:null/"
     },
     {
-      "name": "run_args_surface_flag dies when a repeated --origin is accepted",
+      "name": "dispatcher_runaway_page_is_killed_alone dies when a page's limits do not travel with it",
+      "why": "A worker that opens pages under a default budget lets a runaway submitted with a 0.2 s budget run its whole course.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "page_runner_open(&w.runner, job.source, job.source_name, job.limits, job)",
+      "replace": "page_runner_open(&w.runner, job.source, job.source_name, Page_Limits{cpu_budget = 30}, job)",
+      "gate": "odin:cmd/lava:main.dispatcher_runaway_page_is_killed_alone",
+      "expect_detail": "runaway not killed by its budget"
+    },
+    {
+      "name": "global_surface_web_rejects_mjs dies when eval stops refusing .mjs",
+      "why": "The ESM transform emits require and __lava_precache, which .Web never injects; the pre-flight refusal is the contract a .Web caller gets instead of a body that depends on names it cannot have.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\tif strings.has_suffix(source_name, \".mjs\") {",
+      "replace": "\tif false && strings.has_suffix(source_name, \".mjs\") {",
+      "gate": "odin:cmd/lava:main.global_surface_web_rejects_mjs",
+      "expect_detail": "web .mjs status=Execution_Error (want Invalid_Input)"
+    },
+    {
+      "name": "page_create_then_run_script_ends_like_page_open dies when page_run_script skips the source pre-flight",
+      "why": "A .Web page created by an embedder would run an .mjs source through the ESM transform, which needs require, instead of being refused as page_open refuses it.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\tif refusal, refused := page_preflight(source, source_name); refused {\n\t\treturn page_fail(page, refusal)\n\t}\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.page_create_then_run_script_ends_like_page_open",
+      "expect_detail": "create+run_script"
+    },
+    {
+      "name": "base64-errors dies when atob's message loses Blink's context prefix",
+      "why": "Chrome has one sentence for every atob decode failure, prefixed with its WebIDL context; node's 'Invalid character' is the Node surface's text only.",
+      "source": "pkg/runtime/js/internal/base64.js",
+      "find": "      context('Window', op) +\n      (op === 'btoa'",
+      "replace": "      (op === 'btoa'",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL base64-errors"
+    },
+    {
+      "name": "url-errors dies when the URL constructor's error loses Chrome's text",
+      "why": "A page then sees ERR_INVALID_URL and node's bare 'Invalid URL' where Chrome throws a plain TypeError naming the constructor, and 'Invalid base URL' for a bad base.",
+      "source": "pkg/runtime/js/internal/url.js",
+      "find": "    return typeError('URL', undefined, badBase ? 'Invalid base URL' : 'Invalid URL');",
+      "replace": "    return new TypeErrorG('Invalid URL');",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL url-errors"
+    },
+    {
+      "name": "url-webidl dies when URLSearchParams stops checking its receiver",
+      "why": "A member called on a foreign object then fails inside our code with JSC's text naming our source, where Chrome throws 'Illegal invocation'.",
+      "source": "pkg/runtime/js/internal/url.js",
+      "find": "    if (list === undefined) throw invalidThis();",
+      "replace": "",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL url-webidl"
+    },
+    {
+      "name": "crypto-random-errors dies when getRandomValues stops brand-checking its receiver",
+      "why": "Chrome throws Illegal invocation for getRandomValues.call({}) and a detached call; without the check Lava fills the view.",
+      "source": "pkg/runtime/js/internal/crypto/random.js",
+      "find": "    if (this !== cryptoObject) {",
+      "replace": "    if (false) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL crypto-random-errors"
+    },
+    {
+      "name": "encoding-webidl dies when decode() skips the receiver brand check",
+      "why": "Without the private-field brand, decode on a foreign `this` fails inside the decoder with JSC's text where Chrome throws Illegal invocation.",
+      "source": "pkg/runtime/js/internal/encoding.js",
+      "find": "      if (!TextDecoder.#is(this)) throw invalidThis();\n      var hasOptions = options !== undefined && options !== null;",
+      "replace": "      var hasOptions = options !== undefined && options !== null;",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL encoding-webidl"
+    },
+    {
+      "name": "encoding-webidl dies when encode() stringifies a Symbol",
+      "why": "String(symbol) does not throw, so encode(Symbol()) returned the bytes of \"Symbol(s)\" where Chrome's USVString conversion throws.",
+      "source": "pkg/runtime/js/internal/encoding.js",
+      "find": "      else text = toDOMString(input, 'TextEncoder', 'encode');",
+      "replace": "      else text = String(input);",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL encoding-webidl"
+    },
+    {
+      "name": "encoding-webidl dies when encodeInto() skips its argument count",
+      "why": "Chrome reports `2 arguments required` before converting anything; without the check a missing dest reads as a type mismatch.",
+      "source": "pkg/runtime/js/internal/encoding.js",
+      "find": "      if (arguments.length < 2) {\n        throw typeError('TextEncoder', 'encodeInto'",
+      "replace": "      if (false) {\n        throw typeError('TextEncoder', 'encodeInto'",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL encoding-webidl"
+    },
+    {
+      "name": "encoding-errors dies when decode() converts options before its input",
+      "why": "Chrome converts arguments left to right, so decode(5, 5) reports parameter 1; node's order reports the options.",
+      "source": "pkg/runtime/js/internal/encoding.js",
+      "find": "      bytes = toBytes(input);\n      len = bytesLength;\n      if (hasOptions && (bad = badOptions(options, 'decode')) !== null) throw bad;",
+      "replace": "      if (hasOptions && (bad = badOptions(options, 'decode')) !== null) throw bad;\n      bytes = toBytes(input);\n      len = bytesLength;",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL encoding-errors"
+    },
+    {
+      "name": "encoding-errors dies when a fatal decode loses Chrome's text",
+      "why": "A page would see ERR_ENCODING_INVALID_ENCODED_DATA and node's message where Chrome throws a plain TypeError with Blink's text.",
+      "source": "pkg/runtime/js/internal/encoding.js",
+      "find": "    return typeError('TextDecoder', 'decode', 'The encoded data was not valid.');",
+      "replace": "    return new TypeError('The encoded data was not valid for encoding utf-8');",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL encoding-errors"
+    },
+    {
+      "name": "blob-errors dies when createObjectURL accepts any object",
+      "why": "Overload resolution is by the Blob brand: an object that only inherits from Blob.prototype has no bytes to register.",
+      "source": "pkg/runtime/js/internal/blob.js",
+      "find": "    if (!isBlob(obj)) {\n      throw typeError('URL', 'createObjectURL', 'Overload resolution failed.');",
+      "replace": "    if (obj === null || typeof obj !== 'object') {\n      throw typeError('URL', 'createObjectURL', 'Overload resolution failed.');",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL blob-errors"
+    },
+    {
+      "name": "blob-object-url dies when object URLs take the node: form",
+      "why": "Chrome mints blob:<origin>/<uuid>; blob:nodedata: names the runtime.",
+      "source": "pkg/runtime/js/internal/blob.js",
+      "find": "    var id = 'blob:' + pageOrigin() + '/' + require.pristineRandomUUID();",
+      "replace": "    var id = 'blob:nodedata:' + require.pristineRandomUUID();",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL blob-object-url"
+    },
+    {
+      "name": "clone-transfer dies when DataCloneError loses its context prefix",
+      "why": "Blink's message starts \"Failed to execute 'structuredClone' on 'Window': \".",
+      "source": "pkg/runtime/js/internal/structured_clone.js",
+      "find": "    return pageError(\n      new DOMException(context('Window', 'structuredClone') + detail, 'DataCloneError'),\n    );",
+      "replace": "    return pageError(new DOMException(detail, 'DataCloneError'));",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL clone-transfer"
+    },
+    {
+      "name": "run_args_origin_flag dies when a repeated --origin is accepted",
       "why": "A last-one-wins origin would silently mint URLs under an origin the caller may not have meant.",
       "source": "cmd/lava/main.odin",
-      "find": "strings.has_prefix(arg, \"--origin=\") && !seen_origin {",
-      "replace": "strings.has_prefix(arg, \"--origin=\") {",
-      "gate": "odin:cmd/lava:main.run_args_surface_flag",
+      "find": "\t\tif seen_origin {\n\t\t\treturn {}, nil, \"lava run: a flag was given twice\"\n\t\t}\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.run_args_origin_flag",
       "expect_detail": "a repeated --origin must be refused"
     }
   ]

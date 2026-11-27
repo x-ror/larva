@@ -8,14 +8,13 @@ import eventloop "lava:pkg/runtime/eventloop"
 // Every free path for a timer binding (JS_Callback + its forwarded args), each under
 // a different ambient context:
 //   - the loop fires a one-shot, or drops a self-cleared interval — eval's context;
-//   - clearTimeout/clearImmediate dispose synchronously inside clear_timer_cb, a
+//   - clearTimeout/clearInterval dispose synchronously inside clear_timeout_web_cb, a
 //     `proc "c"` native — runtime.default_context()'s heap;
 //   - eventloop.destroy disposes bindings still pending at teardown — eval's context
 //     (TIMER_PENDING_SRC: eval exits on the throw with both still queued).
-// One binding per call, five in TIMER_ALLOC_SRC: two setTimeout, two setImmediate,
-// one setInterval.
-TIMER_ALLOC_SRC :: "setTimeout((a, b) => {}, 0, 1, 2); setImmediate(() => {}); const i = setInterval(() => clearInterval(i), 0); clearTimeout(setTimeout(() => {}, 1000, 3)); clearImmediate(setImmediate(() => {}, 4));"
-TIMER_PENDING_SRC :: "setTimeout(() => {}, 1e6, 1); setImmediate(() => {}, 2); throw new Error('exit with timers pending');"
+// One binding per call, five in TIMER_ALLOC_SRC: four setTimeout, one setInterval.
+TIMER_ALLOC_SRC :: "setTimeout((a, b) => {}, 0, 1, 2); setTimeout(() => {}, 0); const i = setInterval(() => clearInterval(i), 0); clearTimeout(setTimeout(() => {}, 1000, 3)); clearTimeout(setTimeout(() => {}, 0, 4));"
+TIMER_PENDING_SRC :: "setTimeout(() => {}, 1e6, 1); setTimeout(() => {}, 1e6, 2); throw new Error('exit with timers pending');"
 TIMER_CONTROL_SRC :: "const i = 0;"
 TIMER_BINDINGS :: 5
 

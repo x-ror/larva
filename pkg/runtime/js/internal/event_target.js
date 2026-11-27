@@ -1,7 +1,7 @@
 /**
  * @fileoverview EventTarget, Event and CustomEvent (DOM Standard §2) for targets that
  * are not nodes — a page's `new EventTarget()`, its subclasses, and AbortSignal
- * (internal/abort) — installed as globals on both surfaces at module-eval.
+ * (internal/abort) — installed as globals at module-eval.
  *
  * The oracle is Chrome 158 (tests/web/cases/events-target.expected, shape-events), and
  * where Blink and the standard part ways on a target with no parent, this follows

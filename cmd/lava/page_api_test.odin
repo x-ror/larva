@@ -500,7 +500,7 @@ open_web_page :: proc(
 ) {
 	loop^ = eventloop.init(real_time = true)
 
-	if !lava.page_create(page, "<page-api>", loop, limits = limits, surface = .Web) {
+	if !lava.page_create(page, "<page-api>", loop, limits = limits) {
 		testing.fail_now(t, "page_create refused the page", loc)
 	}
 
@@ -527,7 +527,7 @@ run_to_close_via_open :: proc(source, source_name: string) -> lava.Result {
 	page: lava.Page
 	loop := eventloop.init(real_time = true)
 
-	if lava.page_open(&page, source, source_name, &loop, true, limits = API_LIMITS, surface = .Web) {
+	if lava.page_open(&page, source, source_name, &loop, true, limits = API_LIMITS) {
 		for {
 			if alive, _ := lava.page_tick(&page); !alive {
 				break
@@ -545,7 +545,7 @@ run_to_close_via_create :: proc(source, source_name: string) -> lava.Result {
 	page: lava.Page
 	loop := eventloop.init(real_time = true)
 
-	if lava.page_create(&page, source_name, &loop, limits = API_LIMITS, surface = .Web) &&
+	if lava.page_create(&page, source_name, &loop, limits = API_LIMITS) &&
 	   lava.page_run_script(&page, source, source_name, true) {
 		for {
 			if alive, _ := lava.page_tick(&page); !alive {

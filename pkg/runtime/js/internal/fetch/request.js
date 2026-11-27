@@ -35,7 +35,6 @@
   var streamInternal = require('internal/webstreams/index')._internal;
 
   var webErrors = require('internal/web_errors');
-  var web = webErrors.web;
   var context = webErrors.context;
   var pageError = webErrors.pageError;
   var illegalInvocation = webErrors.illegalInvocation;
@@ -72,22 +71,20 @@
   var METHOD_TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
   var EMPTY_INIT = { __proto__: null };
 
-  // A TypeError for a page (`ctx` + Blink's detail) or, on `.Node`, `nodeText`.
-  function requestError(ctx, detail, nodeText) {
-    if (!web) return new TypeErrorP(nodeText);
+  // A TypeError for a page: `ctx` + Blink's detail.
+  function requestError(ctx, detail) {
     return pageError(new TypeErrorP(ctx + detail));
   }
 
-  // RequestInit's enum members: the values each allows, its IDL type, and the text
-  // `.Node` reports (null: the web detail without its context).
+  // RequestInit's enum members: the values each allows and its IDL type.
   var ENUMS = {
     __proto__: null,
-    cache: [CACHES, 'RequestCache', 'fetch: invalid cache mode'],
-    credentials: [CREDENTIALS, 'RequestCredentials', 'fetch: invalid credentials mode'],
-    duplex: [DUPLEXES, 'RequestDuplex', null],
-    mode: [MODES, 'RequestMode', 'fetch: invalid mode'],
-    redirect: [REDIRECTS, 'RequestRedirect', 'fetch: invalid redirect mode'],
-    referrerPolicy: [REFERRER_POLICIES, 'ReferrerPolicy', null],
+    cache: [CACHES, 'RequestCache'],
+    credentials: [CREDENTIALS, 'RequestCredentials'],
+    duplex: [DUPLEXES, 'RequestDuplex'],
+    mode: [MODES, 'RequestMode'],
+    redirect: [REDIRECTS, 'RequestRedirect'],
+    referrerPolicy: [REFERRER_POLICIES, 'ReferrerPolicy'],
   };
 
   // Reads the enum member `member` of `init` as WebIDL converts it: absent stays
@@ -96,22 +93,17 @@
     var value = init[member];
     if (value === undefined) return undefined;
     var spec = ENUMS[member];
-    var nodeText = spec[2];
     var prefix = "Failed to read the '" + member + "' property from 'RequestInit': ";
     if (typeof value === 'symbol') {
       var symbol = 'Cannot convert a Symbol value to a string';
-      throw requestError(ctx, prefix + symbol, nodeText === null ? symbol : nodeText);
+      throw requestError(ctx, prefix + symbol);
     }
 
     var s = StringP(value);
     if (!ArrayPrototypeIncludes(spec[0], s)) {
       var detail =
         "The provided value '" + s + "' is not a valid enum value of type " + spec[1] + '.';
-      throw requestError(
-        ctx,
-        prefix + detail,
-        nodeText === null ? detail : nodeText + " '" + s + "'",
-      );
+      throw requestError(ctx, prefix + detail);
     }
 
     return s;
@@ -119,11 +111,7 @@
 
   function toUSVString(value, ctx) {
     if (typeof value === 'symbol') {
-      throw requestError(
-        ctx,
-        'Cannot convert a Symbol value to a string',
-        'Cannot convert a Symbol value to a string',
-      );
+      throw requestError(ctx, 'Cannot convert a Symbol value to a string');
     }
 
     return StringP(value);
@@ -135,13 +123,13 @@
     var method = toUSVString(value, ctx);
     if (!reTest(METHOD_TOKEN, method)) {
       var invalid = "'" + method + "' is not a valid HTTP method.";
-      throw requestError(ctx, invalid, invalid);
+      throw requestError(ctx, invalid);
     }
 
     var upper = StringPrototypeToUpperCase(method);
     if (ArrayPrototypeIncludes(FORBIDDEN_METHODS, upper)) {
       var forbidden = "'" + method + "' HTTP method is unsupported.";
-      throw requestError(ctx, forbidden, forbidden);
+      throw requestError(ctx, forbidden);
     }
 
     return ArrayPrototypeIncludes(NORMALIZED_METHODS, upper) ? upper : method;
@@ -184,7 +172,7 @@
     constructor(input, init, via) {
       var ctx = via === FETCH ? CTX_FETCH : CTX_REQUEST;
       if (arguments.length === 0) {
-        throw requestError(ctx, argumentsRequired(1, 0), argumentsRequired(1, 0));
+        throw requestError(ctx, argumentsRequired(1, 0));
       }
 
       var src = stateOf(input, 'Request');
@@ -192,11 +180,7 @@
       if (init === undefined || init === null) {
         init = EMPTY_INIT;
       } else if (typeof init !== 'object' && typeof init !== 'function') {
-        throw requestError(
-          ctx,
-          "The provided value is not of type 'RequestInit'.",
-          "The provided value is not of type 'RequestInit'.",
-        );
+        throw requestError(ctx, "The provided value is not of type 'RequestInit'.");
       }
 
       // The dictionary conversion, which Blink runs before the constructor body: every
@@ -239,16 +223,13 @@
       } else {
         var parsed = parseURL(inputString);
         if (parsed === null) {
-          // `.Node` rethrows the URL parser's own error, as it always did.
-          if (!web) new (require('internal/url').URL)(inputString);
-          throw requestError(ctx, 'Failed to parse URL from ' + inputString, '');
+          throw requestError(ctx, 'Failed to parse URL from ' + inputString);
         }
 
         if (parsed.username || parsed.password) {
           throw requestError(
             ctx,
             'Request cannot be constructed from a URL that includes credentials: ' + inputString,
-            'fetch: request URL cannot contain credentials',
           );
         }
 
@@ -258,7 +239,7 @@
       if (mode === 'navigate') {
         var navigate =
           "Cannot construct a Request with a RequestInit whose mode member is set as 'navigate'.";
-        throw requestError(ctx, navigate, navigate);
+        throw requestError(ctx, navigate);
       }
 
       if (mode === undefined) mode = src !== undefined ? src.mode : 'cors';
@@ -269,7 +250,7 @@
       if (cache === undefined) cache = src !== undefined ? src.cache : 'default';
       if (cache === 'only-if-cached' && mode !== 'same-origin') {
         var cached = "'only-if-cached' can be set only with 'same-origin' mode";
-        throw requestError(ctx, cached, cached);
+        throw requestError(ctx, cached);
       }
 
       if (redirect === undefined) redirect = src !== undefined ? src.redirect : 'follow';
@@ -291,12 +272,12 @@
       if (inputBody === undefined) inputBody = null;
       if ((initBodyGiven || inputBody !== null) && (method === 'GET' || method === 'HEAD')) {
         var getBody = 'Request with GET/HEAD method cannot have body.';
-        throw requestError(ctx, getBody, getBody);
+        throw requestError(ctx, getBody);
       }
 
       if (!initBodyGiven && inputBody !== null && bodyUsedOf(src)) {
         var used = 'Cannot construct a Request with a Request object that has already been used.';
-        throw requestError(ctx, used, used);
+        throw requestError(ctx, used);
       }
 
       var body = initBodyGiven ? bodyInit : inputBody;
@@ -310,7 +291,6 @@
         throw requestError(
           ctx,
           'The `duplex` member must be specified for a request with a streaming body',
-          'fetch: a streaming request body requires init.duplex to be "half"',
         );
       }
 
@@ -427,14 +407,9 @@
 
     clone() {
       var state = stateOf(this, 'Request');
-      if (state === undefined)
-        throw requestError(CTX_CLONE, 'Illegal invocation', 'Illegal invocation');
+      if (state === undefined) throw requestError(CTX_CLONE, 'Illegal invocation');
       if (bodyUsedOf(state)) {
-        throw requestError(
-          CTX_CLONE,
-          'Request body is already used',
-          'Request body is already used',
-        );
+        throw requestError(CTX_CLONE, 'Request body is already used');
       }
 
       var copy = ObjectCreate(Request.prototype);

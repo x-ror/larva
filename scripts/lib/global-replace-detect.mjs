@@ -37,15 +37,8 @@ const PRIMORDIAL_RE = /^StringPrototype(Replace|ReplaceAll|Match|MatchAll|Split|
 // Keys are stable: `file:bindingName` (or `file:how:what` for literals). Keying by
 // line number (#337) broke the gate on every edit above the site and taught reviewers
 // to ignore a hang alarm — three moves in one PR (#330: 572→607→609→660).
-const ALLOWED = new Map([
-  [
-    'internal/util/inspect.js:ansiRegex',
-    'stripVTControlCharacters: the ANSI pattern is two alternations (OSC terminated by ' +
-      'BEL/ST, CSI terminated by a final byte), not a character class, so it has no ' +
-      'code-unit rewrite. node hangs on it identically, so Lava is not diverging. ' +
-      'Guarded by an indexOf short-circuit, so only input containing ESC/CSI reaches it.',
-  ],
-]);
+// Empty since S5b deleted internal/util/inspect.js, the one allowed site's file.
+const ALLOWED = new Map([]);
 
 // Stable allowlist identity for a hit. Prefer the binding name when the pattern is
 // `name = …`; fall back to how+what so literal sites stay uniquely addressable.

@@ -12,7 +12,7 @@
 // is that page's uncaught error, a page that has closed runs nothing, and a cleanup's
 // stack holds nothing of this file (cmd/lava/testdata/deferred-chrome pins it).
 //
-// Installed before user code (an eager module, loader.js), on every surface. The shim is
+// Installed before user code (an eager module, loader.js). The shim is
 // the only function here, and it runs at thread level only: it touches no property a
 // page can hook.
 (function (require, module, exports, native) {

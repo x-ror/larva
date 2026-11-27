@@ -292,10 +292,7 @@ deferred_cleanup_task :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 	if exc != nil {
 		report_uncaught(ctx, exc)
 		mark_async_failed(ctx)
-		return
 	}
-
-	drain_next_ticks_settled(ctx, state)
 }
 
 @(private = "file")

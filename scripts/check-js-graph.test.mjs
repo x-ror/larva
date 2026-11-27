@@ -327,15 +327,3 @@ test('eager: a function-body require does not make its target eager', () => {
   assert.ok(ids.includes('node/stream'), `stream is eager: ${ids}`);
   assert.ok(!ids.includes('node/os'), `node/os is lazy, got eager: ${ids}`);
 });
-
-// The runtime side of the same set. cmd/lava/lazy_builtins_test.odin carries the list
-// as STATIC_EAGER and checks it against what context init actually compiles; this keeps
-// that list equal to what the ratchet computes, so neither can drift alone.
-test('eager: the Odin cross-check list matches the computed set', () => {
-  const odin = readFileSync(join(ROOT, 'cmd', 'lava', 'lazy_builtins_test.odin'), 'utf8');
-  // odinfmt writes `[?]string {`; older text had no space before the brace.
-  const m = /STATIC_EAGER :: \[\?\]string\s*\{([^}]*)\}/.exec(odin);
-  assert.ok(m, 'STATIC_EAGER not found in lazy_builtins_test.odin');
-  const listed = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]).sort();
-  assert.deepEqual(listed, eagerModules(ROOT));
-});

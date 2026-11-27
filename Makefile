@@ -25,7 +25,7 @@ endif
 SOURCE ?= console.log('hello from Lava')
 FILE ?=
 
-.PHONY: gates test-stdio test-web record-web test-dom record-dom help env sdk-diff test-one bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-property test-mutation check-jsc check-native native-deps test test-all test-lava test-lava-nohostfn test-odin-serial api-surface bun-buffer-tests test-compat test-compat-lava test-compat-lava-strict test-odin test-eventloop-odin test-runtime-odin test-html-odin test-http-odin test-sqlite-odin test-odin-green test-eventloop-node test-eventloop-lava test-fetch-smoke test-fetch-html-smoke bench bench-gate fmt clean test-bench-pages-smoke bench-pages bench-html
+.PHONY: gates test-stdio test-web record-web test-dom record-dom help env sdk-diff test-one bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-mutation check-jsc check-native native-deps test test-all test-odin-serial test-odin test-eventloop-odin test-runtime-odin test-html-odin test-http-odin test-sqlite-odin test-odin-green bench bench-gate fmt clean test-fetch-html-smoke test-bench-pages-smoke bench-pages bench-html
 
 help:
 	@printf '%s\n' 'Lava commands'
@@ -39,8 +39,8 @@ help:
 	@printf '%s\n' '  make native-deps        Build vendored C deps (picohttpparser, lexbor)'
 	@printf '%s\n' '  make bootstrap-windows-deps Fetch ignored Windows native deps into .deps/'
 	@printf '%s\n' '  make build-sqlite-windows Build build/sqlite3.lib via MSVC'
-	@printf '%s\n' '  make run FILE=app.js    Run a JavaScript file through lava'
-	@printf '%s\n' '  make eval SOURCE=...    Evaluate JavaScript source through lava'
+	@printf '%s\n' '  make run FILE=page.js   Run a classic script with the Window globals'
+	@printf '%s\n' '  make eval SOURCE=...    Evaluate a classic script with the Window globals'
 	@printf '%s\n' '  make clean              Remove build artifacts'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Check / format'
@@ -58,36 +58,27 @@ help:
 	@printf '%s\n' '  make fmt                Format Odin (odinfmt, strip-semicolon) and C/C++ (clang-format)'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Test'
-	@printf '%s\n' '  make test               Odin unit tests + oracle suites (alias of test-all on Unix)'
+	@printf '%s\n' '  make test               Odin unit tests (alias of test-all on Unix)'
 	@printf '%s\n' '  make test-all           Unified scripts/run-tests.sh entry point'
-	@printf '%s\n' '  make test-lava          Every supported oracle suite node-vs-Lava'
-	@printf '%s\n' '  make test-lava-nohostfn Same suites with private host-call ABI forced off'
 	@printf '%s\n' '  make test-odin          Odin tests for cmd/lava'
 	@printf '%s\n' '  make test-one T=a,b     Only the named Odin tests (PKG=pkg/runtime for another package)'
 	@printf '%s\n' '  make test-odin-serial   cmd/lava Odin tests on ONE runner thread'
-	@printf '%s\n' '  make test-odin-green    cmd/lava Odin tests minus cmd/lava/known-node-red.txt (CI)'
+	@printf '%s\n' '  make test-odin-green    cmd/lava Odin tests as CI runs them (SERIAL=1: one thread)'
 	@printf '%s\n' '  make test-eventloop-odin Odin event-loop unit tests (serial)'
 	@printf '%s\n' '  make test-runtime-odin  Odin tests for pkg/runtime'
 	@printf '%s\n' '  make test-html-odin     Odin tests for pkg/html (lexbor + shim)'
 	@printf '%s\n' '  make test-http-odin     Odin tests for pkg/http (content decoding against recorded Chrome)'
 	@printf '%s\n' '  make test-sqlite-odin   Odin tests for pkg/std/sqlite'
-	@printf '%s\n' '  make test-compat        Node-only node-compat cases (+ */ported)'
-	@printf '%s\n' '  make test-compat-lava   node-compat node-vs-Lava (skips known-lava-gaps)'
-	@printf '%s\n' '  make test-compat-lava-strict node-compat node-vs-Lava (no skips)'
-	@printf '%s\n' '  make test-eventloop-node / test-eventloop-lava'
 	@printf '%s\n' '  make test-stdio         node:test over tests/stdio (needs bin/lava)'
 	@printf '%s\n' '  make test-web           Window-profile cases vs their Chrome recordings (tests/web)'
 	@printf '%s\n' '  make record-web [CASES=a b]  Re-record tests/web cases in headless Chrome'
 	@printf '%s\n' '  make test-dom           lava html tree/serialization vs Chrome recordings (tests/dom)'
 	@printf '%s\n' '  make record-dom [CASES=a b]  Re-record tests/dom cases in headless Chrome'
-	@printf '%s\n' '  make test-property      Differential property tests (PROPERTY_RUNS=N)'
 	@printf '%s\n' '  make test-scripts       node:test over scripts/ only (also inside check-js)'
 	@printf '%s\n' '  make test-mutation      Mutation gate (CHANGED=1: only what the diff affects; FILTER=name)'
 	@printf '%s\n' '  make gates              Run routed gates for the current diff (stops on first failure)'
-	@printf '%s\n' '  make bun-buffer-tests   Ported Buffer cases node-vs-Lava'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Smokes (bind local ports)'
-	@printf '%s\n' '  make test-fetch-smoke     fetch client against a local node-run origin'
 	@printf '%s\n' '  make test-fetch-html-smoke  lava fetch (redirect, coding, charset) vs tests/dom recordings'
 	@printf '%s\n' '  make test-bench-pages-smoke  bench/pages builds, runs, and fails on a refused page'
 	@printf '%s\n' ''
@@ -96,14 +87,9 @@ help:
 	@printf '%s\n' '  make bench-gate         Fail if any ratio exceeds bench/thresholds.json'
 	@printf '%s\n' '  make bench-pages        Pages per thread: start-up, RSS, pages/s (not in CI)'
 	@printf '%s\n' '  make bench-html         HTML serializer, pkg/html vs lexbor, ns per KB (not in CI)'
-	@printf '%s\n' '  make api-surface        Buffer/Crypto surface diff vs Node (report-only)'
 	@printf '%s\n' ''
-	@printf '%s\n' 'Env knobs (oracle runners):'
-	@printf '%s\n' '  RUN_LAVA=1              Compare each case Node-vs-Lava instead of Node-only'
-	@printf '%s\n' '  SKIP_KNOWN_LAVA_GAPS=1  Skip paths listed in the matching known-lava-gaps.txt'
-	@printf '%s\n' '  NODE_BIN=/path/to/node  Override the Node oracle binary'
+	@printf '%s\n' 'Env knobs:'
 	@printf '%s\n' '  LAVA_BIN=/path/to/lava  Override the Lava binary under test'
-	@printf '%s\n' '  CASE_TIMEOUT_SEC=30     Per-case wall-clock timeout in seconds (default 30)'
 
 bootstrap-windows-deps:
 	$(RUNSCRIPT) ./scripts/bootstrap-windows-deps.sh
@@ -238,22 +224,11 @@ gates:
 test-mutation: build
 	@node scripts/run-mutations.mjs $(if $(FILTER),'--filter=$(FILTER)',) $(if $(CHANGED),--changed,) $(if $(SHARD),--shard=$(SHARD),)
 
-# Differential PROPERTY tests: fast-check generates the inputs and both runtimes
-# answer, so a mismatch shrinks to a minimal reproducer instead of arriving as a
-# 4 KB buffer. Every decoder defect found in #320/#321 was an edge case somebody
-# picked or missed by hand; this explores the space instead. BATCHED — one node
-# +lava process pair per property, not per input, which is what made 5000 inputs
-# affordable (~1s) where the per-input shape cost 64s for 200 and had to stay out
-# of CI. Needs bin/lava, hence its own target rather than part of the
-# always-block. PROPERTY_RUNS raises the count for a deeper local run.
 test-stdio: build
 	LAVA_BIN="$(LAVA)" node --test 'tests/stdio/**/*.test.mjs'
 
-test-property: build
-	LAVA_BIN="$(LAVA)" node --test 'tests/property/**/*.property.test.mjs'
-
 # The Window-profile oracle (tests/web, x-ror/larva#2): every case runs under
-# `lava run --surface=web` and its stdout must equal the output recorded from Chrome
+# `lava run` and its stdout must equal the output recorded from Chrome
 # byte for byte; tests/web/known-gaps.txt lists, with a stage and a reason, the cases
 # Lava does not match yet, each held to its pinned output. Needs bin/lava, not Chrome:
 # the recordings are committed. record-web re-records them (needs google-chrome;
@@ -290,21 +265,6 @@ endif
 test-all:
 	$(RUNSCRIPT) ./scripts/run-tests.sh
 
-api-surface: build
-	$(RUNSCRIPT) ./scripts/report-api-surface.sh
-
-bun-buffer-tests: build
-	LAVA_BIN="$(LAVA)" ./scripts/report-bun-buffer-tests.sh
-
-test-compat:
-	$(RUNSCRIPT) ./scripts/run-node-compat-all.sh
-
-test-compat-lava: build
-	RUN_LAVA=1 SKIP_KNOWN_LAVA_GAPS=1 LAVA_BIN="$(LAVA)" ./scripts/run-node-compat-all.sh
-
-test-compat-lava-strict: build
-	RUN_LAVA=1 LAVA_BIN="$(LAVA)" ./scripts/run-node-compat-all.sh
-
 test-odin: native-deps
 	$(ODIN) test cmd/lava -collection:lava=.
 
@@ -336,12 +296,10 @@ test-one: native-deps
 test-odin-serial: native-deps
 	$(ODIN) test cmd/lava -collection:lava=. -define:ODIN_TEST_THREADS=1
 
-# cmd/lava's tests minus cmd/lava/known-node-red.txt — the ones red in the default build
-# because their pages require a Node module that is gone (S5a rewrites them). What CI's
-# test job runs; a skip entry naming a missing test fails it. SERIAL=1 runs it on one
-# runner thread, as test-odin-serial does, and for the same reason.
+# cmd/lava's tests as CI's test job runs them. SERIAL=1 runs them on one runner thread,
+# as test-odin-serial does, and for the same reason.
 test-odin-green: native-deps
-	ODIN="$(ODIN)" ./scripts/run-odin-green.sh $(if $(SERIAL),-define:ODIN_TEST_THREADS=1,)
+	$(ODIN) test cmd/lava -collection:lava=. $(if $(SERIAL),-define:ODIN_TEST_THREADS=1,)
 
 # ONE runner thread: the loop owns process-wide resources (descriptors, and the
 # rlimit that failed_platform_init_does_not_double_close has to tighten to reach
@@ -377,15 +335,6 @@ test-sqlite-odin:
 	$(ODIN) test pkg/std/sqlite
 endif
 
-test-eventloop-node:
-	$(RUNSCRIPT) ./scripts/run-eventloop-oracle.sh
-
-test-eventloop-lava: build
-	RUN_LAVA=1 SKIP_KNOWN_LAVA_GAPS=1 LAVA_BIN="$(LAVA)" ./scripts/run-eventloop-oracle.sh
-
-test-fetch-smoke: build
-	LAVA_BIN="$(LAVA)" ./scripts/run-fetch-smoke.sh
-
 # `lava fetch` end to end (DOM stage 3c): tests/dom navigation cases served behind a
 # redirect, compressed, with their Content-Type; stdout must equal each case's Chrome
 # `#serialize` view. Binds a 127.0.0.1 port, so not in `make test`; needs no Chrome.
@@ -417,21 +366,6 @@ bench-pages: native-deps
 # alternate the two. Report-only; needs native-deps, not lava.
 bench-html: native-deps
 	./bench/html/run.sh
-
-# test-lava runs every oracle suite the platform supports through one entry point
-# (scripts/run-oracles.sh) — the same script the Windows CI job runs against
-# lava.exe. The per-suite test-*-lava targets above remain for granular runs.
-test-lava: build
-	RUN_LAVA=1 LAVA_BIN="$(LAVA)" ./scripts/run-oracles.sh
-
-# Same suites with the private-ABI host-call path forced off, so every native is
-# built by JSObjectMakeFunctionWithCallback instead. That fallback is documented
-# behaviour with no coverage: it was only ever exercised by the macOS and Windows
-# jobs, which have been disabled since the Linux-first switch, and it is exactly
-# where a JSC upgrade that renamed the mangled symbol pkg/jsc dlsyms would land the
-# whole runtime.
-test-lava-nohostfn: build
-	RUN_LAVA=1 LAVA_BIN="$(LAVA)" LAVA_HOSTFN_DISABLE=1 ./scripts/run-oracles.sh
 
 # -collection:lava=. is required, not optional: cmd/lava's test files import
 # "lava:pkg/runtime", so without it strip-semicolon cannot parse the package and

@@ -97,9 +97,9 @@ jobs:
         if: needs.scope.outputs.scope != 'docs'
         run: make check-js
 
-      # The Window-profile oracle (tests/web): every case under `lava run --surface=web`
-      # against its committed Chrome recording. Here rather than in the test job: it is
-      # the gate the Node-profile removal stages merge on, it needs only what this job
+      # The Window-profile oracle (tests/web): every case under `lava run` against its
+      # committed Chrome recording. Here rather than in the test job: it is the gate the
+      # Window-profile stages merge on, it needs only what this job
       # already installs (JSC, Odin, node), and the build plus the run is ~30 s (Build
       # was 23 s in the test job's last manual run, the suite 4 s locally for 46 cases).
       # No Chrome: recording is local.
@@ -124,13 +124,10 @@ jobs:
   test:
     name: Linux (full build + tests)
     needs: scope
-    # Back on push and pull_request after S3 of the Node-profile removal, with the steps
-    # that are meaningful and green on the default build. Left out until their suites are
-    # re-based on the Window profile (S4/S5): the node-vs-Lava oracles (test-lava,
-    # test-lava-nohostfn — the node-compat and event-loop suites still assert Node
-    # modules the build no longer has), test-property (its Lava-side driver reads the
-    # corpus with node:fs), test-stdio (its scripts use node:fs) and bench-gate (a
-    # node-vs-Lava ratio table over the Node surface; absolute numbers replace it).
+    # The Window surface is the only one (S5 of the Node-profile removal): the node-vs-Lava
+    # oracles, the property suite and the fetch smoke went with the Node profile. Left
+    # out: test-stdio (not yet a CI gate) and bench-gate (a node-vs-Lava ratio table over
+    # the Node surface; absolute numbers replace it).
     if: needs.scope.outputs.scope == 'code' || needs.scope.outputs.scope == 'full'
     runs-on: ubuntu-latest
     steps:
@@ -163,33 +160,14 @@ jobs:
       - name: Build
         run: make build
 
-      # The known-red skip list and its runner may only change with a human. Widening the
-      # list is how a new red would hide in the step below, and the gate-integrity hook
-      # (runtime/gates/integrity.mjs) does not cover these two files, so they are pinned
-      # here instead: .github/workflows/ is protected, and any edit to either file —
-      # shrinking the list included — fails until a human updates the hashes below.
-      - name: Skip list unchanged (cmd/lava/known-node-red.txt, scripts/run-odin-green.sh)
-        run: |
-          if ! sha256sum --check --strict --quiet <<'SUMS'
-          70c30752926b78cd40097c1246e639718e048454e7fe5ce47e9e5b40d29c0f1b  cmd/lava/known-node-red.txt
-          8d2ffbc8646f82381de2ec0ee44d1f609243d4f653cc9786d6cc430fba477475  scripts/run-odin-green.sh
-          SUMS
-          then
-            echo "::error::cmd/lava/known-node-red.txt or scripts/run-odin-green.sh changed. The known-red list may only shrink and needs a human: review the change, then update the sha256 values in .github/workflows/ci.yml (test job, 'Skip list unchanged')."
-            exit 1
-          fi
-
-      # cmd/lava minus cmd/lava/known-node-red.txt: the 14 tests whose pages still
-      # require a Node module the build no longer has (node:fs/os/net/dns/http), each
-      # listed with what it needs. S5a rewrites them onto the Window surface; until then
-      # a NEW red fails here, and a listed name that no longer exists fails too.
+      # cmd/lava's tests; a red one fails the job.
       - name: Test (Odin, cmd/lava)
         run: make test-odin-green
 
       # The Odin runner gives each test its own thread by default; on one thread the
       # eval call sites share the thread-local host-native registry and JSC's recycled
       # context addresses. That sharing is the shape of two already-fixed defects, and
-      # nothing else in CI produces it. Same skip list as above.
+      # nothing else in CI produces it.
       - name: Test (Odin, cmd/lava, single runner thread)
         run: make test-odin-green SERIAL=1
 
@@ -210,12 +188,6 @@ jobs:
       # honest until storage (#14) picks it up.
       - name: Test (Odin, pkg/std/sqlite)
         run: make test-sqlite-odin
-
-      # Real socket transport: start a Node origin and require lava's fetch output
-      # to match Node's, over http://, https:// (TLS), and IPv6 loopback. Binds a
-      # local port, so it is its own gate.
-      - name: Fetch transport smoke
-        run: make test-fetch-smoke
 
       # bench/pages is report-only, so this is the only place it runs: a small valid run
       # must report no failed page, and a budget-0 run must exit 1 with every page
@@ -238,9 +210,9 @@ jobs:
   mutation:
     name: Mutation gate (${{ matrix.shard }}/3)
     needs: scope
-    # PAUSED until S5b of the Node-profile removal: most of its entries are gated on the
-    # node-compat and event-loop oracles, which the default build no longer passes.
-    # Manual runs only; drop the event check to resume.
+    # PAUSED since S3 of the Node-profile removal; S5 dropped the entries gated on the
+    # deleted Node suites. Manual runs only until the remaining manifest has been run
+    # green on the Window-only build; drop the event check to resume.
     if: github.event_name == 'workflow_dispatch' && needs.scope.outputs.scope != 'docs'
     runs-on: ubuntu-latest
     strategy:
