@@ -1,0 +1,52 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs storage-errors
+# ---
+getItem(): TypeError TypeError undefined: Failed to execute 'getItem' on 'Storage': 1 argument required, but only 0 present.
+setItem(): TypeError TypeError undefined: Failed to execute 'setItem' on 'Storage': 2 arguments required, but only 0 present.
+setItem(a): TypeError TypeError undefined: Failed to execute 'setItem' on 'Storage': 2 arguments required, but only 1 present.
+removeItem(): TypeError TypeError undefined: Failed to execute 'removeItem' on 'Storage': 1 argument required, but only 0 present.
+key(): TypeError TypeError undefined: Failed to execute 'key' on 'Storage': 1 argument required, but only 0 present.
+getItem symbol: TypeError TypeError undefined: Failed to execute 'getItem' on 'Storage': Cannot convert a Symbol value to a string
+setItem symbol key: TypeError TypeError undefined: Failed to execute 'setItem' on 'Storage': Cannot convert a Symbol value to a string
+setItem symbol value: TypeError TypeError undefined: Failed to execute 'setItem' on 'Storage': Cannot convert a Symbol value to a string
+removeItem symbol: TypeError TypeError undefined: Failed to execute 'removeItem' on 'Storage': Cannot convert a Symbol value to a string
+key symbol: TypeError TypeError undefined: Failed to execute 'key' on 'Storage': Cannot convert a Symbol value to a number
+key bigint: TypeError TypeError undefined: Failed to execute 'key' on 'Storage': Cannot convert a BigInt value to a number
+key string: ok null
+named symbol value: TypeError TypeError undefined: Failed to set a named property 'sym' on 'Storage': Cannot convert a Symbol value to a string
+call getItem on {}: TypeError TypeError undefined: Illegal invocation
+call setItem on {}: TypeError TypeError undefined: Illegal invocation
+call clear on {}: TypeError TypeError undefined: Illegal invocation
+length on proto: TypeError TypeError undefined: Illegal invocation
+length on {}: TypeError TypeError undefined: Illegal invocation
+new Storage: TypeError TypeError undefined: Failed to construct 'Storage': Illegal constructor
+Storage(): TypeError TypeError undefined: Illegal constructor
+getItem on sessionStorage via local: ok null
+order: ok undefined
+key,value
+order receiver: TypeError TypeError undefined: Illegal invocation
+
+order throwing key: RangeError RangeError undefined: k
+
+5MB-1 value, 1-char key: ok 5242879
+5MB value, 1-char key: QuotaExceededError QuotaExceededError 22: Failed to execute 'setItem' on 'Storage': Setting the value of 'a' exceeded the quota.
+5MB value, empty key: ok 5242880
+5MB+1 value, empty key: QuotaExceededError QuotaExceededError 22: Failed to execute 'setItem' on 'Storage': Setting the value of '' exceeded the quota.
+10MB-1 value: QuotaExceededError QuotaExceededError 22: Failed to execute 'setItem' on 'Storage': Setting the value of 'a' exceeded the quota.
+10MB value, empty key: QuotaExceededError QuotaExceededError 22: Failed to execute 'setItem' on 'Storage': Setting the value of '' exceeded the quota.
+10MB+1 value, empty key: QuotaExceededError QuotaExceededError 22: Failed to execute 'setItem' on 'Storage': Setting the value of '' exceeded the quota.
+fill rest: QuotaExceededError QuotaExceededError 22: Failed to execute 'setItem' on 'Storage': Setting the value of 'b' exceeded the quota.
+fill exact: ok undefined
+replace same size: ok undefined
+length: ok 2
+named over quota: QuotaExceededError QuotaExceededError 22: Failed to set a named property 'big' on 'Storage': Setting the value of 'big' exceeded the quota.
+0
+true
+true
+false
+[]
+null null
+session independent: ok 1

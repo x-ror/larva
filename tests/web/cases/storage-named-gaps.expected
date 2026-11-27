@@ -1,0 +1,16 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs storage-named-gaps
+# ---
+["a","10","z","m","B","9","b"]
+["a","10","z","m","B","9","b"]
+["getItem","foo"]
+undefined
+true
+v
+no throw
+w
+true
+null 0 false

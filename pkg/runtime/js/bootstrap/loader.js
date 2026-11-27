@@ -94,6 +94,9 @@
   // The `performance` global: a Performance EventTarget whose User Timing marks clone
   // their `detail` through structured_clone, so after both.
   req('internal/performance');
+  // Storage and the localStorage/sessionStorage attributes; its quota error is a
+  // QuotaExceededError, so after internal/domexception.
+  req('internal/storage');
   // XMLHttpRequest, its upload and event-target interfaces, and ProgressEvent: over
   // fetch's transport, with events from internal/event_target, so after both.
   req('internal/xhr');

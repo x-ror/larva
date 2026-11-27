@@ -1,0 +1,44 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs storage-basic
+# ---
+local start length=0 keys=[]
+true
+local set length=6 keys=["","3","a","b","c","u"]
+["1","2","obj","null","null"]
+["undefined",null,"empty key",null]
+again 6
+null 5
+null null null
+string
+"\ud800x"
+"v"
+"a\u0000b"
+undefined
+local cleared length=0 keys=[]
+session start length=0 keys=[]
+true
+session set length=6 keys=["","3","a","b","c","u"]
+["1","2","obj","null","null"]
+["undefined",null,"empty key",null]
+again 6
+null 5
+null null null
+string
+"\ud800x"
+"v"
+"a\u0000b"
+undefined
+session cleared length=0 keys=[]
+null
+true
+true
+true
+true
+[object Storage]
+[object Storage]
+true
+["10","9","B","a","b","m","z"]
+["10","9","B","a","b","m","z"]
