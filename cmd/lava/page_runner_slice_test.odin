@@ -136,19 +136,24 @@ for (let i = 0; i < K; i++) setTimeout(f, 10);
 last = performance.now();
 `
 
-// SIBLING_PAGE needs 20 turns: a chain of 0 ms timers, each set by the one before,
-// runs one per turn (a timer created in a timer task waits for the next turn).
+// SIBLING_PAGE needs 6 turns: a chain of 0 ms timers, each set by the one before,
+// runs one per turn (a timer created in a timer task waits for the next turn). The
+// chain stops at 5 timers so none is created past nesting level 5: from the sixth on,
+// HTML's nesting clamp (#116, eventloop TIMER_NESTING_LEVEL_MAX) makes each wait 4 ms
+// of wall time, and a 20-step chain then took ~56 ms of clock — long enough for the
+// hog's sliced turn to finish first on a fast runner (CI, #139). Unclamped, the
+// sibling's progress is counted in rounds alone.
 @(private = "file")
 SIBLING_PAGE :: `
 let steps = 0;
-(function step() { if (++steps < 20) setTimeout(step, 0); else throw 4; })();
+(function step() { if (++steps < 6) setTimeout(step, 0); else throw 4; })();
 `
 
 // A sibling ticks between the slices of a page with a pile of due timers (#35): with
 // the default quantum, a page whose turn fires 30000 timers is suspended every 1 ms of
 // CPU, and the runner ticks its sibling in between. The measure is runner rounds, not
-// time, so a loaded machine cannot change the outcome: the sibling needs 20 rounds,
-// one timer per tick. Unsliced, the hog's turn is one tick and it is reported
+// time, so a loaded machine cannot change the outcome: the sibling needs 6 rounds,
+// one timer per tick, none of them held by the nesting clamp. Unsliced, the hog's turn is one tick and it is reported
 // within a handful of rounds, long before the sibling; sliced, that turn alone is
 // 30000 callbacks — about 100 ms of CPU at ~3 µs each (more in this debug build) — so
 // at least ~90 slices, and the sibling is reported first.

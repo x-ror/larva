@@ -3,7 +3,7 @@
   "suites": {
     "tests/web/cases": {
       "globs": ["*.js"],
-      "min": 78
+      "min": 93
     },
     "tests/dom/cases": {
       "globs": ["*.html"],

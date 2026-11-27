@@ -47,15 +47,19 @@
   }
 
   /**
-   * The prefix Blink puts on an error an attribute's setter throws.
-   * @param {string} iface
-   * @param {string} attr
-   * @returns {string} `Failed to set the 'href' property on 'Location': `
-   * @node n/a — Chrome 158, tests/web/cases/location-errors.expected.
+   * The context prefix Blink puts in front of an attribute's error message.
+   * @param {string} iface Interface name, as in `'XMLHttpRequest'`.
+   * @param {string} attr Attribute name.
+   * @param {boolean} set true for the setter, false for the getter.
+   * @returns {string} `Failed to set the '<attr>' property on '<iface>': ` or
+   *   `Failed to read the '<attr>' property from '<iface>': `.
+   * @node n/a — Chrome's wording, recorded in tests/web/cases/xhr-errors.expected
+   *       (Chrome 158).
    * @deviates none
    */
-  function setterContext(iface, attr) {
-    return "Failed to set the '" + attr + "' property on '" + iface + "': ";
+  function attributeContext(iface, attr, set) {
+    if (set) return "Failed to set the '" + attr + "' property on '" + iface + "': ";
+    return "Failed to read the '" + attr + "' property from '" + iface + "': ";
   }
 
   /**
@@ -315,7 +319,7 @@
     TypeError: TypeErrorP,
     RangeError: P.RangeError,
     context: context,
-    setterContext: setterContext,
+    attributeContext: attributeContext,
     typeError: typeError,
     argumentsRequired: argumentsRequired,
     notOfType: notOfType,

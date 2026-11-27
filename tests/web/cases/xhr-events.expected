@@ -1,0 +1,27 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs xhr-events
+# ---
+ProgressEvent progress true 5.9 -1 false false
+ProgressEvent defaults false 0 0
+ProgressEventInit order bubbles,lengthComputable,loaded,total
+early readystatechange 1
+early after abort 1
+sent 1
+aborted 0
+abort in flight readystatechange@1 loadstart@1(false,0,0) readystatechange@4 upload.abort@4(false,0,0) upload.loadend@4(false,0,0) abort@4(false,0,0) loadend@4(false,0,0)
+abort in flight after 0 0 "" "" headers false
+abort at headers readystatechange@1 loadstart@1(false,0,0) readystatechange@2 readystatechange@4 upload.abort@4(false,0,0) upload.loadend@4(false,0,0) abort@4(false,0,0) loadend@4(false,0,0)
+abort at headers after 0 0 "" "" headers false
+load readystatechange@1 loadstart@1(false,0,0) readystatechange@2 readystatechange@3 progress@3(true,22,22) readystatechange@4 load@4(true,22,22) loadend@4(true,22,22)
+load after 4 200 "OK" "hello from the fixture" headers true
+abort after load 0 0 ""
+network error readystatechange@1 loadstart@1(false,0,0) readystatechange@4 error@4(false,0,0) loadend@4(false,0,0)
+network error after 4 0 "" "" headers false
+timeout readystatechange@1 loadstart@1(false,0,0) readystatechange@4 upload.timeout@4(false,0,0) upload.loadend@4(false,0,0) timeout@4(false,0,0) loadend@4(false,0,0)
+timeout after 4 0 "" "" headers false
+upload readystatechange@1 loadstart@1(false,0,0) upload.loadstart@1(true,0,5) upload.progress@1(true,5,5) upload.load@1(true,5,5) upload.loadend@1(true,5,5) readystatechange@2 readystatechange@3 progress@3(true,86,86) readystatechange@4 load@4(true,86,86) loadend@4(true,86,86)
+upload after 4 200 "OK" "{\"method\":\"POST\",\"contentType\":\"text/plain;charset=UTF-8\",\"xTest\":null,\"body\":\"12345\"}" headers true
+handlers onerror null | listener 1 | onload this=true target=true trusted=true [object ProgressEvent] bubbles=false cancelable=false | listener 2

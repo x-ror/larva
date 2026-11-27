@@ -43,7 +43,7 @@
   var context = webErrors.context;
   var illegalInvocation = webErrors.illegalInvocation;
   var pageError = webErrors.pageError;
-  var setterContext = webErrors.setterContext;
+  var attributeContext = webErrors.attributeContext;
   var toDOMString = webErrors.toDOMString;
   var typeError = webErrors.typeError;
   var wrapGetter = nativeShape.wrapGetter;
@@ -304,7 +304,7 @@
 
   function setHref(value) {
     if (!isLocation(this)) throw illegalInvocation();
-    navigate(navigationURL(value, setterContext(LOCATION, 'href')), false);
+    navigate(navigationURL(value, attributeContext(LOCATION, 'href', true)), false);
   }
 
   // A component setter (`location.pathname = …`): the document's URL with that one
@@ -313,7 +313,7 @@
     var set = URL_SETTERS[name];
     return function (value) {
       if (!isLocation(this)) throw illegalInvocation();
-      var text = stringWith(value, setterContext(LOCATION, name));
+      var text = stringWith(value, attributeContext(LOCATION, name, true));
       var copy;
       if (name === 'hash') {
         // Location's hash setter, unlike URL's, leaves an empty fragment, not none:
@@ -552,7 +552,7 @@
 
     set scrollRestoration(value) {
       if (!isHistory(this)) throw illegalInvocation();
-      var mode = stringWith(value, setterContext(HISTORY, 'scrollRestoration'));
+      var mode = stringWith(value, attributeContext(HISTORY, 'scrollRestoration', true));
       // An enumeration attribute ignores a value outside the enumeration.
       if (ArrayPrototypeIncludes(SCROLL_MODES, mode)) entries[index].scroll = mode;
     }

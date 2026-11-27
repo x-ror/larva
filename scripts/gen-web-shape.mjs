@@ -84,6 +84,7 @@ export const FAMILIES = {
     'screenLeft',
     'screenTop',
   ],
+  xhr: ['XMLHttpRequestEventTarget', 'XMLHttpRequest', 'XMLHttpRequestUpload', 'ProgressEvent'],
 };
 
 // Chrome globals of the families above that Larva does not install (Chrome 158).
