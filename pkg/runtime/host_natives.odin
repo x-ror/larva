@@ -297,15 +297,13 @@ host_dispatch_fail :: #force_no_inline proc "c" (ctx: jsc.JSContextRef, why: str
 //   unavailable or the registry declined, and the caller must fall back to
 //   JSObjectMakeFunctionWithCallback (inject_native_function already does).
 // Node:
-//   `.length` is observable only for the natives injected as globals —
-//   setTimeout/setInterval report 2, the rest 1 (node 26.13.0, verified by
-//   tests/node-compat/cases/56-native-function-arity.js).
+//   `.length` is observable only for the natives injected as globals — Chrome's
+//   lengths (tests/web/cases/shape-operations).
 // Deviates:
 //   The C-API fallback reports 0 and cannot carry an arity through the public
-//   API; analysis at inject_native_function (require.odin). Pinned by
-//   tests/node-compat/cases/56-native-function-arity.js in the default
-//   configuration, and by host_native_create_declines_without_state for the
-//   fallback value itself.
+//   API; analysis at inject_native_function (below). Pinned by
+//   tests/web/cases/shape-operations in the default configuration, and by
+//   host_native_create_declines_without_state for the fallback value itself.
 //
 // `arity` is part of the cache key only indirectly: the key is (ctx, cb, name),
 // and a given callback is always injected under one name with one arity, so two
@@ -462,8 +460,8 @@ host_natives_release_context :: proc(ctx: jsc.JSContextRef, alloc: mem.Allocator
 // taken only when the private ABI is missing.
 //
 // So the divergence is pinned instead of papered over:
-// tests/node-compat/cases/56-native-function-arity.js asserts Node's arities in
-// the DEFAULT configuration. A JSC upgrade that renamed the mangled symbol
+// tests/web/cases/shape-operations asserts Chrome's lengths in the DEFAULT
+// configuration. A JSC upgrade that renamed the mangled symbol
 // pkg/jsc dlsyms silently demotes every native to the fallback — that case is
 // what turns it into a loud failure rather than a `.length` that quietly became 0.
 inject_native_function :: proc(

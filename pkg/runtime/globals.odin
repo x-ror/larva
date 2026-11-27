@@ -431,7 +431,7 @@ install_rejection_tracker :: proc(ctx: jsc.JSContextRef) {
 }
 
 // get_named reads object[name], returning nil on allocation failure. Mirror of
-// set_named; used to read process.exitCode when resolving the exit code.
+// set_named.
 get_named :: proc(ctx: jsc.JSContextRef, object: jsc.JSObjectRef, name: string) -> jsc.JSValueRef {
 	c_name, err := strings.clone_to_cstring(name, context.temp_allocator)
 
@@ -1182,11 +1182,9 @@ install_microtasks :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef) {
 }
 
 // invoke_user_callback runs a user JS callback at an event-loop boundary (timer /
-// immediate / I/O / fetch completion) with Node's process.nextTick ordering. It
-// calls the callback THROUGH the microtask shim's `dispatch`, which drains the
-// nextTick queue before returning — so nextTicks beat promise jobs queued earlier
-// in the same turn (checkpoint 1) — then re-drains the nextTicks queued by the
-// promise jobs JSC auto-drained on return (checkpoint 2). `args`/`argc` are the
+// I/O / fetch completion), THROUGH the microtask shim's `dispatch`, so every callback
+// shows the same one runtime frame; JSC drains the promise jobs it queued when the
+// call returns (the microtask checkpoint). `args`/`argc` are the
 // callback's own arguments; there is no `this` parameter because every call site
 // used the default receiver (NULL thisObject → global), which `dispatch` mirrors.
 // Falls back to a direct call if the shim is absent (embedder bypass).

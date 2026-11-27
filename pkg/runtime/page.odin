@@ -616,8 +616,8 @@ page_close :: proc(
 	ctx := cast(jsc.JSContextRef)page.ctx
 
 	if !page.finished && page.state != nil {
-		// process.exitCode can be a getter or carry a valueOf: user JS, so charged and
-		// checked like any other entry.
+		// Bracketed like any other entry, though it runs no page JS any more (it read
+		// process.exitCode, which could be a getter, while the Node profile existed).
 		vm_cpu_enter(page.vm)
 		exit_code := resolve_exit_code(ctx, page.state)
 		vm_cpu_exit(page.vm)

@@ -95,8 +95,8 @@ make bench
 - `pkg/runtime/eventloop` - native event-loop abstraction using io_uring/epoll on Linux
 - `pkg/jsc` - JavaScriptCore foreign declarations and the private-ABI probes
 - `pkg/std/sqlite` - SQLite bindings (kept for storage; nothing links them yet)
-- `tests` - oracle suites (`web`, `node-compat`, `runtime`, `stdio`), differential
-  property tests (`property`) and the mutation manifest
+- `tests` - Chrome-recorded oracle suites (`web`, `dom`), the stdio write test and
+  the mutation manifest
 - `bench` - node-vs-Lava benchmarks, and `bench/jsc-vm` for JSC VM costs
 - `runtime/gates` - gate integrity checks and the oracle case-count assertions
 - `scripts` - build, check and test-runner scripts

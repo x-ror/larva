@@ -1176,7 +1176,7 @@
       "find": "  function track(fn) {\n",
       "replace": "  function track(fn) {\n    if (fn === apply) return;\n",
       "gate": "odin:cmd/lava:main.function_call_lock",
-      "expect_detail": "want emit-hijack=listener:1 got emit-hijack="
+      "expect_detail": "want ext=false,false,false got ext=false,true,false"
     },
     {
       "name": "function_call_lock dies when the wrapped set stays extensible",
@@ -1186,15 +1186,6 @@
       "replace": "",
       "gate": "odin:cmd/lava:main.function_call_lock",
       "expect_detail": "want push-hijack=0 a=1&b=2&c=3 http://a/b?c got push-hijack="
-    },
-    {
-      "name": "function_call_lock dies when a method wrapped after the lock is not locked on the spot",
-      "why": "The loader wraps Buffer.prototype.toString/indexOf/slice with uncurryThis AFTER lockIntrinsics (pristineBuffer, the http framing path); without lock-on-wrap those held methods stay steerable through an own call.",
-      "source": "pkg/runtime/js/internal/primordials.js",
-      "find": "    if (intrinsicsLocked) preventExtensions(fn);",
-      "replace": "    if (intrinsicsLocked) return;",
-      "gate": "odin:cmd/lava:main.function_call_lock",
-      "expect_detail": "want wrapped-ext=false,false,false,true got wrapped-ext=false,false,true,true"
     },
     {
       "name": "compare.sh dies when the .nvmrc oracle-major check is gutted",
@@ -2735,15 +2726,6 @@
       "expect_detail": "expected len(actual) to be 2, got 4"
     },
     {
-      "name": "runner_slicing_keeps_event_loop_order dies when a yield breaks out of the timers phase",
-      "why": "Case 14 run as a sliced runner page is the only JS-level check of the slice: no oracle suite runs a page that slices.",
-      "source": "pkg/runtime/eventloop/loop.odin",
-      "find": "\t\t\tloop.resume_timers = true\n",
-      "replace": "\t\t\tif true {\n\t\t\t\tbreak\n\t\t\t}\n",
-      "gate": "odin:cmd/lava:main.runner_slicing_keeps_event_loop_order",
-      "expect_detail": "[ 't1', 'micro', 'imm', 't2', 't0' ]"
-    },
-    {
       "name": "suspended_timers_phase_resumes_the_same_turn dies when the resumed phase recomputes its sequence limit",
       "why": "A fresh limit admits the 0 ms timer an earlier slice's callback created into the same turn, ahead of the turn's immediates (case 05's rule).",
       "source": "pkg/runtime/eventloop/loop.odin",
@@ -3764,7 +3746,7 @@
       "find": "\tif strings.has_suffix(source_name, \".mjs\") {",
       "replace": "\tif false && strings.has_suffix(source_name, \".mjs\") {",
       "gate": "odin:cmd/lava:main.global_surface_web_rejects_mjs",
-      "expect_detail": "web .mjs status=Ok (want Invalid_Input)"
+      "expect_detail": "web .mjs status=Execution_Error (want Invalid_Input)"
     },
     {
       "name": "page_create_then_run_script_ends_like_page_open dies when page_run_script skips the source pre-flight",
