@@ -2,6 +2,12 @@
 // (bytes <-> text, chunk coercion, the transport-fed response stream) — the Lava side
 // of undici's lib/web/fetch/body.js. The fetch driver (internal/fetch) also takes
 // concatChunks/chunkToBytes/makeTransportStream from here, so there is one copy.
+//
+// Request's and Response's state lives in one record per object, held in a WeakMap
+// only these modules reach (newState/stateOf), not in own properties: a page reads
+// Blink's attributes off the prototypes and finds nothing on the instance, and the
+// record doubles as the brand check every member makes ("Illegal invocation" on a
+// foreign receiver, Chrome 158).
 (function (require, module) {
   'use strict';
 
@@ -14,6 +20,36 @@
   var webStreams = require('internal/webstreams/index');
   var ReadableStream = webStreams.ReadableStream;
   var streamInternal = webStreams._internal;
+  var P = require('internal/primordials');
+  var StringP = P.String;
+  var TypeErrorP = P.TypeError;
+  var Uint8ArrayP = P.Uint8Array;
+  var ArrayBufferP = P.ArrayBuffer;
+  var ArrayBufferIsView = P.ArrayBufferIsView;
+  var ArrayPrototypePush1 = P.ArrayPrototypePush1;
+  var JSONParse = P.JSONParse;
+  var ObjectDefineProperty = P.ObjectDefineProperty;
+  var ObjectGetOwnPropertyDescriptor = P.ObjectGetOwnPropertyDescriptor;
+  var ReflectOwnKeys = P.ReflectOwnKeys;
+  var PromiseReject = P.PromiseReject;
+  var PromiseResolve = P.PromiseResolve;
+  var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;
+  var TypedArrayPrototypeGetBuffer = P.TypedArrayPrototypeGetBuffer;
+  var TypedArrayPrototypeGetByteOffset = P.TypedArrayPrototypeGetByteOffset;
+  var TypedArrayPrototypeGetByteLength = P.TypedArrayPrototypeGetByteLength;
+  var Uint8ArrayPrototypeSet = P.Uint8ArrayPrototypeSet;
+  var WeakMapPrototypeGet = P.WeakMapPrototypeGet;
+  var WeakMapPrototypeSet = P.WeakMapPrototypeSet;
+  var SymbolAsyncIterator = P.Symbol.asyncIterator;
+  var UnderlyingSourceStart = 'start';
+
+  var webErrors = require('internal/web_errors');
+  var web = webErrors.web;
+  var typeError = webErrors.typeError;
+  var illegalInvocation = webErrors.illegalInvocation;
+
+  var TEXT_PLAIN = 'text/plain;charset=UTF-8';
+  var FORM_URLENCODED = 'application/x-www-form-urlencoded;charset=UTF-8';
 
   // Shared, lazily-created codecs. TextEncoder.encode / TextDecoder.decode
   // (non-streaming) are stateless across calls, so a single instance each is
@@ -38,38 +74,122 @@
     return sharedDecoder;
   }
 
+  // --- per-object state --------------------------------------------------------------
+
+  var states = new P.WeakMap();
+
+  // newState registers `target` as a `kind` ('Request' or 'Response') and returns its
+  // record; stateOf answers the record, or undefined for any other object.
+  function newState(target, kind) {
+    var state = {
+      __proto__: null,
+      kind: kind,
+      bodyStream: null,
+      bodyBytes: null,
+      bodyUsed: false,
+      headers: null,
+    };
+    WeakMapPrototypeSet(states, target, state);
+    return state;
+  }
+
+  function stateOf(target, kind) {
+    if (target === null || (typeof target !== 'object' && typeof target !== 'function')) {
+      return undefined;
+    }
+
+    var state = WeakMapPrototypeGet(states, target);
+    return state !== undefined && state.kind === kind ? state : undefined;
+  }
+
+  // --- extracting a body -------------------------------------------------------------
+
+  function isBlob(value) {
+    return require('internal/blob').isBlob(value);
+  }
+
+  function isURLSearchParams(value) {
+    return value instanceof require('internal/url').URLSearchParams;
+  }
+
+  // The Content-Type the fetch standard's "extract a body" gives `body`: a string's,
+  // a URLSearchParams', or a Blob's own type when it has one; null otherwise (bytes,
+  // streams, an absent body). Chrome 158: tests/web/cases/fetch-body-utf8,
+  // fetch-classes, fetch-network.
+  function extractContentType(body) {
+    if (body === null || body === undefined) return null;
+    if (typeof body === 'string') return TEXT_PLAIN;
+    if (isBlob(body)) {
+      var type = require('internal/blob').typeOf(body);
+      return type === '' ? null : type;
+    }
+
+    if (isURLSearchParams(body)) return FORM_URLENCODED;
+    if (body instanceof ArrayBufferP || ArrayBufferIsView(body)) return null;
+    if (streamInternal.isReadableStream(body)) return null;
+    // A Lava-only async-iterable request body (isStreamLikeBody) carries no type.
+    if (typeof body === 'object' && typeof body[SymbolAsyncIterator] === 'function') return null;
+    // Anything else is stringified (WebIDL's USVString arm of BodyInit).
+    return TEXT_PLAIN;
+  }
+
   // Body storage stays byte-exact; request bodies and response bytes must not
   // round-trip through latin1 text.
   function bodyToBytes(body) {
     if (body === null || body === undefined) return null;
-    if (body instanceof Uint8Array) return body;
-    if (body instanceof ArrayBuffer) return new Uint8Array(body);
+    if (body instanceof Uint8ArrayP) return body;
+    if (body instanceof ArrayBufferP) return new Uint8ArrayP(body);
+    if (ArrayBufferIsView(body)) {
+      return new Uint8ArrayP(
+        TypedArrayPrototypeGetBuffer(body),
+        TypedArrayPrototypeGetByteOffset(body),
+        TypedArrayPrototypeGetByteLength(body),
+      );
+    }
+
     // A Blob/File body: join its in-memory chunks synchronously. Lava's Blob keeps
     // its bytes in memory, so no async read is needed; an empty Blob is an absent body.
     // Branded by its private field (internal/blob), not `instanceof` the replaceable
     // global. A Blob used as a *request* body instead takes Request's async
-    // _streamBody path and never reaches here.
+    // streamBody path and never reaches here.
     var blobBytes = require('internal/blob').blobBytes(body);
     if (blobBytes !== null) return blobBytes.length === 0 ? null : blobBytes;
-    var text = typeof body === 'string' ? body : String(body);
+    var text = typeof body === 'string' ? body : StringP(body);
     // An empty string (passed directly or produced by String(body)) has no
     // bytes — treat it as an absent body.
     if (text === '') return null;
     var encoder = getEncoder();
     if (encoder) return encoder.encode(text);
-    var bytes = new Uint8Array(text.length);
-    for (var i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i) & 0xff;
+    var bytes = new Uint8ArrayP(text.length);
+    for (var i = 0; i < text.length; i++) bytes[i] = StringPrototypeCharCodeAt(text, i) & 0xff;
     return bytes;
+  }
+
+  // initBody stores `bodyInit` on `state`: EITHER an in-memory byte body (bodyBytes,
+  // the fast path for JS-constructed bodies and buffered request bodies) OR a
+  // streaming body (bodyStream, fed by the transport or handed in by the page). The
+  // buffered readers drain the stream when present, so streaming and buffering share
+  // one consumption path and a body is consumed at most once.
+  function initBody(state, bodyInit) {
+    if (streamInternal.isReadableStream(bodyInit)) {
+      state.bodyStream = bodyInit;
+      state.bodyBytes = undefined;
+    } else {
+      state.bodyStream = null;
+      state.bodyBytes = bodyToBytes(bodyInit); // Uint8Array | null
+    }
+
+    state.bodyUsed = false;
   }
 
   // bytesToText UTF-8 decodes stored bytes (matches Node's Body.text(); a latin1
   // fallback keeps things working if TextDecoder is somehow unavailable).
   function bytesToText(bytes) {
-    if (bytes === null) return '';
+    if (bytes === null || bytes === undefined) return '';
     var decoder = getDecoder();
     if (decoder) return decoder.decode(bytes);
     var s = '';
-    for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    for (var i = 0; i < bytes.length; i++) s += StringP.fromCharCode(bytes[i]);
     return s;
   }
 
@@ -80,10 +200,10 @@
     if (chunks.length === 1) return chunks[0];
     var total = 0;
     for (var i = 0; i < chunks.length; i++) total += chunks[i].length;
-    var out = new Uint8Array(total);
+    var out = new Uint8ArrayP(total);
     var off = 0;
     for (var j = 0; j < chunks.length; j++) {
-      out.set(chunks[j], off);
+      Uint8ArrayPrototypeSet(out, chunks[j], off);
       off += chunks[j].length;
     }
     return out;
@@ -92,16 +212,34 @@
   // chunkToBytes coerces a value yielded by a streaming request body (string,
   // ArrayBuffer, typed-array view, or Uint8Array) to bytes.
   function chunkToBytes(chunk) {
-    if (chunk instanceof Uint8Array) return chunk;
-    if (chunk instanceof ArrayBuffer) return new Uint8Array(chunk);
-    if (ArrayBuffer.isView(chunk))
-      return new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+    if (chunk instanceof Uint8ArrayP) return chunk;
+    if (chunk instanceof ArrayBufferP) return new Uint8ArrayP(chunk);
+    if (ArrayBufferIsView(chunk)) {
+      return new Uint8ArrayP(
+        TypedArrayPrototypeGetBuffer(chunk),
+        TypedArrayPrototypeGetByteOffset(chunk),
+        TypedArrayPrototypeGetByteLength(chunk),
+      );
+    }
+
     var encoder = getEncoder();
-    var text = typeof chunk === 'string' ? chunk : String(chunk);
+    var text = typeof chunk === 'string' ? chunk : StringP(chunk);
     if (encoder) return encoder.encode(text);
-    var bytes = new Uint8Array(text.length);
-    for (var i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i) & 0xff;
+    var bytes = new Uint8ArrayP(text.length);
+    for (var i = 0; i < text.length; i++) bytes[i] = StringPrototypeCharCodeAt(text, i) & 0xff;
     return bytes;
+  }
+
+  // isStreamLikeBody recognizes a request body that cannot be turned into bytes
+  // synchronously: a Blob, a ReadableStream, or an async iterable. These are collected
+  // asynchronously in fetch() before the request is sent.
+  function isStreamLikeBody(b) {
+    if (b === null || b === undefined || typeof b === 'string') return false;
+    if (b instanceof ArrayBufferP || ArrayBufferIsView(b)) return false;
+    if (isBlob(b)) return true;
+    if (streamInternal.isReadableStream(b)) return true;
+    if (typeof b === 'object' && typeof b[SymbolAsyncIterator] === 'function') return true;
+    return false;
   }
 
   // BODY_HWM is the response-body high-water mark in bytes. When more than this
@@ -161,120 +299,169 @@
   // which does not mark the stream disturbed, so merely reading `.body` does not
   // flip bodyUsed.
   function streamFromBytes(bytes) {
-    return new ReadableStream({
-      start: function (controller) {
-        if (bytes !== null && bytes !== undefined && bytes.length > 0) controller.enqueue(bytes);
-        controller.close();
+    var source = { __proto__: null };
+    source[UnderlyingSourceStart] = function (controller) {
+      if (bytes !== null && bytes !== undefined && bytes.length > 0) controller.enqueue(bytes);
+      controller.close();
+    };
+    return new ReadableStream(source);
+  }
+
+  // The body stream a page sees (`body`), made on first read for an in-memory body.
+  function bodyStreamOf(state) {
+    if (state.bodyStream) return state.bodyStream;
+    if (state.bodyBytes === null || state.bodyBytes === undefined) return null;
+    state.bodyStream = streamFromBytes(state.bodyBytes);
+    return state.bodyStream;
+  }
+
+  // The fetch standard's "unusable": the body was read, or its stream disturbed.
+  function bodyUsedOf(state) {
+    if (state.bodyUsed) return true;
+    if (state.bodyStream) return state.bodyStream._disturbed;
+    return false;
+  }
+
+  // Takes the body for one of the readers and settles with `finish` applied to its
+  // bytes (Uint8Array, or null for an empty body). A used or locked body is a rejection
+  // made now, not after a tick, which is when Chrome's settles (a foreign receiver's
+  // rejection, made just as early, must not overtake it).
+  function consume(state, op, finish) {
+    if (bodyUsedOf(state)) {
+      if (web) return PromiseReject(typeError(state.kind, op, 'body stream already read'));
+      return PromiseReject(new TypeErrorP('Body is unusable: Body has already been read'));
+    }
+
+    if (state.bodyStream && state.bodyStream._reader !== undefined) {
+      if (web) return PromiseReject(typeError(state.kind, op, 'body stream is locked'));
+      return PromiseReject(new TypeErrorP('Body is unusable: ReadableStream is locked'));
+    }
+
+    state.bodyUsed = true;
+    if (state.bodyStream) return drain(state.bodyStream, finish);
+    try {
+      return PromiseResolve(finish(state.bodyBytes));
+    } catch (e) {
+      // Invalid JSON rejects (WHATWG fetch semantics).
+      return PromiseReject(e);
+    }
+  }
+
+  async function drain(stream, finish) {
+    var reader = stream.getReader();
+    var chunks = [];
+    try {
+      for (;;) {
+        var r = await reader.read();
+        if (r.done) break;
+        ArrayPrototypePush1(chunks, r.value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    return finish(concatChunks(chunks));
+  }
+
+  function copyBytes(bytes) {
+    if (bytes === null || bytes === undefined) return new Uint8ArrayP(0);
+    var copy = new Uint8ArrayP(bytes.length);
+    Uint8ArrayPrototypeSet(copy, bytes, 0);
+    return copy;
+  }
+
+  function toArrayBuffer(bytes) {
+    return TypedArrayPrototypeGetBuffer(copyBytes(bytes));
+  }
+
+  function toJSON(bytes) {
+    return JSONParse(bytesToText(bytes));
+  }
+
+  function rejectReceiver(iface, op) {
+    return PromiseReject(typeError(iface, op, 'Illegal invocation'));
+  }
+
+  /**
+   * Defines the Body mixin's members (fetch standard) on `proto`, the prototype of
+   * the `iface` interface ('Request' or 'Response'): the `body` and `bodyUsed`
+   * attributes and the arrayBuffer/blob/bytes/json/text readers. Each member is its
+   * own function per interface, as WebIDL defines a mixin's members on each interface
+   * that includes it, so a foreign receiver is named in the interface it was called on.
+   * @param {object} proto
+   * @param {string} iface
+   * @throws {TypeError} `Illegal invocation` from the attributes, and as a rejection
+   *   `Failed to execute 'text' on 'Response': Illegal invocation` from the readers,
+   *   for a receiver that is not an `iface`; `… body stream already read` /
+   *   `… body stream is locked` for an unusable body.
+   * @node Chrome 158 (tests/web/cases/fetch-webidl): the rejections, their text and
+   *   their order.
+   * @deviates formData() and textStream() are absent (no FormData in Larva;
+   *   shape-fetch's known gap).
+   */
+  function defineBody(proto, iface) {
+    var members = {
+      get body() {
+        var state = stateOf(this, iface);
+        if (state === undefined) throw illegalInvocation();
+        return bodyStreamOf(state);
       },
-    });
-  }
-
-  // Body backs Request and Response. It holds EITHER an in-memory byte body
-  // (_bodyBytes, the fast path for JS-constructed bodies and buffered request
-  // bodies) OR a streaming body (_bodyStream, fed by the transport). The buffered
-  // accessors (text/json/arrayBuffer/bytes) drain the stream when present, so
-  // streaming and buffering share one consumption path and a body is consumed at
-  // most once.
-  class Body {
-    constructor(bodyInit) {
-      if (streamInternal.isReadableStream(bodyInit)) {
-        this._bodyStream = bodyInit;
-        this._bodyBytes = undefined;
-      } else {
-        this._bodyStream = null;
-        this._bodyBytes = bodyToBytes(bodyInit); // Uint8Array | null
-      }
-      this._bodyUsed = false;
-    }
-    get bodyUsed() {
-      if (this._bodyUsed) return true;
-      if (this._bodyStream) return this._bodyStream._disturbed;
-      return false;
-    }
-    get body() {
-      if (this._bodyStream) return this._bodyStream;
-      if (this._bodyBytes === null || this._bodyBytes === undefined) return null;
-      this._bodyStream = streamFromBytes(this._bodyBytes);
-      return this._bodyStream;
-    }
-    async _consume() {
-      if (this.bodyUsed) throw new TypeError('Body is unusable: Body has already been read');
-      if (this._bodyStream && this._bodyStream.locked)
-        throw new TypeError('Body is unusable: ReadableStream is locked');
-      this._bodyUsed = true;
-      if (this._bodyStream) {
-        var reader = this._bodyStream.getReader();
-        var chunks = [];
-        try {
-          for (;;) {
-            var r = await reader.read();
-            if (r.done) break;
-            chunks.push(r.value);
-          }
-        } finally {
-          reader.releaseLock();
-        }
-        return concatChunks(chunks);
-      }
-      return this._bodyBytes; // Uint8Array | null
-    }
-    text() {
-      return this._consume().then(function (bytes) {
-        return bytesToText(bytes);
-      });
-    }
-    json() {
-      // Parse inside the chain so invalid JSON rejects (WHATWG fetch semantics).
-      return this._consume().then(function (bytes) {
-        return JSON.parse(bytesToText(bytes));
-      });
-    }
-    arrayBuffer() {
-      return this._consume().then(function (bytes) {
-        if (bytes === null || bytes === undefined) return new ArrayBuffer(0);
-        var copy = new Uint8Array(bytes.length);
-        copy.set(bytes);
-        return copy.buffer;
-      });
-    }
-    bytes() {
-      return this._consume().then(function (bytes) {
-        if (bytes === null || bytes === undefined) return new Uint8Array(0);
-        var copy = new Uint8Array(bytes.length);
-        copy.set(bytes);
-        return copy;
-      });
-    }
-    // The body as a Blob typed by the Content-Type header ('' without one), as the
-    // fetch standard's "consume body" does for blob(). Late-bound: internal/blob's
-    // class is the implementation, not the replaceable global.
-    async blob() {
-      var type = this.headers ? this.headers.get('content-type') : null;
-      var bytes = await this._consume();
-      var BlobCtor = require('internal/blob').Blob;
-      return new BlobCtor(bytes === null || bytes === undefined ? [] : [bytes], {
-        type: type === null ? '' : type,
-      });
-    }
-  }
-
-  // Per WHATWG, extracting a body from a Blob contributes a Content-Type equal to
-  // the Blob's `type` (when non-empty) — applied only if the caller didn't already
-  // set one via init.headers (or an inherited source Request's headers).
-  function applyBlobContentType(headers, body) {
-    if (
-      typeof Blob !== 'undefined' &&
-      body instanceof Blob &&
-      body.type &&
-      !headers.has('content-type')
-    ) {
-      headers.set('content-type', body.type);
+      get bodyUsed() {
+        var state = stateOf(this, iface);
+        if (state === undefined) throw illegalInvocation();
+        return bodyUsedOf(state);
+      },
+      arrayBuffer() {
+        var state = stateOf(this, iface);
+        if (state === undefined) return rejectReceiver(iface, 'arrayBuffer');
+        return consume(state, 'arrayBuffer', toArrayBuffer);
+      },
+      // The body as a Blob typed by the Content-Type header ('' without one), as the
+      // fetch standard's "consume body" does for blob(). Late-bound: internal/blob's
+      // class is the implementation, not the replaceable global.
+      blob() {
+        var state = stateOf(this, iface);
+        if (state === undefined) return rejectReceiver(iface, 'blob');
+        var type = require('internal/fetch/headers').getRaw(state.headers, 'content-type');
+        return consume(state, 'blob', function (bytes) {
+          var BlobCtor = require('internal/blob').BlobImpl;
+          return new BlobCtor(bytes === null || bytes === undefined ? [] : [bytes], {
+            __proto__: null,
+            type: type === null ? '' : type,
+          });
+        });
+      },
+      bytes() {
+        var state = stateOf(this, iface);
+        if (state === undefined) return rejectReceiver(iface, 'bytes');
+        return consume(state, 'bytes', copyBytes);
+      },
+      json() {
+        var state = stateOf(this, iface);
+        if (state === undefined) return rejectReceiver(iface, 'json');
+        return consume(state, 'json', toJSON);
+      },
+      text() {
+        var state = stateOf(this, iface);
+        if (state === undefined) return rejectReceiver(iface, 'text');
+        return consume(state, 'text', bytesToText);
+      },
+    };
+    var keys = ReflectOwnKeys(members);
+    for (var i = 0; i < keys.length; i++) {
+      ObjectDefineProperty(proto, keys[i], ObjectGetOwnPropertyDescriptor(members, keys[i]));
     }
   }
 
   module.exports = {
-    Body: Body,
-    applyBlobContentType: applyBlobContentType,
+    newState: newState,
+    stateOf: stateOf,
+    initBody: initBody,
+    defineBody: defineBody,
+    extractContentType: extractContentType,
+    isStreamLikeBody: isStreamLikeBody,
+    isBlob: isBlob,
+    bodyStreamOf: bodyStreamOf,
+    bodyUsedOf: bodyUsedOf,
     chunkToBytes: chunkToBytes,
     concatChunks: concatChunks,
     makeTransportStream: makeTransportStream,

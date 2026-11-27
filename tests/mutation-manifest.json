@@ -2926,8 +2926,8 @@
       "name": "82-fetch-internal-modules dies when response.js builds its headers from a different Headers class",
       "why": "Response and the Headers global now meet across a file seam; a response module holding its own Headers (a stale copy, a wrapper) still passes instanceof but hands user code headers whose constructor is not the global.",
       "source": "pkg/runtime/js/internal/fetch/response.js",
-      "find": "  var Headers = require('internal/fetch/headers').Headers;",
-      "replace": "  var Headers = class Headers extends require('internal/fetch/headers').Headers {};",
+      "find": "  var Headers = headersModule.Headers;",
+      "replace": "  var Headers = class Headers extends headersModule.Headers {};",
       "gate": "compat:tests/node-compat/cases/82-fetch-internal-modules.js",
       "expect_detail": "node: identities true true true true true true true true true"
     },
@@ -2935,8 +2935,8 @@
       "name": "82-fetch-internal-modules dies when the assembler installs a Response other than response.js's",
       "why": "internal/fetch only assembles: the global it installs must be the class response.js constructs from, or clone()/json()/error() return instances of a class the global is not.",
       "source": "pkg/runtime/js/internal/fetch.js",
-      "find": "  var Response = require('internal/fetch/response').Response;",
-      "replace": "  var Response = class Response extends require('internal/fetch/response').Response {};",
+      "find": "  var Response = responseModule.Response;",
+      "replace": "  var Response = class Response extends responseModule.Response {};",
       "gate": "compat:tests/node-compat/cases/82-fetch-internal-modules.js",
       "expect_detail": "node: identities true true true true true true true true true"
     },
