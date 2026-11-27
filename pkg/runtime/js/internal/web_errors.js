@@ -61,6 +61,22 @@
   }
 
   /**
+   * The context prefix Blink puts in front of an attribute's error message.
+   * @param {string} iface Interface name, as in `'XMLHttpRequest'`.
+   * @param {string} attr Attribute name.
+   * @param {boolean} set true for the setter, false for the getter.
+   * @returns {string} `Failed to set the '<attr>' property on '<iface>': ` or
+   *   `Failed to read the '<attr>' property from '<iface>': `.
+   * @node n/a — Chrome's wording, recorded in tests/web/cases/xhr-errors.expected
+   *       (Chrome 158).
+   * @deviates none
+   */
+  function attributeContext(iface, attr, set) {
+    if (set) return "Failed to set the '" + attr + "' property on '" + iface + "': ";
+    return "Failed to read the '" + attr + "' property from '" + iface + "': ";
+  }
+
+  /**
    * A WebIDL TypeError as Chrome throws it: plain TypeError, no `code`.
    * @param {string} iface
    * @param {string|undefined} op
@@ -357,6 +373,7 @@
     namedSetterContext: namedSetterContext,
     toDOMStringIn: toDOMStringIn,
     toNumber: toNumber,
+    attributeContext: attributeContext,
     typeError: typeError,
     argumentsRequired: argumentsRequired,
     notOfType: notOfType,

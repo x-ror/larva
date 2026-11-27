@@ -202,5 +202,11 @@
     "invoke": 0,
     "accessor": 0,
     "global": 15
+  },
+  "internal/xhr.js": {
+    "method": 0,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 0
   }
 }

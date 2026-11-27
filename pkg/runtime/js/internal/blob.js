@@ -732,6 +732,11 @@
       globalThis.URL.revokeObjectURL = revokeObjectURL;
   }
   module.exports = {
+    // The page's URL as the embedder gave it (`lava run --origin=`), '' without one:
+    // the base internal/xhr resolves a relative URL against.
+    pageURL: function () {
+      return ORIGIN_RAW;
+    },
     Blob: PublicBlob,
     BlobImpl: Blob,
     INTERNAL: INTERNAL,

@@ -97,6 +97,9 @@
   // Storage and the localStorage/sessionStorage attributes; its quota error is a
   // QuotaExceededError, so after internal/domexception.
   req('internal/storage');
+  // XMLHttpRequest, its upload and event-target interfaces, and ProgressEvent: over
+  // fetch's transport, with events from internal/event_target, so after both.
+  req('internal/xhr');
 
   // internal/crypto/random installs the WHATWG `crypto` global at its module-eval.
   // internal/blob mints object-URL ids with crypto.randomUUID, but it is instantiated
