@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head><title>defer scripts</title>
+<script>
+var order = [];
+function name(n) {
+  return n === null ? 'null' : n === document ? 'document' : n === window ? 'window' : n.nodeName + (n.id ? '#' + n.id : '');
+}
+document.addEventListener('readystatechange', function () {
+  order.push('readystatechange ' + document.readyState + ' current=' + name(document.currentScript));
+});
+document.addEventListener('DOMContentLoaded', function () {
+  order.push('DOMContentLoaded ' + document.readyState);
+});
+document.addEventListener('load', function (e) {
+  order.push('load at ' + name(e.target) + ' ' + document.readyState);
+}, true);
+document.addEventListener('error', function (e) {
+  order.push('error at ' + name(e.target) + ' ' + document.readyState);
+}, true);
+</script>
+<script id="d1" defer src="dom-script-defer.page.1.js"></script>
+<script id="inline-defer" defer>order.push('inline defer runs at once ' + document.readyState);</script>
+</head>
+<body>
+<script id="d-missing" defer src="dom-script-defer.page.missing.js"></script>
+<script id="d2" defer src="dom-script-defer.page.2.js"></script>
+<script id="blocking" src="dom-script-defer.page.3.js"></script>
+<p id="tail">tail</p>
+<pre id="log"></pre>
+<script>
+order.push('last inline ' + document.readyState);
+window.addEventListener('load', function () {
+  order.push('window load');
+  document.getElementById('log').textContent = order.join('\n') + '\n';
+});
+</script>
+</body>
+</html>

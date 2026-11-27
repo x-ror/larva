@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head><title>async scripts</title>
+<script>
+// Async scripts run as soon as each is fetched, so their order among themselves and
+// against the parser and DOMContentLoaded is a race: the case records only what holds
+// either way, each script's own line sorted, and that all of them ran before `load`.
+var lines = [];
+var loads = [];
+var loaded = false;
+function name(n) {
+  return n === null ? 'null' : n === document ? 'document' : n === window ? 'window' : n.nodeName + (n.id ? '#' + n.id : '');
+}
+document.addEventListener('load', function (e) {
+  if (e.target !== document) loads.push('load at ' + name(e.target) + ' window loaded=' + loaded);
+}, true);
+document.addEventListener('error', function (e) {
+  loads.push('error at ' + name(e.target) + ' window loaded=' + loaded);
+}, true);
+</script>
+<script id="x1" async src="dom-script-async.page.1.js"></script>
+<script id="x2" async defer src="dom-script-async.page.2.js"></script>
+<script id="x-missing" async src="dom-script-async.page.missing.js"></script>
+<script id="inline-async" async>lines.push('inline async runs at once ' + document.readyState + ' current=' + name(document.currentScript));</script>
+</head>
+<body>
+<p>body</p>
+<pre id="log"></pre>
+<script>
+window.addEventListener('load', function () {
+  loaded = true;
+  lines.sort();
+  loads.sort();
+  document.getElementById('log').textContent = lines.concat(loads).join('\n') + '\n';
+});
+</script>
+</body>
+</html>

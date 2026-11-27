@@ -3934,6 +3934,78 @@
       "expect_detail": "data-r=\"false,false"
     },
     {
+      "name": "history-state dies when a fragment navigation during load adds an entry",
+      "why": "HTML's Location-object navigate replaces the entry while the document is not completely loaded; adding one makes history.length differ from Chrome's for every page that sets location.hash from its top-level script.",
+      "source": "pkg/runtime/js/internal/location.js",
+      "find": "    if (replace || href === now || loading()) replaceEntry(url, null);\n",
+      "replace": "    if (replace || href === now) replaceEntry(url, null);\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL history-state"
+    },
+    {
+      "name": "history-state dies when location.hash = '' clears the fragment",
+      "why": "Location's hash setter leaves an empty fragment (`…#`), unlike URL's; reusing URL's setter makes the URL lose its '#' and the navigation look like one to another document.",
+      "source": "pkg/runtime/js/internal/location.js",
+      "find": "        copy = parse('#' + text, current);\n",
+      "replace": "        copy = new URLP(read(urlHref, current));\n        ReflectApply(URL_SETTERS.hash, copy, [text]);\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL history-state"
+    },
+    {
+      "name": "history-state dies when a traversal runs synchronously",
+      "why": "Chrome queues history.back(); a synchronous traversal changes location before the caller's next statement.",
+      "source": "pkg/runtime/js/internal/location.js",
+      "find": "    setTimeoutP(function () {\n",
+      "replace": "    (function (f) {\n      f();\n    })(function () {\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL history-state"
+    },
+    {
+      "name": "location-errors dies when pushState skips the same-origin check",
+      "why": "Without HTML's 'can have its URL rewritten' a page could pushState another origin's URL, which Chrome refuses with a SecurityError.",
+      "source": "pkg/runtime/js/internal/location.js",
+      "find": "      if (url === null || !canRewrite(current, url)) {\n",
+      "replace": "      if (url === null) {\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL location-errors"
+    },
+    {
+      "name": "location-basic dies when Location's attributes are configurable",
+      "why": "Location's members are [LegacyUnforgeable]: a page must not be able to redefine or delete location.href.",
+      "source": "pkg/runtime/js/internal/location.js",
+      "find": "        set: m[2] === null ? undefined : wrapSetter(m[0], m[2]),\n        enumerable: true,\n        configurable: false,\n",
+      "replace": "        set: m[2] === null ? undefined : wrapSetter(m[0], m[2]),\n        enumerable: true,\n        configurable: true,\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL location-basic"
+    },
+    {
+      "name": "window_env_cross_document_navigation_not_performed dies when another document's URL is adopted",
+      "why": "Larva never loads the new document, so adopting its URL would leave the page claiming a URL whose document it is not (Location's @deviates).",
+      "source": "pkg/runtime/js/internal/location.js",
+      "find": "    if (withoutFragment(href) !== withoutFragment(now)) return;\n",
+      "replace": "    if (false) return;\n",
+      "gate": "odin:cmd/lava:main.window_env_cross_document_navigation_not_performed",
+      "expect_detail": "cross-document"
+    },
+    {
+      "name": "navigator-profile dies when appVersion keeps the Mozilla/ token",
+      "why": "Blink derives appVersion from the User-Agent less `Mozilla/`; a fingerprinting script compares the two.",
+      "source": "pkg/runtime/js/internal/navigator.js",
+      "find": "    ? StringPrototypeSlice(USER_AGENT, MOZILLA.length, USER_AGENT.length)\n",
+      "replace": "    ? USER_AGENT\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL navigator-profile"
+    },
+    {
+      "name": "window_env_reports_the_profile dies when pkg/http's User-Agent is not the profile's",
+      "why": "The header and navigator.userAgent must be one string (#8); a separate literal in pkg/http lets them drift apart.",
+      "source": "pkg/http/http.odin",
+      "find": "DEFAULT_USER_AGENT :: profile.DEFAULT_USER_AGENT\n",
+      "replace": "DEFAULT_USER_AGENT :: \"larva/0.1\"\n",
+      "gate": "odin:cmd/lava:main.window_env_reports_the_profile",
+      "expect_detail": "larva/0.1"
+    },
+    {
       "name": "dom_wrapper_class_parent_outlives_its_page dies when a page releases the root wrapper class again",
       "why": "JSC does not retain a class's parentClass, so a root freed while a closed page's wrappers await their lazy sweep sends their finalization through freed memory — the parallel cmd/lava suite's random segfault.",
       "source": "pkg/runtime/dom.odin",
@@ -4045,6 +4117,60 @@
       "replace": "chunk = parts[index++]; remaining -= TypedArrayPrototypeGetLength(chunk);",
       "gate": "make:test-web",
       "expect_detail": "FAIL streams-body-bytes"
+    },
+    {
+      "name": "page_scripts_free_the_jobs_that_never_ran dies when scripts_destroy keeps the deferred jobs",
+      "why": "A page that ends before its defer scripts run would leak every source it read from disk, once per page, for the life of a crawler.",
+      "source": "pkg/runtime/page_script.odin",
+      "find": "\tfor &job in s.deferred {\n\t\tscript_job_free(s, &job)\n\t}\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.page_scripts_free_the_jobs_that_never_ran",
+      "expect_detail": "allocations outlived the page"
+    },
+    {
+      "name": "page_script_src_reads_regular_files_only dies when a script src may name a device",
+      "why": "Without the regular-file check a page's script src naming /dev/zero reads forever, and one naming a FIFO blocks the page's thread.",
+      "source": "pkg/runtime/page_script.odin",
+      "find": "info.type != .Regular || ",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.page_script_src_reads_regular_files_only",
+      "expect_detail": "load dev"
+    },
+    {
+      "name": "dom-script-defer.page dies when the deferred scripts are not run before DOMContentLoaded",
+      "why": "Chrome runs defer scripts after the interactive readystatechange and before DOMContentLoaded; skipping them drops their effects and their load events.",
+      "source": "pkg/runtime/page_html.odin",
+      "find": "\tscripts_run_deferred(page)\n",
+      "replace": "",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-script-defer.page"
+    },
+    {
+      "name": "dom-script-write.page dies when document.write does not parse its text before returning",
+      "why": "Chrome parses written markup inside the write call: the written element is in the tree when write returns and a written inline script runs within it.",
+      "source": "pkg/runtime/page_script.odin",
+      "find": "\t\tscript, status := html.pump_written(&dom.parser)\n",
+      "replace": "\t\tscript, status := html.Node(nil), html.Pump_Status.Need_Input\n",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-script-write.page"
+    },
+    {
+      "name": "dom-script-external.page dies when document.currentScript is not set around a script",
+      "why": "document.currentScript must name the running script element; leaving it null breaks every script that locates itself (loaders, widgets).",
+      "source": "pkg/runtime/page_script.odin",
+      "find": "\ts.current = job.node\n",
+      "replace": "",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-script-external.page"
+    },
+    {
+      "name": "dom-script-dynamic.page dies when an inserted script is not prepared",
+      "why": "A script a page inserts (createElement + appendChild) must run: inline at once, external as a task, the way most third-party loaders inject code.",
+      "source": "pkg/runtime/page_script.odin",
+      "find": "\tfor n in found {\n\t\tscripts_prepare_inserted(dom, n)\n\t}\n",
+      "replace": "",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-script-dynamic.page"
     }
   ]
 }

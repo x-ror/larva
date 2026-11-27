@@ -1,0 +1,114 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs shape-location
+# ---
+== location
+global location accessor e-
+  get name="get location" length=0 own=[length,name] prototype=false ctor=false src="function get location() { [native code] }"
+  set name="set location" length=1 own=[length,name] prototype=false ctor=false src="function set location() { [native code] }"
+object [object Location] [[Prototype]] Location.prototype
+own valueOf data --- fn name="valueOf" length=0 own=[length,name] prototype=false ctor=false src="function valueOf() { [native code] }"
+own ancestorOrigins accessor e-
+  get name="get ancestorOrigins" length=0 own=[length,name] prototype=false ctor=false src="function get ancestorOrigins() { [native code] }"
+  set undefined
+own href accessor e-
+  get name="get href" length=0 own=[length,name] prototype=false ctor=false src="function get href() { [native code] }"
+  set name="set href" length=1 own=[length,name] prototype=false ctor=false src="function set href() { [native code] }"
+own origin accessor e-
+  get name="get origin" length=0 own=[length,name] prototype=false ctor=false src="function get origin() { [native code] }"
+  set undefined
+own protocol accessor e-
+  get name="get protocol" length=0 own=[length,name] prototype=false ctor=false src="function get protocol() { [native code] }"
+  set name="set protocol" length=1 own=[length,name] prototype=false ctor=false src="function set protocol() { [native code] }"
+own host accessor e-
+  get name="get host" length=0 own=[length,name] prototype=false ctor=false src="function get host() { [native code] }"
+  set name="set host" length=1 own=[length,name] prototype=false ctor=false src="function set host() { [native code] }"
+own hostname accessor e-
+  get name="get hostname" length=0 own=[length,name] prototype=false ctor=false src="function get hostname() { [native code] }"
+  set name="set hostname" length=1 own=[length,name] prototype=false ctor=false src="function set hostname() { [native code] }"
+own port accessor e-
+  get name="get port" length=0 own=[length,name] prototype=false ctor=false src="function get port() { [native code] }"
+  set name="set port" length=1 own=[length,name] prototype=false ctor=false src="function set port() { [native code] }"
+own pathname accessor e-
+  get name="get pathname" length=0 own=[length,name] prototype=false ctor=false src="function get pathname() { [native code] }"
+  set name="set pathname" length=1 own=[length,name] prototype=false ctor=false src="function set pathname() { [native code] }"
+own search accessor e-
+  get name="get search" length=0 own=[length,name] prototype=false ctor=false src="function get search() { [native code] }"
+  set name="set search" length=1 own=[length,name] prototype=false ctor=false src="function set search() { [native code] }"
+own hash accessor e-
+  get name="get hash" length=0 own=[length,name] prototype=false ctor=false src="function get hash() { [native code] }"
+  set name="set hash" length=1 own=[length,name] prototype=false ctor=false src="function set hash() { [native code] }"
+own assign data e-- fn name="assign" length=1 own=[length,name] prototype=false ctor=false src="function assign() { [native code] }"
+own reload data e-- fn name="reload" length=0 own=[length,name] prototype=false ctor=false src="function reload() { [native code] }"
+own replace data e-- fn name="replace" length=1 own=[length,name] prototype=false ctor=false src="function replace() { [native code] }"
+own toString data e-- fn name="toString" length=0 own=[length,name] prototype=false ctor=false src="function toString() { [native code] }"
+own [Symbol(Symbol.toPrimitive)] data --- undefined undefined
+proto constructor data -cw fn name="Location" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Location() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "Location"
+== Location
+global Location data -cw fn name="Location" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Location() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object Location]
+prototype [[Prototype]] Object.prototype
+proto constructor data -cw fn name="Location" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Location() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "Location"
+== history
+global history accessor ec
+  get name="get history" length=0 own=[length,name] prototype=false ctor=false src="function get history() { [native code] }"
+  set undefined
+object [object History] [[Prototype]] History.prototype
+proto length accessor ec
+  get name="get length" length=0 own=[length,name] prototype=false ctor=false src="function get length() { [native code] }"
+  set undefined
+proto scrollRestoration accessor ec
+  get name="get scrollRestoration" length=0 own=[length,name] prototype=false ctor=false src="function get scrollRestoration() { [native code] }"
+  set name="set scrollRestoration" length=1 own=[length,name] prototype=false ctor=false src="function set scrollRestoration() { [native code] }"
+proto state accessor ec
+  get name="get state" length=0 own=[length,name] prototype=false ctor=false src="function get state() { [native code] }"
+  set undefined
+proto back data ecw fn name="back" length=0 own=[length,name] prototype=false ctor=false src="function back() { [native code] }"
+proto forward data ecw fn name="forward" length=0 own=[length,name] prototype=false ctor=false src="function forward() { [native code] }"
+proto go data ecw fn name="go" length=0 own=[length,name] prototype=false ctor=false src="function go() { [native code] }"
+proto pushState data ecw fn name="pushState" length=2 own=[length,name] prototype=false ctor=false src="function pushState() { [native code] }"
+proto replaceState data ecw fn name="replaceState" length=2 own=[length,name] prototype=false ctor=false src="function replaceState() { [native code] }"
+proto constructor data -cw fn name="History" length=0 own=[length,name,prototype] prototype=true ctor=true src="function History() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "History"
+== History
+global History data -cw fn name="History" length=0 own=[length,name,prototype] prototype=true ctor=true src="function History() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object History]
+prototype [[Prototype]] Object.prototype
+proto length accessor ec
+  get name="get length" length=0 own=[length,name] prototype=false ctor=false src="function get length() { [native code] }"
+  set undefined
+proto scrollRestoration accessor ec
+  get name="get scrollRestoration" length=0 own=[length,name] prototype=false ctor=false src="function get scrollRestoration() { [native code] }"
+  set name="set scrollRestoration" length=1 own=[length,name] prototype=false ctor=false src="function set scrollRestoration() { [native code] }"
+proto state accessor ec
+  get name="get state" length=0 own=[length,name] prototype=false ctor=false src="function get state() { [native code] }"
+  set undefined
+proto back data ecw fn name="back" length=0 own=[length,name] prototype=false ctor=false src="function back() { [native code] }"
+proto forward data ecw fn name="forward" length=0 own=[length,name] prototype=false ctor=false src="function forward() { [native code] }"
+proto go data ecw fn name="go" length=0 own=[length,name] prototype=false ctor=false src="function go() { [native code] }"
+proto pushState data ecw fn name="pushState" length=2 own=[length,name] prototype=false ctor=false src="function pushState() { [native code] }"
+proto replaceState data ecw fn name="replaceState" length=2 own=[length,name] prototype=false ctor=false src="function replaceState() { [native code] }"
+proto constructor data -cw fn name="History" length=0 own=[length,name,prototype] prototype=true ctor=true src="function History() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "History"
+== DOMStringList
+global DOMStringList data -cw fn name="DOMStringList" length=0 own=[length,name,prototype] prototype=true ctor=true src="function DOMStringList() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object DOMStringList]
+prototype [[Prototype]] Object.prototype
+proto length accessor ec
+  get name="get length" length=0 own=[length,name] prototype=false ctor=false src="function get length() { [native code] }"
+  set undefined
+proto contains data ecw fn name="contains" length=1 own=[length,name] prototype=false ctor=false src="function contains() { [native code] }"
+proto item data ecw fn name="item" length=1 own=[length,name] prototype=false ctor=false src="function item() { [native code] }"
+proto constructor data -cw fn name="DOMStringList" length=0 own=[length,name,prototype] prototype=true ctor=true src="function DOMStringList() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "DOMStringList"
+proto [Symbol(Symbol.iterator)] data -cw fn name="values" length=0 own=[length,name] prototype=false ctor=false src="function values() { [native code] }"

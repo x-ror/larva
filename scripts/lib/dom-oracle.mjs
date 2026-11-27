@@ -23,7 +23,7 @@
 // Window suite's (scripts/lib/web-oracle.mjs), imported, not copied; this file holds
 // only what differs: the harness page, the two views and the suite's paths.
 
-import { readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { ROOT } from './web-oracle.mjs';
 
@@ -184,10 +184,27 @@ export function isPageCase(name) {
 }
 
 // How a page case is served to Chrome's frame: as UTF-8 (`lava page` reads UTF-8), and
-// under a CSP that lets its inline scripts run while still keeping every subresource
-// on the machine.
+// under a CSP that lets its inline scripts and its same-origin external scripts run
+// while still keeping every subresource on the machine.
 export const PAGE_CONTENT_TYPE = 'text/html; charset=utf-8';
-export const PAGE_CSP = "default-src 'none'; script-src 'unsafe-inline'";
+export const PAGE_CSP = "default-src 'none'; script-src 'self' 'unsafe-inline'";
+
+// How a page case's external script is served (pageScript): a sibling file of the case,
+// as `lava page` reads it from beside the page it runs.
+export const PAGE_SCRIPT_TYPE = 'text/javascript; charset=utf-8';
+
+/**
+ * The bytes of a page case's external script (stage 4b): `<script src="x.js">` in the
+ * case resolves against the frame's URL, `/raw/<case>`, to `/raw/x.js`, and is served
+ * from `tests/dom/cases/x.js` — the same sibling file `lava page` resolves the `src`
+ * to against the case's path. Only a `.js` file in the cases directory itself is
+ * served; any other name is null (a 404, which the case sees as the script's `error`).
+ */
+export function pageScript(name, dir = CASES_DIR) {
+  if (!/^[\w.-]+\.js$/.test(name)) return null;
+  const file = join(dir, name);
+  return existsSync(file) ? readFileSync(file) : null;
+}
 
 /**
  * `lava html`'s arguments for one view of one case — `lava page`'s for a page case;

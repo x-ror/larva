@@ -125,7 +125,8 @@ finish :: proc(p: ^Parser) {
 //   false, and nothing is inserted, once the document is done, the parser failed, or
 //   the text could not be stored.
 // Chrome:
-//   document.write is the model; unverified — no recording exists yet (#2).
+//   document.write is the model; Chrome 158, tests/dom/cases/dom-script-write.page,
+//   with pump_written parsing the text before the write returns.
 write :: proc(p: ^Parser, text: string) -> bool {
 	if p.ended || p.err != "" {
 		return false
@@ -158,6 +159,24 @@ write :: proc(p: ^Parser, text: string) -> bool {
 // pump parses until the next parser-blocking script, the end of what has been fed, or
 // the end of the document.
 pump :: proc(p: ^Parser) -> (script: Node, status: Pump_Status) {
+	return pump_from(p, written_only = false)
+}
+
+// pump_written parses only what write inserted, until the next script in it or its end
+// (.Need_Input), never reaching into the rest of the input: document.write's own parse,
+// which runs before write returns.
+//
+// Chrome:
+//   HTML's document.write steps 6-7: the inserted characters are tokenized at once,
+//   stopping at the insertion point or at a script end tag; Chrome 158,
+//   tests/dom/cases/dom-script-write.page (an element written by a script is in the
+//   tree when write returns, and a written inline script runs inside the write).
+pump_written :: proc(p: ^Parser) -> (script: Node, status: Pump_Status) {
+	return pump_from(p, written_only = true)
+}
+
+@(private = "file")
+pump_from :: proc(p: ^Parser, written_only: bool) -> (script: Node, status: Pump_Status) {
 	if p.err != "" {
 		return nil, .Failed
 	}
@@ -171,9 +190,15 @@ pump :: proc(p: ^Parser) -> (script: Node, status: Pump_Status) {
 
 		if source_pending(&p.written) > 0 {
 			src, src_eof = &p.written, true
-		} else if len(p.written.buf) > 0 {
-			source_reset(&p.written)
-			p.ins = 0
+		} else {
+			if len(p.written.buf) > 0 {
+				source_reset(&p.written)
+				p.ins = 0
+			}
+
+			if written_only {
+				return nil, .Need_Input
+			}
 		}
 
 		if source_pending(src) == 0 {

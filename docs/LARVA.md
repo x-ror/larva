@@ -335,9 +335,20 @@ DocumentType, DocumentFragment, NodeList and HTMLCollection, with events propaga
 along the tree. Wrappers follow decision 4's rule — one JSClass per interface, made
 lazily, recorded and protected until the page closes, private slot cleared before the
 document is freed — pinned by `cmd/lava/dom_page_test.odin`; the behaviour is compared
-with Chrome by tests/dom's `*.page` cases. Left for 4b: a WebIDL generator, external,
-module, `defer` and `async` scripts, live collections, `window` as an EventTarget and
-`load`, and reflected attributes.
+with Chrome by tests/dom's `*.page` cases. Left for 4b: a WebIDL generator, live
+collections, `window` as an EventTarget and `load`, and reflected attributes.
+
+Script execution beyond inline classic scripts (#13, `pkg/runtime/page_script.odin`):
+parser-blocking external scripts (`<script src>`, read beside the page and run with the
+parser paused, then the element's `load` or `error`), `defer` scripts between the
+`interactive` readystatechange and DOMContentLoaded, `async` and script-inserted
+external scripts as tasks on the page's loop before `load`, inline scripts a script
+inserts run during the insertion, `document.currentScript`, and `document.write` while a
+parser-inserted script runs (parsed before write returns). Each is a recorded
+`dom-script-*.page` case. Not there: module scripts (the JavaScriptCore C API has no
+module loader; a known gap), fetching a `src` over the network (a `lava page` document
+is a file, so a `src` is a file beside it; an http(s) `src` fails its fetch), and
+document.write after the parse (Chrome's implicit document.open).
 
 ## Risks
 

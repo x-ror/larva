@@ -12,3 +12,6 @@ DecompressionStream function
 SubtleCrypto function
 CryptoKey function
 reportError function
+ScreenOrientation function
+PopStateEvent function
+HashChangeEvent function

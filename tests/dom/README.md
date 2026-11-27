@@ -48,15 +48,25 @@ recordings.
 scripting on, whose views are of the document after its scripts ran. The recorder
 serves the bytes as `text/html; charset=utf-8` into an unsandboxed frame of a harness
 page (`scriptedPage` in `scripts/lib/dom-oracle.mjs`), under a CSP that allows the
-case's inline scripts and blocks every subresource, and reads the frame's document at
-its load event. Lava runs `lava page --tree|--serialize`: the same bytes parsed with
-their inline classic scripts run as the parser reaches each one, DOMContentLoaded fired,
-the event loop run until it idles. A case reports by writing into its own document (a
+case's inline scripts and same-origin external ones and blocks every other subresource,
+and reads the frame's document at its load event. Lava runs `lava page
+--tree|--serialize`: the same bytes parsed with their classic scripts run as HTML runs
+them (`pkg/runtime/page_script.odin`), DOMContentLoaded fired, the event loop run until
+it idles, `load` fired. A case reports by writing into its own document (a
 `<pre id="log">` it appends text to), never through `console`, which `lava page` prints
 to stdout ahead of the view. It must finish its work by the load event: no timer whose
-callback changes the tree, and no external, module, `defer` or `async` script, which
-`lava page` does not run yet (4b). The `dom-*.page` cases cover the DOM surface stage 4a
-binds (`pkg/runtime/dom.odin`, `pkg/runtime/js/internal/dom.js`).
+callback changes the tree. The `dom-*.page` cases cover the DOM surface stage 4 binds
+(`pkg/runtime/dom.odin`, `pkg/runtime/js/internal/dom.js`).
+
+A page case's **external scripts** (`dom-script-*.page`, #13) are sibling files in
+`cases/`, named after the case (`<topic>.page.<n>.js`): `<script src="x.js">` resolves
+against the frame's URL, `/raw/<topic>.page`, to `/raw/x.js`, which the recorder serves
+from `cases/x.js` (`pageScript`); `lava page` resolves the same `src` against the case's
+path to the same file. A name with no file is a 404 in Chrome and a failed read in Lava:
+the element's `error` either way. An `async` script runs whenever its fetch completes,
+so a case pins only what holds in any order (each script's own line, sorted, and that
+it ran before `load`). Module scripts do not run in Lava (no module loader in the
+JavaScriptCore C API): `dom-script-module.page` is a known gap.
 
 Each case has two **views**, compared byte for byte and judged apart:
 

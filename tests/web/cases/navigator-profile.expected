@@ -1,0 +1,41 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs navigator-profile
+# ---
+userAgent string true true true
+appVersion true
+platform string true
+appCodeName "Mozilla"
+appName "Netscape"
+product "Gecko"
+productSub "20030107"
+vendor "Google Inc."
+vendorSub ""
+language string true
+languages true true true true true
+onLine true cookieEnabled true webdriver false
+javaEnabled false doNotTrack null
+hardwareConcurrency true
+deviceMemory true
+maxTouchPoints true
+same navigator true true
+screen ints true
+screen positive true
+avail fits true
+depth true true
+isExtended false onchange null
+onchange set function
+onchange non-callable null
+screen EventTarget true function
+geometry ints true
+viewport positive true
+viewport fits window true
+aliases true
+not scrolled 0 0
+devicePixelRatio number true
+innerWidth replaced replaced {"value":"replaced","writable":true,"enumerable":true,"configurable":true}
+screen replaced 5
+navigator kept object true
+history kept object

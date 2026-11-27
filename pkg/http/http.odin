@@ -2,13 +2,16 @@ package larva_http
 
 import "base:runtime"
 import "core:strings"
+import profile "lava:pkg/profile"
 import eventloop "lava:pkg/runtime/eventloop"
 import pico "lava:pkg/runtime/picohttpparser"
 
 // The Fetch standard's redirect limit.
 MAX_REDIRECTS :: 20
 DEFAULT_TIMEOUT_MS :: 30_000
-DEFAULT_USER_AGENT :: "larva/0.1"
+// The default client profile's (pkg/profile), so the header and what a page reads off
+// navigator.userAgent are one string.
+DEFAULT_USER_AGENT :: profile.DEFAULT_USER_AGENT
 // A page larger than this is refused rather than buffered: the server picks the size,
 // and the timeout alone does not bound memory on a fast link.
 DEFAULT_MAX_BODY_BYTES :: 64 * 1024 * 1024

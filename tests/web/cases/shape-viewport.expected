@@ -1,0 +1,58 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs shape-viewport
+# ---
+== innerWidth
+global innerWidth accessor ec
+  get name="get innerWidth" length=0 own=[length,name] prototype=false ctor=false src="function get innerWidth() { [native code] }"
+  set name="set innerWidth" length=1 own=[length,name] prototype=false ctor=false src="function set innerWidth() { [native code] }"
+== innerHeight
+global innerHeight accessor ec
+  get name="get innerHeight" length=0 own=[length,name] prototype=false ctor=false src="function get innerHeight() { [native code] }"
+  set name="set innerHeight" length=1 own=[length,name] prototype=false ctor=false src="function set innerHeight() { [native code] }"
+== scrollX
+global scrollX accessor ec
+  get name="get scrollX" length=0 own=[length,name] prototype=false ctor=false src="function get scrollX() { [native code] }"
+  set name="set scrollX" length=1 own=[length,name] prototype=false ctor=false src="function set scrollX() { [native code] }"
+== pageXOffset
+global pageXOffset accessor ec
+  get name="get pageXOffset" length=0 own=[length,name] prototype=false ctor=false src="function get pageXOffset() { [native code] }"
+  set name="set pageXOffset" length=1 own=[length,name] prototype=false ctor=false src="function set pageXOffset() { [native code] }"
+== scrollY
+global scrollY accessor ec
+  get name="get scrollY" length=0 own=[length,name] prototype=false ctor=false src="function get scrollY() { [native code] }"
+  set name="set scrollY" length=1 own=[length,name] prototype=false ctor=false src="function set scrollY() { [native code] }"
+== pageYOffset
+global pageYOffset accessor ec
+  get name="get pageYOffset" length=0 own=[length,name] prototype=false ctor=false src="function get pageYOffset() { [native code] }"
+  set name="set pageYOffset" length=1 own=[length,name] prototype=false ctor=false src="function set pageYOffset() { [native code] }"
+== screenX
+global screenX accessor ec
+  get name="get screenX" length=0 own=[length,name] prototype=false ctor=false src="function get screenX() { [native code] }"
+  set name="set screenX" length=1 own=[length,name] prototype=false ctor=false src="function set screenX() { [native code] }"
+== screenY
+global screenY accessor ec
+  get name="get screenY" length=0 own=[length,name] prototype=false ctor=false src="function get screenY() { [native code] }"
+  set name="set screenY" length=1 own=[length,name] prototype=false ctor=false src="function set screenY() { [native code] }"
+== outerWidth
+global outerWidth accessor ec
+  get name="get outerWidth" length=0 own=[length,name] prototype=false ctor=false src="function get outerWidth() { [native code] }"
+  set name="set outerWidth" length=1 own=[length,name] prototype=false ctor=false src="function set outerWidth() { [native code] }"
+== outerHeight
+global outerHeight accessor ec
+  get name="get outerHeight" length=0 own=[length,name] prototype=false ctor=false src="function get outerHeight() { [native code] }"
+  set name="set outerHeight" length=1 own=[length,name] prototype=false ctor=false src="function set outerHeight() { [native code] }"
+== devicePixelRatio
+global devicePixelRatio accessor ec
+  get name="get devicePixelRatio" length=0 own=[length,name] prototype=false ctor=false src="function get devicePixelRatio() { [native code] }"
+  set name="set devicePixelRatio" length=1 own=[length,name] prototype=false ctor=false src="function set devicePixelRatio() { [native code] }"
+== screenLeft
+global screenLeft accessor ec
+  get name="get screenLeft" length=0 own=[length,name] prototype=false ctor=false src="function get screenLeft() { [native code] }"
+  set name="set screenLeft" length=1 own=[length,name] prototype=false ctor=false src="function set screenLeft() { [native code] }"
+== screenTop
+global screenTop accessor ec
+  get name="get screenTop" length=0 own=[length,name] prototype=false ctor=false src="function get screenTop() { [native code] }"
+  set name="set screenTop" length=1 own=[length,name] prototype=false ctor=false src="function set screenTop() { [native code] }"
