@@ -99,6 +99,9 @@
   // clone, so after structured_clone; Screen is an EventTarget.
   req('internal/location');
   req('internal/navigator');
+  // Storage and the localStorage/sessionStorage attributes; its quota error is a
+  // QuotaExceededError, so after internal/domexception.
+  req('internal/storage');
   // XMLHttpRequest, its upload and event-target interfaces, and ProgressEvent: over
   // fetch's transport, with events from internal/event_target, so after both.
   req('internal/xhr');

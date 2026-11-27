@@ -84,6 +84,7 @@ export const FAMILIES = {
     'screenLeft',
     'screenTop',
   ],
+  storage: ['Storage', 'localStorage', 'sessionStorage'],
   xhr: ['XMLHttpRequestEventTarget', 'XMLHttpRequest', 'XMLHttpRequestUpload', 'ProgressEvent'],
 };
 

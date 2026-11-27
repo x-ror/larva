@@ -4006,6 +4006,24 @@
       "expect_detail": "larva/0.1"
     },
     {
+      "name": "storage-named dies when the named setter ignores the receiver",
+      "why": "An assignment through an object inheriting from localStorage would store an item instead of defining a property on that object, as Chrome does.",
+      "source": "pkg/runtime/js/internal/storage.js",
+      "find": "if (receiver === proxy && typeof p === 'string' && !ReflectHas(t, p)) {",
+      "replace": "if (typeof p === 'string' && !ReflectHas(t, p)) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL storage-named"
+    },
+    {
+      "name": "storage-errors dies when setItem stops checking the quota",
+      "why": "A page could grow an area without bound where Chrome throws QuotaExceededError past 5 MiB code units.",
+      "source": "pkg/runtime/js/internal/storage.js",
+      "find": "if (next > QUOTA) {",
+      "replace": "if (false) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL storage-errors"
+    },
+    {
       "name": "tests/dom dom-window-events.page dies when a node's path stops at the document",
       "why": "Without the window on the path a window listener sees nothing of a node's event and composedPath() lacks it (the 4a known gap).",
       "source": "pkg/runtime/js/internal/event_target.js",
