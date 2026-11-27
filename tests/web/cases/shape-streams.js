@@ -121,6 +121,8 @@ shape('ReadableStream');
 shape('ReadableStreamDefaultReader');
 shape('ReadableStreamBYOBReader');
 shape('ReadableStreamDefaultController');
+shape('ReadableByteStreamController');
+shape('ReadableStreamBYOBRequest');
 shape('WritableStream');
 shape('WritableStreamDefaultWriter');
 shape('WritableStreamDefaultController');
