@@ -1,0 +1,158 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-dom.mjs dom-script-defer.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "defer scripts"
+|     "
+"
+|     <script>
+|       "
+var order = [];
+function name(n) {
+  return n === null ? 'null' : n === document ? 'document' : n === window ? 'window' : n.nodeName + (n.id ? '#' + n.id : '');
+}
+document.addEventListener('readystatechange', function () {
+  order.push('readystatechange ' + document.readyState + ' current=' + name(document.currentScript));
+});
+document.addEventListener('DOMContentLoaded', function () {
+  order.push('DOMContentLoaded ' + document.readyState);
+});
+document.addEventListener('load', function (e) {
+  order.push('load at ' + name(e.target) + ' ' + document.readyState);
+}, true);
+document.addEventListener('error', function (e) {
+  order.push('error at ' + name(e.target) + ' ' + document.readyState);
+}, true);
+"
+|     "
+"
+|     <script>
+|       id="d1"
+|       defer=""
+|       src="dom-script-defer.page.1.js"
+|     "
+"
+|     <script>
+|       id="inline-defer"
+|       defer=""
+|       "order.push('inline defer runs at once ' + document.readyState);"
+|     "
+"
+|   "
+"
+|   <body>
+|     "
+"
+|     <script>
+|       id="d-missing"
+|       defer=""
+|       src="dom-script-defer.page.missing.js"
+|     "
+"
+|     <script>
+|       id="d2"
+|       defer=""
+|       src="dom-script-defer.page.2.js"
+|     "
+"
+|     <script>
+|       id="blocking"
+|       src="dom-script-defer.page.3.js"
+|     "
+"
+|     <p>
+|       id="tail"
+|       "tail"
+|     "
+"
+|     <pre>
+|       id="log"
+|       "inline defer runs at once loading
+blocking current=SCRIPT#blocking loading
+load at SCRIPT#blocking loading
+last inline loading
+readystatechange interactive current=null
+defer 1 current=SCRIPT#d1 interactive tail=true
+load at SCRIPT#d1 interactive
+error at SCRIPT#d-missing interactive
+defer 2 current=SCRIPT#d2 interactive
+microtask after defer 2
+load at SCRIPT#d2 interactive
+DOMContentLoaded interactive
+readystatechange complete current=null
+window load
+"
+|     "
+"
+|     <script>
+|       "
+order.push('last inline ' + document.readyState);
+window.addEventListener('load', function () {
+  order.push('window load');
+  document.getElementById('log').textContent = order.join('\n') + '\n';
+});
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head><title>defer scripts</title>
+<script>
+var order = [];
+function name(n) {
+  return n === null ? 'null' : n === document ? 'document' : n === window ? 'window' : n.nodeName + (n.id ? '#' + n.id : '');
+}
+document.addEventListener('readystatechange', function () {
+  order.push('readystatechange ' + document.readyState + ' current=' + name(document.currentScript));
+});
+document.addEventListener('DOMContentLoaded', function () {
+  order.push('DOMContentLoaded ' + document.readyState);
+});
+document.addEventListener('load', function (e) {
+  order.push('load at ' + name(e.target) + ' ' + document.readyState);
+}, true);
+document.addEventListener('error', function (e) {
+  order.push('error at ' + name(e.target) + ' ' + document.readyState);
+}, true);
+</script>
+<script id="d1" defer="" src="dom-script-defer.page.1.js"></script>
+<script id="inline-defer" defer="">order.push('inline defer runs at once ' + document.readyState);</script>
+</head>
+<body>
+<script id="d-missing" defer="" src="dom-script-defer.page.missing.js"></script>
+<script id="d2" defer="" src="dom-script-defer.page.2.js"></script>
+<script id="blocking" src="dom-script-defer.page.3.js"></script>
+<p id="tail">tail</p>
+<pre id="log">inline defer runs at once loading
+blocking current=SCRIPT#blocking loading
+load at SCRIPT#blocking loading
+last inline loading
+readystatechange interactive current=null
+defer 1 current=SCRIPT#d1 interactive tail=true
+load at SCRIPT#d1 interactive
+error at SCRIPT#d-missing interactive
+defer 2 current=SCRIPT#d2 interactive
+microtask after defer 2
+load at SCRIPT#d2 interactive
+DOMContentLoaded interactive
+readystatechange complete current=null
+window load
+</pre>
+<script>
+order.push('last inline ' + document.readyState);
+window.addEventListener('load', function () {
+  order.push('window load');
+  document.getElementById('log').textContent = order.join('\n') + '\n';
+});
+</script>
+
+
+</body></html>

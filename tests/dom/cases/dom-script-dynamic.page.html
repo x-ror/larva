@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+<head><title>dynamic scripts</title>
+<script>
+var order = [];
+var later = [];
+function name(n) {
+  return n === null ? 'null' : n === document ? 'document' : n === window ? 'window' : n.nodeName + (n.id ? '#' + n.id : '');
+}
+document.addEventListener('load', function (e) {
+  if (e.target !== document) later.push('load at ' + name(e.target));
+}, true);
+document.addEventListener('error', function (e) {
+  later.push('error at ' + name(e.target));
+}, true);
+</script>
+</head>
+<body>
+<div id="host"></div>
+<pre id="log"></pre>
+<script id="driver">
+var host = document.getElementById('host');
+
+// Inline text runs during the insertion, as the script that inserts it is still running.
+var s1 = document.createElement('script');
+s1.id = 's1';
+s1.textContent = "order.push('s1 runs current=' + name(document.currentScript) + ' connected=' + document.currentScript.isConnected);";
+order.push('before append s1');
+host.appendChild(s1);
+order.push('after append s1 current=' + name(document.currentScript));
+
+// Not connected: nothing runs, until the tree it is in is inserted.
+var box = document.createElement('div');
+var s2 = document.createElement('script');
+s2.id = 's2';
+s2.textContent = "order.push('s2 runs with its tree current=' + name(document.currentScript));";
+box.appendChild(s2);
+order.push('s2 detached');
+host.appendChild(box);
+order.push('after box');
+
+// Moved after it ran: it does not run again.
+document.body.appendChild(s1);
+order.push('s1 moved');
+
+// An empty script is not started: inserting it runs nothing, and what it gets later
+// decides — text appended to it, or a src set on it.
+var s3 = document.createElement('script');
+s3.id = 's3';
+host.appendChild(s3);
+order.push('s3 empty inserted');
+s3.appendChild(document.createTextNode("order.push('s3 runs on its text current=' + name(document.currentScript));"));
+order.push('s3 text appended');
+var s6 = document.createElement('script');
+s6.id = 's6';
+host.appendChild(s6);
+s6.setAttribute('src', 'dom-script-dynamic.page.6.js');
+order.push('s6 src set');
+
+// A data block and a nomodule script never run.
+var s4 = document.createElement('script');
+s4.setAttribute('type', 'text/plain');
+s4.textContent = "order.push('s4 data block (never)');";
+host.appendChild(s4);
+var s5 = document.createElement('script');
+s5.setAttribute('nomodule', '');
+s5.textContent = "order.push('s5 nomodule (never)');";
+host.appendChild(s5);
+
+// innerHTML's scripts never run.
+var holder = document.createElement('div');
+holder.innerHTML = "<script>order.push('innerHTML script (never)');<\/script>";
+host.appendChild(holder);
+order.push('innerHTML inserted');
+
+// Fragment children run in tree order when the fragment is inserted.
+var frag = document.createDocumentFragment();
+var f1 = document.createElement('script');
+f1.textContent = "order.push('fragment 1');";
+var f2 = document.createElement('script');
+f2.textContent = "order.push('fragment 2');";
+frag.appendChild(f1);
+frag.appendChild(f2);
+host.appendChild(frag);
+
+// A src script is async: it runs after this script, before the window's load.
+var e1 = document.createElement('script');
+e1.id = 'e1';
+e1.setAttribute('src', 'dom-script-dynamic.page.1.js');
+host.appendChild(e1);
+order.push('after append e1');
+
+var bad = document.createElement('script');
+bad.id = 'bad';
+bad.setAttribute('src', 'dom-script-dynamic.page.missing.js');
+host.appendChild(bad);
+order.push('end of driver');
+</script>
+<script>
+order.push('next parser script');
+window.addEventListener('load', function () {
+  later.sort();
+  document.getElementById('log').textContent = order.concat(later).join('\n') + '\n';
+});
+</script>
+</body>
+</html>

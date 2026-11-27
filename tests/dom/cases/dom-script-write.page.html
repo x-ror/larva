@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head><title>document.write</title>
+<script>
+var order = [];
+function name(n) {
+  return n === null ? 'null' : n === document ? 'document' : n === window ? 'window' : n.nodeName + (n.id ? '#' + n.id : '');
+}
+</script>
+</head>
+<body>
+<p id="first">first</p>
+<script id="w1">
+document.write('<p id="written">written <b>bold');
+document.write(' still bold</b></p>');
+order.push('after write: written=' + (document.getElementById('written') !== null));
+document.writeln('<i>line</i>');
+document.write('<i>a</i>', '<i>b</i>', 3);
+</script>
+<p id="second">second</p>
+<script id="w2">
+document.write('<script id="nested">order.push("nested runs current=" + name(document.currentScript)); document.write("<em>from nested<\/em>");<\/script>');
+order.push('after nested write current=' + name(document.currentScript));
+</script>
+<script id="w3">
+document.write('<script id="ext" src="dom-script-write.page.1.js"><\/script><p id="after-ext">after ext</p>');
+order.push('after external write: after-ext=' + (document.getElementById('after-ext') !== null));
+</script>
+<p id="third">third</p>
+<pre id="log"></pre>
+<script>
+order.push('typeof write ' + typeof document.write + ' ' + document.write.length + ' ' + document.writeln.length);
+document.getElementById('log').textContent = order.join('\n') + '\n';
+</script>
+</body>
+</html>

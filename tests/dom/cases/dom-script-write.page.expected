@@ -1,0 +1,160 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-dom.mjs dom-script-write.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "document.write"
+|     "
+"
+|     <script>
+|       "
+var order = [];
+function name(n) {
+  return n === null ? 'null' : n === document ? 'document' : n === window ? 'window' : n.nodeName + (n.id ? '#' + n.id : '');
+}
+"
+|     "
+"
+|   "
+"
+|   <body>
+|     "
+"
+|     <p>
+|       id="first"
+|       "first"
+|     "
+"
+|     <script>
+|       id="w1"
+|       "
+document.write('<p id="written">written <b>bold');
+document.write(' still bold</b></p>');
+order.push('after write: written=' + (document.getElementById('written') !== null));
+document.writeln('<i>line</i>');
+document.write('<i>a</i>', '<i>b</i>', 3);
+"
+|     <p>
+|       id="written"
+|       "written "
+|       <b>
+|         "bold still bold"
+|     <i>
+|       "line"
+|     "
+"
+|     <i>
+|       "a"
+|     <i>
+|       "b"
+|     "3
+"
+|     <p>
+|       id="second"
+|       "second"
+|     "
+"
+|     <script>
+|       id="w2"
+|       "
+document.write('<script id="nested">order.push("nested runs current=" + name(document.currentScript)); document.write("<em>from nested<\/em>");<\/script>');
+order.push('after nested write current=' + name(document.currentScript));
+"
+|     <script>
+|       id="nested"
+|       "order.push("nested runs current=" + name(document.currentScript)); document.write("<em>from nested</em>");"
+|     <em>
+|       "from nested"
+|     "
+"
+|     <script>
+|       id="w3"
+|       "
+document.write('<script id="ext" src="dom-script-write.page.1.js"><\/script><p id="after-ext">after ext</p>');
+order.push('after external write: after-ext=' + (document.getElementById('after-ext') !== null));
+"
+|     <script>
+|       id="ext"
+|       src="dom-script-write.page.1.js"
+|     <span>
+|       id="from-ext"
+|       "from ext"
+|     <p>
+|       id="after-ext"
+|       "after ext"
+|     "
+"
+|     <p>
+|       id="third"
+|       "third"
+|     "
+"
+|     <pre>
+|       id="log"
+|       "after write: written=true
+nested runs current=SCRIPT#nested
+after nested write current=SCRIPT#w2
+after external write: after-ext=false
+ext runs current=SCRIPT#ext
+typeof write function 0 0
+"
+|     "
+"
+|     <script>
+|       "
+order.push('typeof write ' + typeof document.write + ' ' + document.write.length + ' ' + document.writeln.length);
+document.getElementById('log').textContent = order.join('\n') + '\n';
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head><title>document.write</title>
+<script>
+var order = [];
+function name(n) {
+  return n === null ? 'null' : n === document ? 'document' : n === window ? 'window' : n.nodeName + (n.id ? '#' + n.id : '');
+}
+</script>
+</head>
+<body>
+<p id="first">first</p>
+<script id="w1">
+document.write('<p id="written">written <b>bold');
+document.write(' still bold</b></p>');
+order.push('after write: written=' + (document.getElementById('written') !== null));
+document.writeln('<i>line</i>');
+document.write('<i>a</i>', '<i>b</i>', 3);
+</script><p id="written">written <b>bold still bold</b></p><i>line</i>
+<i>a</i><i>b</i>3
+<p id="second">second</p>
+<script id="w2">
+document.write('<script id="nested">order.push("nested runs current=" + name(document.currentScript)); document.write("<em>from nested<\/em>");<\/script>');
+order.push('after nested write current=' + name(document.currentScript));
+</script><script id="nested">order.push("nested runs current=" + name(document.currentScript)); document.write("<em>from nested</em>");</script><em>from nested</em>
+<script id="w3">
+document.write('<script id="ext" src="dom-script-write.page.1.js"><\/script><p id="after-ext">after ext</p>');
+order.push('after external write: after-ext=' + (document.getElementById('after-ext') !== null));
+</script><script id="ext" src="dom-script-write.page.1.js"></script><span id="from-ext">from ext</span><p id="after-ext">after ext</p>
+<p id="third">third</p>
+<pre id="log">after write: written=true
+nested runs current=SCRIPT#nested
+after nested write current=SCRIPT#w2
+after external write: after-ext=false
+ext runs current=SCRIPT#ext
+typeof write function 0 0
+</pre>
+<script>
+order.push('typeof write ' + typeof document.write + ' ' + document.write.length + ' ' + document.writeln.length);
+document.getElementById('log').textContent = order.join('\n') + '\n';
+</script>
+
+
+</body></html>

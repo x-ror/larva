@@ -23,6 +23,7 @@ import {
   lavaArgs,
   navCharset,
   navContentType,
+  pageScript,
   serializeDocument,
   splitViews,
 } from './lib/dom-oracle.mjs';
@@ -99,6 +100,23 @@ test('a scripted page case runs under lava page, not lava html', () => {
     '--serialize',
     'f.html',
   ]);
+});
+
+test("a page case's external script is a sibling .js file, and nothing else is served", () => {
+  const dir = mkdtempSync(join(tmpdir(), 'page-script-'));
+  try {
+    writeFileSync(join(dir, 'x.page.1.js'), 'one();');
+    writeFileSync(join(dir, 'x.page.html'), '<p>');
+    mkdirSync(join(dir, 'sub'));
+    writeFileSync(join(dir, 'sub', 'y.js'), 'two();');
+    assert.equal(String(pageScript('x.page.1.js', dir)), 'one();');
+    assert.equal(pageScript('x.page.missing.js', dir), null);
+    assert.equal(pageScript('x.page.html', dir), null);
+    assert.equal(pageScript('sub/y.js', dir), null);
+    assert.equal(pageScript('../x.page.1.js', dir), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('an input Chrome and lava would read differently is refused', () => {

@@ -141,3 +141,11 @@ html5lib-foreign-fragment-066.frag-svg-svg.tree 3e: fragment context in the SVG 
 # in-select insertion mode still drops it. A lexbor parser divergence: needs an issue.
 html5lib-tests_innerhtml_1-076.frag-select.serialize unplanned: lexbor drops <input> in a select fragment, Chrome 158 keeps it
 html5lib-tests_innerhtml_1-076.frag-select.tree unplanned: lexbor drops <input> in a select fragment, Chrome 158 keeps it
+
+# Module scripts (#13): Chrome runs `type=module` scripts, deferred, in document order; Lava
+# marks them started and runs nothing (pkg/runtime/page_script.odin), because the
+# JavaScriptCore C API has no module loader — JSContext's module loader delegate is
+# Objective-C only. Closing it needs its own issue: a loader over JSC's private C++ API, or
+# a source transform to a classic script.
+dom-script-module.page.serialize unplanned: module scripts do not run (no module loader in the JavaScriptCore C API)
+dom-script-module.page.tree unplanned: module scripts do not run (no module loader in the JavaScriptCore C API)

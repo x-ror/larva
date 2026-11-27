@@ -1,0 +1,171 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-dom.mjs dom-script-external.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "external scripts"
+|     "
+"
+|     <script>
+|       "
+var order = [];
+function name(n) {
+  return n === null ? 'null' : n === document ? 'document' : n === window ? 'window' : n.nodeName + (n.id ? '#' + n.id : '');
+}
+document.addEventListener('load', function (e) {
+  order.push('load at ' + name(e.target) + ' ' + e.bubbles + ' ' + e.cancelable + ' ' + e.isTrusted + ' ' + e.eventPhase +
+    ' ' + Object.prototype.toString.call(e) + ' current=' + name(document.currentScript));
+}, true);
+document.addEventListener('error', function (e) {
+  order.push('error at ' + name(e.target) + ' ' + e.bubbles + ' ' + e.cancelable + ' ' + e.isTrusted + ' ' +
+    Object.prototype.toString.call(e) + ' current=' + name(document.currentScript));
+}, true);
+order.push('inline head current=' + name(document.currentScript) + ' ' + document.readyState);
+"
+|     "
+"
+|     <script>
+|       id="a"
+|       src="dom-script-external.page.a.js"
+|     "
+"
+|   "
+"
+|   <body>
+|     "
+"
+|     <p>
+|       id="before"
+|       "changed by b"
+|     "
+"
+|     <script>
+|       id="b"
+|       src="dom-script-external.page.b.js"
+|       "order.push('inline text of b (never)');"
+|     "
+"
+|     <p>
+|       id="after"
+|       "after"
+|     "
+"
+|     <script>
+|       id="missing"
+|       src="dom-script-external.page.missing.js"
+|     "
+"
+|     <script>
+|       id="data"
+|       type="text/plain"
+|       src="dom-script-external.page.a.js"
+|     "
+"
+|     <script>
+|       id="nomod"
+|       nomodule=""
+|       src="dom-script-external.page.a.js"
+|     "
+"
+|     <script>
+|       id="c"
+|       "
+order.push('inline c current=' + name(document.currentScript) + ' a=' + window.fromA + ' b=' + window.fromB);
+"
+|     "
+"
+|     <script>
+|       id="again"
+|       src="dom-script-external.page.a.js"
+|     "
+"
+|     <pre>
+|       id="log"
+|       "inline head current=SCRIPT loading
+a run 1 current=SCRIPT#a src=dom-script-external.page.a.js body=null loading
+load at SCRIPT#a false false true 1 [object Event] current=null
+b run current=SCRIPT#b before=true after=false last=#text
+load at SCRIPT#b false false true 1 [object Event] current=null
+error at SCRIPT#missing false false true [object Event] current=null
+inline c current=SCRIPT#c a=1 b=true
+a run 2 current=SCRIPT#again src=dom-script-external.page.a.js body=BODY loading
+load at SCRIPT#again false false true 1 [object Event] current=null
+DOMContentLoaded current=null
+window load current=null
+"
+|     "
+"
+|     <script>
+|       "
+document.addEventListener('DOMContentLoaded', function () {
+  order.push('DOMContentLoaded current=' + name(document.currentScript));
+});
+window.addEventListener('load', function () {
+  order.push('window load current=' + name(document.currentScript));
+  document.getElementById('log').textContent = order.join('\n') + '\n';
+});
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head><title>external scripts</title>
+<script>
+var order = [];
+function name(n) {
+  return n === null ? 'null' : n === document ? 'document' : n === window ? 'window' : n.nodeName + (n.id ? '#' + n.id : '');
+}
+document.addEventListener('load', function (e) {
+  order.push('load at ' + name(e.target) + ' ' + e.bubbles + ' ' + e.cancelable + ' ' + e.isTrusted + ' ' + e.eventPhase +
+    ' ' + Object.prototype.toString.call(e) + ' current=' + name(document.currentScript));
+}, true);
+document.addEventListener('error', function (e) {
+  order.push('error at ' + name(e.target) + ' ' + e.bubbles + ' ' + e.cancelable + ' ' + e.isTrusted + ' ' +
+    Object.prototype.toString.call(e) + ' current=' + name(document.currentScript));
+}, true);
+order.push('inline head current=' + name(document.currentScript) + ' ' + document.readyState);
+</script>
+<script id="a" src="dom-script-external.page.a.js"></script>
+</head>
+<body>
+<p id="before">changed by b</p>
+<script id="b" src="dom-script-external.page.b.js">order.push('inline text of b (never)');</script>
+<p id="after">after</p>
+<script id="missing" src="dom-script-external.page.missing.js"></script>
+<script id="data" type="text/plain" src="dom-script-external.page.a.js"></script>
+<script id="nomod" nomodule="" src="dom-script-external.page.a.js"></script>
+<script id="c">
+order.push('inline c current=' + name(document.currentScript) + ' a=' + window.fromA + ' b=' + window.fromB);
+</script>
+<script id="again" src="dom-script-external.page.a.js"></script>
+<pre id="log">inline head current=SCRIPT loading
+a run 1 current=SCRIPT#a src=dom-script-external.page.a.js body=null loading
+load at SCRIPT#a false false true 1 [object Event] current=null
+b run current=SCRIPT#b before=true after=false last=#text
+load at SCRIPT#b false false true 1 [object Event] current=null
+error at SCRIPT#missing false false true [object Event] current=null
+inline c current=SCRIPT#c a=1 b=true
+a run 2 current=SCRIPT#again src=dom-script-external.page.a.js body=BODY loading
+load at SCRIPT#again false false true 1 [object Event] current=null
+DOMContentLoaded current=null
+window load current=null
+</pre>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  order.push('DOMContentLoaded current=' + name(document.currentScript));
+});
+window.addEventListener('load', function () {
+  order.push('window load current=' + name(document.currentScript));
+  document.getElementById('log').textContent = order.join('\n') + '\n';
+});
+</script>
+
+
+</body></html>
