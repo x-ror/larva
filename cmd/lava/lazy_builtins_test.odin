@@ -122,6 +122,7 @@ STATIC_EAGER :: [?]string {
 	"internal/domexception",
 	"internal/encoding",
 	"internal/errors",
+	"internal/event_target",
 	"internal/fetch",
 	"internal/fetch/body",
 	"internal/fetch/headers",

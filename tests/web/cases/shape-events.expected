@@ -1,0 +1,87 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs shape-events
+# ---
+== EventTarget
+global EventTarget data -cw fn name="EventTarget" length=0 own=[length,name,prototype] prototype=true ctor=true src="function EventTarget() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Failed to construct 'EventTarget': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static prototype data --- object [object EventTarget]
+prototype [[Prototype]] Object.prototype
+proto addEventListener data ecw fn name="addEventListener" length=2 own=[length,name] prototype=false ctor=false src="function addEventListener() { [native code] }"
+proto dispatchEvent data ecw fn name="dispatchEvent" length=1 own=[length,name] prototype=false ctor=false src="function dispatchEvent() { [native code] }"
+proto removeEventListener data ecw fn name="removeEventListener" length=2 own=[length,name] prototype=false ctor=false src="function removeEventListener() { [native code] }"
+proto when data ecw fn name="when" length=1 own=[length,name] prototype=false ctor=false src="function when() { [native code] }"
+proto constructor data -cw fn name="EventTarget" length=0 own=[length,name,prototype] prototype=true ctor=true src="function EventTarget() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "EventTarget"
+== Event
+global Event data -cw fn name="Event" length=1 own=[length,name,prototype,NONE,CAPTURING_PHASE,AT_TARGET,BUBBLING_PHASE] prototype=true ctor=true src="function Event() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Failed to construct 'Event': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static NONE data e-- number 0
+static CAPTURING_PHASE data e-- number 1
+static AT_TARGET data e-- number 2
+static BUBBLING_PHASE data e-- number 3
+static prototype data --- object [object Event]
+prototype [[Prototype]] Object.prototype
+proto type accessor ec
+  get name="get type" length=0 own=[length,name] prototype=false ctor=false src="function get type() { [native code] }"
+  set undefined
+proto target accessor ec
+  get name="get target" length=0 own=[length,name] prototype=false ctor=false src="function get target() { [native code] }"
+  set undefined
+proto currentTarget accessor ec
+  get name="get currentTarget" length=0 own=[length,name] prototype=false ctor=false src="function get currentTarget() { [native code] }"
+  set undefined
+proto eventPhase accessor ec
+  get name="get eventPhase" length=0 own=[length,name] prototype=false ctor=false src="function get eventPhase() { [native code] }"
+  set undefined
+proto bubbles accessor ec
+  get name="get bubbles" length=0 own=[length,name] prototype=false ctor=false src="function get bubbles() { [native code] }"
+  set undefined
+proto cancelable accessor ec
+  get name="get cancelable" length=0 own=[length,name] prototype=false ctor=false src="function get cancelable() { [native code] }"
+  set undefined
+proto defaultPrevented accessor ec
+  get name="get defaultPrevented" length=0 own=[length,name] prototype=false ctor=false src="function get defaultPrevented() { [native code] }"
+  set undefined
+proto composed accessor ec
+  get name="get composed" length=0 own=[length,name] prototype=false ctor=false src="function get composed() { [native code] }"
+  set undefined
+proto timeStamp accessor ec
+  get name="get timeStamp" length=0 own=[length,name] prototype=false ctor=false src="function get timeStamp() { [native code] }"
+  set undefined
+proto srcElement accessor ec
+  get name="get srcElement" length=0 own=[length,name] prototype=false ctor=false src="function get srcElement() { [native code] }"
+  set undefined
+proto returnValue accessor ec
+  get name="get returnValue" length=0 own=[length,name] prototype=false ctor=false src="function get returnValue() { [native code] }"
+  set name="set returnValue" length=1 own=[length,name] prototype=false ctor=false src="function set returnValue() { [native code] }"
+proto cancelBubble accessor ec
+  get name="get cancelBubble" length=0 own=[length,name] prototype=false ctor=false src="function get cancelBubble() { [native code] }"
+  set name="set cancelBubble" length=1 own=[length,name] prototype=false ctor=false src="function set cancelBubble() { [native code] }"
+proto NONE data e-- number 0
+proto CAPTURING_PHASE data e-- number 1
+proto AT_TARGET data e-- number 2
+proto BUBBLING_PHASE data e-- number 3
+proto composedPath data ecw fn name="composedPath" length=0 own=[length,name] prototype=false ctor=false src="function composedPath() { [native code] }"
+proto initEvent data ecw fn name="initEvent" length=1 own=[length,name] prototype=false ctor=false src="function initEvent() { [native code] }"
+proto preventDefault data ecw fn name="preventDefault" length=0 own=[length,name] prototype=false ctor=false src="function preventDefault() { [native code] }"
+proto stopImmediatePropagation data ecw fn name="stopImmediatePropagation" length=0 own=[length,name] prototype=false ctor=false src="function stopImmediatePropagation() { [native code] }"
+proto stopPropagation data ecw fn name="stopPropagation" length=0 own=[length,name] prototype=false ctor=false src="function stopPropagation() { [native code] }"
+proto constructor data -cw fn name="Event" length=1 own=[length,name,prototype,NONE,CAPTURING_PHASE,AT_TARGET,BUBBLING_PHASE] prototype=true ctor=true src="function Event() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "Event"
+== CustomEvent
+global CustomEvent data -cw fn name="CustomEvent" length=1 own=[length,name,prototype] prototype=true ctor=true src="function CustomEvent() { [native code] }"
+[[Prototype]] function Event
+call: TypeError: Failed to construct 'CustomEvent': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static prototype data --- object [object CustomEvent]
+prototype [[Prototype]] Event.prototype
+proto detail accessor ec
+  get name="get detail" length=0 own=[length,name] prototype=false ctor=false src="function get detail() { [native code] }"
+  set undefined
+proto initCustomEvent data ecw fn name="initCustomEvent" length=1 own=[length,name] prototype=false ctor=false src="function initCustomEvent() { [native code] }"
+proto constructor data -cw fn name="CustomEvent" length=1 own=[length,name,prototype] prototype=true ctor=true src="function CustomEvent() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "CustomEvent"

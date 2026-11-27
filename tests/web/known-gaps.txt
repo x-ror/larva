@@ -8,16 +8,15 @@
 # starts matching Chrome fails until its line and pin are removed.
 # `unplanned` marks a gap no removal stage closes: it needs an issue of its own.
 
-abort-signal unplanned: EventTarget is not a global on either surface, so `signal instanceof EventTarget` throws ReferenceError; the AbortSignal behavior before it matches Chrome
 perf-now unplanned: performance is a plain object (no Performance brand, no toJSON)
 robust-console-poisoned unplanned: bootstrap/console.js reads Array.prototype.slice live, so a page that replaces it can no longer log (print writes through console.log on Lava)
 robust-resizable-views unplanned: Chrome refuses a view over a resizable ArrayBuffer in every WebIDL byte argument (no [AllowResizable]); Lava reads the view's current bytes. Closes with WebIDL conversions (#12)
 robust-view-probe unplanned: as robust-resizable-views: Chrome refuses the resizable-backed window, Lava decodes it as empty (it never reads the stale bytes this case guards against)
-shape-abort unplanned: EventTarget is not a global (#114): AbortSignal's [[Prototype]] is Function.prototype and its prototype's Object.prototype, and AbortSignal.prototype carries addEventListener/removeEventListener/dispatchEvent itself; everything else matches Chrome
 shape-console unplanned: console has no context/createTask/memory (#114); every other member matches Chrome's shape
 shape-crypto unplanned: no crypto.subtle (SubtleCrypto is not implemented); the Crypto interface and getRandomValues/randomUUID match Chrome (#114)
+shape-events unplanned: EventTarget.prototype has no when() (Chrome 158's Observable API; there is no Observable global either); every other EventTarget, Event and CustomEvent member matches Chrome's shape and order
 shape-fetch unplanned: Request.prototype and Response.prototype have no formData() (FormData is not implemented, as shape-missing lists) and no textStream() (Chrome 158's decoded-text body stream, not implemented); every other member matches Chrome's shape and order (#114)
-shape-missing unplanned: the Chrome globals of the shape-* families Larva does not implement (TextEncoderStream, FormData, EventTarget, SubtleCrypto, Performance, reportError, …) — one line each, so implementing one is a visible change
+shape-missing unplanned: the Chrome globals of the shape-* families Larva does not implement (TextEncoderStream, FormData, SubtleCrypto, Performance, reportError, …) — one line each, so implementing one is a visible change
 shape-performance unplanned: performance is a plain data property holding a plain object — no Performance interface, getter, toJSON, mark/measure or entries (as perf-now); now() alone is native-shaped (#114)
 streams-byte unplanned: no readable byte streams (ReadableByteStreamController, type 'bytes', BYOB reads)
 timers-string-handler unplanned: a non-function handler is ignored (no timer, the delay not converted) where Chrome converts it to a string and runs it as a script when the timer fires; needs a native that evaluates source in the page's global scope

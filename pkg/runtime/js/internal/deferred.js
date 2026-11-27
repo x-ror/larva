@@ -18,15 +18,40 @@
 (function (require, module, exports, native) {
   'use strict';
 
+  var PromiseReject = require('internal/primordials').PromiseReject;
+  var enqueue = native ? native.enqueue : null;
+  // Every registry, and every reported exception, gets an identity of its own, so the
+  // cleanups of one registry make one task and each report a task of its own.
+  var registries = 0;
+
+  function rethrow(error) {
+    throw error;
+  }
+
+  /**
+   * HTML's "report an exception" for a page callback the platform called and must
+   * outlive (an event listener, internal/event_target): the error becomes the page's
+   * uncaught error — the path a throwing timer callback takes (report_uncaught and a
+   * non-zero exit) — and the caller goes on with the rest of its callbacks.
+   * @param {*} error
+   * @deviates Reported one task later, from the cleanup queue above, where Chrome
+   *   reports before the next listener runs: no JS entry reaches report_uncaught
+   *   synchronously, and the order is visible only on stderr, which no oracle reads.
+   *   Without the queue (no natives, or a page without a loop) it surfaces as an
+   *   unhandled rejection rather than not at all.
+   */
+  function reportException(error) {
+    if (enqueue !== null && enqueue(rethrow, error, ++registries)) return;
+    PromiseReject(error);
+  }
+
+  module.exports = { __proto__: null, reportException: reportException };
+
   // Nothing to bind on an embedder that installs no natives: the engine's own
   // constructor stays (and page_create deletes it where the RunLoop is driven).
   if (!native) return;
 
-  var enqueue = native.enqueue;
-
-  // wrap(cleanup) is what each new registry holds in place of the page's cleanup. Every
-  // registry gets an identity of its own, so its cleanups make one task.
-  var registries = 0;
+  // wrap(cleanup) is what each new registry holds in place of the page's cleanup.
   native.installFinalizationRegistry(function (cleanup) {
     var registry = ++registries;
     return function (heldValue) {
