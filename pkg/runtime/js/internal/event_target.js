@@ -40,6 +40,7 @@
   var ArrayPrototypePush1 = P.ArrayPrototypePush1;
   var ArrayPrototypeSlice = P.ArrayPrototypeSlice;
   var ArrayPrototypeSplice = P.ArrayPrototypeSplice;
+  var GeneratorPrototypeNext = P.GeneratorPrototypeNext;
   var ObjectDefineProperty = P.ObjectDefineProperty;
   var ReflectApply = P.ReflectApply;
   var TypeErrorP = P.TypeError;
@@ -85,6 +86,12 @@
   var hostBrand = null;
   var hostParent = null;
   var hostListeners = new P.WeakMap();
+  // The page's window (its global object), an EventTarget of the same kind (stage 4b):
+  // its listeners live in hostListeners too, and a node's path continues to it past the
+  // document (`hostIsDocument`), except for a `load` event (HTML: a Document's "get the
+  // parent" is null for `load`). null until internal/dom installs it.
+  var hostWindow = null;
+  var hostIsDocument = null;
 
   // internal/abort derives from this module, so its brand check is bound on first use
   // (a require inside a function: the sanctioned late binding).
@@ -393,7 +400,7 @@
      *   nothing.
      */
     addEventListener(type, callback, options) {
-      var listeners = listenersOf(this);
+      var listeners = listenersOf(receiver(this));
       if (arguments.length < 2) {
         throw typeError('EventTarget', 'addEventListener', argumentsRequired(2, arguments.length));
       }
@@ -451,7 +458,7 @@
      * @node n/a — Chrome 158, tests/web/cases/events-target.expected.
      */
     removeEventListener(type, callback, options) {
-      var listeners = listenersOf(this);
+      var listeners = listenersOf(receiver(this));
       if (arguments.length < 2) {
         throw typeError(
           'EventTarget',
@@ -489,7 +496,8 @@
      *   isTrusted becomes false, as for any event a page dispatches.
      */
     dispatchEvent(event) {
-      listenersOf(this);
+      var target = receiver(this);
+      listenersOf(target);
       if (arguments.length < 1) {
         throw typeError('EventTarget', 'dispatchEvent', argumentsRequired(1, 0));
       }
@@ -506,14 +514,14 @@
       }
 
       state.trusted = false;
-      return dispatchAny(this, event, state);
+      return dispatchAny(target, event, state);
     }
 
     static {
       listenersOf = function (o) {
         if (typeof o !== 'object' || o === null) throw illegalInvocation();
         if (#listeners in o) return o.#listeners;
-        if (hostBrand === null || !hostBrand(o)) throw illegalInvocation();
+        if (o !== hostWindow && (hostBrand === null || !hostBrand(o))) throw illegalInvocation();
         var listeners = WeakMapPrototypeGet(hostListeners, o);
         if (listeners === undefined) {
           listeners = { __proto__: null };
@@ -525,15 +533,41 @@
     }
   }
 
+  // WebIDL: an operation called with a null or undefined `this` runs on the realm's
+  // global object — a page's bare `addEventListener(…)`. Only a page with a window target
+  // has one that is an EventTarget; elsewhere the receiver stays, and is refused.
+  function receiver(o) {
+    return (o === undefined || o === null) && hostWindow !== null ? hostWindow : o;
+  }
+
+  // Runs a dispatch's steps to the end: what a page's dispatchEvent and the platform's
+  // own synchronous events (`abort`) do.
+  function runSteps(steps) {
+    var r;
+    do {
+      r = ReflectApply(GeneratorPrototypeNext, steps, []);
+    } while (!r.done);
+    return r.value;
+  }
+
   // The dispatch of a target with no parent, as Blink runs it: AT_TARGET throughout,
   // the listeners registered when it starts (one added meanwhile waits for the next
   // dispatch; one removed meanwhile does not run), stopped by stopImmediatePropagation
-  // alone.
-  function dispatch(target, event, state) {
+  // alone. The window's own events run this way too — Blink fires them at the window
+  // directly, in registration order whatever their `capture` (Chrome 158,
+  // tests/dom/cases/dom-load.page: a capture listener added second runs second) — and
+  // `load` with HTML's legacy target override: `target` reads the document while the
+  // window's listeners run (`override`).
+  //
+  // A generator, yielding after each listener: the page loader steps the events it fires
+  // one listener per call, so the microtasks one listener queued run before the next
+  // listener, as after any callback a browser runs from an empty stack.
+  function* dispatch(target, event, state, override) {
     state.dispatching = true;
-    state.target = target;
+    state.target = override === undefined ? target : override;
     state.currentTarget = target;
     state.phase = AT_TARGET;
+    if (override !== undefined) state.path = [target];
     var listeners = listenersOf(target);
     var list = listeners[state.type];
     if (list !== undefined && list.length > 0) {
@@ -544,48 +578,64 @@
         if (entry.removed) continue;
         if (entry.once) removeEntry(listeners, state.type, entry);
         invoke(entry, target, event, state);
+        yield;
       }
     }
 
     state.phase = NONE;
     state.currentTarget = null;
+    state.path = null;
     state.dispatching = false;
     return !state.canceled;
   }
 
-  // A node propagates; every other target runs as above.
-  function dispatchAny(target, event, state) {
+  // A node propagates; every other target (the window too) runs as above.
+  function dispatchSteps(target, event, state) {
     if (hostBrand !== null && hostBrand(target)) return dispatchPath(target, event, state);
     return dispatch(target, event, state);
   }
 
+  function dispatchAny(target, event, state) {
+    return runSteps(dispatchSteps(target, event, state));
+  }
+
   // The DOM Standard's dispatch over a node's path (target, then each parent up to the
-  // document): a capturing pass from the top down to the target, then a bubbling pass
-  // back up, the latter only for an event that bubbles. At the target both passes run
-  // with eventPhase AT_TARGET, capture listeners first — what Chrome does since 89.
-  // The stop-propagation flag ends the dispatch between two targets;
+  // document, then the window): a capturing pass from the top down to the target, then a
+  // bubbling pass back up, the latter only for an event that bubbles. At the target both
+  // passes run with eventPhase AT_TARGET, capture listeners first — what Chrome does
+  // since 89. The stop-propagation flag ends the dispatch between two targets;
   // stopImmediatePropagation also ends the target's own list (invokePhase).
   //
-  // Deviates: the path ends at the document. Chrome's goes on to the window, which is not
-  // an EventTarget in Larva yet (stage 4b); a listener on `window` sees nothing of a
-  // node's event.
-  function dispatchPath(target, event, state) {
+  // The window joins a path whose top is the page's document, for every event but `load`
+  // (HTML's Document "get the parent"): Chrome 158, tests/dom/cases/dom-window-events.page.
+  function* dispatchPath(target, event, state) {
     state.dispatching = true;
     state.target = target;
     var path = [target];
-    for (var p = hostParent(target); p !== null; p = hostParent(p)) ArrayPrototypePush1(path, p);
+    var top = target;
+    for (var p = hostParent(target); p !== null; p = hostParent(p)) {
+      ArrayPrototypePush1(path, p);
+      top = p;
+    }
+
+    if (hostWindow !== null && state.type !== 'load' && hostIsDocument(top)) {
+      ArrayPrototypePush1(path, hostWindow);
+    }
+
     state.path = path;
     for (var i = path.length - 1; i >= 0; i--) {
       if (state.stopPropagation) break;
       state.phase = i === 0 ? AT_TARGET : CAPTURING_PHASE;
-      invokePhase(path[i], event, state, true);
+      var cap = invokePhase(path[i], event, state, true);
+      while (!ReflectApply(GeneratorPrototypeNext, cap, []).done) yield;
     }
 
     for (var j = 0; j < path.length; j++) {
       if (state.stopPropagation) break;
       if (j > 0 && !state.bubbles) break;
       state.phase = j === 0 ? AT_TARGET : BUBBLING_PHASE;
-      invokePhase(path[j], event, state, false);
+      var bub = invokePhase(path[j], event, state, false);
+      while (!ReflectApply(GeneratorPrototypeNext, bub, []).done) yield;
     }
 
     state.phase = NONE;
@@ -596,8 +646,8 @@
   }
 
   // One target's listeners for one pass: those registered with `capture` equal to
-  // `capture`, from a snapshot of the list taken now.
-  function invokePhase(target, event, state, capture) {
+  // `capture`, from a snapshot of the list taken now; yields after each.
+  function* invokePhase(target, event, state, capture) {
     state.currentTarget = target;
     var listeners = listenersOf(target);
     var list = listeners[state.type];
@@ -609,6 +659,7 @@
       if (entry.removed || entry.capture !== capture) continue;
       if (entry.once) removeEntry(listeners, state.type, entry);
       invoke(entry, target, event, state);
+      yield;
     }
   }
 
@@ -646,11 +697,26 @@
    * @returns {boolean} false when a listener canceled it.
    */
   function fireEvent(target, type, bubbles) {
+    return runSteps(fireSteps(target, type, bubbles));
+  }
+
+  /**
+   * fireEvent's dispatch, not yet run: the generator the page loader steps one listener
+   * at a time (see dispatch), through GeneratorPrototypeNext.
+   * @param {EventTarget} target
+   * @param {string} type
+   * @param {boolean} [bubbles]
+   * @param {Object} [override] HTML's legacy target override: what `target` reads while
+   *   `target`'s listeners run (the window's `load` reads the document).
+   * @returns {Generator} Done once the dispatch is; its value is fireEvent's.
+   */
+  function fireSteps(target, type, bubbles, override) {
     var state = newState(type);
     state.trusted = true;
     state.bubbles = bubbles === true;
     var event = new Event(INTERNAL, state);
-    return dispatchAny(target, event, state);
+    if (override !== undefined) return dispatch(target, event, state, override);
+    return dispatchSteps(target, event, state);
   }
 
   /**
@@ -658,11 +724,16 @@
    * module instance is the page's, and internal/dom calls this from its install.
    * @param {function(*): boolean} brand True for a node wrapper; never throws.
    * @param {function(Object): ?Object} parent The next node of a dispatch's path.
+   * @param {Object} window The page's global object, made an EventTarget: a node's path
+   *   continues to it past the document.
+   * @param {function(Object): boolean} isDocument True for the page's document.
    */
-  function setHostTargets(brand, parent) {
+  function setHostTargets(brand, parent, window, isDocument) {
     if (hostBrand !== null) throw new TypeErrorP('event_target: host targets are set once');
     hostBrand = brand;
     hostParent = parent;
+    hostWindow = window;
+    hostIsDocument = isDocument;
   }
 
   /**
@@ -761,6 +832,7 @@
     CustomEvent: PublicCustomEvent,
     EventTargetImpl: EventTarget,
     fireEvent: fireEvent,
+    fireSteps: fireSteps,
     setHostTargets: setHostTargets,
     attachHandler: attachHandler,
     detachHandler: detachHandler,

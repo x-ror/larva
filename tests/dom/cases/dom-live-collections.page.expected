@@ -1,0 +1,183 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-dom.mjs dom-live-collections.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "live collections"
+|   "
+"
+|   <body>
+|     "
+"
+|     <div>
+|       id="box"
+|       <p>
+|         class="a"
+|         "x"
+|       <b>
+|         "y"
+|       <p>
+|     "
+"
+|     <pre>
+|       id="log"
+|       "identity true true true true
+"
+|       "types [object NodeList] [object HTMLCollection] true true true
+"
+|       "before 3 2 2 2 [P.a,#text,P.a b] [P.a,P.a b]
+"
+|       "append 4 3 3 3 1 last=true true
+"
+|       "remove 3 2 2 2 [#text,P.a b,P.a]
+"
+|       "class change 1 [P.a b]
+"
+|       "cleared 0 0 0 true true false
+"
+|       "innerHTML 2 2 1 1 true false 0,1
+"
+|       "forEach 0:P 1:B 2 2
+"
+|       "static 1 2 false
+"
+|       "document true true 1
+"
+|     "
+"
+|     <script>
+|       "
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function names(list) {
+  var out = [];
+  for (var i = 0; i < list.length; i++) out.push(list[i].nodeName + (list[i].className ? '.' + list[i].className : ''));
+  return out.join(',');
+}
+var box = document.getElementById('box');
+var nodes = box.childNodes;
+var kids = box.children;
+var ps = box.getElementsByTagName('p');
+var as = document.getElementsByClassName('a');
+var all = document.getElementsByTagName('*');
+log('identity ' + (box.childNodes === nodes) + ' ' + (box.children === kids) + ' ' +
+  (box.getElementsByTagName('p') === ps) + ' ' + (document.getElementsByClassName('a') === as));
+log('types ' + Object.prototype.toString.call(nodes) + ' ' + Object.prototype.toString.call(kids) + ' ' +
+  (nodes instanceof NodeList) + ' ' + (kids instanceof HTMLCollection) + ' ' + (ps instanceof HTMLCollection));
+log('before ' + nodes.length + ' ' + kids.length + ' ' + ps.length + ' ' + as.length + ' [' + names(nodes) + '] [' +
+  names(as) + ']');
+var allBefore = all.length;
+
+var extra = document.createElement('p');
+extra.className = 'a';
+box.appendChild(extra);
+log('append ' + nodes.length + ' ' + kids.length + ' ' + ps.length + ' ' + as.length + ' ' + (all.length - allBefore) +
+  ' last=' + (nodes[nodes.length - 1] === extra) + ' ' + (kids.item(kids.length - 1) === extra));
+
+box.removeChild(box.firstChild);
+log('remove ' + nodes.length + ' ' + kids.length + ' ' + ps.length + ' ' + as.length + ' [' + names(nodes) + ']');
+
+extra.className = 'z';
+log('class change ' + as.length + ' [' + names(as) + ']');
+
+box.textContent = '';
+log('cleared ' + nodes.length + ' ' + kids.length + ' ' + ps.length + ' ' + (nodes[0] === undefined) + ' ' +
+  (kids.item(0) === null) + ' ' + (0 in nodes));
+
+box.innerHTML = '<p class="a">x</p><b>y</b>';
+log('innerHTML ' + nodes.length + ' ' + kids.length + ' ' + ps.length + ' ' + as.length + ' ' + (0 in kids) + ' ' +
+  (2 in kids) + ' ' + Object.keys(kids).join(','));
+
+var seen = [];
+nodes.forEach(function (n, i) { seen.push(i + ':' + n.nodeName); });
+log('forEach ' + seen.join(' ') + ' ' + Array.from(kids).length + ' ' + [].slice.call(nodes).length);
+
+var qsa = box.querySelectorAll('p');
+box.appendChild(document.createElement('p'));
+log('static ' + qsa.length + ' ' + ps.length + ' ' + (box.querySelectorAll('p') === qsa));
+log('document ' + (document.childNodes === document.childNodes) + ' ' + (document.children === document.children) + ' ' +
+  document.children.length);
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head><title>live collections</title></head>
+<body>
+<div id="box"><p class="a">x</p><b>y</b><p></p></div>
+<pre id="log">identity true true true true
+types [object NodeList] [object HTMLCollection] true true true
+before 3 2 2 2 [P.a,#text,P.a b] [P.a,P.a b]
+append 4 3 3 3 1 last=true true
+remove 3 2 2 2 [#text,P.a b,P.a]
+class change 1 [P.a b]
+cleared 0 0 0 true true false
+innerHTML 2 2 1 1 true false 0,1
+forEach 0:P 1:B 2 2
+static 1 2 false
+document true true 1
+</pre>
+<script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function names(list) {
+  var out = [];
+  for (var i = 0; i < list.length; i++) out.push(list[i].nodeName + (list[i].className ? '.' + list[i].className : ''));
+  return out.join(',');
+}
+var box = document.getElementById('box');
+var nodes = box.childNodes;
+var kids = box.children;
+var ps = box.getElementsByTagName('p');
+var as = document.getElementsByClassName('a');
+var all = document.getElementsByTagName('*');
+log('identity ' + (box.childNodes === nodes) + ' ' + (box.children === kids) + ' ' +
+  (box.getElementsByTagName('p') === ps) + ' ' + (document.getElementsByClassName('a') === as));
+log('types ' + Object.prototype.toString.call(nodes) + ' ' + Object.prototype.toString.call(kids) + ' ' +
+  (nodes instanceof NodeList) + ' ' + (kids instanceof HTMLCollection) + ' ' + (ps instanceof HTMLCollection));
+log('before ' + nodes.length + ' ' + kids.length + ' ' + ps.length + ' ' + as.length + ' [' + names(nodes) + '] [' +
+  names(as) + ']');
+var allBefore = all.length;
+
+var extra = document.createElement('p');
+extra.className = 'a';
+box.appendChild(extra);
+log('append ' + nodes.length + ' ' + kids.length + ' ' + ps.length + ' ' + as.length + ' ' + (all.length - allBefore) +
+  ' last=' + (nodes[nodes.length - 1] === extra) + ' ' + (kids.item(kids.length - 1) === extra));
+
+box.removeChild(box.firstChild);
+log('remove ' + nodes.length + ' ' + kids.length + ' ' + ps.length + ' ' + as.length + ' [' + names(nodes) + ']');
+
+extra.className = 'z';
+log('class change ' + as.length + ' [' + names(as) + ']');
+
+box.textContent = '';
+log('cleared ' + nodes.length + ' ' + kids.length + ' ' + ps.length + ' ' + (nodes[0] === undefined) + ' ' +
+  (kids.item(0) === null) + ' ' + (0 in nodes));
+
+box.innerHTML = '<p class="a">x</p><b>y</b>';
+log('innerHTML ' + nodes.length + ' ' + kids.length + ' ' + ps.length + ' ' + as.length + ' ' + (0 in kids) + ' ' +
+  (2 in kids) + ' ' + Object.keys(kids).join(','));
+
+var seen = [];
+nodes.forEach(function (n, i) { seen.push(i + ':' + n.nodeName); });
+log('forEach ' + seen.join(' ') + ' ' + Array.from(kids).length + ' ' + [].slice.call(nodes).length);
+
+var qsa = box.querySelectorAll('p');
+box.appendChild(document.createElement('p'));
+log('static ' + qsa.length + ' ' + ps.length + ' ' + (box.querySelectorAll('p') === qsa));
+log('document ' + (document.childNodes === document.childNodes) + ' ' + (document.children === document.children) + ' ' +
+  document.children.length);
+</script>
+
+
+</body></html>

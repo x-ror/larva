@@ -16,8 +16,10 @@ Html_View :: enum {
 // run_html_page runs an HTML page end to end (docs/LARVA.md roadmap stage 4a): it creates
 // the page (page_create: VM, context, Window globals), installs its DOM (dom_install),
 // parses `data` as the document with its classic inline scripts run in document order
-// as the parser reaches each one, fires DOMContentLoaded at the document, runs the
-// page's event loop until it idles, and returns a view of the document as it then is.
+// as the parser reaches each one, moves the document to `interactive` (readystatechange,
+// DOMContentLoaded), runs the page's event loop until it idles, moves it to `complete`
+// (readystatechange, the window's `load`), runs the loop to idle again, and returns a
+// view of the document as it then is.
 //
 // Params:
 //   data         The document, UTF-8 (a caller with other bytes decodes first,
@@ -39,8 +41,9 @@ Html_View :: enum {
 //   External scripts (`src`), module scripts and `defer`/`async` are skipped (stage 4b):
 //   only parser-inserted inline classic scripts run. The document is parsed whole by
 //   lexbor with scripting off, so `<noscript>` content parses as markup, where a
-//   scripted Chrome page parses it as text. `load` is not fired: Larva's window is not
-//   an EventTarget yet.
+//   scripted Chrome page parses it as text. `load` fires once the loop has idled after
+//   DOMContentLoaded (there are no subresources to wait for), so a timer set before it
+//   runs first, where Chrome's order with one is a race.
 run_html_page :: proc(
 	data: []byte,
 	source_name: string,
@@ -127,16 +130,14 @@ html_page_run :: proc(page: ^Page, data: []byte, source_name: string, view: Html
 		return ""
 	}
 
-	vm_cpu_enter(page.vm)
-	dom_fire(ctx, page.state, dom_document(page.state), "DOMContentLoaded", true)
-	vm_cpu_exit(page.vm)
+	dom_advance(ctx, page, .Interactive)
+	page_run_idle(page)
 
-	for {
-		alive, _ := page_tick(page)
-
-		if !alive {
-			break
-		}
+	// `load` once the loop idled: a Larva page has no subresources to wait for. Then the
+	// loop again, for what the load listeners queued.
+	if !page.finished && page.state != nil && page.state.dom != nil {
+		dom_advance(ctx, page, .Complete)
+		page_run_idle(page)
 	}
 
 	// A page a limit or a stop ended reports that, not its document.
@@ -155,6 +156,18 @@ html_page_run :: proc(page: ^Page, data: []byte, source_name: string, view: Html
 	}
 
 	return out if ok else ""
+}
+
+// page_run_idle ticks the page until its loop idles or the page ends.
+@(private = "file")
+page_run_idle :: proc(page: ^Page) {
+	for {
+		alive, _ := page_tick(page)
+
+		if !alive {
+			break
+		}
+	}
 }
 
 // element_script_source returns the text of a parser-inserted `<script>` the page runs —

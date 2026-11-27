@@ -421,6 +421,7 @@
     Map: Map,
     Set: Set,
     WeakMap: WeakMap,
+    Proxy: Proxy,
     Symbol: Symbol,
     // The METHOD, not just the object. Capturing `Symbol` alone is not enough: `.for` is a
     // writable property on it, so a lazily-evaluated module reading `P.Symbol.for` at its
@@ -480,6 +481,15 @@
     ReflectOwnKeys: Reflect.ownKeys,
     ReflectGetPrototypeOf: Reflect.getPrototypeOf,
     ReflectConstruct: Reflect.construct,
+    ReflectGet: Reflect.get,
+    ReflectSet: Reflect.set,
+    ReflectHas: Reflect.has,
+    ReflectDefineProperty: Reflect.defineProperty,
+    ReflectDeleteProperty: Reflect.deleteProperty,
+    ReflectGetOwnPropertyDescriptor: Reflect.getOwnPropertyDescriptor,
+    // %GeneratorPrototype%.next, for a builtin that steps its own generator: a page can
+    // reach and replace the prototype's `next` through any generator of its own.
+    GeneratorPrototypeNext: Object.getPrototypeOf(function* () {}).prototype.next,
     JSONStringify: JSON.stringify,
     JSONParse: JSON.parse,
     MathTrunc: Math.trunc,

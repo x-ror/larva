@@ -3898,6 +3898,33 @@
       "expect_detail": "data-r=\"false,false"
     },
     {
+      "name": "tests/dom dom-window-events.page dies when a node's path stops at the document",
+      "why": "Without the window on the path a window listener sees nothing of a node's event and composedPath() lacks it (the 4a known gap).",
+      "source": "pkg/runtime/js/internal/event_target.js",
+      "find": "if (hostWindow !== null && state.type !== 'load' && hostIsDocument(top)) {",
+      "replace": "if (false) {",
+      "gate": "make:test-dom",
+      "expect_detail": "dom-window-events.page"
+    },
+    {
+      "name": "tests/dom dom-load.page dies when a platform event runs every listener in one call",
+      "why": "Without a yield per listener the page loader cannot checkpoint microtasks between two load listeners, so a microtask runs after both instead of between them.",
+      "source": "pkg/runtime/js/internal/event_target.js",
+      "find": "        if (entry.removed) continue;\n        if (entry.once) removeEntry(listeners, state.type, entry);\n        invoke(entry, target, event, state);\n        yield;\n",
+      "replace": "        if (entry.removed) continue;\n        if (entry.once) removeEntry(listeners, state.type, entry);\n        invoke(entry, target, event, state);\n",
+      "gate": "make:test-dom",
+      "expect_detail": "dom-load.page"
+    },
+    {
+      "name": "tests/dom dom-live-collections.page dies when childNodes is a fresh list per read",
+      "why": "A static childNodes is a new object per read and misses later mutations.",
+      "source": "pkg/runtime/js/internal/dom.js",
+      "find": "      if (lists.childNodes === null) lists.childNodes = liveList(NodeList, nChildNodes, this, null);\n",
+      "replace": "      lists.childNodes = liveList(NodeList, nChildNodes, this, null);\n",
+      "gate": "make:test-dom",
+      "expect_detail": "dom-live-collections.page"
+    },
+    {
       "name": "streams-bytes dies when enqueue does not transfer the chunk's buffer",
       "why": "Chrome detaches the buffer behind an enqueued view; without the transfer the page keeps a live handle on bytes the stream later hands to a reader.",
       "source": "pkg/runtime/js/internal/webstreams/readablestream.js",
