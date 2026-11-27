@@ -69,6 +69,8 @@ const expect = (what) => {
   if (location.href !== start || history.length !== 1) throw new Error(what + ': ' + location.href + ' ' + history.length);
 };
 location.assign('/other'); expect('assign');
+location.assign('/other#f'); expect('assign with a fragment');
+location.href = 'http://elsewhere.test/page#x'; expect('href with a fragment');
 location.replace('http://elsewhere.test/'); expect('replace');
 location.href = '/z'; expect('href');
 location = '/y'; expect('location');
