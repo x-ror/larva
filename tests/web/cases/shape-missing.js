@@ -3,7 +3,6 @@
 for (const name of [
   'TextEncoderStream',
   'TextDecoderStream',
-  'FormData',
   'FileReader',
   'ReadableByteStreamController',
   'ReadableStreamBYOBRequest',
@@ -11,7 +10,6 @@ for (const name of [
   'DecompressionStream',
   'SubtleCrypto',
   'CryptoKey',
-  'Performance',
   'reportError',
 ])
   print(name + ' ' + typeof globalThis[name]);

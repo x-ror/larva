@@ -747,5 +747,8 @@
     createObjectURL: createObjectURL,
     revokeObjectURL: revokeObjectURL,
     resolveForFetch: resolveForFetch,
+    // The UTF-8 codecs, for internal/formdata's multipart bodies.
+    utf8Encode: utf8EncodeNative,
+    utf8Decode: utf8DecodeNative,
   };
 });

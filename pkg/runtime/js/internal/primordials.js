@@ -549,6 +549,8 @@
     StringPrototypeToLowerCase: caller0(StringProto.toLowerCase),
     StringPrototypeToUpperCase: caller0(StringProto.toUpperCase),
     StringPrototypeTrim: caller0(StringProto.trim),
+    // WebIDL's USVString conversion after ToString: lone surrogates become U+FFFD.
+    StringPrototypeToWellFormed: caller0(StringProto.toWellFormed),
     StringPrototypeStartsWith: caller2(StringProto.startsWith),
     StringPrototypeEndsWith: caller2(StringProto.endsWith),
     StringPrototypeNormalize: caller1(StringProto.normalize),

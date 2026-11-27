@@ -1,6 +1,6 @@
 # Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
-# chrome: Google Chrome 158.0.8127.88
-# date: 2026-11-26
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
 # runs: 3 identical
 # command: node scripts/record-chrome.mjs shape-fetch
 # ---
@@ -145,3 +145,22 @@ proto bytes data ecw fn name="bytes" length=0 own=[length,name] prototype=false 
 proto textStream data ecw fn name="textStream" length=0 own=[length,name] prototype=false ctor=false src="function textStream() { [native code] }"
 proto constructor data -cw fn name="Response" length=0 own=[length,name,prototype,error,json,redirect] prototype=true ctor=true src="function Response() { [native code] }"
 proto [Symbol(Symbol.toStringTag)] data -c- string "Response"
+== FormData
+global FormData data -cw fn name="FormData" length=0 own=[length,name,prototype] prototype=true ctor=true src="function FormData() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Failed to construct 'FormData': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static prototype data --- object [object FormData]
+prototype [[Prototype]] Object.prototype
+proto append data ecw fn name="append" length=2 own=[length,name] prototype=false ctor=false src="function append() { [native code] }"
+proto delete data ecw fn name="delete" length=1 own=[length,name] prototype=false ctor=false src="function delete() { [native code] }"
+proto get data ecw fn name="get" length=1 own=[length,name] prototype=false ctor=false src="function get() { [native code] }"
+proto getAll data ecw fn name="getAll" length=1 own=[length,name] prototype=false ctor=false src="function getAll() { [native code] }"
+proto has data ecw fn name="has" length=1 own=[length,name] prototype=false ctor=false src="function has() { [native code] }"
+proto set data ecw fn name="set" length=2 own=[length,name] prototype=false ctor=false src="function set() { [native code] }"
+proto entries data ecw fn name="entries" length=0 own=[length,name] prototype=false ctor=false src="function entries() { [native code] }"
+proto forEach data ecw fn name="forEach" length=1 own=[length,name] prototype=false ctor=false src="function forEach() { [native code] }"
+proto keys data ecw fn name="keys" length=0 own=[length,name] prototype=false ctor=false src="function keys() { [native code] }"
+proto values data ecw fn name="values" length=0 own=[length,name] prototype=false ctor=false src="function values() { [native code] }"
+proto constructor data -cw fn name="FormData" length=0 own=[length,name,prototype] prototype=true ctor=true src="function FormData() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "FormData"
+proto [Symbol(Symbol.iterator)] data -cw fn name="entries" length=0 own=[length,name] prototype=false ctor=false src="function entries() { [native code] }"

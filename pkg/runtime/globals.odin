@@ -1056,7 +1056,6 @@ install_globals :: proc(ctx: jsc.JSContextRef, loop: ^eventloop.Loop) {
 
 	install_console(ctx, global)
 	install_internal_modules(ctx, global)
-	install_performance(ctx, global)
 	install_microtasks(ctx, global)
 	install_rejection_tracker(ctx)
 }
@@ -1073,7 +1072,7 @@ perf_origin_tick: time.Tick
 perf_time_origin_ms: f64
 
 // perf_init captures the process-wide clock origin exactly once. Guarded by sync.Once (perf_once) so
-// N workers (Slice 3a) racing their first install_performance neither double-init nor tear the
+// N workers (Slice 3a) racing their first make_performance_bindings neither double-init nor tear the
 // values; a single shared origin is intentional — performance.now() stays comparable across workers.
 @(private = "file")
 perf_init :: proc() {
@@ -1081,17 +1080,18 @@ perf_init :: proc() {
 	perf_time_origin_ms = f64(time.to_unix_nanoseconds(time.now())) / 1e6
 }
 
-// install_performance installs the `performance` global with a monotonic now()
-// and a timeOrigin (W3C High Resolution Time). now() has Chrome's length 0 and no
-// [[Construct]], as a WebIDL operation (tests/web/cases/shape-performance.js); the
-// Performance interface itself is the perf-now gap.
-install_performance :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef) {
+// make_performance_bindings hands internal/performance its clock: a monotonic now()
+// and the timeOrigin it counts from (W3C High Resolution Time). The `performance`
+// global and the Performance interface around them are JS (js/internal/performance.js);
+// the clock is the one native piece, and these bindings reach that module alone, as its
+// factory's fourth argument.
+make_performance_bindings :: proc(ctx: jsc.JSContextRef) -> jsc.JSObjectRef {
 	sync.once_do(&perf_once, perf_init)
 
-	performance := jsc.JSObjectMake(ctx, nil, nil)
-	inject_native_function(ctx, performance, "now", performance_now_cb, arity = 0, constructible = false)
-	set_named(ctx, performance, "timeOrigin", jsc.JSValueMakeNumber(ctx, perf_time_origin_ms))
-	set_named(ctx, global, "performance", cast(jsc.JSValueRef)performance)
+	bindings := jsc.JSObjectMake(ctx, nil, nil)
+	inject_native_function(ctx, bindings, "now", performance_now_cb, arity = 0, constructible = false)
+	set_named(ctx, bindings, "timeOrigin", jsc.JSValueMakeNumber(ctx, perf_time_origin_ms))
+	return bindings
 }
 
 // performance_now_cb returns the high-resolution milliseconds (a fractional
@@ -1380,6 +1380,7 @@ install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef)
 	set_named(ctx, natives, "internal/blob", cast(jsc.JSValueRef)make_blob_bindings(ctx, buffer_bindings, state.page_origin))
 	set_named(ctx, natives, "internal/fetch", cast(jsc.JSValueRef)make_fetch_bindings(ctx))
 	set_named(ctx, natives, "internal/deferred", cast(jsc.JSValueRef)make_deferred_bindings(ctx))
+	set_named(ctx, natives, "internal/performance", cast(jsc.JSValueRef)make_performance_bindings(ctx))
 	// Native, not a module: nothing of it is JS a page could see in a stack (wasm.odin).
 	install_wasm(ctx, state)
 

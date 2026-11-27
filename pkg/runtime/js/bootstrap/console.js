@@ -270,8 +270,14 @@
     emit(out, lines.join('\n'));
   }
 
-  function args(a) {
-    return Array.prototype.slice.call(a);
+  // `arguments` from index `from` as an array. An indexed copy, not
+  // Array.prototype.slice: a page that replaces slice must still be able to log (Chrome's
+  // console does not run through the page's intrinsics; tests/web/cases/
+  // robust-console-poisoned). This prelude has no `require`, so no primordials either.
+  function args(a, from) {
+    var out = [];
+    for (var i = from === undefined ? 0 : from; i < a.length; i++) out[out.length] = a[i];
+    return out;
   }
   function label(x) {
     return x === undefined ? 'default' : String(x);
@@ -307,7 +313,7 @@
     },
     assert: function (value) {
       if (value) return;
-      var msg = formatArgs(Array.prototype.slice.call(arguments, 1));
+      var msg = formatArgs(args(arguments, 1));
       emit(err, 'Assertion failed' + (msg ? ': ' + msg : ''));
     },
     count: function (name) {
@@ -359,7 +365,7 @@
         return;
       }
       var d = Date.now() - timers[key];
-      var extra = Array.prototype.slice.call(arguments, 1);
+      var extra = args(arguments, 1);
       emit(out, key + ': ' + duration(d) + (extra.length > 0 ? ' ' + formatArgs(extra) : ''));
     },
     // Chrome's own are no-ops without DevTools attached, which a headless page never has.

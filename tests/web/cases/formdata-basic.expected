@@ -1,0 +1,58 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs formdata-basic
+# ---
+call THREW TypeError: Failed to construct 'FormData': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+number form THREW TypeError: Failed to construct 'FormData': parameter 1 is not of type 'HTMLFormElement'.
+null form THREW TypeError: Failed to construct 'FormData': parameter 1 is not of type 'HTMLFormElement'.
+undefined form 
+append() THREW TypeError: Failed to execute 'append' on 'FormData': 2 arguments required, but only 0 present.
+append(name) THREW TypeError: Failed to execute 'append' on 'FormData': 2 arguments required, but only 1 present.
+append 3 args, string THREW TypeError: Failed to execute 'append' on 'FormData': parameter 2 is not of type 'Blob'.
+append 3 args, object THREW TypeError: Failed to execute 'append' on 'FormData': parameter 2 is not of type 'Blob'.
+entries a="1" b="2" a="line\nbreak\r\n\rx" lone="�x" blob=[object File]:blob:text/plain:3 blob2=[object File]:name.txt::3 file=[object File]:orig.bin:application/x:3 file2=[object File]:renamed::3 objkey="objval" nul="null"
+file kept true renamed stamp 42
+blob became [object File] number
+get missing null getAll ["1","line\nbreak\r\n\rx"] []
+has true false
+after set a,b,lone,blob,blob2,file,file2,objkey,nul
+after delete a,lone,blob,blob2,file,file2,objkey,nul,new
+values S|�x|objval|null|N
+get() THREW TypeError: Failed to execute 'get' on 'FormData': 1 argument required, but only 0 present.
+set(name) THREW TypeError: Failed to execute 'set' on 'FormData': 2 arguments required, but only 1 present.
+delete() THREW TypeError: Failed to execute 'delete' on 'FormData': 1 argument required, but only 0 present.
+has() THREW TypeError: Failed to execute 'has' on 'FormData': 1 argument required, but only 0 present.
+getAll() THREW TypeError: Failed to execute 'getAll' on 'FormData': 1 argument required, but only 0 present.
+forEach() THREW TypeError: Failed to execute 'forEach' on 'FormData': 1 argument required, but only 0 present.
+forEach(5) THREW TypeError: Failed to execute 'forEach' on 'FormData': parameter 1 is not of type 'Function'.
+forEach a:true,lone:true,blob:true,blob2:true,file:true,file2:true,objkey:true,nul:true,new:true
+iterator [object FormData Iterator] next [object Iterator]
+next on a foreign object THREW TypeError: Illegal invocation
+live x,y
+@@iterator is entries true
+foreign this THREW TypeError: Illegal invocation
+tag [object FormData]
+urlencoded a="1" b=" x" a="2"
+urlencoded text x="1" y=""
+text/plain THREW TypeError: Failed to fetch
+no type THREW TypeError: Failed to fetch
+content-type true
+multipart "--BND\r\nContent-Disposition: form-data; name=\"k\"\r\n\r\nv\r\n--BND\r\nContent-Disposition: form-data; name=\"k2\"\r\n\r\nv\r\nw\r\n--BND\r\nContent-Disposition: form-data; name=\"quo%22te%0D%0A\"\r\n\r\nx\r\n--BND\r\nContent-Disposition: form-data; name=\"f\"; filename=\"a%22b%0A.txt\"\r\nContent-Type: text/plain\r\n\r\nhello\r\n--BND\r\nContent-Disposition: form-data; name=\"g\"; filename=\"blob\"\r\nContent-Type: application/octet-stream\r\n\r\nzz\r\n--BND\r\nContent-Disposition: form-data; name=\"é\"\r\n\r\nü\r\n--BND--\r\n"
+bytes 710
+round trip k="v" k2="v\r\nw" quo%22te%0D%0A="x" f=[object File]:a%22b%0A.txt:text/plain:5 g=[object File]:blob:application/octet-stream:2 é="ü"
+request type true
+request round trip k="v" k2="v\r\nw" quo%22te%0D%0A="x" f=[object File]:a%22b%0A.txt:text/plain:5 g=[object File]:blob:application/octet-stream:2 é="ü"
+used THREW TypeError: Failed to execute 'formData' on 'Response': body stream already read
+foreign THREW TypeError: Failed to execute 'formData' on 'Response': Illegal invocation
+hand-written a="val" f=[object File]:n.txt:text/x:9
+no part type f=[object File]:n.txt:text/plain:1
+preamble, bare name a="v"
+utf-8 é="ü"
+garbage THREW TypeError: Failed to fetch
+no disposition THREW TypeError: Failed to fetch
+unterminated THREW TypeError: Failed to fetch
+LF only THREW TypeError: Failed to fetch
+no boundary THREW TypeError: Invalid MIME type
+fetch POST multipart/form-data; boundary=BND "--BND\r\nContent-Disposition: form-data; name=\"k\"\r\n\r\nv\r\n--BND\r\nContent-Disposition: form-data; name=\"k2\"\r\n\r\nv\r\nw\r\n--BND\r\nContent-Disposition: form-data; name=\"quo%22te%0D%0A\"\r\n\r\nx\r\n--BND\r\nContent-Disposition: form-data; name=\"f\"; filename=\"a%22b%0A.txt\"\r\nContent-Type: text/plain\r\n\r\nhello\r\n--BND\r\nContent-Disposition: form-data; name=\"g\"; filename=\"blob\"\r\nContent-Type: application/octet-stream\r\n\r\nzz\r\n--BND\r\nContent-Disposition: form-data; name=\"é\"\r\n\r\nü\r\n--BND--\r\n"
