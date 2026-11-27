@@ -486,6 +486,48 @@ const FIXTURES = {
       send(res, 200, 'application/json', JSON.stringify(seen));
     });
   },
+  // XMLHttpRequest's request side (tests/web/cases/xhr-*): the request headers a page
+  // can set or a browser adds that a case prints, never the browser-specific ones
+  // (user-agent, sec-ch-*, referer, origin).
+  '/fx/xhr-echo': (req, res) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      const h = req.headers;
+      const seen = {
+        method: req.method,
+        accept: h['accept'] ?? null,
+        contentType: h['content-type'] ?? null,
+        xTest: h['x-test'] ?? null,
+        xMulti: h['x-multi'] ?? null,
+        forbidden: ['dnt', 'keep-alive', 'proxy-x', 'sec-x', 'via', 'expect'].filter((n) => n in h),
+        body: Buffer.concat(chunks).toString('latin1'),
+      };
+      send(res, 200, 'application/json', JSON.stringify(seen));
+    });
+  },
+  // XMLHttpRequest's response side: duplicate and mixed-case names, a Set-Cookie, no
+  // Date and a closed connection, so getAllResponseHeaders() prints the same bytes on
+  // every run.
+  '/fx/xhr-headers': (req, res) => {
+    res.sendDate = false;
+    res.shouldKeepAlive = false;
+    res.writeHead(200, [
+      ['Content-Type', 'text/plain; charset=utf-8'],
+      ['X-B', 'two'],
+      ['x-a', 'one'],
+      ['X-B', 'three'],
+      ['Set-Cookie', 'a=1'],
+      ['Content-Length', '2'],
+    ]);
+    res.end('ok');
+  },
+  // A response that starts after 3 s: for a timeout or an abort while the request
+  // is in flight.
+  '/fx/slow': (req, res) => {
+    const timer = setTimeout(() => send(res, 200, 'text/plain', 'late'), 3000);
+    res.on('close', () => clearTimeout(timer));
+  },
 };
 
 function send(res, status, type, body) {

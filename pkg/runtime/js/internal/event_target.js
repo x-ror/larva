@@ -699,6 +699,19 @@
     removeEntry(listenersOf(target), type, entry);
   }
 
+  /**
+   * Fires `event`, made by an Event subclass outside this module (internal/xhr's
+   * ProgressEvent), at `target` as the platform's own: trusted, as fireEvent's.
+   * @param {EventTarget} target
+   * @param {Event} event Built with EVENT_INTERNAL and a newEventState record.
+   * @returns {boolean} false when a listener canceled it.
+   */
+  function dispatchTrusted(target, event) {
+    var state = eventState(event);
+    state.trusted = true;
+    return dispatchAny(target, event, state);
+  }
+
   // The interface objects a page sees (internal/native_shape), in Blink's member order
   // (Chrome 158, tests/web/cases/shape-events.expected).
   var PublicEventTarget = nativeShape.defineInterface({
@@ -764,5 +777,13 @@
     setHostTargets: setHostTargets,
     attachHandler: attachHandler,
     detachHandler: detachHandler,
+    // For an Event subclass defined in another module (internal/xhr's ProgressEvent):
+    // the implementation class to extend, the token its constructor passes to Event's
+    // with a state record, and the EventInit conversion.
+    EventImpl: Event,
+    EVENT_INTERNAL: INTERNAL,
+    newEventState: newState,
+    readEventInit: readEventInit,
+    dispatchTrusted: dispatchTrusted,
   });
 });
