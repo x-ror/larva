@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Array.prototype.flatMap() - Example Docs</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar"><nav><h2>Contents</h2><ol>
+<li><a href="#syntax">Syntax</a></li>
+<li><a href="#description">Description</a><ol><li><a href="#alternative">Alternative</a></li></ol></li>
+<li><a href="#examples">Examples</a></li>
+</ol></nav></aside>
+<main class="content">
+<h1>Array.prototype.flatMap()</h1>
+<p>The <code>flatMap()</code> method returns a new array formed by applying a callback to each element, then flattening the result by one level.</p>
+<h2 id="syntax">Syntax</h2>
+<pre class="brush: js notranslate"><code>flatMap(callbackFn)
+flatMap(callbackFn, thisArg)
+</code></pre>
+<h3>Parameters</h3>
+<dl>
+<dt><code>callbackFn</code></dt>
+<dd><p>A function to execute for each element. It should return an array containing new elements, or a single non-array value.</p></dd>
+<dt><code>thisArg</code> <span class="badge optional">Optional</span></dt>
+<dd>A value to use as <code>this</code> when executing <code>callbackFn</code>.</dd>
+</dl>
+<h2 id="description">Description</h2>
+<div class="notecard note"><p><strong>Note:</strong> <code>flatMap</code> is equivalent to <code>map(...).flat()</code> with depth&nbsp;1.</p></div>
+<h3 id="alternative">Alternative</h3>
+<pre><code class="language-js"><span class="token keyword">const</span> arr <span class="token operator">=</span> <span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
+arr<span class="token punctuation">.</span><span class="token function">reduce</span><span class="token punctuation">(</span><span class="token punctuation">(</span>acc<span class="token punctuation">,</span> x<span class="token punctuation">)</span> <span class="token operator">=&gt;</span> acc<span class="token punctuation">.</span><span class="token function">concat</span><span class="token punctuation">(</span><span class="token punctuation">[</span>x<span class="token punctuation">,</span> x <span class="token operator">*</span> <span class="token number">2</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token punctuation">[</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token comment">// [1, 2, 2, 4]  (a &lt; b &amp;&amp; c)</span>
+</code></pre>
+<h2 id="examples">Examples</h2>
+<table class="standard-table">
+<thead><tr><th>Input</th><th>Output</th></tr></thead>
+<tbody>
+<tr><td><code>[[1], [2]]</code></td><td><code>[1, 2]</code></td></tr>
+<tr><td><code>["a b", "c"]</code></td><td><code>["a", "b", "c"]</code></td></tr>
+</tbody>
+</table>
+<p>The formula is <math display="inline"><mrow><mi>n</mi><mo>≤</mo><msup><mi>m</mi><mn>2</mn></msup></mrow></math> in the worst case.</p>
+<p><a href="https://tc39.es/ecma262/#sec-array.prototype.flatmap" class="external" target="_blank" rel="noopener">ECMAScript® 2027 Language Specification</a></p>
+</main>
+</div>
+</body>
+</html>

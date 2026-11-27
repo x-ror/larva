@@ -20,6 +20,8 @@ import {
   inputProblem,
   joinViews,
   lavaArgs,
+  navCharset,
+  navContentType,
   serializeDocument,
   splitViews,
 } from './lib/dom-oracle.mjs';
@@ -61,6 +63,25 @@ test('a fragment case names its context element; a document case has none', () =
     '--serialize',
     '--fragment',
     'tr',
+    'f.html',
+  ]);
+});
+
+test('a navigation case names its transport charset and runs lava with sniffing', () => {
+  assert.equal(navCharset('charset-default.nav'), '');
+  assert.equal(navCharset('charset-transport.nav-windows-1252'), 'windows-1252');
+  assert.equal(navCharset('site-jp-portal.nav-shift_jis'), 'shift_jis');
+  // Only as the name's last part: a DOMParser case keeps its UTF-8 input.
+  assert.equal(navCharset('void-elements'), null);
+  assert.equal(navCharset('a.nav.frag-div'), null);
+  assert.equal(navContentType(''), 'text/html');
+  assert.equal(navContentType('euc-kr'), 'text/html; charset=euc-kr');
+  assert.deepEqual(lavaArgs('tree', null, 'f.html', ''), ['html', '--tree', '--sniff', 'f.html']);
+  assert.deepEqual(lavaArgs('serialize', null, 'f.html', 'euc-kr'), [
+    'html',
+    '--serialize',
+    '--charset',
+    'euc-kr',
     'f.html',
   ]);
 });

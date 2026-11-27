@@ -501,16 +501,34 @@ function send(res, status, type, body) {
  *
  * `pageFor(name)`, when given, answers `/page/<name>` instead (null for no such
  * case): the DOM suite's harness page (scripts/lib/dom-oracle.mjs) is built from an
- * HTML case, not a script.
+ * HTML case, not a script. It returns the markup, served as UTF-8, or `{type, body}`
+ * to choose the Content-Type.
+ *
+ * `rawFor(name)`, when given, answers `/raw/<name>` with `{type, body}` (null for no
+ * such case): the DOM suite's navigation cases, served as bytes with the Content-Type
+ * under test and a CSP that blocks every subresource, so a corpus page's stylesheet or
+ * image reference never leaves the machine.
  */
-export function startServer(casesDir = CASES_DIR, { pageFor } = {}) {
+export function startServer(casesDir = CASES_DIR, { pageFor, rawFor } = {}) {
   const server = createServer((req, res) => {
     const path = new URL(req.url, 'http://x').pathname;
     const page = /^\/page\/([\w.-]+)$/.exec(path);
+    const raw = /^\/raw\/([\w.-]+)$/.exec(path);
     const script = /^\/case\/([\w.-]+)\.js$/.exec(path);
     if (page && pageFor) {
       const html = pageFor(page[1]);
-      if (html !== null) return send(res, 200, 'text/html; charset=utf-8', html);
+      if (typeof html === 'string') return send(res, 200, 'text/html; charset=utf-8', html);
+      if (html !== null) return send(res, 200, html.type, html.body);
+    } else if (raw && rawFor) {
+      const doc = rawFor(raw[1]);
+      if (doc !== null) {
+        res.writeHead(200, {
+          'Content-Type': doc.type,
+          'Content-Length': String(doc.body.length),
+          'Content-Security-Policy': "default-src 'none'",
+        });
+        return res.end(doc.body);
+      }
     } else if (page && existsSync(join(casesDir, page[1] + '.js'))) {
       const source = readFileSync(join(casesDir, page[1] + '.js'), 'utf8');
       return send(res, 200, 'text/html; charset=utf-8', chromePage(page[1], caseOptions(source)));

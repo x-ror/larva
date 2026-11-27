@@ -16,8 +16,7 @@ node scripts/run-dom-oracle.mjs --update-known <case>   # re-pin a known gap's v
 ## A case
 
 `cases/<area>-<topic>.html` is an HTML input, UTF-8 without a BOM (the recorder
-refuses anything else: charset handling is stage 3c and is recorded through
-navigation, not here). Its bytes reach both parsers unchanged — `.gitattributes`
+refuses anything else: other bytes are a navigation case, below). Its bytes reach both parsers unchanged — `.gitattributes`
 keeps git from normalizing a CRLF case. Chrome parses it with
 `new DOMParser().parseFromString(input, 'text/html')` from a trusted harness page;
 a DOMParser document has scripting disabled, as `lava html` does, so `<noscript>`
@@ -28,6 +27,22 @@ the `innerHTML` of a `<context>` element created in a no-quirks DOMParser docume
 and Lava runs `lava html --fragment <context>`. A foreign context is named
 `frag-svg-<local>` or `frag-math-<local>` (`frag-svg-foreignObject`) and created
 in its namespace; `lava html` refuses those until stage 3e.
+
+`cases/<topic>.nav.html` and `cases/<topic>.nav-<label>.html` are **navigation
+cases** (stage 3c): bytes in any encoding, decoded the way a page load decodes them.
+The recorder serves them from its local server as `text/html`, or as
+`text/html; charset=<label>`, into a `sandbox="allow-same-origin"` frame of a
+harness page and reads the frame's document (`navPage` in
+`scripts/lib/dom-oracle.mjs`): the sandbox keeps scripting off, as in `lava html`,
+and a CSP keeps every subresource on the machine. The harness is served as
+windows-1252, which an unlabeled same-origin frame inherits, and which is also what
+Chrome 158 gives an unlabeled top-level page, so the frame decodes as a direct
+navigation would. Lava runs `lava html --sniff` (or `--charset <label>`): the
+encoding sniffing algorithm over lexbor's encoding module (`pkg/html/encoding.odin`)
+— BOM, then the transport label, then the `<meta>` prescan, then windows-1252.
+`charset-*` cases each pin one step; `make test-fetch-html-smoke` serves some of
+them to `lava fetch` behind a redirect and a content coding, against the same
+recordings.
 
 Each case has two **views**, compared byte for byte and judged apart:
 
@@ -83,6 +98,16 @@ The 6 that differ are Chrome's to decide: 4 `<?…>` inputs Chrome 158 parses as
 processing instructions where html5lib expects bogus comments, a `template`
 context whose children Chrome puts in the content (empty `childNodes`), and a
 `select` context where Chrome keeps `<input>`.
+
+## The public-site corpus
+
+`cases/site-*.nav*.html` are real-world-shaped pages written for the suite — a news
+article, a WordPress post, a shop product page, a 1999 FrontPage page in
+ISO-8859-1, a docs page, a Shift_JIS portal, an SPA shell, a phpBB thread behind a
+UTF-8 BOM — not saved from live sites: no third party's markup is checked in and no
+test fetches the network. They are navigation cases, so they also exercise the
+charset path; scripts in them never run (the frame is sandboxed, and `lava html`
+runs none). When the corpus landed, all 16 of their views matched Chrome 158.
 
 ## Known gaps
 
