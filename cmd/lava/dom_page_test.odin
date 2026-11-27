@@ -122,3 +122,87 @@ run_page :: proc(markup: string) -> string {
 	lava.result_destroy(&result)
 	return output
 }
+
+// A JSClass does not keep its parent alive: JSC's OpaqueJSClass holds `parentClass` as a
+// raw pointer — ~OpaqueJSClass in the shipped libjavascriptcoregtk-6.0 releases only
+// prototypeClass — yet every wrapper's finalization walks that chain, calling each
+// class's `finalize`. Besides the page's own reference, what retains a class is the
+// per-class context data of the page's global object, and a collection frees the global
+// as it ends while it leaves the wrappers' cells for a later, lazy sweep. A root class
+// released at dom_release was then freed with the global, and each later wrapper
+// finalization read freed memory: harmless while nothing reused the block, a call
+// through garbage once another runner thread's allocation did — the parallel suite's
+// segfault in a different test each run, from JSObjectMake's allocation slow path or
+// ~VM, never on one runner thread.
+//
+// Reproduced on one thread by doing the reusing on purpose: page after page on the
+// thread's pooled VM wraps its nodes and churns enough garbage for the heap to collect
+// on its own, and between pages classes with a counting `finalize` are created, so one
+// lands where a freed root was. A wrapper swept afterwards then calls it through its
+// parent chain (counted) or walks into whatever else took the block (a segfault). On
+// the pre-fix tree, 20 of 20 single-test runs went red.
+@(thread_local, private = "file")
+stale_parent_finalized: int
+
+@(private = "file")
+count_stale_parent_finalize :: proc "c" (object: jsc.JSObjectRef) {
+	stale_parent_finalized += 1
+}
+
+@(test)
+dom_wrapper_class_parent_outlives_its_page :: proc(t: ^testing.T) {
+	ROUNDS :: 64
+	SENTINELS_PER_ROUND :: 256
+	sentinels := make([dynamic]jsc.JSClassRef, 0, ROUNDS * SENTINELS_PER_ROUND)
+	defer delete(sentinels)
+	stale_parent_finalized = 0
+
+	for _ in 0 ..< ROUNDS {
+		page: lava.Page
+
+		if !testing.expect(t, lava.page_create(&page, "<dom-parent-class>"), "page_create failed") {
+			result, _ := lava.page_close(&page)
+			lava.result_destroy(&result)
+			break
+		}
+
+		ctx := cast(jsc.JSContextRef)page.ctx
+		testing.expect_value(t, lava.dom_install(ctx, page.state), "")
+		markup := "<div id=a><b>x</b><i>y</i><p>z</p><span>w</span><a>v</a><u>u</u></div>"
+		testing.expect(t, html.parse_all(&page.state.dom.parser, transmute([]byte)markup), "parse failed")
+		// Wrappers for every node, then enough garbage to make the heap collect on its
+		// own — a collection that destroys the previous page's global at once and leaves
+		// its wrappers for a later lazy sweep.
+		_, ok := lava.page_eval(
+			&page,
+			`var n = 0;
+			for (var e of document.querySelectorAll('*')) n += e.firstChild ? 1 : 0;
+			var junk = [];
+			for (var i = 0; i < 20000; i++) junk.push({ i: i, s: 'x' + i });
+			n`,
+		)
+		testing.expect(t, ok, "the page could not wrap its nodes")
+		result, _ := lava.page_close(&page)
+		lava.result_destroy(&result)
+
+		for _ in 0 ..< SENTINELS_PER_ROUND {
+			def := jsc.JSClassDefinition {
+				class_name = "Sentinel",
+				attributes = .NoAutomaticPrototype,
+				finalize   = count_stale_parent_finalize,
+			}
+			append(&sentinels, jsc.JSClassCreate(&def))
+		}
+	}
+
+	testing.expectf(
+		t,
+		stale_parent_finalized == 0,
+		"collected wrappers' finalization reached %d classes they never had: their parent class was freed",
+		stale_parent_finalized,
+	)
+
+	for class in sentinels {
+		jsc.JSClassRelease(class)
+	}
+}
