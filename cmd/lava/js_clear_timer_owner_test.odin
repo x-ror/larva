@@ -9,7 +9,7 @@ import eventloop "lava:pkg/runtime/eventloop"
 // Page JS cannot cancel a runtime-internal handle by guessing its id (#92). Handle ids
 // come from one per-loop counter shared by the JS timer globals and the runtime's own
 // timers (net's TLS-handshake and drain timers, pkg/http's transfer deadline), and
-// clear_timer_cb used to pass any id straight to eventloop.clear_timeout, which runs
+// the clear globals used to pass any id straight to eventloop.clear_timeout, which runs
 // the handle's dispose — for a pkg/http transfer that finishes the transfer as
 // .Cancelled. Node cannot express this (no internal timer is reachable by id there), so
 // the test plants native handles on the loop itself: a timeout and an immediate armed
@@ -17,10 +17,8 @@ import eventloop "lava:pkg/runtime/eventloop"
 // one through the clear globals. Both native handles must still fire, and their
 // dispose must not run: they fired, so nothing owes them a release.
 //
-// Run on the .Web surface: that is the surface a page reaches. It has no clearImmediate
-// (neither has Chrome), but clearTimeout, clearInterval and the .Node surface's
-// clearImmediate share one owner-checked cancel (clear_timer_owned_id), which also
-// reaches immediates; the surfaces differ only in how they read the id.
+// clearTimeout and clearInterval share one owner-checked cancel (clear_timer_owned_id),
+// which also reaches immediates.
 
 @(private = "file")
 Native_Handle :: struct {
@@ -61,7 +59,7 @@ js_clear_globals_cannot_cancel_native_handles :: proc(t: ^testing.T) {
 	eventloop.set_immediate(&loop, native_handle_fire, &immediate, native_handle_dispose)
 
 	// eval consumes (destroys) the loop on every path; do not destroy it here.
-	result := lava.eval(CLEAR_EVERY_ID_SCRIPT, "<js-clear-timer-owner>", &loop, surface = .Web)
+	result := lava.eval(CLEAR_EVERY_ID_SCRIPT, "<js-clear-timer-owner>", &loop)
 	defer lava.result_destroy(&result)
 
 	testing.expectf(t, result.status == .Ok, "eval: status=%v message=%q", result.status, result.message)
@@ -69,17 +67,10 @@ js_clear_globals_cannot_cancel_native_handles :: proc(t: ^testing.T) {
 	testing.expectf(t, immediate.fired == 1 && immediate.disposed == 0, "native immediate: %v", immediate)
 }
 
-// Which argument forms reach timer `id` is the profile's, and the two oracles disagree on
-// nearly all of them, so one script runs on each surface and its report is compared with
-// the oracle's recording of the same script.
+// Which argument forms reach timer `id`: the script's report is compared with Chrome's
+// recording of the same script.
 //
-// Node (`.Node`): clearTimeout looks a number or a string up as a property key of its
-// id table, so only the number N and the string "N" (the canonical decimal) cancel;
-// "N.0", " N", "0xN", fractions, N ± 2^32, N + 2^33, objects, BigInt and Symbol name
-// nothing, and nothing is converted, so nothing throws. Recorded on node 26.13.0:
-// `node -e "require('./case.js'); setTimeout(() => console.log(report), 60)"`.
-//
-// Chrome (`.Web`): the id is a WebIDL `long`, so ToNumber, truncation and modulo 2^32
+// Chrome: the id is a WebIDL `long`, so ToNumber, truncation and modulo 2^32
 // decide, and every numeric spelling of N cancels it, N ± 2^32 and N + 2^33 included. A
 // conversion that fails throws a TypeError carrying the binding's prefix ("Failed to
 // execute 'clearTimeout' on 'Window': "), for a BigInt (or its wrapper), a Symbol, an
@@ -132,35 +123,22 @@ setTimeout(() => {
 }, 30);
 `
 
-@(private = "file")
-NODE_CLEAR_ID_FORMS :: `N:cancelled "N":cancelled "N.0":fired " N":fired "0xN":fired "+N":fired "0N":fired N+0.5:fired N+2^32:fired N-2^32:fired N+2^33:fired [N]:fired String obj:fired BigInt:fired BigInt obj:fired Symbol:fired throwing valueOf:fired no primitive:fired bad toPrimitive:fired interval+0.25:fired clearInterval(Symbol):no throw`
-
 // The <pre> text of the --dump-dom output; nothing in it needed HTML unescaping.
 @(private = "file")
 CHROME_CLEAR_ID_FORMS :: `N:cancelled "N":cancelled "N.0":cancelled " N":cancelled "0xN":cancelled "+N":cancelled "0N":cancelled N+0.5:cancelled N+2^32:cancelled N-2^32:cancelled N+2^33:cancelled [N]:cancelled String obj:cancelled BigInt:fired (TypeError: Failed to execute 'clearTimeout' on 'Window': Cannot convert a BigInt value to a number) BigInt obj:fired (TypeError: Failed to execute 'clearTimeout' on 'Window': Cannot convert a BigInt value to a number) Symbol:fired (TypeError: Failed to execute 'clearTimeout' on 'Window': Cannot convert a Symbol value to a number) throwing valueOf:fired (RangeError: from valueOf) no primitive:fired (TypeError: Failed to execute 'clearTimeout' on 'Window': Cannot convert object to primitive value) bad toPrimitive:fired (TypeError: Failed to execute 'clearTimeout' on 'Window':) interval+0.25:cancelled clearInterval(Symbol):TypeError: Failed to execute 'clearInterval' on 'Window': Cannot convert a Symbol value to a number`
 
 @(test)
-js_clear_globals_read_an_id_like_node :: proc(t: ^testing.T) {
-	report, allocated := clear_id_forms_report(t, .Node, CLEAR_ID_FORMS_SCRIPT)
-	defer if allocated {
-		delete(report)
-	}
-	testing.expect_value(t, report, NODE_CLEAR_ID_FORMS)
-}
-
-@(test)
 js_clear_globals_read_an_id_like_chrome :: proc(t: ^testing.T) {
-	report, allocated := clear_id_forms_report(t, .Web, CLEAR_ID_FORMS_SCRIPT)
+	report, allocated := clear_id_forms_report(t, CLEAR_ID_FORMS_SCRIPT)
 	defer if allocated {
 		delete(report)
 	}
 	testing.expect_value(t, report, CHROME_CLEAR_ID_FORMS)
 }
 
-// The `.Web` deviation clear_timer_web_cb declares: an id of 2^31 or more cannot be
-// cleared there, because the WebIDL `long` that names it wraps to a negative number
-// first; Chrome's own ids never get that far. `.Node` reads the same id exactly and
-// cancels it. Lava-only: no oracle issues such an id. The loop's counter starts at 2^31,
+// The deviation clear_timeout_web_cb declares: an id of 2^31 or more cannot be
+// cleared, because the WebIDL `long` that names it wraps to a negative number first;
+// Chrome's own ids never get that far. Lava-only: no oracle issues such an id. The loop's counter starts at 2^31,
 // and the report says whether the timer's id is really that high, so a change in how
 // ids are handed out cannot make the case pass on a small one.
 @(private = "file")
@@ -174,27 +152,21 @@ setTimeout(() => { globalThis.report = (id >= 2147483648) + ':' + (fired ? 'fire
 
 @(test)
 js_clear_globals_on_web_cannot_name_an_id_past_2_31 :: proc(t: ^testing.T) {
-	web, web_allocated := clear_id_forms_report(t, .Web, HIGH_ID_SCRIPT, first_id = 2147483648)
+	web, web_allocated := clear_id_forms_report(t, HIGH_ID_SCRIPT, first_id = 2147483648)
 	defer if web_allocated {
 		delete(web)
 	}
-	node, node_allocated := clear_id_forms_report(t, .Node, HIGH_ID_SCRIPT, first_id = 2147483648)
-	defer if node_allocated {
-		delete(node)
-	}
 
 	testing.expect_value(t, web, "true:fired")
-	testing.expect_value(t, node, "true:cancelled")
 }
 
-// clear_id_forms_report runs `script` on a page of `surface` until its loop idles and
+// clear_id_forms_report runs `script` on a page until its loop idles and
 // returns the page's `report` global ("" when the page never set it); `allocated` says
 // the caller owns the string, as for lava.value_to_string. `first_id`, when set, is
 // where the loop's handle ids start.
 @(private = "file")
 clear_id_forms_report :: proc(
 	t: ^testing.T,
-	surface: lava.Global_Surface,
 	script: string,
 	first_id: eventloop.Timer_ID = 0,
 ) -> (
@@ -208,7 +180,7 @@ clear_id_forms_report :: proc(
 		loop.next_timer_id = first_id
 	}
 
-	if !lava.page_create(&page, "<js-clear-id-forms>", &loop, limits = {cpu_budget = 30}, surface = surface) {
+	if !lava.page_create(&page, "<js-clear-id-forms>", &loop, limits = {cpu_budget = 30}) {
 		testing.fail_now(t, "page_create refused the page")
 	}
 

@@ -107,7 +107,7 @@ runner_runs_a_finalization_cleanup_in_its_page :: proc(t: ^testing.T) {
 
 		defer lava.page_runner_destroy(&runner)
 		o: Page_Outcome
-		lava.page_runner_open(&runner, FR_PAGE, "<fr-runner>", DRIVE_LIMITS, &o, .Web)
+		lava.page_runner_open(&runner, FR_PAGE, "<fr-runner>", DRIVE_LIMITS, &o)
 		testing.expect(t, runner_drive_until(t, &runner, 10), "the page never finished")
 		testing.expectf(t, o.done && o.status == .Ok && o.exit == 0, "page: %s", describe_outcome(o))
 	})
@@ -132,7 +132,7 @@ eval_runs_a_finalization_cleanup :: proc(t: ^testing.T) {
 	on_fresh_thread(t, proc(t: ^testing.T) {
 		loop := eventloop.init(real_time = true)
 		start := time.tick_now()
-		result := lava.eval(FR_PAGE, "<fr-eval>", &loop, false, nil, collect_before_the_loop, t, surface = .Web)
+		result := lava.eval(FR_PAGE, "<fr-eval>", &loop, false, collect_before_the_loop, t)
 		defer lava.result_destroy(&result)
 		elapsed := time.duration_seconds(time.tick_since(start))
 		testing.expectf(
@@ -176,7 +176,6 @@ runner_charges_a_cleanup_to_its_own_page :: proc(t: ^testing.T) {
 			"<heavy-cleanups>",
 			{cpu_budget = 0.5},
 			&a,
-			.Web,
 		)
 		lava.page_runner_open(
 			&runner,
@@ -184,7 +183,6 @@ runner_charges_a_cleanup_to_its_own_page :: proc(t: ^testing.T) {
 			"<light-sibling>",
 			{cpu_budget = 0.5},
 			&b,
-			.Web,
 		)
 		testing.expect(t, runner_drive_until(t, &runner, 20), "the pages never finished")
 		testing.expectf(
@@ -272,7 +270,7 @@ churn_run_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lav
 
 	if c.opened < CHURN_RUN_PAGES {
 		c.opened += 1
-		lava.page_runner_open(runner, CHURN_RUN_SOURCE, "<churn>", DRIVE_LIMITS, c, .Web)
+		lava.page_runner_open(runner, CHURN_RUN_SOURCE, "<churn>", DRIVE_LIMITS, c)
 	}
 }
 
@@ -298,7 +296,7 @@ runner_churn_with_the_drive_does_not_crash :: proc(t: ^testing.T) {
 
 		for _ in 0 ..< 2 {
 			c.opened += 1
-			lava.page_runner_open(&runner, CHURN_RUN_SOURCE, "<churn>", DRIVE_LIMITS, &c, .Web)
+			lava.page_runner_open(&runner, CHURN_RUN_SOURCE, "<churn>", DRIVE_LIMITS, &c)
 		}
 		lava.page_runner_run(&runner)
 		lava.page_runner_destroy(&runner)
@@ -371,7 +369,7 @@ page_sees_finalization_cleanups_as_chrome_does :: proc(t: ^testing.T) {
 		page: lava.Page
 		loop := eventloop.init(real_time = true)
 
-		if !lava.page_create(&page, "<deferred-chrome>", &loop, limits = DRIVE_LIMITS, surface = .Web) {
+		if !lava.page_create(&page, "<deferred-chrome>", &loop, limits = DRIVE_LIMITS) {
 			testing.expect(t, false, "page_create refused the page")
 			result, _ := lava.page_close(&page)
 			lava.result_destroy(&result)
@@ -442,7 +440,6 @@ runloop_page_without_its_replacements_keeps_no_engine_original :: proc(t: ^testi
 			"<fail-closed>",
 			DRIVE_LIMITS,
 			&o,
-			.Web,
 		)
 		lava.page_runner_run(&runner)
 		testing.expect_value(t, jsc.runloop_drive(), jsc.Runloop_Drive.Adopted)
@@ -462,7 +459,7 @@ deferred_enqueue_refuses_a_closed_page :: proc(t: ^testing.T) {
 		page: lava.Page
 		loop := eventloop.init(real_time = true)
 
-		if !lava.page_create(&page, "<closed-enqueue>", &loop, limits = DRIVE_LIMITS, surface = .Web) {
+		if !lava.page_create(&page, "<closed-enqueue>", &loop, limits = DRIVE_LIMITS) {
 			testing.expect(t, false, "page_create refused the page")
 			result, _ := lava.page_close(&page)
 			lava.result_destroy(&result)

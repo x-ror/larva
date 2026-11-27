@@ -5,14 +5,10 @@ import "core:testing"
 import lava "lava:pkg/runtime"
 import eventloop "lava:pkg/runtime/eventloop"
 
-// Proves the parts of the encoding.js hardening (pkg/runtime/js/internal/
-// encoding.js) where Lava is deliberately STRONGER than Node, which is exactly
-// what a node-compat oracle cannot express: Node 24's getEncodingFromLabel falls
-// back to a raw `label.toLowerCase()` and its Buffer-side encoding lookup is
-// likewise reachable, so a differential case would have to be shaped around
-// Node's own weakness (see tests/node-compat/cases/55-encoding-pollution.js,
-// whose M1/M2 use an already-lower-case label so Node hits its exact-match path).
-// Here we assert the property itself.
+// Proves the encoding.js hardening (pkg/runtime/js/internal/encoding.js): the codec
+// stays correct while a page has poisoned the intrinsics it could have read live. No
+// oracle can express it — a recording shows what a page printed, not what a poisoned
+// prototype would have steered — so the property itself is asserted here.
 //
 // The script self-asserts (throws on any wrong value) and restores every
 // intrinsic before printing, so a clean eval (status Ok, exit 0) means the codec
@@ -23,8 +19,6 @@ const realToLowerCase = String.prototype.toLowerCase;
 const realTrim = String.prototype.trim;
 const realFromCharCode = String.fromCharCode;
 const realPush = Array.prototype.push;
-const realBufferFrom = Buffer.from;
-const realBufferToString = Buffer.prototype.toString;
 const realString = globalThis.String;
 const taProto = Object.getPrototypeOf(Uint8Array.prototype);
 const realBufferDesc = Object.getOwnPropertyDescriptor(taProto, 'buffer');
@@ -47,8 +41,6 @@ String.fromCharCode = function () { return 'PWNED'; };
 // Function.prototype.apply is no longer poisoned here: since #450 it is locked
 // before user code, so the assignment throws (pinned by function_call_lock_test).
 Array.prototype.push = function () { return 0; };
-Buffer.from = function () { return new Uint8Array([0x50]); };
-Buffer.prototype.toString = function () { return 'PWNED'; };
 globalThis.String = function () { return 'PWNED'; };
 // The %TypedArray%.prototype.buffer ACCESSOR — the axis a null prototype cannot
 // close. Node 24 is itself poisonable here: its windows-1252 decode reads the
@@ -86,8 +78,6 @@ String.prototype.toLowerCase = realToLowerCase;
 String.prototype.trim = realTrim;
 String.fromCharCode = realFromCharCode;
 Array.prototype.push = realPush;
-Buffer.from = realBufferFrom;
-Buffer.prototype.toString = realBufferToString;
 globalThis.String = realString;
 Object.defineProperty(taProto, 'buffer', realBufferDesc);
 

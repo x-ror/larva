@@ -91,7 +91,8 @@ Churn_Fate :: enum {
 	Finished,
 	Thrown,
 	Budget_Killed,
-	Exited,
+	// Throws from a timer with a fetch still in flight: status .Ok, exit 1.
+	Async_Thrown,
 	// Still running when the runner is destroyed: reported .Cancelled.
 	Cancelled,
 }
@@ -174,7 +175,6 @@ runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first :: proc(t: ^t
 			"<first>",
 			LIMITS,
 			&first,
-			.Web,
 		)
 
 		if len(runner.pool.vms) != 1 {
@@ -207,7 +207,6 @@ runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first :: proc(t: ^t
 			"<second>",
 			{cpu_budget = 1},
 			&second,
-			.Web,
 		)
 		for lava.page_runner_live(&runner) > 0 {
 			lava.page_runner_step(&runner)
@@ -235,7 +234,7 @@ runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first :: proc(t: ^t
 // A churn of pages with every fate gives back everything it took from the runner
 // allocator (CLAUDE.md §4). 48 pages through 6 slots — so 6 VMs, each reused about
 // eight times — finishing normally, throwing at top level, killed by the CPU budget,
-// calling process.exit, and two cancelled by page_runner_destroy while they still
+// throwing from a timer, and two cancelled by page_runner_destroy while they still
 // run. Every page that does not finish normally keeps something registered past its
 // end (an interval, a pending timer or fetch), so a closing loop's cancel paths run on
 // every other fate; the finished pages run a fetch and a timer chain to the end. Each
@@ -245,7 +244,7 @@ runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first :: proc(t: ^t
 // instead of panicking; after destroy its books must be empty, with no such free.
 //
 // The tracking allocator sees what the runner allocates through its own allocator —
-// bookkeeping, every page's Runtime_State and module cache, Result messages — which
+// bookkeeping, every page's Runtime_State, Result messages — which
 // is the allocator the runner's entry points install as context.allocator. Page
 // loops and what JSC is handed are on the heap by design (page_runner.odin,
 // Runner_Page) and are not counted here.
@@ -273,7 +272,7 @@ runner_churn_of_mixed_fates_frees_everything_it_allocates :: proc(t: ^testing.T)
 		case .Finished:
 			cp.source = fmt.aprintf(
 				`fetch('http://127.0.0.1:1/').catch(() => {{}});
-				let n = 0; (function f() {{ if (++n < 3) setTimeout(f, %d); else process.exitCode = 7; }})();`,
+				let n = 0; (function f() {{ if (++n < 3) setTimeout(f, %d); else throw 7; }})();`,
 				delay,
 			)
 		case .Thrown:
@@ -288,10 +287,10 @@ runner_churn_of_mixed_fates_frees_everything_it_allocates :: proc(t: ^testing.T)
 				setTimeout(function spin() {{ const s = Date.now(); while (Date.now() - s < 2) {{}} setTimeout(spin, 0); }}, %d);`,
 				delay,
 			)
-		case .Exited:
+		case .Async_Thrown:
 			cp.source = fmt.aprintf(
-				`setInterval(() => {{}}, 1); fetch('http://127.0.0.1:1/').catch(() => {{}});
-				setTimeout(() => process.exit(4), %d);`,
+				`fetch('http://127.0.0.1:1/').catch(() => {{}});
+				setTimeout(() => {{ throw 4; }}, %d);`,
 				delay,
 			)
 		case .Cancelled:
@@ -326,13 +325,13 @@ runner_churn_of_mixed_fates_frees_everything_it_allocates :: proc(t: ^testing.T)
 		ok := cp.reports == 1 && o.done
 		switch cp.fate {
 		case .Finished:
-			ok = ok && o.status == .Ok && o.kill == .None && o.exit == 7
+			ok = ok && o.status == .Ok && o.kill == .None && o.exit == 1
 		case .Thrown:
 			ok = ok && o.status == .Execution_Error && o.kill == .None && o.exit == 1
 		case .Budget_Killed:
 			ok = ok && o.status == .Execution_Error && o.kill == .Cpu_Budget
-		case .Exited:
-			ok = ok && o.status == .Ok && o.kill == .None && o.exit == 4
+		case .Async_Thrown:
+			ok = ok && o.status == .Ok && o.kill == .None && o.exit == 1
 		case .Cancelled:
 			ok = ok && o.status == .Execution_Error && o.kill == .Cancelled
 		}
@@ -359,9 +358,11 @@ runner_churn_of_mixed_fates_frees_everything_it_allocates :: proc(t: ^testing.T)
 // wrapping our call sites, so a Protect nobody thought to wrap is counted too. One VM,
 // one page at a time, each a different way of holding JS values across loop turns:
 // timers and an interval that runs out, promise chains across timers, a fetch whose
-// callbacks fire, a .Web page doing the same, and four pages that end with callbacks
-// still registered — killed by the entry limit, by the CPU budget, by process.exit,
-// and by a top-level throw — whose cancel paths must unprotect what fire never did.
+// callbacks fire, a page doing all of it at once, and three pages that end with
+// callbacks still registered — killed by the entry limit, by the CPU budget, and by a
+// top-level throw — whose cancel paths must unprotect what fire never did. A page
+// proves it reached the state it claims by throwing from the callback that gets there:
+// exit code 1, which a page that never got there does not have.
 // The globals count is the context itself: a page whose context is not released
 // leaves its global protected.
 //
@@ -380,7 +381,6 @@ runner_pages_leave_the_vm_protect_count_where_they_found_it :: proc(t: ^testing.
 		name:    string,
 		source:  string,
 		limits:  lava.Page_Limits,
-		surface: lava.Global_Surface,
 		// How the page must end, so a case that never reached the state it claims
 		// to leave behind fails rather than passing on an empty page.
 		status:  lava.Status,
@@ -394,39 +394,35 @@ runner_pages_leave_the_vm_protect_count_where_they_found_it :: proc(t: ^testing.
 		{
 			"timers",
 			`let n = 0; setTimeout(() => {}, 1);
-			const i = setInterval(() => { if (++n === 3) { clearInterval(i); process.exitCode = 7; } }, 1);`,
+			const i = setInterval(() => { if (++n === 3) { clearInterval(i); throw 7; } }, 1);`,
 			LIMITS,
-			.Node,
 			.Ok,
 			.None,
-			7,
+			1,
 		},
 		{
 			"promises",
 			`new Promise((r) => setTimeout(r, 2)).then(() => Promise.resolve(1)).then((v) => {
-				queueMicrotask(() => { process.exitCode = v + 6; });
+				queueMicrotask(() => { if (v === 1) throw v; });
 			});`,
 			LIMITS,
-			.Node,
 			.Ok,
 			.None,
-			7,
+			1,
 		},
 		{
 			"fetch",
-			`fetch('http://127.0.0.1:1/').then(() => { process.exitCode = 8; }, () => { process.exitCode = 7; });`,
+			`fetch('http://127.0.0.1:1/').then(() => {}, () => { throw 7; });`,
 			LIMITS,
-			.Node,
 			.Ok,
 			.None,
-			7,
+			1,
 		},
 		{
 			"web",
 			`setTimeout(() => {}, 1); fetch('http://127.0.0.1:1/').then(() => {}, () => {});
 			new Promise((r) => setTimeout(r, 2)).then(() => {});`,
 			LIMITS,
-			.Web,
 			.Ok,
 			.None,
 			0,
@@ -437,7 +433,6 @@ runner_pages_leave_the_vm_protect_count_where_they_found_it :: proc(t: ^testing.
 			new Promise(() => {}).then(() => {});
 			setTimeout(() => { for (;;) {} }, 5);`,
 			{entry_limit = 0.05, cpu_budget = LIMITS.cpu_budget},
-			.Node,
 			.Execution_Error,
 			.Entry_Limit,
 			1,
@@ -447,27 +442,15 @@ runner_pages_leave_the_vm_protect_count_where_they_found_it :: proc(t: ^testing.
 			`setInterval(() => {}, 1); fetch('http://127.0.0.1:1/').catch(() => {});
 			(function spin() { const s = Date.now(); while (Date.now() - s < 2) {} setTimeout(spin, 0); })();`,
 			{cpu_budget = 0.05},
-			.Node,
 			.Execution_Error,
 			.Cpu_Budget,
 			1,
-		},
-		{
-			"process.exit",
-			`setInterval(() => {}, 1); fetch('http://127.0.0.1:1/').catch(() => {});
-			setTimeout(() => process.exit(3), 2);`,
-			LIMITS,
-			.Node,
-			.Ok,
-			.None,
-			3,
 		},
 		{
 			"top-level throw",
 			`setInterval(() => {}, 1); setTimeout(() => {}, 1000); fetch('http://127.0.0.1:1/').catch(() => {});
 			throw new Error('top');`,
 			LIMITS,
-			.Node,
 			.Execution_Error,
 			.None,
 			1,
@@ -485,7 +468,7 @@ runner_pages_leave_the_vm_protect_count_where_they_found_it :: proc(t: ^testing.
 	for pass in 0 ..< 2 {
 		for c in cases {
 			o: Page_Outcome
-			lava.page_runner_open(&runner, c.source, c.name, c.limits, &o, c.surface)
+			lava.page_runner_open(&runner, c.source, c.name, c.limits, &o)
 			lava.page_runner_run(&runner)
 			testing.expectf(
 				t,

@@ -3,17 +3,14 @@ package main
 
 import "core:strings"
 import "core:testing"
-import jsc "lava:pkg/jsc"
 import lava "lava:pkg/runtime"
 import eventloop "lava:pkg/runtime/eventloop"
 
-// Pins Global_Surface (runtime.odin), a Lava-only seam with no node counterpart:
-// node has one global surface, so nothing here is oracle-able and it lives in an
-// Odin test. `.Node` is the default and must stay byte-identical to the pre-seam
-// runtime; `.Web` must make every Node-only NAME unreachable from the script while
-// the web-platform APIs it keeps still WORK, not merely exist — an API that throws
-// because an internal module read a removed global live would pass a `typeof`
-// check and fail here.
+// Pins the Window global surface (docs/LARVA.md decision 1): every Node-only NAME is
+// unreachable from the page while the web-platform APIs still WORK, not merely exist —
+// an API that throws because an internal module read a removed global live would pass
+// a `typeof` check and fail here. tests/web/cases/globals-window.js pins the names
+// against Chrome; this adds the internal `__lava*` hooks Chrome cannot know about.
 //
 // Every check is recorded and compared at the end rather than thrown at first
 // failure, so a mutation's red output names the check it broke (the manifest's
@@ -211,7 +208,7 @@ main().then(function () {
 global_surface_web_hides_node_names :: proc(t: ^testing.T) {
 	loop := eventloop.init()
 	// eval consumes (destroys) the loop on every path; do not destroy it here.
-	result := lava.eval(GLOBAL_SURFACE_WEB_SCRIPT, "<global-surface-web-test>", &loop, false, surface = .Web)
+	result := lava.eval(GLOBAL_SURFACE_WEB_SCRIPT, "<global-surface-web-test>", &loop, false)
 	defer lava.result_destroy(&result)
 
 	testing.expectf(
@@ -226,195 +223,13 @@ global_surface_web_hides_node_names :: proc(t: ^testing.T) {
 	testing.expectf(t, result.exit_code == 0, "eval exit code=%d (want 0)", result.exit_code)
 }
 
-// The ESM transform emits `require` and `__lava_precache`, which `.Web` never
-// injects, so an `.mjs` source name is refused up front rather than failing inside
-// the transformed body. The `.Node` control proves the refusal is the surface's.
+// A page runs classic scripts only, so an `.mjs` source name is refused up front.
 @(test)
 global_surface_web_rejects_mjs :: proc(t: ^testing.T) {
-	web := lava.eval("export const x = 1;\n", "entry.mjs", nil, surface = .Web)
+	web := lava.eval("export const x = 1;\n", "entry.mjs", nil)
 	defer lava.result_destroy(&web)
 	testing.expectf(t, web.status == .Invalid_Input, "web .mjs status=%v (want Invalid_Input)", web.status)
 	testing.expect_value(t, web.exit_code, 2)
 	testing.expectf(t, strings.contains(web.message, ".mjs"), "web .mjs message=%q", web.message)
-
-	node := lava.eval("export const x = 1;\n", "entry.mjs", nil)
-	defer lava.result_destroy(&node)
-	testing.expectf(t, node.status == .Ok, "node .mjs status=%v message=%q", node.status, node.message)
 }
 
-// What each surface's script asserts about the names. Thrown from the top level, so
-// a miss lands in Result.message by name.
-@(private = "file")
-NODE_NAMES_PRESENT :: `
-const missing = ['process', 'require', 'module', 'exports', '__filename', '__dirname', 'Buffer', 'global',
-  'setImmediate', 'clearImmediate', '__lava_precache', '__lavaDrainNextTicks'].filter(function (n) {
-  return new Function('return typeof ' + n)() === 'undefined';
-});
-if (missing.length !== 0) throw new Error('node surface missing: ' + missing.join(','));
-`
-
-@(private = "file")
-NODE_NAMES_ABSENT :: `
-const present = ['process', 'require', 'module', 'exports', '__filename', '__dirname', 'Buffer', 'global',
-  'setImmediate', 'clearImmediate', '__lava_precache', '__lavaDrainNextTicks', '__lava_tl_drain'].filter(function (n) {
-  return new Function('return typeof ' + n)() !== 'undefined';
-});
-if (present.length !== 0) throw new Error('web surface still has: ' + present.join(','));
-`
-
-// Node → Web → Node on one thread: nothing the first context set up (a cached host
-// function, a thread-local) may carry the Node names into the Web one, and the Web
-// one must not leave the next Node context short. The Node evals use the DEFAULT
-// argument, which pins `.Node` as the default surface.
-@(test)
-global_surface_alternates_on_one_thread :: proc(t: ^testing.T) {
-	expect_ok :: proc(t: ^testing.T, what: string, result: lava.Result) {
-		testing.expectf(t, result.status == .Ok, "%s: status=%v message=%q", what, result.status, result.message)
-	}
-
-	first := lava.eval(NODE_NAMES_PRESENT, "<surface-node-1>", nil)
-	defer lava.result_destroy(&first)
-	expect_ok(t, "node before web", first)
-
-	web := lava.eval(NODE_NAMES_ABSENT, "<surface-web>", nil, surface = .Web)
-	defer lava.result_destroy(&web)
-	expect_ok(t, "web after node", web)
-
-	second := lava.eval(NODE_NAMES_PRESENT, "<surface-node-2>", nil)
-	defer lava.result_destroy(&second)
-	expect_ok(t, "node after web", second)
-}
-
-// `.Web` never runs install_stdio, so internal/stdio and the node-streams stack it
-// pulls in (node:stream, events, the internal/streams/* files) are never compiled.
-// Observed through Runtime_State.builtin_compiles, the counter lazy_builtins_test.odin
-// reads: after init, the first `events` resolve compiles it under `.Web` and finds it
-// cached under `.Node`. `events` rather than `stream` because only stdio's stack pulls
-// it in and its factory reads no removed global; node:stream's internals capture
-// `process.nextTick` at module-eval, so instantiating it on `.Web` throws — which is
-// fine, nothing there can require it. Built by hand rather than through lava.eval so
-// the state outlives init and the counter can be read.
-@(test)
-global_surface_web_skips_stdio :: proc(t: ^testing.T) {
-	node_init, node_events, node_ok := surface_resolve_compiles(.Node, "events")
-	web_init, web_events, web_ok := surface_resolve_compiles(.Web, "events")
-	testing.expect(t, node_ok, "node: the builtin resolver did not answer 'events'")
-	testing.expect(t, web_ok, "web: the builtin resolver did not answer 'events'")
-
-	testing.expectf(
-		t,
-		node_events == 0,
-		"node: resolving events compiled %d factories (want 0: stdio loaded it)",
-		node_events,
-	)
-	testing.expectf(t, web_events > 0, "web: resolving events compiled nothing — stdio was instantiated at init")
-	testing.expectf(
-		t,
-		web_init < node_init,
-		"web init compiled %d factories, node init %d — web must compile fewer",
-		web_init,
-		node_init,
-	)
-}
-
-// `.Web` installs every web global — Blob/File/atob/btoa and the URL object-URL statics,
-// the Web Streams family, URL/URLSearchParams, crypto — from internal/ modules, without
-// instantiating a js/node/ module beyond WEB_NODE_MODULES. The Node-profile removal
-// deletes js/node/ (docs/LARVA.md decision 1), and a web global whose installer still
-// lived in a node/ module would go with it. Lava-only: which factories init ran is
-// not observable from a page or from node.
-//
-// Read per module through Runtime_State.builtin_compiles on a FRESH `.Web` context:
-// resolving an id the loader already instantiated compiles nothing, resolving one it
-// did not compiles at least that factory. Fresh per id because a resolve instantiates
-// the module's own requires too, which would read as "loaded at init" for the next id
-// probed on the same context.
-@(test)
-global_surface_web_loads_no_node_module :: proc(t: ^testing.T) {
-	probed := 0
-
-	for dir in lava.EMBEDDED_JS_DIRS {
-		if dir.prefix != "node" && !strings.has_prefix(dir.prefix, "node/") {
-			continue
-		}
-
-		for file in dir.files {
-			if !strings.has_suffix(file.name, ".js") {
-				continue
-			}
-
-			// Not the temp allocator: surface_resolve_compiles frees it on return.
-			id := strings.concatenate({dir.prefix, "/", file.name[:len(file.name) - len(".js")]})
-			defer delete(id)
-			_, compiles, answered := surface_resolve_compiles(.Web, id[len("node/"):])
-			loaded := answered && compiles == 0
-			allowed := false
-
-			for keep in WEB_NODE_MODULES {
-				if keep == id {
-					allowed = true
-				}
-			}
-
-			probed += 1
-
-			if allowed {
-				testing.expectf(t, loaded, "%s is in WEB_NODE_MODULES but .Web init no longer loads it: drop it", id)
-			} else {
-				testing.expectf(t, !loaded, "%s was loaded by .Web init", id)
-			}
-		}
-	}
-
-	testing.expectf(t, probed > len(WEB_NODE_MODULES), "probed %d node/ modules — the embedded table is empty", probed)
-}
-
-// The node/ modules `.Web` init still instantiates, and why. Must only shrink, and is
-// empty: node/buffer, the last entry, went when the loader stopped instantiating it on
-// `.Web` and the shared code still reaching Buffer took the codec natives instead
-// (internal/base64) or captures Buffer on the Node surface only (internal/crypto/*).
-// Kept as a list so a regression names the module rather than editing the loop.
-@(private = "file")
-WEB_NODE_MODULES :: [?]string{}
-
-// surface_resolve_compiles inits a context on `surface` and returns how many builtin
-// factories init compiled, then how many one resolve of `spec` compiled on top, and
-// whether the resolver answered it with exports (false for an unknown or excluded id
-// and for a factory that threw).
-@(private = "file")
-surface_resolve_compiles :: proc(
-	surface: lava.Global_Surface,
-	spec: string,
-) -> (
-	at_init: int,
-	compiles: int,
-	answered: bool,
-) {
-	jsc.lava_jsc_init()
-	gclass := lava.make_global_class()
-	gctx := jsc.JSGlobalContextCreate(gclass)
-
-	if gctx == nil {
-		jsc.JSClassRelease(gclass)
-		return
-	}
-
-	defer jsc.JSClassRelease(gclass)
-	defer jsc.JSGlobalContextRelease(gctx)
-	ctx := cast(jsc.JSContextRef)gctx
-
-	state := lava.new_runtime_state(nil)
-	jsc.JSObjectSetPrivate(jsc.JSContextGetGlobalObject(ctx), cast(rawptr)state)
-	defer lava.destroy_runtime_state(ctx, state)
-	lava.capture_error_intrinsics(ctx, state)
-	jsc.prime_view_probe(ctx)
-	lava.setup_module_environment(ctx, "<global-surface-resolve-test>", nil, surface)
-	defer free_all(context.temp_allocator)
-
-	at_init = state.builtin_compiles
-	exception: jsc.JSValueRef
-	exports := lava.require_builtin(ctx, lava.js_string_value(ctx, spec), &exception)
-	answered = exports != nil
-	compiles = state.builtin_compiles - at_init
-	return
-}

@@ -36,7 +36,6 @@
   var ObjectSetPrototypeOf = P.ObjectSetPrototypeOf;
   var ReflectConstruct = P.ReflectConstruct;
   var illegalInvocation = webErrors.illegalInvocation;
-  var web = webErrors.web;
   var toDOMString = webErrors.toDOMString;
   var typeError = webErrors.typeError;
 
@@ -191,15 +190,12 @@
       var self = ReflectConstruct(ErrorP, [], new.target);
       // The Error constructor gave it JSC's own line/column/sourceURL/stack. A page's
       // `new DOMException()` has no own property at all in Chrome (no `stack`
-      // either; domexception-class.expected), so all four go on the Window surface;
-      // node keeps a `stack` on one (probed: Reflect.ownKeys is ['stack']). An
-      // exception the platform throws gets its stack back from pageError.
+      // either; domexception-class.expected), so all four go. An exception the
+      // platform throws gets its stack back from pageError.
       delete self.line;
       delete self.column;
       delete self.sourceURL;
-      if (web) {
-        delete self.stack;
-      }
+      delete self.stack;
 
       new DOMExceptionSlots(self, name, message);
       return self;

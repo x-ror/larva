@@ -32,7 +32,6 @@
   var extractContentType = bodyModule.extractContentType;
 
   var webErrors = require('internal/web_errors');
-  var web = webErrors.web;
   var context = webErrors.context;
   var pageError = webErrors.pageError;
   var illegalInvocation = webErrors.illegalInvocation;
@@ -56,8 +55,7 @@
   var JSC_BIGINT_MESSAGE = 'JSON.stringify cannot serialize BigInt.';
   var V8_BIGINT_MESSAGE = 'Do not know how to serialize a BigInt';
 
-  function responseError(Ctor, ctx, detail, nodeText) {
-    if (!web) return new Ctor(nodeText);
+  function responseError(Ctor, ctx, detail) {
     return pageError(new Ctor(ctx + detail));
   }
 
@@ -125,24 +123,18 @@
           RangeErrorP,
           ctx,
           'The status provided (' + status + ') is outside the range [200, 599].',
-          'init["status"] must be in the range of 200 to 599, inclusive.',
         );
       }
 
       if (!isReasonPhrase(statusText)) {
-        throw responseError(TypeErrorP, ctx, 'Invalid statusText', 'Invalid statusText');
+        throw responseError(TypeErrorP, ctx, 'Invalid statusText');
       }
 
       var headers = new Headers();
       if (headersInit !== undefined) fillHeaders(headers, headersInit, ctx);
       if (body !== undefined && body !== null) {
         if (ArrayPrototypeIncludes(NULL_BODY_STATUSES, status)) {
-          throw responseError(
-            TypeErrorP,
-            ctx,
-            'Response with null body status cannot have body',
-            'Response constructor: Invalid response status code ' + status,
-          );
+          throw responseError(TypeErrorP, ctx, 'Response with null body status cannot have body');
         }
 
         // Response.json's body is typed application/json, any other the way the fetch
@@ -194,16 +186,11 @@
     clone() {
       var state = stateOf(this, 'Response');
       if (state === undefined) {
-        throw responseError(TypeErrorP, CTX_CLONE, 'Illegal invocation', 'Illegal invocation');
+        throw responseError(TypeErrorP, CTX_CLONE, 'Illegal invocation');
       }
 
       if (bodyUsedOf(state)) {
-        throw responseError(
-          TypeErrorP,
-          CTX_CLONE,
-          'Response body is already used',
-          'Response body is already used',
-        );
+        throw responseError(TypeErrorP, CTX_CLONE, 'Response body is already used');
       }
 
       var clonedBody;
@@ -261,23 +248,16 @@
       try {
         text = JSONStringify(data);
       } catch (e) {
-        if (!web) throw e;
         var message = StringP(e && e.message);
         throw responseError(
           TypeErrorP,
           CTX_JSON,
           message === JSC_BIGINT_MESSAGE ? V8_BIGINT_MESSAGE : message,
-          '',
         );
       }
 
       if (text === undefined) {
-        throw responseError(
-          TypeErrorP,
-          CTX_JSON,
-          'The data is not JSON serializable',
-          'Value is not JSON serializable',
-        );
+        throw responseError(TypeErrorP, CTX_JSON, 'The data is not JSON serializable');
       }
 
       return new Response(text, init, JSON_VIA);
@@ -297,18 +277,12 @@
       try {
         parsed = new (require('internal/url').URL)(text);
       } catch (e) {
-        if (!web) throw e;
-        throw responseError(TypeErrorP, CTX_REDIRECT, 'Failed to parse URL from ' + text, '');
+        throw responseError(TypeErrorP, CTX_REDIRECT, 'Failed to parse URL from ' + text);
       }
 
       var code = status === undefined ? 302 : toUnsignedShort(status);
       if (!ArrayPrototypeIncludes(REDIRECT_STATUSES, code)) {
-        throw responseError(
-          RangeErrorP,
-          CTX_REDIRECT,
-          'Invalid status code',
-          'Invalid status code ' + code,
-        );
+        throw responseError(RangeErrorP, CTX_REDIRECT, 'Invalid status code');
       }
 
       var headers = new Headers();

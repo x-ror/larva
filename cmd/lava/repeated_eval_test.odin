@@ -24,14 +24,12 @@ import eventloop "lava:pkg/runtime/eventloop"
 // runner escalated to a segfault or a tracking-allocator bad free. Each eval below
 // must therefore report a clean status and a zero exit code (the loader failure
 // itself goes to stderr, not into Result.message, so the script below is what
-// turns it into an observable failure); the
-// script itself exercises the pooled allocUnsafe path that first showed the bug.
+// turns it into an observable failure); the script itself calls through cached host
+// natives (the codecs behind TextDecoder, atob and URL's host parse).
 REPEATED_EVAL_SOURCE :: `
 'use strict';
-const b = Buffer.allocUnsafe(64);
-b.fill(0x61);
 const s = new TextDecoder().decode(new Uint8Array([0x41, 0x42]));
-if (b.toString('latin1', 0, 3) !== 'aaa') throw new Error('pool');
+if (atob('YWFh') !== 'aaa') throw new Error('codec');
 if (s !== 'AB') throw new Error('decode');
 if (new URL('http://%C3%BCber.example/').hostname !== 'xn--ber-goa.example')
   throw new Error('url');

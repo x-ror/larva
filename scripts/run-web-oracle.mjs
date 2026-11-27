@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `make test-web`: runs every tests/web case under `lava run --surface=web` and
+// `make test-web`: runs every tests/web case under `lava run` and
 // compares its stdout byte for byte with the Chrome recording beside it
 // (scripts/lib/web-oracle.mjs `judge` decides each verdict).
 //
@@ -121,7 +121,7 @@ async function runCase(name) {
 // page's object URLs are minted under the same origin on both sides (blob-object-url).
 function runLava(file, origin) {
   return new Promise((resolveRun) => {
-    const child = spawn(LAVA, ['run', '--surface=web', `--origin=${origin}`, file], {
+    const child = spawn(LAVA, ['run', `--origin=${origin}`, file], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';

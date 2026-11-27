@@ -63,8 +63,6 @@ Page :: struct {
 	// page_close, whichever comes first — one slot, so a caller evaluating in a loop
 	// roots one value, not every value it ever asked for.
 	eval_value:   jsc.JSValueRef,
-	// Fixed by page_create: page_run_script and page_eval follow it.
-	surface:      Global_Surface,
 	// Set by page_run_script on entry: a page runs one top-level script.
 	script_ran:   bool,
 	// Set once the Result is decided early (a pre-flight rejection, a top-level throw,
@@ -101,12 +99,9 @@ Run_Until_Cond :: proc(page: ^Page, user_data: rawptr) -> bool
 //
 // This is eval's body, moved: ordering, error messages and exit codes are eval's,
 // pinned by every oracle suite that runs through `lava run`/`lava eval`.
-// `runner_page` makes process.exit() end this page instead of the process (the page
-// runner hosts siblings on the same thread).
-// `surface` (Global_Surface, runtime.odin) picks the global names the script can
-// reach. `.Web` runs a classic script only: an `.mjs` source name is refused before
-// a context exists, and the entry is neither registered in the module cache nor
-// given the top-level nextTick drain. Lava's eval does the same three things.
+// `runner_page` marks a page the page runner hosts beside siblings on the same thread.
+// A page runs a classic script only: an `.mjs` source name is refused before a
+// context exists.
 //
 // It is page_create + page_run_script, with the source pre-flight run first: a source
 // refused there never costs a VM or a context, as before the split.
@@ -116,20 +111,18 @@ page_open :: proc(
 	source_name := "<eval>",
 	loop: ^eventloop.Loop = nil,
 	echo_result := false,
-	script_args: []string = nil,
 	limits: Page_Limits = {},
 	pool: ^VM_Pool = nil,
 	runner_page := false,
-	surface: Global_Surface = .Node,
 	origin := "",
 ) -> bool {
 	page^ = {}
 
-	if refusal, refused := page_preflight(source, source_name, surface); refused {
+	if refusal, refused := page_preflight(source, source_name); refused {
 		return page_finish_early(page, loop, refusal)
 	}
 
-	if !page_create(page, source_name, loop, script_args, limits, pool, runner_page, surface, origin) {
+	if !page_create(page, source_name, loop, limits, pool, runner_page, origin) {
 		return false
 	}
 
@@ -140,9 +133,8 @@ page_open :: proc(
 // pool by default) and installs the runtime, running no user source.
 //
 // Params:
-//   source_name  The entry's name: process.argv[1] and, on `.Node`, __filename and
-//                __dirname are derived from it at install, so it is the name the
-//                top-level script will be run under (page_run_script's source_name).
+//   source_name  The entry's name, the one the top-level script will be run under
+//                (page_run_script's source_name).
 //   loop         Owned by the page from this call on, on EVERY path: a failure here
 //                destroys it, a success hands it to page_close.
 // Returns:
@@ -161,15 +153,12 @@ page_create :: proc(
 	page: ^Page,
 	source_name := "<eval>",
 	loop: ^eventloop.Loop = nil,
-	script_args: []string = nil,
 	limits: Page_Limits = {},
 	pool: ^VM_Pool = nil,
 	runner_page := false,
-	surface: Global_Surface = .Node,
 	origin := "",
 ) -> bool {
 	page^ = {}
-	page.surface = surface
 	// A JS runtime must survive writes to closed pipes/sockets (Node parity):
 	// see signals_posix.odin. Installed per page — the call is idempotent.
 	ignore_sigpipe()
@@ -182,7 +171,7 @@ page_create :: proc(
 	jsc.lava_jsc_init()
 
 	// A custom global class gives the global object a private-data slot, where we
-	// stash Runtime_State (loop + module cache) out of reach of user JavaScript.
+	// stash Runtime_State out of reach of page JavaScript.
 	global_class := make_global_class()
 	vm, ctx, vm_err := create_eval_context(global_class, pool)
 
@@ -255,16 +244,10 @@ page_create :: proc(
 	// From here the loop is torn down by page_close, with the state and context
 	// still alive around it.
 	page.loop = loop
-	// Build Node's process.argv = [execPath, scriptPath, ...userArgs]. argv[0] is
-	// the lava binary (absolute, like Node's execPath); argv[1] is the absolute
-	// script path (omitted for `lava eval`, where there is no script file). Built in
-	// the temp arena, which outlives install_process: nothing resets it before the
-	// first loop tick.
-	state.script_argv = build_process_argv(source_name, script_args)
 	jsc.JSObjectSetPrivate(jsc.JSContextGetGlobalObject(cast(jsc.JSContextRef)ctx), cast(rawptr)state)
 
 	// Snapshot the standard error constructors while globalThis is still pristine —
-	// before setup_module_environment's builtin JS and, crucially, before any user
+	// before setup_page_environment's builtin JS and, crucially, before any user
 	// code. make_native_error builds native throws from these captured intrinsics, so
 	// a script that later overwrites globalThis.RangeError/TypeError/etc. cannot
 	// intercept or reshape a native error (matches Node, whose internal errors never
@@ -280,7 +263,7 @@ page_create :: proc(
 	// budget spent here was reported by the script's end-of-run check instead — the
 	// same kill Result, now decided one step earlier.
 	vm_cpu_enter(vm)
-	setup_module_environment(cast(jsc.JSContextRef)ctx, source_name, loop, surface)
+	setup_page_environment(cast(jsc.JSContextRef)ctx, loop)
 	vm_cpu_exit(vm)
 	// Before any page code: what the install could not replace is not left as the engine's
 	// on a thread whose RunLoop is driven (deferred.odin).
@@ -297,9 +280,7 @@ page_create :: proc(
 // page_create made live.
 //
 // Params:
-//   source_name  The name page_create was given: the script's source URL, `.mjs`
-//                selects the ESM transform, and on `.Node` the entry is registered in
-//                the module cache under it.
+//   source_name  The name page_create was given: the script's source URL.
 //   echo_result  Keep the completion value for page_close's Result.message.
 // Returns:
 //   page_open's contract: true when the page has a loop worth ticking; false when it
@@ -311,8 +292,7 @@ page_create :: proc(
 //   exception, exit code 1 — pinned by every oracle suite.
 page_run_script :: proc(page: ^Page, source: string, source_name := "<eval>", echo_result := false) -> bool {
 	// One top-level script per page: a second would take the completion slot the first
-	// protected, and register a second entry module. Refused before anything runs; the
-	// page is left as it was.
+	// protected. Refused before anything runs; the page is left as it was.
 	if page.finished || page.ctx == nil || page.state == nil || page.script_ran {
 		return false
 	}
@@ -320,51 +300,20 @@ page_run_script :: proc(page: ^Page, source: string, source_name := "<eval>", ec
 	page.script_ran = true
 	ctx := page.ctx
 	vm := page.vm
-	state := page.state
-	surface := page.surface
 
 	// Applied again for a page_open caller, who ran it before page_create: string
 	// checks, cheaper than a second code path that skips them.
-	if refusal, refused := page_preflight(source, source_name, surface); refused {
+	if refusal, refused := page_preflight(source, source_name); refused {
 		return page_fail(page, refusal)
 	}
 
-	// The entry body, its promise jobs and its nextTicks are one stretch on the page's
+	// The entry body and its promise jobs are one stretch on the page's
 	// VM, charged to its CPU budget. Released on every return; vm_cpu_exit is a no-op
 	// once the depth is back at 0.
 	vm_cpu_enter(vm)
 	defer vm_cpu_exit(vm)
 
-	// ESM entrypoints (.mjs) are rewritten to CommonJS via the same transform the
-	// loader applies to imported .mjs modules; script (.js) and `lava eval`
-	// sources run unchanged.
-	eval_source := source
-	mjs_wrapped: string
-	mjs_allocated := false
-	defer if mjs_allocated {
-		delete(mjs_wrapped)
-	}
-
-	if strings.has_suffix(source_name, ".mjs") {
-		wrap_exception: jsc.JSValueRef
-		wrapped, ok := esm_wrap_source(cast(jsc.JSContextRef)ctx, source, source_name, &wrap_exception)
-
-		if !ok {
-			return page_fail_with_exception(page, wrap_exception)
-		}
-
-		eval_source = wrapped
-		mjs_wrapped = wrapped
-		mjs_allocated = true
-	} else if surface == .Node {
-		// Register the CommonJS/script entry in the module cache before it runs, so
-		// requiring the entry by path returns the same instance (and an entry-
-		// involved require cycle terminates instead of re-executing the entry). The
-		// .mjs entry handles this itself via __lava_precache in its transformed body.
-		register_entry_module(cast(jsc.JSContextRef)ctx, state, source_name)
-	}
-
-	value, exception, alloc_failure := page_evaluate(page, eval_source, source_name)
+	value, exception, alloc_failure := page_evaluate(page, source, source_name)
 
 	if alloc_failure != "" {
 		return page_fail(page, Result{status = .Invalid_Input, exit_code = 2, message = alloc_failure})
@@ -374,24 +323,12 @@ page_run_script :: proc(page: ^Page, source: string, source_name := "<eval>", ec
 		return page_fail_with_exception(page, exception)
 	}
 
-	// Refresh the cached entry exports: a CommonJS entry body may have reassigned
-	// module.exports, so the pre-eval partial registered above is now stale.
-	if !mjs_allocated && surface == .Node {
-		register_entry_module(cast(jsc.JSContextRef)ctx, state, source_name)
-	}
-
 	// Kept for the echo, protected because the loop runs before page_close reads it.
 	if echo_result && value != nil && !jsc.JSValueIsUndefined(cast(jsc.JSContextRef)ctx, value) {
 		jsc.JSValueProtect(cast(jsc.JSContextRef)ctx, value)
 		page.completion = value
 	}
 
-	// The drain page_evaluate appended ran nextTicks queued synchronously by the
-	// top-level body; this runs the ones queued by the promise jobs JSC auto-drained
-	// when JSEvaluateScript returned — so the nextTick queue is empty before the loop's
-	// first timer/I/O phase, since Node drains nextTicks ahead of timers. Same
-	// after-the-boundary re-drain that invoke_user_callback does per callback.
-	drain_next_ticks_settled(cast(jsc.JSContextRef)ctx, state)
 	vm_cpu_exit(vm)
 
 	if ended, result := page_ended(page); ended {
@@ -432,22 +369,17 @@ page_run_script :: proc(page: ^Page, source: string, source_name := "<eval>", ec
 // only ever threw here still closes .Ok. A limit kill or a requested stop
 // (process.exit on a runner page) does end the page — those belong to the page, not
 // the call — and page_close returns that Result. The call is charged to the page's
-// CPU budget like a tick. On `.Node` it ends with the same nextTick drain as the
-// top-level script (the appended drain plus drain_next_ticks_settled), so a nextTick
-// it queues runs before the next timer; `.Web` has neither, as for the top-level
-// script. No ESM: an `.mjs` source_name only names the script.
+// CPU budget like a tick. No ESM: an `.mjs` source_name only names the script.
 page_eval :: proc(page: ^Page, source: string, source_name := "<page_eval>") -> (value: jsc.JSValueRef, ok: bool) {
 	if page.finished || page.ctx == nil || page.state == nil {
 		return nil, false
 	}
 
 	// Per-eval temp arena boundary, as in eval and native_require_cb (CLAUDE.md §4):
-	// page_evaluate's scratch (the source name's cstring, on `.Node` the source plus
-	// its drain) and whatever the script's natives take would otherwise wait for the
-	// next tick's reset — forever on a page with no loop, and a source's size per call
-	// for a host evaluating between ticks. free_all rather than a temp guard because a
-	// require the script makes runs its own free_all mid-call, which a guard's rewind
-	// asserts against. Nothing returned lives in the temp arena: the value is JSC's.
+	// page_evaluate's scratch (the source name's cstring) and whatever the script's
+	// natives take would otherwise wait for the next tick's reset — forever on a page
+	// with no loop. free_all rather than a temp guard, as eval does. Nothing returned
+	// lives in the temp arena: the value is JSC's.
 	defer free_all(context.temp_allocator)
 
 	ctx := cast(jsc.JSContextRef)page.ctx
@@ -462,25 +394,18 @@ page_eval :: proc(page: ^Page, source: string, source_name := "<page_eval>") -> 
 	vm_cpu_enter(page.vm)
 	result, exception, alloc_failure := page_evaluate(page, source, source_name)
 
-	// Rooted before the drain, not after: the drain runs page JS (nextTicks and the
-	// promise jobs a C-API exit flushes), which can allocate and collect, and a value
-	// held only in a native local is live then only by JSC's conservative stack scan
-	// (CLAUDE.md §4). page_evaluate leaves `result` nil on a throw.
+	// Rooted at once: the page JS that runs before the caller reads it can allocate and
+	// collect, and a value held only in a native local is live then only by JSC's
+	// conservative stack scan (CLAUDE.md §4). page_evaluate leaves `result` nil on a throw.
 	if result != nil {
 		jsc.JSValueProtect(ctx, result)
 		page.eval_value = result
 	}
 
-	// A throw leaves the page live, so its queued nextTicks still run ahead of the next
-	// timer, as after any callback that threw.
-	if alloc_failure == "" {
-		drain_next_ticks_settled(ctx, page.state)
-	}
-
 	vm_cpu_exit(page.vm)
 
 	if ended, end := page_ended(page); ended {
-		// A kill during the drain: the call fails, so the slot holds nothing. The
+		// A kill during the call: it fails, so the slot holds nothing. The
 		// context is still alive; only page_close releases it.
 		if page.eval_value != nil {
 			jsc.JSValueUnprotect(ctx, page.eval_value)
@@ -892,7 +817,7 @@ page_finish_early :: proc(page: ^Page, loop: ^eventloop.Loop, result: Result) ->
 // page_preflight is the top-level script's source check, which needs no context:
 // page_open runs it before one exists, page_run_script again on a live page.
 @(private = "file")
-page_preflight :: proc(source, source_name: string, surface: Global_Surface) -> (refusal: Result, refused: bool) {
+page_preflight :: proc(source, source_name: string) -> (refusal: Result, refused: bool) {
 	invalid_input :: proc(message: string) -> Result {
 		return Result{status = .Invalid_Input, exit_code = 2, message = message}
 	}
@@ -901,16 +826,15 @@ page_preflight :: proc(source, source_name: string, surface: Global_Surface) -> 
 		return invalid_input("empty JavaScript source"), true
 	}
 
+	// `node:` names the runtime's own sources (internal/web_errors scrubs every frame
+	// under it from a page's stacks), so a page may not run under one.
 	if strings.has_prefix(source_name, "node:") {
 		return invalid_input("node: specifiers are module names, not eval source names"), true
 	}
 
-	// The ESM transform rewrites an `.mjs` entry to CommonJS that calls `require` and
-	// `__lava_precache`, neither of which a `.Web` context has; refused here, before a
-	// context exists, rather than failing inside the transformed body.
-	if surface == .Web && strings.has_suffix(source_name, ".mjs") {
-		refusal = invalid_input("the web global surface runs classic scripts only; .mjs sources need the node surface")
-		return refusal, true
+	// A page runs classic scripts; module scripts are not supported yet.
+	if strings.has_suffix(source_name, ".mjs") {
+		return invalid_input("lava runs classic scripts only; .mjs module sources are not supported"), true
 	}
 
 	return {}, false
@@ -930,30 +854,6 @@ page_evaluate :: proc(
 	alloc_failure: string,
 ) {
 	eval_source := source
-
-	// Drain the turn's process.nextTick queue *before* JSEvaluateScript returns: JSC
-	// auto-drains its promise jobs at that boundary, so a nextTick queued by the body
-	// would otherwise lose to a promise job queued before it (Node runs nextTick
-	// first). There is no native hook between "script body done" and "JSC drains", so
-	// we append the drain as a trailing statement — the same role dispatch plays for
-	// event-loop callbacks. It is a VariableStatement (empty completion value) so it
-	// does not clobber the script's completion value used by `lava eval`'s echo and
-	// page_eval; the leading "\n;" guards a trailing line comment / missing semicolon;
-	// typeof keeps it a no-op if the microtask shim failed to install.
-	//
-	// Not on `.Web`: nothing a `.Web` script can name queues a nextTick, so there is no
-	// ordering to keep, and the drain's two globals are deliberately absent there
-	// (install_microtasks). The post-evaluation drain_next_ticks_settled the callers run
-	// still runs on both surfaces; it goes through Runtime_State, not a global.
-	TOP_LEVEL_DRAIN :: "\n;var __lava_tl_drain = (typeof __lavaDrainNextTicks === 'function') && __lavaDrainNextTicks();\n"
-
-	if page.surface == .Node {
-		if combined, concat_err := strings.concatenate({eval_source, TOP_LEVEL_DRAIN}, context.temp_allocator);
-		   concat_err == nil {
-			eval_source = combined
-		}
-	}
-
 	script := js_string_from_string(eval_source)
 
 	if script == nil {

@@ -1,14 +1,6 @@
 {
   "$comment": "Minimum case/bench counts for gate integrity (agent-system gate integrity). Runners fail if a glob finds fewer files than expected — silent case deletion cannot go green. Re-measure and raise when adding cases; never lower without a written reason.",
   "suites": {
-    "tests/node-compat/cases": {
-      "globs": ["*.js", "*.mjs"],
-      "min": 70
-    },
-    "tests/runtime/eventloop/cases": {
-      "globs": ["*.js"],
-      "min": 12
-    },
     "tests/web/cases": {
       "globs": ["*.js"],
       "min": 78
@@ -23,7 +15,7 @@
     }
   },
   "//dom": "tests/dom/cases: run-dom-oracle.mjs holds the 60 to the hand-written cases only (scripts/lib/dom-oracle.mjs FLOOR_KEY). The 1784 generated html5lib-* cases are held to exactly what the vendored tests/dom/html5lib/*.dat generate by scripts/gen-html5lib-cases.test.mjs, which also holds those inputs to the tests/dom/html5lib floor.",
-  "//removed": "S3 of the Node-profile removal (docs/LARVA.md decision 1) deleted node:fs and node:sqlite outright, so tests/std/fs/cases (min 4) and tests/std/sqlite/cases (min 8) went with their runners, and bench/macro/fs.js went with node:fs, lowering bench min_files 6 -> 5 (buffer, encoding, json, require, url in bench/micro). node-compat (79 cases after 12 needing a deleted module were dropped) and eventloop (14 after 08-io-before-immediate, which needed node:fs) still clear their floors unchanged.",
+  "//removed": "S3 of the Node-profile removal (docs/LARVA.md decision 1) deleted node:fs and node:sqlite outright, so tests/std/fs/cases (min 4) and tests/std/sqlite/cases (min 8) went with their runners, and bench/macro/fs.js went with node:fs, lowering bench min_files 6 -> 5 (buffer, encoding, json, require, url in bench/micro). S5b made the Window surface the only one and deleted the node-vs-Lava suites with it: tests/node-compat/cases (min 70) and tests/runtime/eventloop/cases (min 12) went with their runners; their Web API halves had already been re-recorded against Chrome in tests/web.",
   "bench": {
     "dirs": ["bench/micro"],
     "exclude": ["noop.js"],

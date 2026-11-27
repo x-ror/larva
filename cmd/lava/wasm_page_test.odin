@@ -69,7 +69,6 @@ wasm_start_function_is_charged_to_its_page :: proc(t: ^testing.T) {
 		"<wasm-charged>",
 		{entry_limit = 0.5, cpu_budget = 1},
 		&o,
-		.Web,
 	)
 	lava.page_runner_run(&runner)
 	testing.expectf(t, o.done && o.kill == .Cpu_Budget, "the start functions were not charged: %s", describe_outcome(o))
@@ -96,7 +95,6 @@ open_b_on_a_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: l
 		"<wasm-next>",
 		{entry_limit = 0.5, cpu_budget = 5},
 		p,
-		.Web,
 	)
 }
 
@@ -141,7 +139,6 @@ wasm_of_a_killed_page_runs_nothing_after_it :: proc(t: ^testing.T) {
 			"<wasm-killed>",
 			{entry_limit = 0.3, cpu_budget = 5},
 			&p,
-			.Web,
 		)
 		lava.page_runner_run(&runner)
 		elapsed := time.duration_seconds(time.tick_since(start))
@@ -185,7 +182,6 @@ runner_holds_a_page_until_its_wasm_settles :: proc(t: ^testing.T) {
 			"<wasm-compile>",
 			{cpu_budget = 30},
 			&compiled,
-			.Web,
 		)
 		lava.page_runner_open(
 			&runner,
@@ -195,7 +191,6 @@ runner_holds_a_page_until_its_wasm_settles :: proc(t: ^testing.T) {
 			"<wasm-instantiate>",
 			{cpu_budget = 30},
 			&instantiated,
-			.Web,
 		)
 		testing.expect(t, run_for(&runner, 10), "the pages never finished")
 		testing.expectf(t, compiled.done && compiled.exit == 1, "compile: %s", describe_outcome(compiled))
@@ -232,7 +227,6 @@ eval_settles_a_chain_of_wasm_compiles :: proc(t: ^testing.T) {
 			})();`,
 			"<wasm-eval>",
 			&loop,
-			surface = .Web,
 			limits = {entry_limit = 1, cpu_budget = 30},
 		)
 		defer lava.result_destroy(&result)

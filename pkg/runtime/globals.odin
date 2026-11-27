@@ -19,23 +19,21 @@ Runtime_State :: struct {
 	// VM). Carries the page's CPU limits; invoke_user_callback charges and checks them
 	// at every callback boundary.
 	vm:                ^VM,
-	// Set for a page the page runner drives: process.exit() then ends this page only
-	// (exit_code below), never the process its sibling pages share.
+	// Set for a page the page runner drives (page_runner.odin).
 	page_runner:       bool,
+	// The exit code a requested stop (vm_request_stop) leaves the page with.
 	page_exit_code:    int,
-	// Allocator that owns the module_cache key strings. Captured from the caller's
-	// context at state creation and used EXPLICITLY when cloning/freeing keys, because
-	// keys are cloned inside `proc "c"` require callbacks (where context is reset to
-	// runtime.default_context — the heap allocator) but freed later in
-	// destroy_runtime_state under the caller's context. Without an explicit allocator
-	// those two contexts can differ (e.g. an embedder/test using a custom or tracking
-	// allocator), causing a bad free. The map itself carries its own bound allocator.
+	// The allocator that owns what this state allocates for the page (timer bindings,
+	// fetch requests, the host-native registry entries). Captured from the caller's
+	// context at state creation and used EXPLICITLY, because allocations happen inside
+	// `proc "c"` callbacks (where context is reset to runtime.default_context — the heap
+	// allocator) but are freed later in destroy_runtime_state under the caller's
+	// context. Without an explicit allocator those two contexts can differ (e.g. an
+	// embedder/test using a custom or tracking allocator), causing a bad free.
 	allocator:         runtime.Allocator,
-	// resolved path / specifier -> Cached_Module. The entry carries its own owned key
-	// clone so module_cache_remove frees the key in O(1) (no scan to recover it).
-	module_cache:      map[string]Cached_Module,
-	builtin_require:   jsc.JSValueRef, // JS resolver for internal modules (events/util/assert/buffer); GC-protected
-	esm_transform:     jsc.JSValueRef, // js/bootstrap/esm.js transform(source,url,filename,dirname); GC-protected
+	// The module loader's handle (bootstrap/loader.js; GC-protected). Never reachable
+	// from page code; install_microtasks reads internal/native_shape off it.
+	loader:            jsc.JSValueRef,
 	// Standard JS error constructors (Error/TypeError/RangeError/…) snapshotted and
 	// GC-protected from globalThis at context init, before any user code runs (see
 	// capture_error_intrinsics). make_native_error builds native throws from these
@@ -48,14 +46,10 @@ Runtime_State :: struct {
 	// initial JSEvaluateScript returned cleanly (see resolve_exit_code).
 	async_failed:      bool,
 	rejection_handler: jsc.JSValueRef, // GC-protected fn registered with JSC; unprotected on destroy
-	// process.nextTick scheduling shim (js/bootstrap/microtasks.js). JSC auto-drains
-	// its promise-job queue at every C boundary, so to keep nextTick callbacks
-	// ahead of those jobs (Node semantics) native must bracket the boundary itself:
-	// dispatch_fn runs an event-loop callback and drains nextTicks before returning,
-	// next_tick_drain re-drains after JSC's auto-drain. Both GC-protected; driven by
-	// invoke_user_callback.
+	// The microtask shim's `dispatch` (js/bootstrap/microtasks.js), GC-protected: every
+	// event-loop callback runs through it (invoke_user_callback), so its stack shows the
+	// same one frame of the runtime whatever scheduled it.
 	dispatch_fn:       jsc.JSValueRef,
-	next_tick_drain:   jsc.JSValueRef,
 	// The same shim's dispatchCleanups (GC-protected): runs one FinalizationRegistry's
 	// due cleanups as one task (deferred.odin).
 	dispatch_cleanups: jsc.JSValueRef,
@@ -98,10 +92,6 @@ Runtime_State :: struct {
 	// Fetches currently owned by this runtime context. Used during abnormal eval
 	// teardown to stop requests and join any DNS worker before the loop/context die.
 	active_fetches:    [dynamic]^Fetch_Request,
-	// Node-style process.argv: [execPath, scriptPath, ...userArgs]. Built in eval()
-	// and read by install_process. Empty for embedders that don't set it (then
-	// install_process falls back to os.args).
-	script_argv:       []string,
 	// The page's origin as the embedder gave it (`lava run --origin=`), "" for an opaque
 	// one. BORROWED, not owned: read only while page_create installs the runtime, when
 	// install_internal_modules copies it into a JS string for internal/blob, so it need
@@ -139,36 +129,13 @@ JS_Callback :: struct {
 	allocator: runtime.Allocator,
 }
 
-when ODIN_OS == .Darwin {
-	PROCESS_PLATFORM :: "darwin"
-} else when ODIN_OS == .Linux {
-	PROCESS_PLATFORM :: "linux"
-} else when ODIN_OS == .Windows {
-	PROCESS_PLATFORM :: "win32"
-} else {
-	PROCESS_PLATFORM :: "unknown"
-}
-
-when ODIN_ARCH == .amd64 {
-	PROCESS_ARCH :: "x64"
-} else when ODIN_ARCH == .arm64 {
-	PROCESS_ARCH :: "arm64"
-} else when ODIN_ARCH == .i386 {
-	PROCESS_ARCH :: "ia32"
-} else {
-	PROCESS_ARCH :: "unknown"
-}
-
 // --- Runtime state lifecycle ---
 
 new_runtime_state :: proc(loop: ^eventloop.Loop) -> ^Runtime_State {
 	state := new(Runtime_State)
 	state.loop = loop
-	// Capture the owning allocator for module_cache keys (see the field comment).
+	// Capture the owning allocator (see the field comment).
 	state.allocator = context.allocator
-	// Bind the map backing to the same allocator explicitly (not implicitly via the
-	// current context), so keys and backing provably share one allocator.
-	state.module_cache = make(map[string]Cached_Module, 0, state.allocator)
 	state.error_intrinsics = make(map[string]jsc.JSValueRef)
 	state.active_fetches = make([dynamic]^Fetch_Request)
 	state.wasm_jobs = make([dynamic]Wasm_Job, state.allocator)
@@ -183,24 +150,17 @@ destroy_runtime_state :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) {
 
 	fetch_shutdown_active(state)
 	fetch_destroy_pending(state)
-	for _, entry in state.module_cache {
-		unprotect_before_eval_exit(ctx, entry.value)
-		delete(entry.key, state.allocator)
-	}
-	delete(state.module_cache)
-	// Same lifetime rule as the module cache above, for the thread-local host-call
-	// registry: its entries are keyed by the context POINTER, which JSC reuses for a
-	// later context, so they must go while this context is still the owner.
+	// The thread-local host-call registry's entries are keyed by the context POINTER,
+	// which JSC reuses for a later context, so they must go while this context is still
+	// the owner.
 	host_natives_release_context(ctx, state.allocator)
 	for _, ctor in state.error_intrinsics {
 		unprotect_before_eval_exit(ctx, ctor)
 	}
 	delete(state.error_intrinsics)
-	unprotect_before_eval_exit(ctx, state.builtin_require)
-	unprotect_before_eval_exit(ctx, state.esm_transform)
+	unprotect_before_eval_exit(ctx, state.loader)
 	unprotect_before_eval_exit(ctx, state.rejection_handler)
 	unprotect_before_eval_exit(ctx, state.dispatch_fn)
-	unprotect_before_eval_exit(ctx, state.next_tick_drain)
 	unprotect_before_eval_exit(ctx, state.dispatch_cleanups)
 	unprotect_before_eval_exit(ctx, state.symbol_to_primitive)
 	deferred_release_cleanups(ctx, state)
@@ -270,116 +230,6 @@ make_global_class :: proc() -> jsc.JSClassRef {
 		class_name = "LavaGlobal",
 	}
 	return jsc.JSClassCreate(&def)
-}
-
-// --- Module cache ---
-
-// Cached_Module is one module_cache entry. It stores the owned key clone next to the
-// value so module_cache_remove can free the key directly (look the entry up, free
-// entry.key) in O(1), instead of scanning the whole map to recover the stored string.
-Cached_Module :: struct {
-	value: jsc.JSValueRef, // module.exports; GC-protected while cached
-	key:   string, // the owned clone used as this entry's map key; freed on remove/teardown
-}
-
-module_cache_get :: proc(state: ^Runtime_State, key: string) -> (jsc.JSValueRef, bool) {
-	if state == nil {
-		return nil, false
-	}
-
-	entry, ok := state.module_cache[key]
-	return entry.value, ok
-}
-
-// module_cache_insert_new adds an entry for a key not already present: clone the
-// key through the state allocator, protect the value, store — rolling back both
-// if the map grow fails.
-//
-// CHECKED, unlike most `m[k] = v` in this package, because this entry owns two
-// resources rather than none: the cloned key and a GC root. A discarded insert
-// error leaks the clone and pins `value` for the life of the VM with nothing left
-// that knows to release it — teardown unprotects by walking this very map. That
-// payload, not the shape, is why these two call sites are worth the helper while
-// the ordinary bare inserts elsewhere in this package are left alone.
-//
-// map_insert returns the stored value's pointer, nil exactly when the grow
-// allocation failed (base/runtime/dynamic_map_internal.odin). Same signal the
-// host-native registry uses.
-@(private = "file")
-module_cache_insert_new :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State, key: string, value: jsc.JSValueRef) {
-	cloned, err := strings.clone(key, state.allocator)
-
-	if err != nil {
-		return
-	}
-
-	jsc.JSValueProtect(ctx, value)
-
-	if map_insert(&state.module_cache, cloned, Cached_Module{value = value, key = cloned}) == nil {
-		jsc.JSValueUnprotect(ctx, value)
-		delete(cloned, state.allocator)
-	}
-}
-
-module_cache_put :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State, key: string, value: jsc.JSValueRef) {
-	if state == nil {
-		return
-	}
-
-	if _, ok := state.module_cache[key]; ok {
-		return
-	}
-
-	module_cache_insert_new(ctx, state, key, value)
-}
-
-// module_cache_set inserts or replaces the cached exports for `key`. The
-// CommonJS loader uses it to pre-register an in-progress module before
-// evaluating its body (so a re-entrant/circular require returns the partial
-// exports) and again afterwards to store the final exports (the body may have
-// reassigned module.exports). Replacing re-points GC protection to the new value.
-module_cache_set :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State, key: string, value: jsc.JSValueRef) {
-	if state == nil {
-		return
-	}
-
-	if entry, ok := state.module_cache[key]; ok {
-		if entry.value == value {
-			return
-		}
-
-		jsc.JSValueProtect(ctx, value) // protect new before unprotecting old
-		jsc.JSValueUnprotect(ctx, entry.value)
-		entry.value = value // keep entry.key (the existing owned key string)
-		// Unchecked on purpose, and it is the one insert shape that cannot fail: the
-		// key is already present (we just read it), so this overwrites a slot instead
-		// of growing the map.
-		state.module_cache[key] = entry
-		return
-	}
-
-	module_cache_insert_new(ctx, state, key, value)
-}
-
-// module_cache_remove drops a cached entry, unprotecting its value and freeing
-// the owned key string. Used when a module throws while loading so a failed
-// module is not left cached as partial exports (matching Node, which re-loads).
-module_cache_remove :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State, key: string) {
-	if state == nil {
-		return
-	}
-
-	entry, ok := state.module_cache[key]
-
-	if !ok {
-		return
-	}
-
-	jsc.JSValueUnprotect(ctx, entry.value)
-	// entry.key is the clone we own and used as the map key (Odin maps do not free
-	// string-key backing memory). Free it after dropping the entry — O(1), no scan.
-	delete_key(&state.module_cache, key)
-	delete(entry.key, state.allocator)
 }
 
 // --- JS callback bridge ---
@@ -614,10 +464,6 @@ callback_arg :: proc(ctx: jsc.JSContextRef, value: jsc.JSValueRef) -> jsc.JSObje
 
 // --- Timer / scheduling callbacks ---
 
-// MAX_SAFE_HANDLE_ID bounds a numeric timer/immediate id for the u64() conversion in
-// clear*: ids grow unbounded but stay exactly representable as f64 below 2^53.
-MAX_SAFE_HANDLE_ID :: 9007199254740992.0
-
 // timer_delay_ms reads setTimeout/setInterval's `timeout` argument as Chrome's binding
 // does, on both surfaces: a WebIDL `long`, then a negative value is 0.
 //
@@ -760,76 +606,9 @@ set_interval_cb :: proc "c" (
 	return jsc.JSValueMakeNumber(ctx, f64(id))
 }
 
-set_immediate_cb :: proc "c" (
-	ctx: jsc.JSContextRef,
-	function: jsc.JSObjectRef,
-	this_object: jsc.JSObjectRef,
-	argument_count: c.size_t,
-	arguments: [^]jsc.JSValueRef,
-	exception: ^jsc.JSValueRef,
-) -> jsc.JSValueRef {
-	context = runtime.default_context()
-	// One state lookup serves both the loop and the binding allocator (see
-	// JS_Callback.allocator); get_loop_from_ctx would repeat the two FFI crossings.
-	state := get_state_from_ctx(ctx)
-
-	if state == nil || state.loop == nil || argument_count < 1 {
-		return jsc.JSValueMakeUndefined(ctx)
-	}
-
-	loop, alloc := state.loop, state.allocator
-
-	fn := callback_arg(ctx, arguments[0])
-
-	if fn == nil {
-		return jsc.JSValueMakeUndefined(ctx)
-	}
-
-	// Trailing args (setImmediate(fn, ...args)) are forwarded on fire.
-	cb := make_js_callback(ctx, fn, false, capture_timer_args(ctx, argument_count, arguments, 1, alloc), alloc)
-	id := eventloop.set_immediate(loop, js_callback_trampoline, cb, js_callback_dispose)
-	return jsc.JSValueMakeNumber(ctx, f64(id))
-}
-
-// clear_timer_cb is clearTimeout, clearInterval and clearImmediate on `.Node`: it
-// cancels the timer or immediate `id` if, and only if, the JS timer globals created it.
-//
-// Node:
-//   Returns undefined and never coerces: a number or a string is a key of node's id
-//   table, so only the number N or its canonical decimal string "N" names timer N.
-//   "N.0", " N", "0xN", "+N", "0N", N + 0.5, N ± 2^32, N + 2^33, [N], new String("N")
-//   and BigInt are silent no-ops, as are NaN, negatives, ids above 2^53, fired and
-//   never-issued ids. Only timers user code created are reachable: clearing every id from 1 to 100
-//   past a fresh timer's cancels that timer and nothing of node's own. Both probed on
-//   node 26.13.0 with numeric Timeout ids (`+setTimeout(…)`), the form a script's
-//   arithmetic gives; pinned by js_clear_globals_read_an_id_like_node.
-// Deviates:
-//   None observable. Lava's ids are shared with runtime-internal handles (net's
-//   TLS-handshake and drain timers, pkg/http's transfer deadline), so ownership is
-//   checked rather than structural: eventloop.clear_timeout_owned cancels only handles
-//   armed with js_callback_dispose, which every JS-created one is and no internal one
-//   is. Pinned by cmd/lava/js_clear_timer_owner_test.odin (#92).
-clear_timer_cb :: proc "c" (
-	ctx: jsc.JSContextRef,
-	function: jsc.JSObjectRef,
-	this_object: jsc.JSObjectRef,
-	argument_count: c.size_t,
-	arguments: [^]jsc.JSValueRef,
-	exception: ^jsc.JSValueRef,
-) -> jsc.JSValueRef {
-	context = runtime.default_context()
-
-	if argument_count >= 1 {
-		if id, ok := node_timer_id(ctx, arguments[0]); ok {
-			clear_timer_owned_id(ctx, id)
-		}
-	}
-
-	return jsc.JSValueMakeUndefined(ctx)
-}
-
-// clear_timeout_web_cb and clear_interval_web_cb are clearTimeout and clearInterval on
-// `.Web`, with clear_timer_cb's ownership rule and Chrome's reading of the id.
+// clear_timeout_web_cb and clear_interval_web_cb are clearTimeout and clearInterval: they
+// cancel the timer `id` if, and only if, the JS timer globals created it, reading the id
+// as Chrome does.
 //
 // Node:
 //   No counterpart; Chrome is the oracle. The id is a WebIDL `long`: ToNumber, then
@@ -870,60 +649,6 @@ clear_interval_web_cb :: proc "c" (
 ) -> jsc.JSValueRef {
 	context = runtime.default_context()
 	return clear_timer_web(ctx, argument_count, arguments, exception, "clearInterval")
-}
-
-// node_timer_id reads `v` the way node's clearTimeout keys its id table: a number that
-// is an integer id, or a string that is one's canonical decimal (no sign, no leading
-// zero, no space, no exponent, digits only). Anything else names no timer, and nothing
-// is coerced, so no user code runs. Integers past 2^53 are refused before u64(): float→
-// int on NaN or an out-of-range value is undefined in Odin and could match a live id.
-@(private = "file")
-node_timer_id :: proc(ctx: jsc.JSContextRef, v: jsc.JSValueRef) -> (id: u64, ok: bool) {
-	if jsc.JSValueIsNumber(ctx, v) {
-		n := jsc.JSValueToNumber(ctx, v, nil)
-
-		if !(n >= 1 && n <= MAX_SAFE_HANDLE_ID) || n != math.trunc(n) {
-			return 0, false
-		}
-
-		return u64(n), true
-	}
-
-	if !jsc.JSValueIsString(ctx, v) {
-		return 0, false
-	}
-
-	s := jsc.JSValueToStringCopy(ctx, v, nil)
-
-	if s == nil {
-		return 0, false
-	}
-
-	defer jsc.JSStringRelease(s)
-	length := int(jsc.JSStringGetLength(s))
-
-	// 2^53 has 16 digits; a longer string is past every id.
-	if length < 1 || length > 16 {
-		return 0, false
-	}
-
-	chars := jsc.JSStringGetCharactersPtr(s)
-
-	if chars[0] == '0' {
-		return 0, false
-	}
-
-	for i in 0 ..< length {
-		ch := chars[i]
-
-		if ch < '0' || ch > '9' {
-			return 0, false
-		}
-
-		id = id * 10 + u64(ch - '0')
-	}
-
-	return id, id <= u64(MAX_SAFE_HANDLE_ID)
 }
 
 // clear_timer_web is the body of the two `.Web` clears; `op` names the method in a
@@ -1142,10 +867,9 @@ clear_timer_owned_id :: proc(ctx: jsc.JSContextRef, id: u64) {
 	}
 }
 
-// process.nextTick and queueMicrotask are installed from JS (MICROTASK_PRELUDE)
-// rather than as native callbacks: their Node-matching ordering relative to
-// JSC's promise-job queue is expressed most naturally in JS. See
-// install_microtasks and js/bootstrap/microtasks.js.
+// queueMicrotask is installed from JS (MICROTASK_PRELUDE) rather than as a native
+// callback: it lives inside JSC's promise-job queue. See install_microtasks and
+// js/bootstrap/microtasks.js.
 
 // --- console ---
 //
@@ -1311,175 +1035,29 @@ console_stderr_write_cb :: proc "c" (
 	return jsc.JSValueMakeUndefined(ctx)
 }
 
-// --- process ---
-
-process_exit_cb :: proc "c" (
-	ctx: jsc.JSContextRef,
-	function: jsc.JSObjectRef,
-	this_object: jsc.JSObjectRef,
-	argument_count: c.size_t,
-	arguments: [^]jsc.JSValueRef,
-	exception: ^jsc.JSValueRef,
-) -> jsc.JSValueRef {
-	context = runtime.default_context()
-	// process.exit([code]): with no argument (or explicit undefined) the default is
-	// process.exitCode (Node parity). An explicit numeric code overrides it; a NaN
-	// code is a RangeError (ERR_OUT_OF_RANGE) in Node, not a silent garbage exit.
-	code := process_exit_code(ctx)
-
-	// JSValueGetType reads the value's type directly; JSValueIsUndefined is equally
-	// ABI-safe now that it returns a 1-byte `bool` (see cmd/lava jsc_value_predicates,
-	// #159 — the retired `b32` return was the old hazard).
-	if argument_count >= 1 && jsc.JSValueGetType(ctx, arguments[0]) != .Undefined {
-		n := jsc.JSValueToNumber(ctx, arguments[0], nil)
-
-		if n != n {
-			if exception != nil {
-				exception^ = err_out_of_range(ctx, "code", "an integer", "NaN")
-			}
-
-			return jsc.JSValueMakeUndefined(ctx)
-		}
-
-		code = int(n)
-	}
-
-	// In a runner page, exit ends the page, not the process: os.exit would take every
-	// sibling page on the thread down with it, and none of them would be reported.
-	// The page ends the way Node ends a worker (TerminateExecution): JSC's termination
-	// exception skips every catch and finally, so nothing after the call runs. The
-	// stop request ends what that exception cannot reach — later callbacks
-	// (page_stop_if_killed) and promise jobs already queued, which JSC drains as the
-	// entry returns (cut by the stop watchdog; the Deviates note on vm_request_stop).
-	// Without the private symbol the call returns and the watchdog alone stops the
-	// page, a few statements later.
-	state := get_state_from_ctx(ctx)
-
-	if state != nil && state.page_runner && state.vm != nil {
-		state.page_exit_code = code
-		vm_request_stop(state.vm)
-
-		if state.loop != nil {
-			state.loop.force_exit = true
-		}
-
-		if term := jsc.termination_exception(ctx); term != nil && exception != nil {
-			exception^ = term
-		}
-
-		return jsc.JSValueMakeUndefined(ctx)
-	}
-
-	os.exit(code)
-}
-
-process_cwd_cb :: proc "c" (
-	ctx: jsc.JSContextRef,
-	function: jsc.JSObjectRef,
-	this_object: jsc.JSObjectRef,
-	argument_count: c.size_t,
-	arguments: [^]jsc.JSValueRef,
-	exception: ^jsc.JSValueRef,
-) -> jsc.JSValueRef {
-	context = runtime.default_context()
-	dir, err := os.get_working_directory(context.temp_allocator)
-
-	if err != os.ERROR_NONE {
-		return js_string_value(ctx, ".")
-	}
-
-	return js_string_value(ctx, dir)
-}
-
-process_memory_usage_cb :: proc "c" (
-	ctx: jsc.JSContextRef,
-	function: jsc.JSObjectRef,
-	this_object: jsc.JSObjectRef,
-	argument_count: c.size_t,
-	arguments: [^]jsc.JSValueRef,
-	exception: ^jsc.JSValueRef,
-) -> jsc.JSValueRef {
-	context = runtime.default_context()
-	obj := jsc.JSObjectMake(ctx, nil, nil)
-	rss := f64(os_process_rss_bytes())
-	set_named(ctx, obj, "rss", jsc.JSValueMakeNumber(ctx, rss))
-	set_named(ctx, obj, "heapTotal", jsc.JSValueMakeNumber(ctx, 0))
-	set_named(ctx, obj, "heapUsed", jsc.JSValueMakeNumber(ctx, 0))
-	set_named(ctx, obj, "external", jsc.JSValueMakeNumber(ctx, 0))
-	set_named(ctx, obj, "arrayBuffers", jsc.JSValueMakeNumber(ctx, 0))
-	return cast(jsc.JSValueRef)obj
-}
-
 // --- installation ---
 
-// install_globals wires the Node-like global surface (console, process,
-// timers, queueMicrotask, globalThis) onto the context's global object.
-// Timer functions are no-ops when no event loop is bound.
-//
-// `.Web` (Global_Surface, runtime.odin) changes three things here and nothing else:
-// install_stdio does not run, install_microtasks defines no `__lava*` hook, and the
-// loader instantiates no node/ entry beyond node:buffer (install_internal_modules).
-// Everything else is installed as on `.Node` — the bootstrap needs `process` and the
-// rest — and setup_module_environment removes the Node names afterwards.
-install_globals :: proc(ctx: jsc.JSContextRef, loop: ^eventloop.Loop, surface: Global_Surface = .Node) {
+// install_globals wires the Window global surface (console, timers, queueMicrotask,
+// performance, globalThis and every Web API global the loader installs) onto the
+// context's global object. Timer functions are no-ops when no event loop is bound.
+install_globals :: proc(ctx: jsc.JSContextRef, loop: ^eventloop.Loop) {
 	global := jsc.JSContextGetGlobalObject(ctx)
 
 	set_named(ctx, global, "globalThis", cast(jsc.JSValueRef)global)
-	set_named(ctx, global, "global", cast(jsc.JSValueRef)global)
 
-	// Explicit arity: these are the only natives whose `.length` reaches user code,
-	// so Node is the oracle for it — setTimeout(callback, delay) and
-	// setInterval(callback, delay) report 2, the rest 1. They all reported 1 before
-	// (inject_native_function's default), which was a silent parity gap on the
-	// working path, not just on the fallback. Pinned by
-	// tests/node-compat/cases/56-native-function-arity.js.
-	//
-	// `.Web` takes Chrome's instead (Chrome 158, tests/web/cases/shape-operations): 1 for
-	// the two setters, 0 for the two cancels, and none of the four is a constructor, as
-	// no WebIDL operation is (#114). Node's are JS functions, so `new` is node's answer
-	// there.
-	web := surface == .Web
-	inject_native_function(ctx, global, "setTimeout", set_timeout_cb, arity = web ? 1 : 2, constructible = !web)
-	inject_native_function(ctx, global, "setInterval", set_interval_cb, arity = web ? 1 : 2, constructible = !web)
-	inject_native_function(ctx, global, "setImmediate", set_immediate_cb)
-
-	// One cancel, two readings of the id: each surface reads it the way its oracle
-	// does (clear_timer_cb, clear_timer_web_cb).
-	if web {
-		inject_native_function(ctx, global, "clearTimeout", clear_timeout_web_cb, arity = 0, constructible = false)
-		inject_native_function(ctx, global, "clearInterval", clear_interval_web_cb, arity = 0, constructible = false)
-		capture_symbol_to_primitive(ctx, global)
-	} else {
-		inject_native_function(ctx, global, "clearTimeout", clear_timer_cb)
-		inject_native_function(ctx, global, "clearInterval", clear_timer_cb)
-	}
-
-	inject_native_function(ctx, global, "clearImmediate", clear_timer_cb)
+	// Chrome's shapes (Chrome 158, tests/web/cases/shape-operations): 1 for the two
+	// setters, 0 for the two cancels, and none of the four is a constructor, as no WebIDL
+	// operation is (#114).
+	inject_native_function(ctx, global, "setTimeout", set_timeout_cb, arity = 1, constructible = false)
+	inject_native_function(ctx, global, "setInterval", set_interval_cb, arity = 1, constructible = false)
+	inject_native_function(ctx, global, "clearTimeout", clear_timeout_web_cb, arity = 0, constructible = false)
+	inject_native_function(ctx, global, "clearInterval", clear_interval_web_cb, arity = 0, constructible = false)
+	capture_symbol_to_primitive(ctx, global)
 
 	install_console(ctx, global)
-	// process must exist before install_internal_modules so the loader can put the
-	// intrinsic into natives['process'] for the node:process factory. Console is
-	// already on the global (just above). Both factories export that captured
-	// reference — never a lazy global read — so a pre-first-require reassignment of
-	// globalThis.process / globalThis.console cannot poison the builtin (#247).
-	install_process(ctx, global)
-	install_internal_modules(ctx, global, surface)
-
-	install_performance(ctx, global, surface)
-	// process.nextTick + queueMicrotask are a JS shim (needs `process` to exist).
-	install_microtasks(ctx, global, surface)
-
-	// process.stdout / process.stderr LAST of the process bits: the loader hands out a
-	// closure rather than eager-requiring stdio, because stdio builds on `stream`, which
-	// needs both the `process` global and `process.nextTick` to already be there.
-	// Not on `.Web`, where `process` is removed before user code: stdio would compile
-	// internal/stdio and the whole node-streams stack (node:stream, events,
-	// internal/streams/*) for an object nothing can reach. console does not need it —
-	// bootstrap/console.js writes through the native writers install_console hands it.
-	if surface == .Node {
-		install_stdio(ctx, global)
-	}
-
+	install_internal_modules(ctx, global)
+	install_performance(ctx, global)
+	install_microtasks(ctx, global)
 	install_rejection_tracker(ctx)
 }
 
@@ -1504,17 +1082,14 @@ perf_init :: proc() {
 }
 
 // install_performance installs the `performance` global with a monotonic now()
-// and a timeOrigin, matching the W3C High Resolution Time surface Node exposes.
-//
-// `.Web` gives now() Chrome's length 0 and no [[Construct]], as a WebIDL operation
-// (tests/web/cases/shape-performance.js); the Performance interface itself is the
-// perf-now gap.
-install_performance :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef, surface: Global_Surface = .Node) {
+// and a timeOrigin (W3C High Resolution Time). now() has Chrome's length 0 and no
+// [[Construct]], as a WebIDL operation (tests/web/cases/shape-performance.js); the
+// Performance interface itself is the perf-now gap.
+install_performance :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef) {
 	sync.once_do(&perf_once, perf_init)
 
 	performance := jsc.JSObjectMake(ctx, nil, nil)
-	web := surface == .Web
-	inject_native_function(ctx, performance, "now", performance_now_cb, arity = web ? 0 : 1, constructible = !web)
+	inject_native_function(ctx, performance, "now", performance_now_cb, arity = 0, constructible = false)
 	set_named(ctx, performance, "timeOrigin", jsc.JSValueMakeNumber(ctx, perf_time_origin_ms))
 	set_named(ctx, global, "performance", cast(jsc.JSValueRef)performance)
 }
@@ -1533,23 +1108,11 @@ performance_now_cb :: proc "c" (
 	return jsc.JSValueMakeNumber(ctx, ms)
 }
 
-// install_microtasks evaluates MICROTASK_PRELUDE to a factory and calls it with
-// (globalThis, process) so it can install process.nextTick and queueMicrotask
-// with Node-matching ordering. See js/bootstrap/microtasks.js for why these live
-// in JS on top of JSC's promise-job queue rather than the native event loop.
-//
-// On `.Node` it also defines the two globals eval's top-level drain names (see
-// TOP_LEVEL_DRAIN, runtime.odin): `__lavaDrainNextTicks` and the `__lava_tl_drain`
-// binding the drain assigns to. They are defined HERE, not in microtasks.js, because
-// they are non-configurable — a `.Web` context could not delete them after the
-// fact — and `.Web` appends no drain, so it simply never gets them.
-install_microtasks :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef, surface: Global_Surface = .Node) {
-	process := get_named(ctx, global, "process")
-
-	if process == nil || !jsc.JSValueIsObject(ctx, process) {
-		return
-	}
-
+// install_microtasks evaluates MICROTASK_PRELUDE to a factory and calls it so it
+// installs queueMicrotask and hands back the `dispatch` every event-loop callback runs
+// through (invoke_user_callback). See js/bootstrap/microtasks.js for why queueMicrotask
+// lives in JS on top of JSC's promise-job queue rather than the native event loop.
+install_microtasks :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef) {
 	override_dir := js_override_dir()
 	factory := eval_internal_source(
 		ctx,
@@ -1563,9 +1126,9 @@ install_microtasks :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef, surfa
 		return
 	}
 
-	// A throw from a nextTick/queueMicrotask callback is an uncaught exception
-	// (not an unhandled rejection); the shim routes it here, the same path the
-	// timer trampoline uses for async callbacks.
+	// A throw from a queueMicrotask callback is an uncaught exception (not an unhandled
+	// rejection); the shim routes it here, the same path the timer trampoline uses for
+	// async callbacks.
 	report := make_native_function(ctx, "__lava_report_uncaught", microtask_report_uncaught_cb)
 
 	if report == nil {
@@ -1576,25 +1139,23 @@ install_microtasks :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef, surfa
 	// module resolver, which no user code reaches; undefined without the loader.
 	native_shape := jsc.JSValueMakeUndefined(ctx)
 
-	if rs := get_state_from_ctx(ctx); rs != nil && rs.builtin_require != nil {
-		if shape := get_named(ctx, cast(jsc.JSObjectRef)rs.builtin_require, "nativeShape"); shape != nil {
+	if rs := get_state_from_ctx(ctx); rs != nil && rs.loader != nil {
+		if shape := get_named(ctx, cast(jsc.JSObjectRef)rs.loader, "nativeShape"); shape != nil {
 			native_shape = shape
 		}
 	}
 
-	args := [4]jsc.JSValueRef{cast(jsc.JSValueRef)global, process, cast(jsc.JSValueRef)report, native_shape}
+	args := [3]jsc.JSValueRef{cast(jsc.JSValueRef)global, cast(jsc.JSValueRef)report, native_shape}
 	exception: jsc.JSValueRef
-	exports := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)factory, nil, 4, raw_data(args[:]), &exception)
+	exports := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)factory, nil, 3, raw_data(args[:]), &exception)
 
 	if exception != nil {
 		report_internal_exception(ctx, "lava:microtasks", exception)
 		return
 	}
 
-	// The factory returns { drainNextTicks, dispatch }. Stash both (GC-protected)
-	// on Runtime_State; invoke_user_callback drives them so process.nextTick keeps
-	// its priority over promise jobs across JSC's auto-draining promise queue (the
-	// "why" is in js/bootstrap/microtasks.js).
+	// The factory returns { dispatch, dispatchCleanups }. Stash both (GC-protected) on
+	// Runtime_State; invoke_user_callback and deferred.odin drive them.
 	if exports == nil || !jsc.JSValueIsObject(ctx, exports) {
 		return
 	}
@@ -1606,7 +1167,6 @@ install_microtasks :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef, surfa
 	}
 
 	dispatch := get_named(ctx, cast(jsc.JSObjectRef)exports, "dispatch")
-	drain := get_named(ctx, cast(jsc.JSObjectRef)exports, "drainNextTicks")
 	cleanups := get_named(ctx, cast(jsc.JSObjectRef)exports, "dispatchCleanups")
 
 	if cleanups != nil && jsc.JSValueIsObject(ctx, cleanups) {
@@ -1619,26 +1179,6 @@ install_microtasks :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef, surfa
 		state.dispatch_fn = dispatch
 	}
 
-	if drain != nil && jsc.JSValueIsObject(ctx, drain) {
-		jsc.JSValueProtect(ctx, drain)
-		state.next_tick_drain = drain
-	}
-
-	if surface == .Node && drain != nil && jsc.JSValueIsObject(ctx, drain) {
-		// The source-level hook for checkpoint 1 before JSEvaluateScript returns:
-		// non-writable, non-enumerable, non-configurable, as microtasks.js defined it.
-		drain_name := jsc.JSStringCreateWithUTF8CString("__lavaDrainNextTicks")
-		defer jsc.JSStringRelease(drain_name)
-		jsc.JSObjectSetProperty(ctx, global, drain_name, drain, {.ReadOnly, .DontEnum, .DontDelete}, nil)
-		// Pre-create the binding the drain's `var __lava_tl_drain = ...` assigns to, as
-		// a non-enumerable property. A VariableStatement (kept for its empty completion
-		// value) would otherwise create an ENUMERABLE non-configurable global;
-		// redeclaring an existing own property writes through without changing this
-		// descriptor, so the internal name stays out of `Object.keys(globalThis)`.
-		tl_name := jsc.JSStringCreateWithUTF8CString("__lava_tl_drain")
-		defer jsc.JSStringRelease(tl_name)
-		jsc.JSObjectSetProperty(ctx, global, tl_name, jsc.JSValueMakeUndefined(ctx), {.DontEnum, .DontDelete}, nil)
-	}
 }
 
 // invoke_user_callback runs a user JS callback at an event-loop boundary (timer /
@@ -1676,8 +1216,7 @@ invoke_user_callback :: proc(
 		return result
 	}
 
-	// dispatch(fn, ...args): prepend the callback so the shim invokes it and then
-	// runs checkpoint 1 in its `finally`.
+	// dispatch(fn, ...args): prepend the callback so the shim invokes it.
 	n := int(argc) + 1
 	dispatch_args := make([]jsc.JSValueRef, n, context.temp_allocator)
 	dispatch_args[0] = cast(jsc.JSValueRef)fn
@@ -1697,7 +1236,6 @@ invoke_user_callback :: proc(
 		return jsc.JSValueMakeUndefined(ctx)
 	}
 
-	drain_next_ticks_settled(ctx, state)
 	return result
 }
 
@@ -1741,40 +1279,8 @@ page_stop_if_killed :: proc(state: ^Runtime_State) -> bool {
 	return true
 }
 
-// drain_next_ticks_settled runs checkpoint 2: it drains the process.nextTick
-// queue, looping until a drain does no work. Each drain call is a C-API boundary,
-// so JSC auto-drains its promise jobs between iterations — recreating Node's
-// "drain nextTicks, run microtasks, repeat" loop. A throw cannot escape (the shim
-// runs nextTick callbacks guarded), but the exception arm is kept for safety.
-drain_next_ticks_settled :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) {
-	if state == nil || state.next_tick_drain == nil {
-		return
-	}
-
-	for {
-		exc: jsc.JSValueRef
-		result := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)state.next_tick_drain, nil, 0, nil, &exc)
-
-		// Each pass is a separate JSC entry, and a nextTick/promise ping-pong never
-		// lets the loop end, so the budget is charged and checked per pass.
-		if page_checkpoint(state, &exc) {
-			return
-		}
-
-		if exc != nil {
-			report_uncaught(ctx, exc)
-			mark_async_failed(ctx)
-			return
-		}
-
-		if result == nil || !bool(jsc.JSValueToBoolean(ctx, result)) {
-			return
-		}
-	}
-}
-
-// microtask_report_uncaught_cb(error) reports a throw from a nextTick or
-// queueMicrotask callback as an uncaught exception and flags the process to exit
+// microtask_report_uncaught_cb(error) reports a throw from a queueMicrotask
+// callback as an uncaught exception and flags the process to exit
 // non-zero — mirroring js_callback_trampoline's handling of a throwing timer.
 microtask_report_uncaught_cb :: proc "c" (
 	ctx: jsc.JSContextRef,
@@ -1814,32 +1320,26 @@ make_blob_bindings :: proc(
 	}
 
 	set_named(ctx, bindings, "origin", js_string_value(ctx, origin))
+	// `endings: 'native'`'s terminator, as Chrome writes it on this platform.
+	when ODIN_OS == .Windows {
+		set_named(ctx, bindings, "eol", js_string_value(ctx, "\r\n"))
+	} else {
+		set_named(ctx, bindings, "eol", js_string_value(ctx, "\n"))
+	}
 	return bindings
 }
 
 // install_internal_modules hands the module loader a native `compile(id)` and the
-// per-module natives, and stores the resulting resolver on Runtime_State.
-// native_require_cb consults that resolver before hitting the filesystem. The
-// loader eagerly instantiates the modules that install globals (Buffer, fetch,
-// URL, …), so those exist without a require; every other builtin's factory is
-// compiled by builtin_compile_cb on its first require.
+// per-module natives, and stores the loader's handle on Runtime_State. The loader
+// eagerly instantiates the modules that install the Web API globals; every other
+// internal module's factory is compiled by builtin_compile_cb on its first require.
 //
-// Compile-on-first-require, not at init: evaluating all 39 factory sources made a
-// script that requires nothing pay for http, sqlite and assert. Lazily, only the
-// eager closure (13 files) is compiled before user code — 17 internal
-// JSEvaluateScript calls instead of 43 — and `lava run bench/micro/noop.js` went
-// 16.85 -> 14.63 ms (medians of 50 interleaved spawn-to-exit runs per arm after 5
-// warmups, darwin arm64, -o:speed, f106ab4 vs this change). The cost moves to each
-// lazy module's first require, once per context. See builtin_compile_cb.
-//
-// `surface` reaches the loader as its `web` argument: on `.Web` it instantiates the
-// internal/ modules that install the web globals and skips the node:stream/web,
-// node:url and node:crypto entries that re-export them (bootstrap/loader.js).
-install_internal_modules :: proc(
-	ctx: jsc.JSContextRef,
-	global: jsc.JSObjectRef,
-	surface: Global_Surface = .Node,
-) {
+// Compile-on-first-require, not at init: evaluating every factory source made a page
+// that needs none of the lazy modules pay for them all. When it landed (with the Node
+// modules still embedded) `lava run bench/micro/noop.js` went 16.85 -> 14.63 ms (medians
+// of 50 interleaved spawn-to-exit runs per arm after 5 warmups, darwin arm64, -o:speed,
+// f106ab4 vs that change). See builtin_compile_cb.
+install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef) {
 	state := get_state_from_ctx(ctx)
 
 	if state == nil {
@@ -1853,9 +1353,9 @@ install_internal_modules :: proc(
 		return
 	}
 
-	// Cold native: called once per builtin per context, so the generic host path,
-	// not a *_host wrapper. Passed as a bare argument, so it is reachable only from
-	// the loader's closure — never from user code.
+	// Cold native: called once per module per context, so the generic host path, not
+	// a *_host wrapper. Passed as a bare argument, so it is reachable only from the
+	// loader's closure — never from page code.
 	compile := host_native_create(ctx, "compile", builtin_compile_cb, 1)
 
 	if compile == nil {
@@ -1870,102 +1370,41 @@ install_internal_modules :: proc(
 	// each factory as its fourth argument, so a module receives its Odin-backed
 	// bindings without anything landing on globalThis (cf. install_console).
 	natives := jsc.JSObjectMake(ctx, nil, nil)
-	set_named(ctx, natives, "node/crypto", cast(jsc.JSValueRef)make_crypto_bindings(ctx))
-	// The SAME bindings object serves both `buffer` and `encoding`: it is a table of
-	// codec natives, not node:buffer, and encoding.js takes its utf-8 encoder and
-	// both decoders from it so it never touches Buffer (stage S4b). It used to reach
-	// the utf-8 decoder as `Buffer.prototype.toString.call(bytes, 'utf8')`, which put
-	// a live `Function.prototype.call` read on the RETURN path of decode(): replacing
-	// `.call` made decode() hand back the replacement's value.
+	set_named(ctx, natives, "internal/crypto/random", cast(jsc.JSValueRef)make_crypto_bindings(ctx))
+	// One table of codec natives serves `encoding` and `base64`: encoding.js takes its
+	// utf-8 encoder and both decoders from it, base64.js its base64/latin1 codecs. It
+	// used to reach the utf-8 decoder as `Buffer.prototype.toString.call(bytes, 'utf8')`,
+	// which put a live `Function.prototype.call` read on the RETURN path of decode():
+	// replacing `.call` made decode() hand back the replacement's value.
 	buffer_bindings := make_buffer_bindings(ctx)
-	set_named(ctx, natives, "node/buffer", cast(jsc.JSValueRef)buffer_bindings)
 	set_named(ctx, natives, "internal/encoding", cast(jsc.JSValueRef)buffer_bindings)
+	set_named(ctx, natives, "internal/base64", cast(jsc.JSValueRef)buffer_bindings)
 	set_named(ctx, natives, "internal/blob", cast(jsc.JSValueRef)make_blob_bindings(ctx, buffer_bindings, state.page_origin))
 	set_named(ctx, natives, "internal/fetch", cast(jsc.JSValueRef)make_fetch_bindings(ctx))
-	set_named(ctx, natives, "internal/stdio", cast(jsc.JSValueRef)make_stdio_bindings(ctx))
 	set_named(ctx, natives, "internal/deferred", cast(jsc.JSValueRef)make_deferred_bindings(ctx))
 	// Native, not a module: nothing of it is JS a page could see in a stack (wasm.odin).
 	install_wasm(ctx, state)
 
-	// Intrinsic process/console objects. Captured here (context init, before user
-	// code) and handed to the factories so require('node:process') /
-	// require('node:console') never re-read the globals — node returns the
-	// intrinsic even when a dependency reassigned globalThis.process / console
-	// before the first require (#247). install_process runs before this proc.
-	if process_val := get_named(ctx, global, "process"); process_val != nil {
-		set_named(ctx, natives, "node/process", process_val)
-	}
-
-	if console_val := get_named(ctx, global, "console"); console_val != nil {
-		set_named(ctx, natives, "node/console", console_val)
-	}
-
-	args := [3]jsc.JSValueRef {
-		cast(jsc.JSValueRef)compile,
-		cast(jsc.JSValueRef)natives,
-		jsc.JSValueMakeBoolean(ctx, b32(surface == .Web)),
-	}
+	args := [2]jsc.JSValueRef{cast(jsc.JSValueRef)compile, cast(jsc.JSValueRef)natives}
 	exception: jsc.JSValueRef
-	resolver := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)loader, nil, 3, raw_data(args[:]), &exception)
+	handle := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)loader, nil, 2, raw_data(args[:]), &exception)
 
 	if exception != nil {
 		report_internal_exception(ctx, "internal:loader", exception)
 		return
 	}
 
-	if resolver == nil || !jsc.JSValueIsObject(ctx, resolver) {
+	if handle == nil || !jsc.JSValueIsObject(ctx, handle) {
 		return
 	}
 
-	jsc.JSValueProtect(ctx, resolver)
-	state.builtin_require = resolver
-
-	// The ESM source transform (js/bootstrap/esm.js) evaluates to a FACTORY —
-	// `factory(primordials) -> transform(source, url, filename, dirname)`. The
-	// transform is stored on the state, not registered as a requireable module, so
-	// native_require_cb can rewrite `.mjs` files to CommonJS without exposing it to
-	// user code.
-	//
-	// It takes primordials as an argument because that non-registration is exactly
-	// what denies it a `require`, and its output is EXECUTED SOURCE: a live
-	// `RegExp.prototype.exec` there hands an attacker the match groups the transform
-	// interpolates into the emitted module body as identifiers. The table comes off
-	// the loader's resolver (loader.js sets it) so there is one shared capture rather
-	// than a second evaluation of primordials.
-	//
-	// Fail CLOSED. Without the table the transform would run on live intrinsics, so a
-	// missing one leaves state.esm_transform nil and `.mjs` reports "ESM transform
-	// unavailable" instead of silently transforming with the poisonable path.
-	esm_factory := eval_internal_source(ctx, "lava:esm", override_dir, "js/bootstrap/esm.js", BOOTSTRAP_ESM)
-
-	if esm_factory != nil && jsc.JSValueIsObject(ctx, esm_factory) {
-		primordials := get_named(ctx, cast(jsc.JSObjectRef)resolver, "primordials")
-
-		if primordials != nil && jsc.JSValueIsObject(ctx, primordials) {
-			esm_args := [1]jsc.JSValueRef{primordials}
-			esm_exception: jsc.JSValueRef
-			transform := jsc.JSObjectCallAsFunction(
-				ctx,
-				cast(jsc.JSObjectRef)esm_factory,
-				nil,
-				1,
-				raw_data(esm_args[:]),
-				&esm_exception,
-			)
-
-			if esm_exception != nil {
-				report_internal_exception(ctx, "lava:esm", esm_exception)
-			} else if transform != nil && jsc.JSValueIsObject(ctx, transform) {
-				jsc.JSValueProtect(ctx, transform)
-				state.esm_transform = transform
-			}
-		}
-	}
+	jsc.JSValueProtect(ctx, handle)
+	state.loader = handle
 }
 
 // builtin_compile_cb is the loader's `compile(id)`: it evaluates the embedded
-// source of module `id` (`node/os`, `node/stream/web`, `internal/mime`) and
-// returns its factory `(require, module, exports, native) => exports?`.
+// source of module `id` (`internal/url`, `internal/fetch/body`) and returns its
+// factory `(require, module, exports, native) => exports?`.
 //
 // Returns:
 //   The factory; undefined for a non-string or an id with no embedded file, and
@@ -2075,15 +1514,9 @@ builtin_compile_cb :: proc "c" (
 				return undefined
 			}
 
-			// Source name is what a stack frame shows: `node:buffer`, `node:stream/web`
-			// for public modules and `node:internal/fetch` for internal ones, the shape
-			// node's own frames take (`node:internal/url`).
+			// Source name is what a stack frame shows: `node:internal/fetch`, the shape
+			// internal/web_errors scrubs from every stack a page sees (#114).
 			spec := rel_path[len("js/"):len(rel_path) - len(".js")]
-
-			if strings.has_prefix(spec, "node/") {
-				spec = spec[len("node/"):]
-			}
-
 			source_name, name_err := strings.concatenate({"node:", spec}, context.temp_allocator)
 
 			if name_err != nil {
@@ -2102,81 +1535,6 @@ builtin_compile_cb :: proc "c" (
 		return undefined
 	}
 	return undefined
-}
-
-// require_builtin asks the JS resolver for an internal module by specifier.
-// Returns nil when the resolver is absent or the module is unknown (the latter
-// surfaces as `undefined`, which the caller treats as "not a builtin").
-require_builtin :: proc(
-	ctx: jsc.JSContextRef,
-	specifier: jsc.JSValueRef,
-	out_exception: ^jsc.JSValueRef = nil,
-) -> jsc.JSValueRef {
-	state := get_state_from_ctx(ctx)
-
-	if state == nil || state.builtin_require == nil {
-		return nil
-	}
-
-	args := [1]jsc.JSValueRef{specifier}
-	exception: jsc.JSValueRef
-	result := jsc.JSObjectCallAsFunction(
-		ctx,
-		cast(jsc.JSObjectRef)state.builtin_require,
-		nil,
-		1,
-		raw_data(args[:]),
-		&exception,
-	)
-
-	// A builtin factory that threw (e.g. a lazy module failing to initialize) must
-	// surface that error, not be mistaken for "not a builtin" and fall through to
-	// filesystem resolution as a misleading MODULE_NOT_FOUND.
-	if exception != nil {
-		if out_exception != nil {
-			out_exception^ = exception
-		}
-
-		return nil
-	}
-
-	if result == nil || jsc.JSValueIsUndefined(ctx, result) {
-		return nil
-	}
-
-	return result
-}
-
-// install_stdio calls the loader's installStdio(process), which defines process.stdout
-// and process.stderr as lazy configurable getters — node's own shape, and one
-// JSObjectSetProperty cannot express. Silent no-op when the resolver is absent: a missing
-// stdio leaves the properties undefined, which is exactly the pre-existing behavior.
-install_stdio :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef) {
-	state := get_state_from_ctx(ctx)
-
-	if state == nil || state.builtin_require == nil {
-		return
-	}
-
-	installer := get_named(ctx, cast(jsc.JSObjectRef)state.builtin_require, "installStdio")
-
-	if installer == nil || !jsc.JSValueIsObject(ctx, installer) {
-		return
-	}
-
-	proc_obj := get_named(ctx, global, "process")
-
-	if proc_obj == nil || !jsc.JSValueIsObject(ctx, proc_obj) {
-		return
-	}
-
-	args := [1]jsc.JSValueRef{proc_obj}
-	exception: jsc.JSValueRef
-	jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)installer, nil, 1, raw_data(args[:]), &exception)
-
-	if exception != nil {
-		report_internal_exception(ctx, "internal:stdio", exception)
-	}
 }
 
 // install_console builds the full `console` object. CONSOLE_PRELUDE evaluates
@@ -2334,48 +1692,6 @@ report_internal_exception :: proc(ctx: jsc.JSContextRef, name: string, exception
 	}
 }
 
-install_process :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef) {
-	process := jsc.JSObjectMake(ctx, nil, nil)
-
-	set_named(ctx, process, "platform", js_string_value(ctx, PROCESS_PLATFORM))
-	set_named(ctx, process, "arch", js_string_value(ctx, PROCESS_ARCH))
-	set_named(ctx, process, "pid", jsc.JSValueMakeNumber(ctx, f64(os.get_pid())))
-
-	set_named(ctx, process, "version", js_string_value(ctx, process_version_string()))
-
-	versions := jsc.JSObjectMake(ctx, nil, nil)
-	set_named(ctx, versions, "node", js_string_value(ctx, NODE_BASELINE))
-	set_named(ctx, process, "versions", cast(jsc.JSValueRef)versions)
-
-	// Node's argv layout is [execPath, scriptPath, ...userArgs] (eval() builds it
-	// on the state). Fall back to os.args only for embedders that never set it.
-	argv := os.args
-
-	if state := get_state_from_ctx(ctx); state != nil && len(state.script_argv) > 0 {
-		argv = state.script_argv
-	}
-
-	set_named(ctx, process, "argv", cast(jsc.JSValueRef)build_string_array(ctx, argv))
-	set_named(ctx, process, "env", cast(jsc.JSValueRef)build_env_object(ctx))
-
-	inject_native_function(ctx, process, "exit", process_exit_cb)
-	inject_native_function(ctx, process, "cwd", process_cwd_cb)
-	inject_native_function(ctx, process, "memoryUsage", process_memory_usage_cb)
-
-	set_named(ctx, global, "process", cast(jsc.JSValueRef)process)
-}
-
-process_version_string :: proc() -> string {
-	parts := [?]string{"v", NODE_BASELINE, ".0.0"}
-	result, err := strings.concatenate(parts[:], context.temp_allocator)
-
-	if err != nil {
-		return "v22.0.0"
-	}
-
-	return result
-}
-
 // --- helpers ---
 
 set_named :: proc(ctx: jsc.JSContextRef, object: jsc.JSObjectRef, name: string, value: jsc.JSValueRef) {
@@ -2404,31 +1720,6 @@ build_string_array :: proc(ctx: jsc.JSContextRef, items: []string) -> jsc.JSObje
 	return arr
 }
 
-// build_env_object snapshots the OS environment into a plain object. NOTE: unlike
-// Node's live magic `process.env`, this is a one-shot copy — writes/deletes do not
-// reach the real environment, so native code reading os.environ later (e.g. a future
-// child_process) will not see them. Tracked divergence; revisit when child processes
-// land.
-build_env_object :: proc(ctx: jsc.JSContextRef) -> jsc.JSObjectRef {
-	object := jsc.JSObjectMake(ctx, nil, nil)
-	environ, err := os.environ(context.temp_allocator)
-
-	if err != os.ERROR_NONE {
-		return object
-	}
-
-	for entry in environ {
-		idx := strings.index_byte(entry, '=')
-
-		if idx <= 0 {
-			continue
-		}
-
-		set_named(ctx, object, entry[:idx], js_string_value(ctx, entry[idx + 1:]))
-	}
-	return object
-}
-
 // CONSOLE_PRELUDE evaluates to a factory function which, given the two native
 // write primitives (stdout, stderr), builds the Node `console` object and
 // installs it on globalThis. Implemented in JS (like Node) so util.format
@@ -2436,19 +1727,13 @@ build_env_object :: proc(ctx: jsc.JSContextRef) -> jsc.JSObjectRef {
 // primitives arrive as arguments, so they are never visible on globalThis.
 CONSOLE_PRELUDE :: #load("js/bootstrap/console.js", string)
 
-// process.nextTick / queueMicrotask ordering shim (factory `(globalThis,
-// process) => {}`). Installed after `process` exists; see install_microtasks.
+// queueMicrotask and the callback dispatcher (factory `(globalThis, reportUncaught,
+// nativeShape) => {}`); see install_microtasks.
 MICROTASK_PRELUDE :: #load("js/bootstrap/microtasks.js", string)
 
-// The module loader: evaluates to `(compile, natives) => resolver`. A bootstrap
+// The module loader: evaluates to `(compile, natives) => handle`. A bootstrap
 // file, not a module — it is what makes the modules below requireable.
 BOOTSTRAP_LOADER :: #load("js/bootstrap/loader.js", string)
-
-// ESM-to-CommonJS source transform. Stored on Runtime_State rather than handed to
-// the module resolver (see install_internal_modules); evaluates to a function. It
-// lives in js/bootstrap/, which no #load_directory reads, precisely so it can never
-// land on the module table.
-BOOTSTRAP_ESM :: #load("js/bootstrap/esm.js", string)
 
 // Embedded_JS_Dir is one directory of built-in modules, embedded whole. Each file
 // evaluates to a factory `(require, module, exports, native) => exports?`; its id
@@ -2462,22 +1747,15 @@ Embedded_JS_Dir :: struct {
 // existing under one of these, so there is no hand-kept file table to drift from the
 // tree (scripts/check-js-graph.mjs fails when a directory holding .js is missing
 // here). One entry per directory because #load_directory is not recursive — it
-// returns basenames and skips subdirectories, which is also why `node/stream/web`
-// needs the `node/stream` row. It loads every file, so the loop filters on `.js`.
+// returns basenames and skips subdirectories, which is why `internal/fetch/body` needs
+// the `internal/fetch` row. It loads every file, so the loop filters on `.js`.
 //
 // A package-level VARIABLE, not a `::` constant: `#load_directory` compiles only in
 // a package-level `:=` declaration (odin 2026-11a rejects the constant and the
 // proc-local forms). Nothing writes to it after init.
 EMBEDDED_JS_DIRS := [?]Embedded_JS_Dir {
-	{"node", #load_directory("js/node")},
-	{"node/path", #load_directory("js/node/path")},
-	{"node/stream", #load_directory("js/node/stream")},
-	{"node/timers", #load_directory("js/node/timers")},
-	{"node/util", #load_directory("js/node/util")},
 	{"internal", #load_directory("js/internal")},
 	{"internal/crypto", #load_directory("js/internal/crypto")},
 	{"internal/fetch", #load_directory("js/internal/fetch")},
-	{"internal/streams", #load_directory("js/internal/streams")},
-	{"internal/util", #load_directory("js/internal/util")},
 	{"internal/webstreams", #load_directory("js/internal/webstreams")},
 }

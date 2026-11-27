@@ -4,6 +4,14 @@
 > Companion to [`docs/LARVA.md`](LARVA.md) (headless browser architecture and
 > roadmap) and [`README.md`](../README.md) (how to build and run).
 
+**Since S5b the Node profile is gone.** `lava run`/`lava eval` run a classic script
+with the Window globals only: there is no `require`, `module`, `process`, `Buffer`,
+`node:*` module, ESM transform or CommonJS loader any more, and `pkg/runtime/js/node/`,
+`require.odin`, `module_resolution.odin` and `stdio.odin` are deleted. What sections
+1, 3.3 and 3.4 say about those is history until they are rewritten; the internal
+module table (`bootstrap/loader.js`, `js/internal/`) and everything below the JS
+layer are current.
+
 ---
 
 ## 1. What Lava is
@@ -283,35 +291,16 @@ native codec at every size. Removed rather than left as folklore steering review
   `index`, and `node_modules` walking. **`package.json` `"exports"` conditional
   resolution is not yet implemented** — a real gap for modern packages.
 
-### 3.4.1 Global surfaces (`Global_Surface`, `runtime.odin`)
+### 3.4.1 The global surface
 
-`eval` takes a trailing `surface` (default `.Node`), threaded through
-`setup_module_environment` into `install_globals`. `.Node` is everything `lava run`
-exposes; `run_file` and the CLI never select anything else. `.Web` is for an embedder
-that runs untrusted web-platform code: the context keeps fetch, URL, the Web Streams
-family, TextEncoder/TextDecoder, Blob/File, AbortController, structuredClone,
-atob/btoa, crypto, performance, console, queueMicrotask and the four timer functions,
-while `process`, `require`, `module`, `exports`, `__filename`, `__dirname`, `Buffer`,
-`global`, `setImmediate`/`clearImmediate` and every `__lava*` hook are unreachable by
-name. The bootstrap still needs some of those names while it runs, so `.Web` works in
-three groups:
-
-1. **Never injected** — the CommonJS entry bindings (`__filename`, `__dirname`,
-   `require`, `__lava_precache`, `module`, `exports`) and the top-level drain's
-   `__lavaDrainNextTicks`/`__lava_tl_drain`. Builtins get `require` as a factory
-   argument, and native dispatch drains nextTicks through `Runtime_State`, so nothing
-   internal reads them. `eval` appends no top-level drain and registers no entry module;
-   an `.mjs` source is `Invalid_Input`, since the ESM transform emits `require`.
-2. **Not installed** — `install_stdio`. `internal/stdio` and the node-streams stack it
-   pulls in are never compiled; `console` writes through its own native writer.
-3. **Installed, then removed** as the last step before user code — `process`,
-   `Buffer`, `setImmediate`, `clearImmediate`, `global`. The loader hands `process` to
-   `node:process`, `microtasks.js` installs `nextTick` on it, and the eager modules
-   capture at module-eval.
-
-`.Web` promises only that the names are gone: web APIs still hand out Node-shaped
-values (Buffer-backed bytes, `ERR_*` codes), so `Buffer` stays reachable through a
-value's `.constructor`. Pinned by `cmd/lava/global_surface_test.odin`.
+There is one: the Window profile ([LARVA.md](LARVA.md) decision 1). `install_globals`
+puts the four timer functions, console, performance and queueMicrotask on the global,
+and the module loader (`bootstrap/loader.js`) instantiates the internal modules that
+install fetch, URL, the Web Streams family, TextEncoder/TextDecoder, Blob/File,
+AbortController, DOMException, structuredClone, atob/btoa and crypto. Nothing Node
+names is reachable: tests/web/cases/globals-window.js pins the set against Chrome and
+`cmd/lava/global_surface_test.odin` the internal `__lava*` hooks. A source named
+`*.mjs` is refused (exit 2): module scripts are not supported yet.
 
 ### 3.5 I/O transports (`fetch_*`, `pkg/tls`)
 
@@ -452,7 +441,7 @@ only ever entered by the thread that created it and never holds two live context
 Windows is the exception: it still calls `JSGlobalContextCreate`, a fresh VM per
 context (`create_eval_context`, `runtime.odin`).
 
-The Node profile runs one context at a time per thread. Several pages on one
+`lava run` runs one context at a time per thread. Several pages on one
 thread, each in its own pooled VM and sharing that thread's loop, is the Larva
 design ([LARVA.md](LARVA.md) decision 2) and is not built yet: no page object
 exists, and loop handles carry no per-page owner. Package-level state is audited

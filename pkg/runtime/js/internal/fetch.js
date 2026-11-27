@@ -130,9 +130,7 @@
   function fetch(input, init) {
     if (arguments.length === 0) {
       var missing = webErrors.argumentsRequired(1, 0);
-      return PromiseRejectP(
-        webErrors.web ? webErrors.typeError('Window', 'fetch', missing) : new TypeErrorP(missing),
-      );
+      return PromiseRejectP(webErrors.typeError('Window', 'fetch', missing));
     }
 
     var req;

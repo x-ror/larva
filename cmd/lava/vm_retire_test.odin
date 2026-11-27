@@ -109,7 +109,7 @@ runner_retires_a_vm_at_its_page_cap :: proc(t: ^testing.T) {
 	runner.pool.retire_after_pages = 2
 	out: [5]Page_Outcome
 	for &o in out {
-		lava.page_runner_open(&runner, RETIRE_ISOLATION_PAGE, "<retire>", RETIRE_LIMITS, &o, .Web)
+		lava.page_runner_open(&runner, RETIRE_ISOLATION_PAGE, "<retire>", RETIRE_LIMITS, &o)
 		lava.page_runner_run(&runner)
 	}
 	for o, i in out {
@@ -163,7 +163,7 @@ run_heap_sequence :: proc(
 	runner.pool.retire_heap_bytes = lava.HEAP_COLLECT_BYTES
 	sources := [3]string{"1", RETIRE_HEAVY_PAGE, "1"}
 	for src, i in sources {
-		lava.page_runner_open(&runner, src, "<heap>", RETIRE_LIMITS, &out[i], .Web)
+		lava.page_runner_open(&runner, src, "<heap>", RETIRE_LIMITS, &out[i])
 		lava.page_runner_run(&runner)
 
 		if i == 0 {
@@ -288,7 +288,7 @@ retire_churn_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: 
 
 	if c.opened < c.target {
 		c.opened += 1
-		lava.page_runner_open(runner, RETIRE_CHURN_SOURCE, "<churn>", RETIRE_LIMITS, c, .Web)
+		lava.page_runner_open(runner, RETIRE_CHURN_SOURCE, "<churn>", RETIRE_LIMITS, c)
 	}
 }
 
@@ -299,7 +299,7 @@ retire_churn_to :: proc(runner: ^lava.Page_Runner, c: ^Retire_Churn, target: int
 	c.target = target
 	for _ in 0 ..< 2 {
 		c.opened += 1
-		lava.page_runner_open(runner, RETIRE_CHURN_SOURCE, "<churn>", RETIRE_LIMITS, c, .Web)
+		lava.page_runner_open(runner, RETIRE_CHURN_SOURCE, "<churn>", RETIRE_LIMITS, c)
 	}
 	lava.page_runner_run(runner)
 }

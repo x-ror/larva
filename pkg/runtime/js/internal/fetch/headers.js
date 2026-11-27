@@ -52,7 +52,6 @@
   var ArrayPrototypeValues = P.uncurryThis(P.Array.prototype.values);
 
   var webErrors = require('internal/web_errors');
-  var web = webErrors.web;
   var context = webErrors.context;
   var pageError = webErrors.pageError;
 
@@ -71,8 +70,7 @@
     "The provided value is not of type '(record<ByteString, ByteString> or sequence<sequence<ByteString>>)'.";
 
   // A TypeError for a page (`ctx` + Blink's detail) or, on `.Node`, undici's text.
-  function headerError(ctx, detail, nodeText) {
-    if (!web) return new TypeErrorP(nodeText);
+  function headerError(ctx, detail) {
     return pageError(new TypeErrorP(ctx + detail));
   }
 
@@ -81,26 +79,14 @@
   // wins over "Invalid name"/"Invalid value".
   function byteString(value, ctx) {
     if (typeof value === 'symbol') {
-      throw headerError(
-        ctx,
-        'Cannot convert a Symbol value to a string',
-        'Cannot convert a Symbol value to a string',
-      );
+      throw headerError(ctx, 'Cannot convert a Symbol value to a string');
     }
 
     var s = StringP(value);
     for (var i = 0; i < s.length; i++) {
       var code = StringPrototypeCharCodeAt(s, i);
       if (code > 0xff) {
-        throw headerError(
-          ctx,
-          'String contains non ISO-8859-1 code point.',
-          'Cannot convert argument to a ByteString because the character at index ' +
-            i +
-            ' has a value of ' +
-            code +
-            ' which is greater than 255.',
-        );
+        throw headerError(ctx, 'String contains non ISO-8859-1 code point.');
       }
     }
 
@@ -109,7 +95,7 @@
 
   function assertValidHeaderName(name, ctx) {
     if (!reTest(VALID_HEADER_NAME, name)) {
-      throw headerError(ctx, 'Invalid name', 'Invalid header name: "' + name + '"');
+      throw headerError(ctx, 'Invalid name');
     }
   }
 
@@ -126,11 +112,7 @@
       // charcodeat phase of run-http-smoke.sh against http.js.
       var code = StringPrototypeCharCodeAt(value, i);
       if (code === 0 || code === 10 || code === 13) {
-        throw headerError(
-          ctx,
-          'Invalid value',
-          'Invalid header value for "' + name + '": "' + value + '"',
-        );
+        throw headerError(ctx, 'Invalid value');
       }
     }
   }
@@ -189,7 +171,7 @@
   }
 
   function assertMutable(headers, ctx) {
-    if (headers._guard === IMMUTABLE) throw headerError(ctx, 'Headers are immutable', 'immutable');
+    if (headers._guard === IMMUTABLE) throw headerError(ctx, 'Headers are immutable');
   }
 
   var IMMUTABLE = 'immutable';
@@ -274,9 +256,7 @@
     }
 
     if (init === null || (typeof init !== 'object' && typeof init !== 'function')) {
-      // `.Node` kept ignoring a scalar init, which undici rejects; it goes with S5b.
-      if (web) throw headerError(ctx, HEADERS_INIT_TYPE, '');
-      return;
+      throw headerError(ctx, HEADERS_INIT_TYPE);
     }
 
     if (typeof init[SymbolIterator] === 'function') {
@@ -284,22 +264,12 @@
       for (var i = 0; i < pairs.length; i++) {
         var pair = pairs[i];
         if (pair === null || (typeof pair !== 'object' && typeof pair !== 'function')) {
-          throw headerError(
-            ctx,
-            HEADERS_INIT_TYPE,
-            'Headers constructor: expected name/value pair to be length 2, found 1.',
-          );
+          throw headerError(ctx, HEADERS_INIT_TYPE);
         }
 
         pair = ArrayFrom(pair);
         if (pair.length !== 2) {
-          throw headerError(
-            ctx,
-            'Invalid value',
-            'Headers constructor: expected name/value pair to be length 2, found ' +
-              pair.length +
-              '.',
-          );
+          throw headerError(ctx, 'Invalid value');
         }
 
         appendChecked(headers, pair[0], pair[1], ctx);
@@ -385,11 +355,7 @@
     }
     forEach(callback, thisArg) {
       if (typeof callback !== 'function') {
-        throw headerError(
-          CTX_FOR_EACH,
-          'The callback provided as parameter 1 is not a function.',
-          'The "callback" argument must be of type function',
-        );
+        throw headerError(CTX_FOR_EACH, 'The callback provided as parameter 1 is not a function.');
       }
 
       var entries = entryList(this);

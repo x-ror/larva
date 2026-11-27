@@ -9,25 +9,15 @@ import lava "lava:pkg/runtime"
 // can see it, because `lava run` and the oracle suites evaluate one page at a time and a
 // single page never slices.
 
-// Event-loop cases whose ordering a slice between two timer tasks could break: FIFO
-// (03), microtasks between timers (04, 09), a 0 ms timer created in a timer waits for
-// the next turn (05), interval cancellation (06), a timer due mid-callback waits for the
-// next turn (12), timers before the turn's immediates (14), and the HTML timer order
-// recorded in Chrome (tests/web/cases; their oracle runs print, which a runner page
-// does not have, so they are restated below with an assertion). Each asserts its own
-// order and throws on a mismatch, which ends the page with an error.
+// Event-loop cases whose ordering a slice between two timer tasks could break: the HTML
+// timer order recorded in Chrome (tests/web/cases; their oracle runs print, which a
+// runner page does not have, so they are restated below with an assertion). Each
+// asserts its own order and throws on a mismatch, which ends the page with an error.
 @(private = "file")
 SLICED_CASES := [?]struct {
 	name:   string,
 	source: string,
 } {
-	{"03", #load("../../tests/runtime/eventloop/cases/03-timer-fifo.js", string)},
-	{"04", #load("../../tests/runtime/eventloop/cases/04-microtasks-between-timers.js", string)},
-	{"05", #load("../../tests/runtime/eventloop/cases/05-nested-timer-turn.js", string)},
-	{"06", #load("../../tests/runtime/eventloop/cases/06-interval-cancellation.js", string)},
-	{"09", #load("../../tests/runtime/eventloop/cases/09-nexttick-microtask-interleave.js", string)},
-	{"12", #load("../../tests/runtime/eventloop/cases/12-timer-due-mid-phase-waits.js", string)},
-	{"14", #load("../../tests/runtime/eventloop/cases/14-timers-before-immediate.js", string)},
 	{"timers-due-mid-callback", WEB_DUE_MID_CALLBACK},
 	{"timers-ready-order", WEB_READY_ORDER},
 	{"timers-interval-rearm", WEB_INTERVAL_REARM},
@@ -141,24 +131,24 @@ HOG_PAGE :: `
 const K = 30000;
 let n = 0, last = 0;
 setTimeout(() => { while (performance.now() < last + 15); }, 0);
-function f() { if (++n === K) process.exitCode = 3; }
+function f() { if (++n === K) throw 3; }
 for (let i = 0; i < K; i++) setTimeout(f, 10);
 last = performance.now();
 `
 
-// SIBLING_PAGE needs 20 turns: a chain of immediates, each queued by the one before,
-// runs one per turn.
+// SIBLING_PAGE needs 20 turns: a chain of 0 ms timers, each set by the one before,
+// runs one per turn (a timer created in a timer task waits for the next turn).
 @(private = "file")
 SIBLING_PAGE :: `
 let steps = 0;
-(function step() { if (++steps < 20) setImmediate(step); else process.exitCode = 4; })();
+(function step() { if (++steps < 20) setTimeout(step, 0); else throw 4; })();
 `
 
 // A sibling ticks between the slices of a page with a pile of due timers (#35): with
 // the default quantum, a page whose turn fires 30000 timers is suspended every 1 ms of
 // CPU, and the runner ticks its sibling in between. The measure is runner rounds, not
 // time, so a loaded machine cannot change the outcome: the sibling needs 20 rounds,
-// one immediate per tick. Unsliced, the hog's turn is one tick and it is reported
+// one timer per tick. Unsliced, the hog's turn is one tick and it is reported
 // within a handful of rounds, long before the sibling; sliced, that turn alone is
 // 30000 callbacks — about 100 ms of CPU at ~3 µs each (more in this debug build) — so
 // at least ~90 slices, and the sibling is reported first.
@@ -184,13 +174,13 @@ runner_sibling_ticks_between_slices_of_a_timer_heavy_page :: proc(t: ^testing.T)
 
 	testing.expectf(
 		t,
-		hog.outcome.status == .Ok && hog.outcome.exit == 3,
+		hog.outcome.status == .Ok && hog.outcome.exit == 1,
 		"hog did not fire every timer: %s",
 		describe_outcome(hog.outcome),
 	)
 	testing.expectf(
 		t,
-		sibling.outcome.status == .Ok && sibling.outcome.exit == 4,
+		sibling.outcome.status == .Ok && sibling.outcome.exit == 1,
 		"sibling did not finish: %s",
 		describe_outcome(sibling.outcome),
 	)

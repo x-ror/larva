@@ -6,51 +6,42 @@ import "core:os"
 import "core:testing"
 import lava "lava:pkg/runtime"
 
-// Pins `lava run --surface=web` (parse_run_args, main.odin), the temporary flag
-// the Chrome-recorded oracle suite (tests/web, `make test-web`) runs its cases
-// under until the Node surface is deleted. A Lava-only CLI seam: neither node
-// nor Chrome has a `run` command, so it is pinned here rather than by an oracle.
-// The suite's own globals-window case pins the same names against Chrome.
+// Pins `lava run`'s options (parse_run_args, main.odin). A Lava-only CLI seam: neither
+// node nor Chrome has a `run` command, so it is pinned here rather than by an oracle.
 
 @(test)
-run_args_surface_flag :: proc(t: ^testing.T) {
-	web, web_rest, web_err := parse_run_args({"--surface=web", "a.js", "x"})
-	testing.expect_value(t, web_err, "")
-	testing.expect_value(t, web.surface, lava.Global_Surface.Web)
-	testing.expect_value(t, len(web_rest), 2)
+run_args_origin_flag :: proc(t: ^testing.T) {
+	// No flag: an opaque origin, and the script path first in `rest`.
+	plain, plain_rest, plain_err := parse_run_args({"a.js", "x"})
+	testing.expect_value(t, plain_err, "")
+	testing.expect_value(t, plain.origin, "")
+	testing.expect_value(t, len(plain_rest), 2)
 
-	if len(web_rest) == 2 {
-		testing.expect_value(t, web_rest[0], "a.js")
-		testing.expect_value(t, web_rest[1], "x")
+	if len(plain_rest) == 2 {
+		testing.expect_value(t, plain_rest[0], "a.js")
 	}
 
-	// No flag keeps the default every other caller gets.
-	node, node_rest, node_err := parse_run_args({"a.js"})
-	testing.expect_value(t, node_err, "")
-	testing.expect_value(t, node.surface, lava.Global_Surface.Node)
-	testing.expect_value(t, node.origin, "")
-	testing.expect_value(t, len(node_rest), 1)
-
-	// After the script path the flag belongs to the script (process.argv), as every
-	// option after the entry does under node.
-	late, late_rest, late_err := parse_run_args({"a.js", "--surface=web"})
+	// After the script path a flag is not read: it is the script's (and ignored).
+	late, late_rest, late_err := parse_run_args({"a.js", "--origin=http://a.test"})
 	testing.expect_value(t, late_err, "")
-	testing.expect_value(t, late.surface, lava.Global_Surface.Node)
+	testing.expect_value(t, late.origin, "")
 	testing.expect_value(t, len(late_rest), 2)
 
-	// A misspelt surface or a flag with no file is a usage error, never a silent
-	// fallback to the Node surface.
-	_, _, bogus_err := parse_run_args({"--surface=window", "a.js"})
-	testing.expect(t, bogus_err != "", "--surface=window must be refused")
-	_, _, alone_err := parse_run_args({"--surface=web"})
-	testing.expect(t, alone_err != "", "--surface=web without a file must be refused")
+	// The removed --surface flag is not an option any more: it is read as the script.
+	old, old_rest, old_err := parse_run_args({"--surface=web", "a.js"})
+	testing.expect_value(t, old_err, "")
+	testing.expect_value(t, old.origin, "")
+	testing.expect_value(t, len(old_rest), 2)
 
-	// --origin, in either order with --surface; the value is handed on as given.
-	both, both_rest, both_err := parse_run_args({"--origin=http://a.test:8080", "--surface=web", "a.js"})
-	testing.expect_value(t, both_err, "")
-	testing.expect_value(t, both.surface, lava.Global_Surface.Web)
-	testing.expect_value(t, both.origin, "http://a.test:8080")
-	testing.expect_value(t, len(both_rest), 1)
+	// A flag with no file is a usage error.
+	_, _, alone_err := parse_run_args({"--origin=http://a.test"})
+	testing.expect(t, alone_err != "", "--origin without a file must be refused")
+
+	// The value is handed on as given.
+	set, set_rest, set_err := parse_run_args({"--origin=http://a.test:8080", "a.js"})
+	testing.expect_value(t, set_err, "")
+	testing.expect_value(t, set.origin, "http://a.test:8080")
+	testing.expect_value(t, len(set_rest), 1)
 
 	// An empty or repeated flag is a usage error, not a silent opaque origin or a
 	// last-one-wins.
@@ -60,37 +51,27 @@ run_args_surface_flag :: proc(t: ^testing.T) {
 	testing.expect(t, twice_err != "", "a repeated --origin must be refused")
 }
 
-// run_file must hand the surface to eval: with `.Web` the Node names are gone, and
-// without it (the default) they are all there. The script throws from the top level
-// on a mismatch, so a lost parameter is an Execution_Error naming the names.
+// run_file runs the script with the Window globals and none of Node's. The script
+// throws from the top level on a mismatch, so a Node name back on the page is an
+// Execution_Error naming it.
 @(test)
-run_file_threads_surface :: proc(t: ^testing.T) {
-	// typeof in the entry's own scope: `require` and `module` are bindings of the
-	// CommonJS wrapper, not global properties, so a fresh Function would miss them.
+run_file_has_no_node_names :: proc(t: ^testing.T) {
 	SCRIPT :: `const types = [typeof process, typeof require, typeof Buffer, typeof module, typeof setImmediate, typeof global];
-const want = typeof WANT_WEB !== 'undefined';
-let seen = 0;
-for (const ty of types) if (ty !== 'undefined') seen++;
-if (want ? seen !== 0 : seen !== types.length) throw new Error((want ? 'web sees ' : 'node sees ') + types.join(','));
+for (const ty of types) if (ty !== 'undefined') throw new Error('page sees ' + types.join(','));
 `
 
-	check :: proc(t: ^testing.T, name: string, source: string, surface: lava.Global_Surface) {
-		path := fmt.aprintf("/tmp/lava-run-surface-%d-%s.js", os.get_pid(), name)
-		defer delete(path)
+	path := fmt.aprintf("/tmp/lava-run-surface-%d.js", os.get_pid())
+	defer delete(path)
 
-		if err := os.write_entire_file(path, transmute([]u8)source); err != nil {
-			testing.expectf(t, false, "%s: cannot write %s: %v", name, path, err)
-			return
-		}
-
-		defer os.remove(path)
-		result := lava.run_file(path, surface = surface)
-		defer lava.result_destroy(&result)
-		testing.expectf(t, result.status == .Ok, "%s: status=%v message=%q", name, result.status, result.message)
+	if err := os.write_entire_file(path, transmute([]u8)string(SCRIPT)); err != nil {
+		testing.expectf(t, false, "cannot write %s: %v", path, err)
+		return
 	}
 
-	check(t, "web", "var WANT_WEB = 1;\n" + SCRIPT, .Web)
-	check(t, "node", SCRIPT, .Node)
+	defer os.remove(path)
+	result := lava.run_file(path)
+	defer lava.result_destroy(&result)
+	testing.expectf(t, result.status == .Ok, "status=%v message=%q", result.status, result.message)
 }
 
 // LAVA_WORKERS selected Lava's multi-worker supervisor, deleted with the Node profile.
@@ -131,7 +112,7 @@ run_file_threads_origin :: proc(t: ^testing.T) {
 		}
 
 		defer os.remove(path)
-		result := lava.run_file(path, surface = .Web, origin = origin)
+		result := lava.run_file(path, origin = origin)
 		defer lava.result_destroy(&result)
 		testing.expectf(t, result.status == .Ok, "%s: status=%v message=%q", name, result.status, result.message)
 	}

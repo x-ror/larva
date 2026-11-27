@@ -1,21 +1,10 @@
 /**
- * @fileoverview atob/btoa, the HTML forgiving-base64 pair — node keeps them in
- * lib/buffer.js. Re-exported from node:buffer (`buffer.atob === atob`, as in node), and
- * installs the `atob`/`btoa` globals itself, right after internal/file.js installs
- * `File`, so the Window surface has them without a node/ module.
+ * @fileoverview atob/btoa, the HTML forgiving-base64 pair. Installs the `atob`/`btoa`
+ * globals itself, right after internal/file.js installs `File`.
  *
- * Instantiated eagerly: node/buffer.js requires it at its top level, before user code
- * runs, so the module-eval captures below are pristine (the loader also names it as a
- * root of its own).
- *
- * On the Window surface the codec is the buffer natives (`natives`, aliased to
- * node:buffer's bindings object by the loader): `.Web` instantiates no node/ module,
- * so there is no Buffer to read. On the Node surface it is still Buffer's. A top-level `require('buffer')` would be a cycle
- * (node/buffer.js requires this file), so each call reads the constructor off the
- * loader's pristine table — `require.pristineBuffer.Buffer`, the very object node/buffer.js
- * binds as `Buffer`, attached before user code — and reads `.from` off it LIVE, as it did
- * when this code lived in node/buffer.js: node's btoa reads `Buffer.from` the same way,
- * so a replaced `Buffer.from` steers both runtimes alike.
+ * Instantiated eagerly by the loader, before page code runs, so the module-eval
+ * captures below are pristine. The codec is the buffer natives (`natives`, the codec
+ * bindings globals.odin hands this file).
  *
  * @module lava/internal/base64
  */
@@ -25,17 +14,14 @@
 
   var P = require('internal/primordials');
   var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;
-  var ERR_MISSING_ARGS = require('internal/errors').ERR_MISSING_ARGS;
   var DOMException = require('internal/domexception').DOMException;
   var webErrors = require('internal/web_errors');
-  var web = webErrors.web;
   var argumentsRequired = webErrors.argumentsRequired;
   var context = webErrors.context;
   var toDOMString = webErrors.toDOMString;
   var typeError = webErrors.typeError;
   var pageError = webErrors.pageError;
-  // Window surface only (see the file header); captured at module-eval, so a page
-  // cannot steer them.
+  // Captured at module-eval, so a page cannot steer them.
   var base64DecodeNative = natives.base64Decode;
   var base64EncodeNative = natives.base64Encode;
   var latin1EncodeNative = natives.latin1Encode;
@@ -43,40 +29,20 @@
   var StringFromCharCode = String.fromCharCode;
   var StringPrototypeSlice = P.StringPrototypeSlice;
 
-  // An InvalidCharacterError DOMException (legacy code 5) on both surfaces — node's and
-  // Chrome's shape alike. `nodeMessage` is node's text, which tells the bad-character
-  // and bad-length cases apart; Chrome has one sentence per function for every reason
-  // (tests/web/cases/base64-errors.expected). `op` defaults to atob, whose call sites
-  // pass node's text alone.
-  function errInvalidCharacter(nodeMessage, op) {
-    if (op === undefined) {
-      op = 'atob';
-    }
-
-    var message = nodeMessage;
-    if (web) {
-      message =
-        context('Window', op) +
-        (op === 'btoa'
-          ? 'The string to be encoded contains characters outside of the Latin1 range.'
-          : 'The string to be decoded is not correctly encoded.');
-    }
-
+  // An InvalidCharacterError DOMException (legacy code 5), with Chrome's one sentence
+  // per function for every reason (tests/web/cases/base64-errors.expected).
+  function errInvalidCharacter(op) {
+    var message =
+      context('Window', op) +
+      (op === 'btoa'
+        ? 'The string to be encoded contains characters outside of the Latin1 range.'
+        : 'The string to be decoded is not correctly encoded.');
     return pageError(new DOMException(message, 'InvalidCharacterError'));
   }
 
   // The argument check and DOMString conversion both share: Chrome's arity TypeError
-  // and Symbol refusal on the Window surface, node's ERR_MISSING_ARGS and a template
-  // literal (whose own TypeError a Symbol raises) on the Node one.
+  // and Symbol refusal.
   function toInput(args, op) {
-    if (!web) {
-      if (args.length === 0) {
-        throw ERR_MISSING_ARGS('input');
-      }
-
-      return `${args[0]}`;
-    }
-
     if (args.length === 0) {
       throw typeError('Window', op, argumentsRequired(1, 0));
     }
@@ -98,19 +64,15 @@
   var NON_LATIN1_RE = /[^\u0000-\u00ff]/;
 
   /**
-   * Base64 → latin1 per the HTML forgiving-base64 decode (global atob and node:buffer's
-   * atob are the same function, as in Node).
-   * @param {*} input Stringified with a template literal, like Node (`${input}`).
+   * Base64 → latin1 per the HTML forgiving-base64 decode.
+   * @param {*} input A DOMString.
    * @returns {string}
-   * @throws {TypeError} called with no argument (node: ERR_MISSING_ARGS), or a Symbol.
+   * @throws {TypeError} called with no argument, or a Symbol.
    * @throws {DOMException} InvalidCharacterError (5) — a character outside
    *         A-Za-z0-9+/= and ASCII whitespace, '=' not at the end or more than two,
    *         '=' when the length is not a multiple of 4, or a lone trailing character.
-   * @node Mirrors lib/buffer.js atob: whitespace is TAB LF FF CR SPACE (not VT); node's
-   *       messages are 'Invalid character' and 'The string to be decoded is not
-   *       correctly encoded.' (node 26.13.0, tests/node-compat/cases/03-buffer.js).
-   *       Window surface: Chrome 158's one message for every decode failure and its
-   *       WebIDL TypeErrors, tests/web/cases/base64-errors.expected.
+   * @node Whitespace is TAB LF FF CR SPACE (not VT). Chrome 158's one message for every
+   *       decode failure and its WebIDL TypeErrors, tests/web/cases/base64-errors.expected.
    * @deviates none
    */
   function atob(input) {
@@ -132,48 +94,33 @@
         if (c === 0x09 || c === 0x0a || c === 0x0c || c === 0x0d || c === 0x20) continue;
         var alnum =
           (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) || (c >= 0x30 && c <= 0x39);
-        if (!alnum && c !== 0x2b && c !== 0x2f && c !== 0x3d)
-          throw errInvalidCharacter('Invalid character');
+        if (!alnum && c !== 0x2b && c !== 0x2f && c !== 0x3d) throw errInvalidCharacter('atob');
         nonWhitespace++;
         if (c === 0x3d) equals++;
-        else if (equals) throw errInvalidCharacter('Invalid character'); // '=' only at the end
-        if (equals > 2) throw errInvalidCharacter('Invalid character');
+        else if (equals) throw errInvalidCharacter('atob'); // '=' only at the end
+        if (equals > 2) throw errInvalidCharacter('atob');
       }
-    // The lone-trailing-character test runs on the length WITHOUT the '=' and wins
-    // over the padding test: node 26.13.0 answers 'not correctly encoded' for 'a=',
-    // 'a==' and 'abcde=', and 'Invalid character' for 'ab=', 'abc==' and 'Zm9v='
-    // (probed; pinned by tests/node-compat/cases/03-buffer.js).
-    if ((nonWhitespace - equals) % 4 === 1)
-      throw errInvalidCharacter('The string to be decoded is not correctly encoded.');
-    if (equals && nonWhitespace % 4) throw errInvalidCharacter('Invalid character');
-    if (web) {
-      return latin1DecodeNative(
-        base64DecodeNative(canonicalBase64(input, nonWhitespace === input.length)),
-      );
-    }
-    var Buffer = require.pristineBuffer.Buffer;
-    return Buffer.from(input, 'base64').toString('latin1');
+    // The lone-trailing-character test runs on the length WITHOUT the '='.
+    if ((nonWhitespace - equals) % 4 === 1) throw errInvalidCharacter('atob');
+    if (equals && nonWhitespace % 4) throw errInvalidCharacter('atob');
+    return latin1DecodeNative(
+      base64DecodeNative(canonicalBase64(input, nonWhitespace === input.length)),
+    );
   }
 
   /**
-   * latin1 → Base64 (global btoa and node:buffer's btoa are the same function).
-   * @param {*} input Stringified with a template literal, like Node.
+   * latin1 → Base64.
+   * @param {*} input A DOMString.
    * @returns {string}
-   * @throws {TypeError} called with no argument (node: ERR_MISSING_ARGS), or a Symbol.
+   * @throws {TypeError} called with no argument, or a Symbol.
    * @throws {DOMException} InvalidCharacterError (5) — a code unit above 0xFF.
-   * @node lib/buffer.js btoa (node 26.13.0, tests/node-compat/cases/03-buffer.js);
-   *       Window surface as for atob.
+   * @node As for atob (tests/web/cases/base64-errors.expected).
    * @deviates none
    */
   function btoa(input) {
     input = toInput(arguments, 'btoa');
-    if (P.RegExpMatches(NON_LATIN1_RE, input))
-      throw errInvalidCharacter('Invalid character', 'btoa');
-    if (web) {
-      return base64EncodeNative(latin1EncodeNative(input));
-    }
-    var Buffer = require.pristineBuffer.Buffer;
-    return Buffer.from(input, 'latin1').toString('base64');
+    if (P.RegExpMatches(NON_LATIN1_RE, input)) throw errInvalidCharacter('btoa');
+    return base64EncodeNative(latin1EncodeNative(input));
   }
 
   // The padded, whitespace-free form base64Decode requires (buffer.odin: anything else

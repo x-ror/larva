@@ -30,14 +30,14 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
 
 ## Architecture decisions
 
-1. **Layered core, two global profiles.** Base layer: JSC, event loop, network,
-   Web APIs. On top, a **Node** profile (Lava as it is today) and a **Window**
-   profile (a page). The Window profile is not "Node minus a few globals": no
-   `process`, `require` or `Buffer` anywhere a page can reach, errors are plain
-   `TypeError`/`DOMException` with browser messages and no Node `ERR_*` codes, and
-   byte results are plain `Uint8Array`. Shared Web API code (`url.js`,
-   `encoding.js`, …) takes its error constructors and byte helpers from the
-   profile instead of from `buffer`/Node error helpers.
+1. **Layered core, one global profile.** Base layer: JSC, event loop, network,
+   Web APIs. On top, the **Window** profile (a page). It is not "Node minus a few
+   globals": no `process`, `require` or `Buffer` anywhere a page can reach, errors
+   are plain `TypeError`/`DOMException` with browser messages and no Node `ERR_*`
+   codes, and byte results are plain `Uint8Array`. The **Node** profile Lava started
+   with (CommonJS, `node:*` modules, `process`, `Buffer`, the ESM transform) was
+   removed in stages S3–S5b; `lava run` and `lava eval` run with the Window globals
+   only, and the oracle is recorded Chrome output (tests/web).
 2. **One VM per top-level page, many VMs per thread, VMs pooled.** A `JSContextGroup` is
    one `JSC::VM`: one GC heap, one lock, one microtask queue that JSC drains at
    every exit from the C API. Pages therefore never share a VM — sharing one
@@ -205,7 +205,7 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
      thread, a wake pipe and an epoll set per worker; the rest is the per-VM
      cost multiplied (#36);
    - Known limits of the runner, open as issues:
-     - The process fd table is shared. Under the Node profile a page can leak
+     - The process fd table is shared. Under the old Node profile a page could leak
        descriptors to `EMFILE` or `closeSync` a sibling's; the runner is not a
        security boundary there. The Window profile has no `fs`, which is what
        isolates descriptors between untrusted pages (#37).
@@ -301,7 +301,7 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
 Status as of 2026-11-14. The issues are the source of truth; this column is updated
 in the PR that changes a stage's state.
 
-Stage 1 so far, on the Node profile and the `.Web` global surface:
+Stage 1 so far, on the Window global surface (the only one since S5b):
 
 - the page (`pkg/runtime/page.odin`: `Page`, `page_open`/`page_tick`/`page_close`),
   one global context and one event loop per page, which `eval` and the page runner
@@ -323,7 +323,7 @@ Stage 1 so far, on the Node profile and the `.Web` global surface:
   tracking allocator, and the VM's protect count across pages.
 
 Still open in stage 1: killing a page on its heap sample (a VM is retired on one,
-decision 2) and the Window profile.
+decision 2).
 
 ## Risks
 

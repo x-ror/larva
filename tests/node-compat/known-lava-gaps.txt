@@ -1,9 +1,0 @@
-# Relative paths skipped by `make test-compat-lava`.
-# Keep this list small and remove entries as Lava gains support.
-#
-# Runtime note (not a skip): Lava surfaces uncaught async exceptions and
-# unhandled promise rejections (exit 1) and honors process.exitCode, matching
-# Node. Async cases still end with
-# `main().catch((e) => { console.error(e); process.exit(1); })` so a failure
-# reports a clean error and does not depend on the rejection plumbing it is
-# meant to exercise.

@@ -1,5 +1,0 @@
-# Relative paths skipped by `make test-eventloop-lava`.
-# Each entry is a real Lava gap to fix, not a permanent exclusion — remove the
-# line once the underlying behavior matches Node.
-#
-# (none)

@@ -1,6 +1,6 @@
 /**
  * @fileoverview TextEncoder / TextDecoder (WHATWG Encoding standard), installed as
- * globals on both surfaces.
+ * globals.
  *
  * No Buffer anywhere on either path (stage S4b of the Node-profile removal). Encoding
  * is the `utf8Encode` native, which hands back a plain Uint8Array over a buffer of its
@@ -8,12 +8,11 @@
  * decoders below. windows-1252 (the WHATWG alias for latin1/ascii) uses an explicit
  * high-byte table so it is exact, not approximate.
  *
- * Errors follow the profile (docs/LARVA.md decision 1). On `.Web` they are Chrome's:
- * the WebIDL binding's conversions in Blink's order (receiver, argument count, each
- * argument left to right, a dictionary's members as it is converted — before the label
- * is looked up) and Blink's text, built by internal/web_errors, with no `code`. On
- * `.Node` they keep node's coded errors and node's order until stage S5b deletes that
- * arm. Recorded: tests/web/cases/encoding-errors and encoding-webidl (Chrome 158).
+ * Errors are Chrome's: the WebIDL binding's conversions in Blink's order (receiver,
+ * argument count, each argument left to right, a dictionary's members as it is
+ * converted — before the label is looked up) and Blink's text, built by
+ * internal/web_errors, with no `code`. Recorded: tests/web/cases/encoding-errors and
+ * encoding-webidl (Chrome 158).
  *
  * @module lava/internal/encoding
  */
@@ -45,7 +44,6 @@
   var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;
   var StringPrototypeToLowerCase = P.StringPrototypeToLowerCase;
   var ReflectApply = P.ReflectApply;
-  var TypeErrorG = P.TypeError;
   var RangeErrorG = P.RangeError;
   var ErrorG = P.Error;
   var Uint8ArrayG = P.Uint8Array;
@@ -64,13 +62,10 @@
   var ObjectGetPrototypeOf = P.ObjectGetPrototypeOf;
   var Uint8ArrayPrototype = Uint8ArrayG.prototype;
   // Free globals / statics, captured pristine at module-eval.
-  var StringG = String;
   var StringFromCharCode = String.fromCharCode;
 
-  // The profile's error text (CLAUDE.md §5): Chrome's builders on `.Web`, node's
-  // coded errors on `.Node`. `web` is fixed per context before any module runs.
+  // Chrome's error text (CLAUDE.md §5).
   var webErrors = require('internal/web_errors');
-  var web = webErrors.web;
   var typeError = webErrors.typeError;
   var argumentsRequired = webErrors.argumentsRequired;
   var notOfType = webErrors.notOfType;
@@ -78,10 +73,6 @@
   var illegalInvocation = webErrors.illegalInvocation;
   var pageError = webErrors.pageError;
   var context = webErrors.context;
-  var errors = require('internal/errors');
-  var nodeError = errors.nodeError;
-  var nativeError = errors.nativeError;
-  var ERR_INVALID_ARG_TYPE = errors.ERR_INVALID_ARG_TYPE;
 
   // The codecs this module needs are Odin natives handed in through the loader's
   // fourth argument (pkg/runtime/globals.odin: the buffer bindings object, which is a
@@ -248,16 +239,7 @@
       bytesLength = TypedArrayPrototypeGetLength(view);
       return view;
     }
-    if (web) throw typeError('TextDecoder', 'decode', notOfType(1, 'ArrayBuffer'));
-    // Node names this argument "list" and appends no "Received" tail here: it is
-    // thrown by the C++ encoding binding, which is also why String(e) carries no
-    // [code]. SharedArrayBuffer is in the text because Node's is; Lava does not
-    // implement it, so that arm is unreachable and the wording is parity-only.
-    throw nativeError(
-      TypeErrorG,
-      'ERR_INVALID_ARG_TYPE',
-      'The "list" argument must be an instance of SharedArrayBuffer, ArrayBuffer or ArrayBufferView.',
-    );
+    throw typeError('TextDecoder', 'decode', notOfType(1, 'ArrayBuffer'));
   }
 
   // The view length toBytes found, read by its caller on the very next line: the
@@ -273,7 +255,7 @@
   // confirms through a slot read (uint8ArrayLength, or the native's own answer). The
   // brand alone costs more than the rest of a small decode: the @@toStringTag getter
   // measured +45 ns and ArrayBuffer.isView +35 ns on decode() of 9 bytes, against
-  // ~370 ns for the whole call (--surface=web, best of 5 reps, medians of 3
+  // ~370 ns for the whole call (the Window surface, best of 5 reps, medians of 3
   // interleaved launches per arm).
   function likelyUint8Array(value) {
     return (
@@ -307,18 +289,14 @@
     }
   }
 
-  // Node's validateObject(value, 'options', kValidateObjectAllowObjects) as TextDecoder
-  // calls it — nullable, arrays and functions allowed, every scalar (-0, NaN, '' and
-  // false included) refused; verified against node 26.13.0 (probe, 2026-11-16). WebIDL's
-  // dictionary conversion draws the same line, so one predicate serves both surfaces
-  // and only the text differs. Callers guard with `options !== undefined && options !==
+  // WebIDL's dictionary conversion: nullable, arrays and functions allowed, every
+  // scalar (-0, NaN, '' and false included) refused. Callers guard with `options !== undefined && options !==
   // null`, so the common `decode(bytes)` pays two comparisons and no call: as a bare
   // call this cost 1.087x on `new-textdecoder` (200k constructions, paired median of
   // 15 launches); guarded it is 1.035x.
   function badOptions(options, op) {
     var t = typeof options;
     if (t === 'object' || t === 'function') return null;
-    if (!web) return ERR_INVALID_ARG_TYPE('options', 'object', options);
     return typeError(
       'TextDecoder',
       op,
@@ -329,11 +307,9 @@
   }
 
   // What every operation and accessor throws for a receiver that is not an instance:
-  // Blink's "Illegal invocation" on `.Web`, node's ERR_INVALID_THIS on `.Node` (node 24
-  // and 26 validateEncoder/validateDecoder, probed).
-  function invalidThis(iface) {
-    if (web) return illegalInvocation();
-    return nodeError(TypeErrorG, 'ERR_INVALID_THIS', 'Value of "this" must be of type ' + iface);
+  // Blink's "Illegal invocation".
+  function invalidThis() {
+    return illegalInvocation();
   }
 
   // --- TextEncoder ---------------------------------------------------------
@@ -347,7 +323,7 @@
     }
 
     get encoding() {
-      if (!TextEncoder.#is(this)) throw invalidThis('TextEncoder');
+      if (!TextEncoder.#is(this)) throw invalidThis();
       return 'utf-8';
     }
 
@@ -355,17 +331,16 @@
      * UTF-8 encodes `input`.
      * @param {string} [input] USVString: lone surrogates become U+FFFD.
      * @returns {Uint8Array} a plain Uint8Array over a buffer of its own.
-     * @throws {TypeError} `this` is not a TextEncoder; on `.Web`, a Symbol input.
+     * @throws {TypeError} `this` is not a TextEncoder, or a Symbol input.
      * @node Chrome 158 (tests/web/cases/encoding-webidl): ToString, so a Symbol
      *       throws "Cannot convert a Symbol value to a string"; null encodes "null".
      * @deviates none
      */
     encode(input) {
-      if (!TextEncoder.#is(this)) throw invalidThis('TextEncoder');
+      if (!TextEncoder.#is(this)) throw invalidThis();
       var text;
       if (input === undefined) text = '';
-      else if (web) text = toDOMString(input, 'TextEncoder', 'encode');
-      else text = StringG(input);
+      else text = toDOMString(input, 'TextEncoder', 'encode');
       return utf8EncodeNative(text);
     }
 
@@ -374,7 +349,7 @@
      * @param {string} source
      * @param {Uint8Array} dest
      * @returns {{read: number, written: number}} a plain object.
-     * @throws {TypeError} on `.Web`, in Blink's order: a foreign `this`, fewer than two
+     * @throws {TypeError} in Blink's order: a foreign `this`, fewer than two
      *   arguments, a Symbol source, then a `dest` that is not a Uint8Array (the slot,
      *   so a Uint8ClampedArray or a DataView is refused).
      * @node Chrome 158 (tests/web/cases/encoding-webidl, encoding-errors): `source` is
@@ -382,16 +357,12 @@
      * @deviates none
      */
     encodeInto(source, dest) {
-      if (!TextEncoder.#is(this)) throw invalidThis('TextEncoder');
-      if (web) {
-        if (arguments.length < 2) {
-          throw typeError('TextEncoder', 'encodeInto', argumentsRequired(2, arguments.length));
-        }
-
-        source = toDOMString(source, 'TextEncoder', 'encodeInto');
-      } else {
-        source = StringG(source);
+      if (!TextEncoder.#is(this)) throw invalidThis();
+      if (arguments.length < 2) {
+        throw typeError('TextEncoder', 'encodeInto', argumentsRequired(2, arguments.length));
       }
+
+      source = toDOMString(source, 'TextEncoder', 'encodeInto');
       var capacity = destCapacity(dest);
       var read = 0,
         written = 0,
@@ -421,21 +392,18 @@
     }
   }
 
-  // encodeInto's `dest` length, or the profile's TypeError for anything that is not a
+  // encodeInto's `dest` length, or Chrome's TypeError for anything that is not a
   // Uint8Array — by its [[TypedArrayName]] slot, so a Uint8ClampedArray, a DataView
   // or an object that only inherits from Uint8Array.prototype is refused, and a real
-  // Uint8Array whose prototype a page re-pointed is not. Node checks `dest` before
-  // converting `source`; Chrome after, which is the order both arms keep only because
-  // node's String(source) cannot observe the difference here — a throwing toString
-  // runs first on both.
+  // Uint8Array whose prototype a page re-pointed is not. Checked after `source` is
+  // converted, as Chrome does.
   function destCapacity(dest) {
     var n = likelyUint8Array(dest) ? uint8ArrayLength(dest) : -1;
     if (n !== -1) return n;
     if (TypedArrayPrototypeGetSymbolToStringTag(dest) === 'Uint8Array') {
       return TypedArrayPrototypeGetLength(dest);
     }
-    if (web) throw typeError('TextEncoder', 'encodeInto', notOfType(2, 'Uint8Array'));
-    throw ERR_INVALID_ARG_TYPE('dest', 'Uint8Array', dest);
+    throw typeError('TextEncoder', 'encodeInto', notOfType(2, 'Uint8Array'));
   }
 
   function encodeCodePoint(cp, dest, offset) {
@@ -492,16 +460,9 @@
   }
 
   // What a fatal decoder throws. Chrome names neither the encoding nor a code (the
-  // message is the same for every decoder; tests/web/cases/encoding-errors.expected);
-  // node's C++ decoder binding names the encoding and, being C++-thrown, leaves the
-  // code out of String(e).
-  function fatalErr(enc) {
-    if (web) return typeError('TextDecoder', 'decode', 'The encoded data was not valid.');
-    return nativeError(
-      TypeErrorG,
-      'ERR_ENCODING_INVALID_ENCODED_DATA',
-      'The encoded data was not valid for encoding ' + enc,
-    );
+  // message is the same for every decoder; tests/web/cases/encoding-errors.expected).
+  function fatalErr() {
+    return typeError('TextDecoder', 'decode', 'The encoded data was not valid.');
   }
 
   // The code-unit accumulator is a PREALLOCATED Uint16Array written by index,
@@ -616,7 +577,7 @@
           s.cp = b & 0x07;
           i++;
         } else {
-          if (fatal) throw fatalErr('utf-8');
+          if (fatal) throw fatalErr();
           units[n++] = 0xfffd;
           i++;
         }
@@ -626,7 +587,7 @@
         s.seen = 0;
         s.lower = 0x80;
         s.upper = 0xbf;
-        if (fatal) throw fatalErr('utf-8');
+        if (fatal) throw fatalErr();
         units[n++] = 0xfffd; // re-process b: do not advance i
       } else {
         s.lower = 0x80;
@@ -648,7 +609,7 @@
       s.seen = 0;
       s.lower = 0x80;
       s.upper = 0xbf;
-      if (fatal) throw fatalErr('utf-8');
+      if (fatal) throw fatalErr();
       units[n++] = 0xfffd;
     }
     return n;
@@ -666,13 +627,13 @@
         return n + 2;
       }
       s.hs = -1;
-      if (fatal) throw fatalErr('utf-16le');
+      if (fatal) throw fatalErr();
       units[n++] = 0xfffd;
       return pushU16(s, units, n, u, fatal); // re-process u as a fresh unit
     } else if (u >= 0xd800 && u <= 0xdbff) {
       s.hs = u; // hold the high surrogate for its low half (possibly next chunk)
     } else if (u >= 0xdc00 && u <= 0xdfff) {
-      if (fatal) throw fatalErr('utf-16le');
+      if (fatal) throw fatalErr();
       units[n++] = 0xfffd;
     } else {
       units[n++] = u;
@@ -706,7 +667,7 @@
     if (isFinal && (s.hs >= 0 || s.pend >= 0)) {
       s.hs = -1;
       s.pend = -1;
-      if (fatal) throw fatalErr('utf-16le');
+      if (fatal) throw fatalErr();
       units[n++] = 0xfffd;
     }
     return n;
@@ -738,13 +699,12 @@
     /**
      * @param {string} [label] Default 'utf-8'; ASCII whitespace trimmed, case-folded.
      * @param {{fatal?: boolean, ignoreBOM?: boolean}} [options]
-     * @throws {TypeError} a Symbol label (`.Web`), or a non-object `options`.
+     * @throws {TypeError} a Symbol label, or a non-object `options`.
      * @throws {RangeError} an unknown label.
-     * @node `.Web`, Chrome 158 (tests/web/cases/encoding-errors, encoding-webidl): the
-     *       label is converted, then the options dictionary — its `fatal` then
-     *       `ignoreBOM` read, each once — and only then is the label looked up, so a
-     *       bad label still runs the getters. `.Node`: node 26 validates options before
-     *       the lookup but reads the members after it.
+     * @node Chrome 158 (tests/web/cases/encoding-errors, encoding-webidl): the label is
+     *       converted, then the options dictionary — its `fatal` then `ignoreBOM` read,
+     *       each once — and only then is the label looked up, so a bad label still runs
+     *       the getters.
      * @deviates none
      */
     constructor(label, options) {
@@ -753,8 +713,7 @@
       // error could name a label that was never looked up.
       var text;
       if (label === undefined) text = 'utf-8';
-      else if (web) text = toDOMString(label, 'TextDecoder');
-      else text = StringG(label);
+      else text = toDOMString(label, 'TextDecoder');
       var fatal = false;
       var ignoreBOM = false;
       var hasOptions = options !== undefined && options !== null;
@@ -764,32 +723,17 @@
         // An omitted or null `options` reads nothing, so a poisoned
         // Object.prototype.fatal reaches only a caller-supplied dictionary — where
         // WebIDL's [[Get]] reads inherited members too, in Chrome as here.
-        if (web) {
-          fatal = !!options.fatal;
-          ignoreBOM = !!options.ignoreBOM;
-        }
+        fatal = !!options.fatal;
+        ignoreBOM = !!options.ignoreBOM;
       }
 
       var enc = normalizeLabel(text);
       if (enc === undefined) {
-        if (web) {
-          throw pageError(
-            new RangeErrorG(
-              context('TextDecoder') + "The encoding label provided ('" + text + "') is invalid.",
-            ),
-          );
-        }
-
-        throw nodeError(
-          RangeErrorG,
-          'ERR_ENCODING_NOT_SUPPORTED',
-          'The "' + text + '" encoding is not supported',
+        throw pageError(
+          new RangeErrorG(
+            context('TextDecoder') + "The encoding label provided ('" + text + "') is invalid.",
+          ),
         );
-      }
-
-      if (hasOptions && !web) {
-        fatal = !!options.fatal;
-        ignoreBOM = !!options.ignoreBOM;
       }
 
       this.#enc = enc;
@@ -809,17 +753,17 @@
     }
 
     get encoding() {
-      if (!TextDecoder.#is(this)) throw invalidThis('TextDecoder');
+      if (!TextDecoder.#is(this)) throw invalidThis();
       return this.#enc;
     }
 
     get fatal() {
-      if (!TextDecoder.#is(this)) throw invalidThis('TextDecoder');
+      if (!TextDecoder.#is(this)) throw invalidThis();
       return this.#fatal;
     }
 
     get ignoreBOM() {
-      if (!TextDecoder.#is(this)) throw invalidThis('TextDecoder');
+      if (!TextDecoder.#is(this)) throw invalidThis();
       return this.#ignoreBOM;
     }
 
@@ -830,14 +774,13 @@
      * @returns {string}
      * @throws {TypeError} a foreign `this`, an input that is no BufferSource, a
      *   non-object `options`, or invalid data when fatal.
-     * @node `.Web`, Chrome 158 (tests/web/cases/encoding-webidl): the input is
-     *       converted BEFORE the options, so `decode(5, 5)` reports the input and a bad
-     *       input never runs a `stream` getter. `.Node`: node 26 reports the options
-     *       first (11-text-encoding.js).
+     * @node Chrome 158 (tests/web/cases/encoding-webidl): the input is converted BEFORE
+     *       the options, so `decode(5, 5)` reports the input and a bad input never runs
+     *       a `stream` getter.
      * @deviates none
      */
     decode(input, options) {
-      if (!TextDecoder.#is(this)) throw invalidThis('TextDecoder');
+      if (!TextDecoder.#is(this)) throw invalidThis();
       var hasOptions = options !== undefined && options !== null;
       var s = this.#state;
       var enc = this.#enc;
@@ -861,15 +804,9 @@
       var bad;
       var bytes;
       var len;
-      if (web) {
-        bytes = toBytes(input);
-        len = bytesLength;
-        if (hasOptions && (bad = badOptions(options, 'decode')) !== null) throw bad;
-      } else {
-        if (hasOptions && (bad = badOptions(options, 'decode')) !== null) throw bad;
-        bytes = toBytes(input);
-        len = bytesLength;
-      }
+      bytes = toBytes(input);
+      len = bytesLength;
+      if (hasOptions && (bad = badOptions(options, 'decode')) !== null) throw bad;
       var stream = hasOptions && !!options.stream;
       if (enc === 'utf-8' && !fatal && !stream && !s.doNotFlush) {
         // NO JS-side window at all — and that is both the fast shape and the safe

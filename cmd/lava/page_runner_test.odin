@@ -17,20 +17,20 @@ import eventloop "lava:pkg/runtime/eventloop"
 
 // LIMITS is what a page under test runs with when its limits are not the subject: the
 // runner refuses a page without a CPU budget, and 30 s is far above anything a
-// passing case spends, so reaching it is itself a failure (a kill, not exit 7).
+// passing case spends, so reaching it is itself a failure (a kill, not exit 1).
 @(private = "file")
 LIMITS :: lava.Page_Limits {
 	cpu_budget = 30,
 }
 
-// A well-behaved page: 40 timer turns of ~2 ms work, then exitCode 7 to prove it ran
+// A well-behaved page: 40 timer turns of ~2 ms work, then a throw (exit 1) to prove it ran
 // to the end rather than being cut short with its siblings.
 @(private = "file")
 STEADY_PAGE :: `
 let n = 0;
 function step() {
 	const s = Date.now(); while (Date.now() - s < 2) {}
-	if (++n < 40) setTimeout(step, 1); else process.exitCode = 7;
+	if (++n < 40) setTimeout(step, 1); else throw 7;
 }
 setTimeout(step, 0);
 `
@@ -69,7 +69,7 @@ run_with_one_bad_page :: proc(
 		testing.expectf(t, outcomes[i].done, "page %d never reported", i)
 		testing.expectf(
 			t,
-			outcomes[i].status == .Ok && outcomes[i].exit == 7,
+			outcomes[i].status == .Ok && outcomes[i].exit == 1,
 			"page %d did not finish beside the killed page: %s",
 			i,
 			describe_outcome(outcomes[i]),
@@ -121,7 +121,7 @@ runner_pages_wait_concurrently :: proc(t: ^testing.T) {
 	for i in 0 ..< 10 {
 		lava.page_runner_open(
 			&runner,
-			"setTimeout(() => { process.exitCode = 3; }, 600);",
+			"setTimeout(() => { throw 3; }, 600);",
 			"<sleeper>",
 			LIMITS,
 			&outcomes[i],
@@ -132,7 +132,7 @@ runner_pages_wait_concurrently :: proc(t: ^testing.T) {
 	wall := time.duration_seconds(time.tick_since(start))
 	cpu := thread_cpu_seconds() - cpu_before
 	for o, i in outcomes {
-		testing.expectf(t, o.done && o.status == .Ok && o.exit == 3, "page %d: %s", i, describe_outcome(o))
+		testing.expectf(t, o.done && o.status == .Ok && o.exit == 1, "page %d: %s", i, describe_outcome(o))
 	}
 	testing.expectf(t, wall < 2.5, "10 x 600 ms pages took %.2fs: they ran one after another", wall)
 	testing.expectf(t, cpu < 0.2, "runner burned %.3fs of CPU while every page waited on a timer", cpu)
@@ -157,126 +157,6 @@ runner_reports_a_page_it_cannot_start :: proc(t: ^testing.T) {
 	testing.expect(t, b.done, "page without a VM was not reported")
 	testing.expect_value(t, b.status, lava.Status.Native_Runtime_Unavailable)
 	testing.expect(t, a.done && a.status == .Ok, "the running page did not finish")
-}
-
-@(private = "file")
-Churn :: struct {
-	opened, finished, failed: int,
-	total:                    int,
-	fds_after_warmup:         int,
-	outcome:                  Page_Outcome,
-	// Every fifo_every-th page closes with its pool worker blocked in open() on a
-	// FIFO, so its job is left an orphan of the runner's pool (#34, #36); churn_done
-	// lets the worker through once the page is reported.
-	fifo, fifo_src:           string,
-	fifo_every:               int,
-	fifo_pages, fifo_stuck:   int,
-}
-
-@(private = "file")
-churn_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Result) {
-	result := result
-	c := cast(^Churn)user_data
-	c.finished += 1
-
-	if result.status != .Ok {
-		c.failed += 1
-	}
-
-	if result.exit_code == 4 {
-		c.fifo_pages += 1
-
-		if !release_within(c.fifo, time.Second) {
-			c.fifo_stuck += 1
-		}
-	}
-
-	lava.result_destroy(&result)
-
-	if c.finished == 100 {
-		c.fds_after_warmup = fd_census()
-	}
-
-	if c.opened < c.total {
-		c.opened += 1
-
-		if c.opened % c.fifo_every == c.fifo_every / 2 {
-			lava.page_runner_open(runner, c.fifo_src, "<churn-fifo>", LIMITS, c)
-		} else {
-			lava.page_runner_open(
-				runner,
-				"let x = 0; setTimeout(() => { x++; }, 0); Promise.resolve().then(() => x++);",
-				"<churn>",
-				LIMITS,
-				c,
-			)
-		}
-	}
-}
-
-// Acceptance (#4): /proc/self/fd stays flat over 10k pages — every page's loop
-// descriptors close with the page, and the runner's fixed pool keeps the VM count
-// (and so the per-VM timerfd count) at its capacity. 8 pages in flight.
-// The full 10k runs only on one runner thread (`make test-odin-serial`), where the
-// census means something; otherwise a short run still exercises the churn path.
-// The count includes pages that closed with a blocked worker, leaving their job an
-// orphan (#34, #36): one page in a hundred does (100 of the 10k), and the census waits
-// for the orphans to drain. A hundred, not ten: the warm-up census is taken with 8
-// pages in flight, and that slack (~24 fds) would hide ten leaked pipes.
-@(test)
-runner_fd_count_stays_flat_over_10k_pages :: proc(t: ^testing.T) {
-	runner: lava.Page_Runner
-
-	if !lava.page_runner_init(&runner, 8, churn_done, context.allocator) {
-		testing.fail_now(t, "page_runner_init failed")
-	}
-
-	defer lava.page_runner_destroy(&runner)
-	c := Churn {
-		total = RUNNER_THREADS == 1 ? 10_000 : 300,
-		fifo  = make_fifo(t, "churn"),
-	}
-	defer drop_fifo(c.fifo)
-	c.fifo_every = RUNNER_THREADS == 1 ? 100 : 30
-	c.fifo_src = fmt.aprintf(`require('fs').readFile(%q, () => {{}}); setTimeout(() => process.exit(4), 5);`, c.fifo)
-	defer delete(c.fifo_src)
-	for _ in 0 ..< 8 {
-		c.opened += 1
-		lava.page_runner_open(&runner, "let x = 0; setTimeout(() => { x++; }, 0);", "<churn>", LIMITS, &c)
-	}
-	lava.page_runner_run(&runner)
-	testing.expect(t, wait_orphans(&runner, 5 * time.Second), "orphaned jobs never drained")
-	testing.expect_value(t, c.fifo_pages, c.total / c.fifo_every)
-	testing.expect_value(t, c.fifo_stuck, 0)
-	// The census first: a leak of three fds per page hits EMFILE in a 10k run, and the
-	// failures it causes would otherwise be the first thing reported.
-	when RUNNER_THREADS == 1 {
-		fds_end := fd_census()
-		// fd_census reports -1 when it cannot open /proc/self/fd — at EMFILE, the very
-		// state a leak drives the process into — and -1 <= anything.
-		testing.expectf(
-			t,
-			c.fds_after_warmup >= 0 && fds_end >= 0,
-			"fd census failed (warm-up %d, end %d): descriptors exhausted?",
-			c.fds_after_warmup,
-			fds_end,
-		)
-		testing.expectf(
-			t,
-			fds_end <= c.fds_after_warmup,
-			"fd count grew from %d to %d over %d pages",
-			c.fds_after_warmup,
-			fds_end,
-			c.total,
-		)
-	} else {
-		log.info("fd census skipped: needs -define:ODIN_TEST_THREADS=1 (make test-odin-serial)")
-	}
-	testing.expect_value(t, c.finished, c.total)
-	testing.expect_value(t, c.failed, 0)
-	busy, created, _ := lava.vm_pool_stats(&runner.pool)
-	testing.expect_value(t, busy, 0)
-	testing.expectf(t, created <= 8, "runner created %d VMs for 8 pages in flight", created)
 }
 
 @(private = "file")
@@ -353,7 +233,7 @@ reuse_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Re
 			runner,
 			`const clean = typeof leak === 'undefined' && typeof leakRan === 'undefined';
 
-			globalThis.n2 = 0; const t0 = Date.now(); setTimeout(() => { process.exitCode = (clean && typeof leakRan === 'undefined') ? 11 : 12; }, 30);`,
+			globalThis.n2 = 0; const t0 = Date.now(); setTimeout(() => { if (clean && typeof leakRan === 'undefined') throw 11; }, 30);`,
 			"<second>",
 			LIMITS,
 			r,
@@ -390,127 +270,12 @@ runner_second_page_in_a_reused_vm_sees_nothing_of_a_killed_first :: proc(t: ^tes
 	testing.expect_value(t, r.first.kill, lava.Kill_Reason.Entry_Limit)
 	testing.expectf(
 		t,
-		r.second.done && r.second.status == .Ok && r.second.exit == 11,
+		r.second.done && r.second.status == .Ok && r.second.exit == 1,
 		"second page saw the first: %s",
 		describe_outcome(r.second),
 	)
 	_, created, _ := lava.vm_pool_stats(&runner.pool)
 	testing.expect_value(t, created, 1)
-}
-
-// A page whose only pending work is I/O must wake the runner through its loop's
-// backend fd: no timer bounds the runner's wait. The server page has no timer at all;
-// the client page connects 100 ms in, after the runner has long been blocked, so the
-// accept and the reply can only reach a page through the runner's epoll set.
-@(test)
-runner_wakes_on_io_without_timers :: proc(t: ^testing.T) {
-	run_io_wake(t, readiness = false)
-}
-
-// The same through the epoll readiness backend: what a page loop gets on a kernel
-// without io_uring (or with it disabled by sysctl), where backend_fd hands the runner
-// an epoll fd instead of the ring. CI's kernel always has io_uring, so without the
-// switch this path never runs. The watched fds must really be epoll instances, or
-// the case silently re-tests io_uring.
-@(test)
-runner_wakes_on_io_without_timers_on_the_readiness_backend :: proc(t: ^testing.T) {
-	eventloop.force_readiness_backend = true
-	defer eventloop.force_readiness_backend = false
-	run_io_wake(t, readiness = true)
-}
-
-@(private = "file")
-run_io_wake :: proc(t: ^testing.T, readiness: bool) {
-	runner: lava.Page_Runner
-
-	if !lava.page_runner_init(&runner, 2, record_page_outcome, context.allocator) {
-		testing.fail_now(t, "page_runner_init failed")
-	}
-
-	defer lava.page_runner_destroy(&runner)
-	port := 20000 + int(time.tick_now()._nsec % 20000)
-	// Heap, not tprintf: the server page's require() resets the temp arena.
-	server := fmt.aprintf(
-		`const srv = require('net').createServer((c) => {{ c.end('hi'); srv.close(); process.exitCode = 5; }});
-	srv.listen(%d, '127.0.0.1');`,
-		port,
-	)
-	client := fmt.aprintf(
-		`setTimeout(() => {{
-		const s = require('net').connect(%d, '127.0.0.1');
-		s.on('data', (d) => {{ process.exitCode = String(d) === 'hi' ? 5 : 6; }});
-		s.on('error', () => {{ process.exitCode = 8; }});
-	}}, 100);`,
-		port,
-	)
-	defer delete(server)
-	defer delete(client)
-	so, co: Page_Outcome
-	start := time.tick_now()
-	lava.page_runner_open(&runner, server, "<server>", LIMITS, &so)
-	lava.page_runner_open(&runner, client, "<client>", LIMITS, &co)
-	// Deterministic half: both page loops sit in the runner's epoll set. (A missing
-	// registration can still pass the timing half: JSC's signal thread interrupts
-	// epoll_wait often enough to stand in for the wake.)
-	testing.expectf(
-		t,
-		epoll_watch_count(runner.epfd) == 2,
-		"page loops not in the runner's epoll set (%d of 2)",
-		epoll_watch_count(runner.epfd),
-	)
-	want_kind := readiness ? "anon_inode:[eventpoll]" : "anon_inode:[io_uring]"
-	for kind in epoll_watched_kinds(runner.epfd) {
-		testing.expectf(t, kind == want_kind, "page loop backend is %q, want %q", kind, want_kind)
-	}
-	lava.page_runner_run(&runner)
-	testing.expectf(t, so.done && so.status == .Ok && so.exit == 5, "server page: %s", describe_outcome(so))
-	testing.expectf(t, co.done && co.status == .Ok && co.exit == 5, "client page: %s", describe_outcome(co))
-	testing.expect(t, time.duration_seconds(time.tick_since(start)) < 3, "I/O-only pages took over 3s")
-}
-
-// process.exit() in a runner page ends that page — with the code it asked for — and
-// not the process its sibling pages share. Code after the call does not run on: the
-// spin after it is stopped by the VM, without counting as a kill.
-@(test)
-runner_process_exit_ends_only_its_page :: proc(t: ^testing.T) {
-	run_with_one_bad_page_exit(t)
-}
-
-@(private = "file")
-run_with_one_bad_page_exit :: proc(t: ^testing.T) {
-	runner: lava.Page_Runner
-
-	if !lava.page_runner_init(&runner, 3, record_page_outcome, context.allocator) {
-		testing.fail_now(t, "page_runner_init failed")
-	}
-
-	defer lava.page_runner_destroy(&runner)
-	outcomes: [3]Page_Outcome
-	lava.page_runner_open(&runner, STEADY_PAGE, "<good-0>", LIMITS, &outcomes[0])
-	lava.page_runner_open(
-		&runner,
-		"setTimeout(() => { process.exit(9); while (true) {} }, 20);",
-		"<exit>",
-		LIMITS,
-		&outcomes[1],
-	)
-	lava.page_runner_open(&runner, STEADY_PAGE, "<good-1>", LIMITS, &outcomes[2])
-	lava.page_runner_run(&runner)
-	testing.expectf(
-		t,
-		outcomes[1].done && outcomes[1].status == .Ok && outcomes[1].exit == 9 && outcomes[1].kill == .None,
-		"exiting page: %s",
-		describe_outcome(outcomes[1]),
-	)
-	for i in ([]int{0, 2}) {
-		testing.expectf(
-			t,
-			outcomes[i].done && outcomes[i].status == .Ok && outcomes[i].exit == 7,
-			"page %d did not finish beside the exiting page: %s",
-			i,
-			describe_outcome(outcomes[i]),
-		)
-	}
 }
 
 // Destroying a runner with pages still running reports each as .Cancelled — not as a
@@ -524,7 +289,7 @@ runner_destroy_reports_live_pages_cancelled :: proc(t: ^testing.T) {
 	}
 
 	o: Page_Outcome
-	lava.page_runner_open(&runner, "process.exitCode = 4; setTimeout(() => {}, 10000);", "<long>", LIMITS, &o)
+	lava.page_runner_open(&runner, "setTimeout(() => {}, 10000);", "<long>", LIMITS, &o)
 	lava.page_runner_destroy(&runner)
 	testing.expect(t, o.done, "a live page was not reported on destroy")
 	testing.expect_value(t, o.kill, lava.Kill_Reason.Cancelled)
@@ -597,7 +362,7 @@ runner_refuses_a_page_without_a_cpu_budget :: proc(t: ^testing.T) {
 	for limits, i in bad {
 		lava.page_runner_open(
 			&runner,
-			"process.exitCode = 3; setTimeout(() => {}, 1);",
+			"setTimeout(() => {}, 1);",
 			"<unbudgeted>",
 			limits,
 			&outcomes[i],
@@ -611,145 +376,6 @@ runner_refuses_a_page_without_a_cpu_budget :: proc(t: ^testing.T) {
 	for o, i in outcomes {
 		testing.expectf(t, o.done && o.status == .Invalid_Input && o.kill == .None, "limits %v: %s", bad[i], describe_outcome(o))
 	}
-}
-
-// exit_marker is a per-test file a page creates only if code runs after its
-// process.exit(): after the page closes, its JS state is gone, but the file is not.
-@(private = "file")
-exit_marker :: proc(name: string) -> string {
-	path := fmt.aprintf("/tmp/lava-runner-exit-%d-%s", os.get_pid(), name)
-	os.remove(path)
-	return path
-}
-
-// process.exit() in a runner page runs nothing after it, as Node's process.exit() in a
-// worker does (TerminateExecution): not the next statement, and not a catch or finally
-// around the call — from top-level code, a timer, or a promise job. Each case writes a
-// marker file on any code that runs after the exit. Before #26's fix the call returned
-// undefined and the page ran on until the stop watchdog cut it, so every marker below
-// was written.
-@(test)
-runner_process_exit_runs_no_code_after_it :: proc(t: ^testing.T) {
-	runner: lava.Page_Runner
-
-	if !lava.page_runner_init(&runner, 3, record_page_outcome, context.allocator) {
-		testing.fail_now(t, "page_runner_init failed")
-	}
-
-	defer lava.page_runner_destroy(&runner)
-	paths := [3]string{exit_marker("top"), exit_marker("timer"), exit_marker("job")}
-	defer for p in paths {
-		os.remove(p)
-		delete(p)
-	}
-	// Heap, not tprintf: a page's require() resets the temp arena.
-	sources := [3]string {
-		fmt.aprintf(
-			`const fs = require('fs'); try {{ process.exit(3); fs.writeFileSync(%q, 'next'); }} finally {{ fs.writeFileSync(%q, 'finally'); }}`,
-			paths[0],
-			paths[0],
-		),
-		fmt.aprintf(
-			`const fs = require('fs'); setTimeout(() => {{ try {{ process.exit(4); fs.writeFileSync(%q, 'next'); }} catch (e) {{ fs.writeFileSync(%q, 'catch'); }} }}, 5);`,
-			paths[1],
-			paths[1],
-		),
-		fmt.aprintf(
-			`const fs = require('fs'); Promise.resolve().then(() => {{ try {{ process.exit(5); }} catch (e) {{ fs.writeFileSync(%q, 'catch'); }} finally {{ fs.writeFileSync(%q, 'finally'); }} }});`,
-			paths[2],
-			paths[2],
-		),
-	}
-	defer for s in sources {delete(s)}
-	outcomes: [3]Page_Outcome
-	for src, i in sources {
-		lava.page_runner_open(&runner, src, "<exit>", LIMITS, &outcomes[i])
-	}
-	lava.page_runner_run(&runner)
-	for o, i in outcomes {
-		testing.expectf(t, o.done && o.status == .Ok && o.kill == .None && o.exit == 3 + i, "page %d: %s", i, describe_outcome(o))
-		testing.expectf(t, !os.exists(paths[i]), "page %d ran code after process.exit()", i)
-	}
-}
-
-// Deviates (bounded): promise jobs queued BEFORE process.exit() still start when the
-// entry that called it returns, since JSC drains its job queue at every C-API exit and
-// nothing public stops that; Node runs none. They are cut by the stop watchdog (a
-// 0.1 ms CPU limit, vm_request_stop), so an endless one ends the page with the code it
-// asked for — neither hangs the thread nor reads as a kill. Without the cut the job
-// runs on until the 5 s budget's watchdog fires, which a stopped page also reads as
-// its stop: same Result, so the bound is on time.
-@(test)
-runner_process_exit_bounds_promise_jobs_queued_before_it :: proc(t: ^testing.T) {
-	runner: lava.Page_Runner
-
-	if !lava.page_runner_init(&runner, 1, record_page_outcome, context.allocator) {
-		testing.fail_now(t, "page_runner_init failed")
-	}
-
-	defer lava.page_runner_destroy(&runner)
-	o: Page_Outcome
-	start := time.tick_now()
-	lava.page_runner_open(
-		&runner,
-		"Promise.resolve().then(() => { while (true) {} }); process.exit(4);",
-		"<exit-drain>",
-		{cpu_budget = 5},
-		&o,
-	)
-	lava.page_runner_run(&runner)
-	elapsed := time.duration_seconds(time.tick_since(start))
-	testing.expectf(t, o.done && o.status == .Ok && o.kill == .None && o.exit == 4, "page: %s", describe_outcome(o))
-	testing.expectf(t, elapsed < 1, "a drained promise job ran %.2fs past process.exit()", elapsed)
-}
-
-@(private = "file")
-reuse_after_exit_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Result) {
-	r := cast(^Reuse)user_data
-
-	if !r.opened_second {
-		record_page_outcome(runner, &r.first, result)
-		r.opened_second = true
-		lava.page_runner_open(
-			runner,
-			"globalThis.n = 0; Promise.resolve().then(() => { n++; }); setTimeout(() => { process.exitCode = n === 1 ? 11 : 12; }, 5);",
-			"<second>",
-			LIMITS,
-			r,
-		)
-		return
-	}
-
-	record_page_outcome(runner, &r.second, result)
-}
-
-// The next page on a VM whose last page called process.exit() inside a promise job
-// runs normally. That exit leaves a termination pending in the VM past the entry that
-// raised it (seen in the standalone JSC probe: the next evaluation on the same context
-// failed at once); a fresh context clears it, and page_close never reuses one. The
-// second page's own promise job and timer must both run.
-@(test)
-runner_vm_reused_after_process_exit_runs_the_next_page :: proc(t: ^testing.T) {
-	runner: lava.Page_Runner
-
-	if !lava.page_runner_init(&runner, 1, reuse_after_exit_done, context.allocator) {
-		testing.fail_now(t, "page_runner_init failed")
-	}
-
-	defer lava.page_runner_destroy(&runner)
-	r: Reuse
-	lava.page_runner_open(
-		&runner,
-		"setInterval(() => {}, 1); Promise.resolve().then(() => process.exit(2));",
-		"<first>",
-		LIMITS,
-		&r,
-	)
-	lava.page_runner_run(&runner)
-	testing.expectf(t, r.first.done && r.first.status == .Ok && r.first.exit == 2, "first page: %s", describe_outcome(r.first))
-	testing.expectf(t, r.second.done && r.second.status == .Ok && r.second.exit == 11, "second page: %s", describe_outcome(r.second))
-	_, created, _ := lava.vm_pool_stats(&runner.pool)
-	testing.expect_value(t, created, 1)
 }
 
 @(private = "file")
@@ -795,7 +421,7 @@ run_one_by_one :: proc(t: ^testing.T, every: int, sources: []string, limits: []l
 // Sampling is off by default and reports 0; on, every page's heap is sampled (> 0).
 @(test)
 runner_heap_sampling_is_off_by_default :: proc(t: ^testing.T) {
-	src := []string{"process.exitCode = 0;"}
+	src := []string{"globalThis.x = 0;"}
 	lim := []lava.Page_Limits{LIMITS}
 	off, on: [1]Heap_Outcome
 	run_one_by_one(t, 0, src, lim, off[:])
@@ -903,7 +529,7 @@ runner_collects_a_vm_whose_sampled_heap_was_large :: proc(t: ^testing.T) {
 	defer lava.page_runner_destroy(&runner)
 	runner.heap_sample_every = 1
 	out: [3]Heap_Outcome
-	lava.page_runner_open(&runner, "1", "<warm>", LIMITS, &out[2], .Web)
+	lava.page_runner_open(&runner, "1", "<warm>", LIMITS, &out[2])
 	lava.page_runner_run(&runner)
 	lava.page_runner_open(
 		&runner,
@@ -911,10 +537,9 @@ runner_collects_a_vm_whose_sampled_heap_was_large :: proc(t: ^testing.T) {
 		"<heavy>",
 		LIMITS,
 		&out[0],
-		.Web,
 	)
 	lava.page_runner_run(&runner)
-	lava.page_runner_open(&runner, "1", "<light>", LIMITS, &out[1], .Web)
+	lava.page_runner_open(&runner, "1", "<light>", LIMITS, &out[1])
 	lava.page_runner_run(&runner)
 	testing.expectf(
 		t,

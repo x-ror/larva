@@ -139,10 +139,8 @@ results.push(
 // --- the THIRD carrier: a replaced global used for CONVERSION -------------
 // A validator can be unpoisonable while the conversion beside it is not.
 // parseInt is captured on primordials at bootstrap (before this script runs), so
-// a post-load poison must not steer URL port / framing conversion. Buffer.from
-// base64 never called parseInt — the previous pin was decorative. Port parse is
-// a real consumer of the captured binding (url.js is eager; http.js is lazy and
-// is pinned by the parseint http-smoke phase instead).
+// a post-load poison must not steer URL port conversion. Port parse is a real
+// consumer of the captured binding (url.js is eager).
 const realParseInt = globalThis.parseInt;
 results.push(
   'pi=' +
@@ -163,74 +161,15 @@ results.push(
 );
 
 // --- two more global-replace spins, on carriers the first pass missed -----
-results.push('b64=' + under(() => Buffer.from('dXNlcjpwYXNz', 'base64').toString()));
 results.push('usp=' + under(() => String([...new URLSearchParams('a=😀')].length)));
 
-// --- global-replace spins where node is NOT the oracle --------------------
+// --- a global-replace spin where node is NOT the oracle -------------------
 //
-// These three are here rather than in a compat case for the reason the file header
-// gives: node 24 hangs on all of them under this same gadget, because its own
-// path.matchesGlob, util.inspect-of-a-Buffer and Blob endings:'native' each run a
-// global replace over JavaScript it does not route through primordials. Verified, not
-// assumed — each was run under node with the poison installed and timed out.
-//
-// So hardening Lava here is a DEVIATION IN LAVA'S FAVOUR, and CLAUDE.md §1 requires a
-// Lava-only test rather than a comment. The assertion is timing-free: the script simply
-// has to finish. querystring is the ONLY one of the five that node oracles, and it is
-// the only one in tests/node-compat/cases/59-global-replace-hangs.js; util.debuglog is
-// Lava-only too and sits directly below, for a different reason.
-results.push('glob=' + under(() => String(require('node:path').matchesGlob('a/b.txt', 'a/*.txt'))));
-results.push('inspect=' + under(() => require('node:util').inspect(Buffer.from([1, 2, 3]))));
+// Blob endings:'native' ran a global replace; node 24 hangs on it under this same
+// gadget (verified: run under node with the poison installed, it timed out), so
+// hardening Lava here is a DEVIATION IN LAVA'S FAVOUR, pinned here rather than by an
+// oracle. The assertion is timing-free: the script simply has to finish.
 results.push('blob=' + under(() => String(new Blob(['x\r\ny'], { endings: 'native' }).size)));
-
-// util.debuglog compiles NODE_DEBUG with three chained global replaces on the first
-// CALL, so the poison goes in after the require. It is here rather than in the compat
-// case for a reason unrelated to the spin: Lava has no process.stderr (nor
-// process.stdout), so an ENABLED debuglog throws before it can write, and node prints
-// instead — the outputs cannot match however the spin is fixed. What this pins is
-// availability only: THREW means it returned, where before it consumed the string until
-// the engine gave up. The missing process.stderr is a separate gap, recorded in ROADMAP.
-// One env value for every debuglog assertion below: initDebugEnv compiles the pattern
-// on the FIRST call and latches, so a later re-assignment is silently ignored. 'a.b'
-// carries the regex special that must be escaped; 'foo*' carries the wildcard.
-process.env.NODE_DEBUG = 'a.b,foo*';
-const nodeUtil2 = require('node:util');
-const debugLog = nodeUtil2.debuglog('foo');
-// Asserts LIVENESS, not an error name: 'THREW:TypeError' would also match a captured
-// primordial having gone undefined, and it inverts the day process.stderr lands (an open
-// ROADMAP item), turning a pollution test red for a stdio change. Either outcome proves
-// the pattern compile returned, which is the property under test.
-const dl = under(() => {
-  debugLog('x');
-  return 'called';
-});
-results.push('debuglog=' + (dl === 'called' || dl === 'THREW:TypeError' ? 'returned' : dl));
-
-// The enablement decision, UNPOISONED. Without this nothing observes debugEnvPattern at
-// all: under the poison testEnabled reads the forged exec and answers true for every
-// section, so the assertion above passes even with NODE_DEBUG unset — i.e. when the
-// pattern is never compiled. These two lines are what make the poisoned probe honest,
-// and they cover the escape branch ('.' is a regex special that must be escaped, so
-// 'a.b' must not enable 'axb').
-results.push('dbg-dot=' + String(nodeUtil2.debuglog('a.b').enabled));
-results.push('dbg-nodot=' + String(nodeUtil2.debuglog('axb').enabled));
-results.push('dbg-star=' + String(nodeUtil2.debuglog('foobar').enabled));
-results.push('dbg-miss=' + String(nodeUtil2.debuglog('nope').enabled));
-
-// punycode's RFC 3490 separator fold was the same global-replace shape. node hangs on it
-// too, so it is Lava-only. new URL() does not route here (url.js has its own IDNA
-// path), so this needs an explicit require to reach.
-const puny = require('node:punycode');
-results.push('puny-clean=' + puny.toASCII('münchen.de'));
-// Availability only under the poison, deliberately. The separator fold no longer spins,
-// but punycode.js still decides PER LABEL with live regexNonASCII/regexPunycode .test
-// reads, so a forged exec makes it encode every label ('.de' becomes '.xn--de-'). That
-// is the steering class, not the spin class this entry closes, and it is left to the
-// file's own hardening pass — asserting the garbage value would pin the bug, not the fix.
-const punyRes = under(() => puny.toASCII('münchen.de'));
-results.push(
-  'puny=' + (typeof punyRes === 'string' && punyRes !== 'THREW:RangeError' ? 'returned' : punyRes),
-);
 
 const want = [
   'inject=THREW:TypeError',
@@ -240,18 +179,8 @@ const want = [
   'upper=http://example.com/',
   'cc-value=THREW:TypeError',
   'pi=8080',
-  'b64=user:pass',
   'usp=1',
-  'glob=true',
-  'inspect=<Buffer 01 02 03>',
   'blob=3',
-  'debuglog=returned',
-  'dbg-dot=true',
-  'dbg-nodot=false',
-  'dbg-star=true',
-  'dbg-miss=false',
-  'puny-clean=xn--mnchen-3ya.de',
-  'puny=returned',
 ];
 if (results.length !== want.length) {
   throw new Error('results ' + results.length + ' vs want ' + want.length);

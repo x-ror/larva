@@ -77,8 +77,6 @@ record('own-sloppy', function () {
 // #450's table: every builtin that used to break under a replaced .call, run
 // after the replacement attempts above so it proves the lock held.
 record('usp', function () { return new URLSearchParams('a=1').get('a'); });
-record('format', function () { return require('util').format('%s', 'x'); });
-record('buffer', function () { return Buffer.from('hi').toString('hex'); });
 record('url', function () { return new URL('http://a/b').pathname; });
 record('decode', function () { return new TextDecoder().decode(new Uint8Array([104, 105])); });
 record('decode16', function () {
@@ -113,8 +111,7 @@ record('q2', function () {
 // = evil' steered the callerN 'fn.call(t, …)' wrappers. lockIntrinsics() makes
 // exactly the wrapped set non-extensible too (the wrappers keep 'fn.call', which is
 // the only spelling JSC inlines); a method nobody wraps (Array.prototype.at) keeps
-// node's default behavior. Buffer.prototype.toString is wrapped by the loader AFTER
-// the lock (pristineBuffer), so it pins the lock-on-wrap path.
+// node's default behavior.
 // The deviation rows (ext … setproto) are node --frozen-intrinsics' answers (node
 // 26.13, probed); default node answers true / length|name / assigned / assigned /
 // assigned / 1 / assigned / set.
@@ -140,7 +137,7 @@ record('setproto', function () {
 });
 record('wrapped-ext', function () {
   return [Object.isExtensible(Array.prototype.push), Object.isExtensible(String.prototype.charCodeAt),
-    Object.isExtensible(Buffer.prototype.toString), Object.isExtensible(Array.prototype.at)].join(',');
+    Object.isExtensible(Array.prototype.at)].join(',');
 });
 record('push-own-sloppy', function () { Array.prototype.push.call = evil; return 'assigned'; });
 record('push-fresh-sloppy', function () { Array.prototype.push.x = 1; return Array.prototype.push.x; });
@@ -159,14 +156,6 @@ record('push-hijack', function () {
   u.append('c', '3');
   return [hit, u.toString(), new URL('http://a/b?c').href].join(' ');
 });
-record('emit-hijack', function () {
-  const EE = require('events');
-  const e = new EE();
-  const got = [];
-  e.on('x', function (a) { got[got.length] = 'listener:' + a; });
-  e.emit('x', 1);
-  return got.join(',');
-});
 const want = [
   'sloppy-call=THREW:TypeError', 'strict-call=THREW:TypeError', 'define-call=THREW:TypeError', 'intact-call=true',
   'sloppy-apply=THREW:TypeError', 'strict-apply=THREW:TypeError', 'define-apply=THREW:TypeError', 'intact-apply=true',
@@ -174,15 +163,14 @@ const want = [
   'names=call,1,apply,2,bind,1',
   'own-strict=own,true,true,true,true',
   'own-sloppy=own,true',
-  'usp=1', 'format=x', 'buffer=6869', 'url=/b', 'decode=hi', 'decode16=AB',
+  'usp=1', 'url=/b', 'decode=hi', 'decode16=AB',
   'h1=http://xn--ber-goa.example/', 'h2=true', 'h3=true', 'h4=195,188,226,130,172,240,159,152,128',
   'q2=9000:65:67:68',
   'ext=false,false,false', 'keys=length|name,length|name,length|name',
   'own-call-sloppy=THREW:TypeError', 'own-apply-strict=THREW:TypeError', 'own-bind-strict=THREW:TypeError',
   'new-key-sloppy=undefined', 'new-key-strict=THREW:TypeError', 'setproto=THREW:TypeError',
-  'wrapped-ext=false,false,false,true', 'push-own-sloppy=THREW:TypeError', 'push-fresh-sloppy=undefined', 'at-own=true',
+  'wrapped-ext=false,false,true', 'push-own-sloppy=THREW:TypeError', 'push-fresh-sloppy=undefined', 'at-own=true',
   'push-hijack=0 a=1&b=2&c=3 http://a/b?c',
-  'emit-hijack=listener:1',
 ];
 const bad = [];
 for (let i = 0; i < want.length; i++) {
@@ -190,13 +178,12 @@ for (let i = 0; i < want.length; i++) {
 }
 if (bad.length !== 0) throw new Error(bad.join('; '));
 
-// Moved from tests/runtime/eventloop/cases/11-scheduler-hardening.js, which used to
-// poison call/apply before scheduling: nextTick must still forward its arguments
-// and queueMicrotask must still run. The exit code carries a miss.
+// Scheduling after the poisoning attempts: setTimeout must still forward its arguments
+// and queueMicrotask must still run. A miss throws from the timer: exit code 1.
 let hits = 0;
-process.nextTick(function (a, b) { if (a + b === 'xy') hits += 1; }, 'x', 'y');
+setTimeout(function (a, b) { if (a + b === 'xy') hits += 1; }, 0, 'x', 'y');
 queueMicrotask(function () { hits += 10; });
-setTimeout(function () { if (hits !== 11) process.exitCode = 3; }, 0);
+setTimeout(function () { if (hits !== 11) throw new Error('scheduler hits ' + hits); }, 0);
 console.log('function-call-lock ok');
 `
 

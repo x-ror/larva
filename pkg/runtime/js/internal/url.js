@@ -1,7 +1,5 @@
-// internal/url — node:url's WHATWG half, laid out like node's lib/internal/url.js:
-// the URL Standard parser (percent-encoding, host/IPv4/IPv6, the state machine),
-// `URL`, `URLSearchParams`, `fileURLToPath`, `urlToHttpOptions` and the validating
-// `domainToASCII`/`domainToUnicode`. The IDNA mapping and its Punycode codec are
+// internal/url — the URL Standard parser (percent-encoding, host/IPv4/IPv6, the state
+// machine), `URL` and `URLSearchParams`. The IDNA mapping and its Punycode codec are
 // internal/idna and internal/punycode (node's lib/internal/idna.js); they throw
 // nothing, so the host parser that calls them stays here with every throw it
 // feeds, and no frame leaves node:internal/url. Implemented in JS (as Node does for
@@ -37,19 +35,14 @@
   // `re.test(...)`: `RegExp.prototype.exec` is a writable data property and the
   // spec's RegExpExec re-reads it off the receiver, so a plain assignment steers
   // `test` as well — a captured `test` included. primordials exports no
-  // `RegExpPrototypeTest` for exactly that reason. `%2f`/`%5c` detection below is
-  // the path-traversal check, so this is not cosmetic.
+  // `RegExpPrototypeTest` for exactly that reason.
   //
-  // The last GLOBAL regex in this file was toUSVString's, now a code-unit walk. The
-  // one non-global `StringPrototypeReplace(…, /re/, …)` site left in node:url is
-  // pathToFileURL's, which moved to node/url.js with it.
+  // The last GLOBAL regex in this file was toUSVString's, now a code-unit walk.
   var reTest = P.RegExpMatches;
   var allChars = P.allChars;
   var isAsciiDigit = P.isAsciiDigit;
   var isAsciiHexDigit = P.isAsciiHexDigit;
   var isAsciiOctalDigit = P.isAsciiOctalDigit;
-  var PERCENT_2F_RE = /%2f/i;
-  var PERCENT_5C_RE = /%5c/i;
   var ArrayPrototypePush = P.ArrayPrototypePush;
   var ArrayPrototypePop = P.ArrayPrototypePop;
   var ArrayPrototypeShift = P.ArrayPrototypeShift;
@@ -63,14 +56,12 @@
   var StringPrototypeSlice = P.StringPrototypeSlice;
   var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;
   var StringPrototypeCodePointAt = P.StringPrototypeCodePointAt;
-  var StringPrototypeCharAt = P.StringPrototypeCharAt;
   var StringPrototypeIndexOf = P.StringPrototypeIndexOf;
   var StringPrototypeReplace = P.StringPrototypeReplace;
   var StringPrototypeReplaceAll = P.StringPrototypeReplaceAll;
   var StringPrototypeSplit = P.StringPrototypeSplit;
   var StringPrototypeToLowerCase = P.StringPrototypeToLowerCase;
   var StringPrototypeToUpperCase = P.StringPrototypeToUpperCase;
-  var StringPrototypeStartsWith = P.StringPrototypeStartsWith;
   var StringPrototypeNormalize = P.StringPrototypeNormalize;
   var StringPrototypeSubstr = P.StringPrototypeSubstr;
   var ObjectCreate = P.ObjectCreate;
@@ -80,16 +71,9 @@
   // Free globals / statics, captured pristine at module-eval.
   var StringG = String;
   var SymbolIterator = Symbol.iterator;
-  var NumberG = P.Number;
   var TypeErrorG = P.TypeError;
-  var errors = require('internal/errors');
-  var nodeError = errors.nodeError;
-  var nativeError = errors.nativeError;
-  var ERR_INVALID_ARG_TYPE = errors.ERR_INVALID_ARG_TYPE;
-  // The Window surface's error text (Blink's WebIDL wording, no `code`). Each throw
-  // below picks its arm on `web`; the node arm goes with the Node surface (S5b).
+  // Chrome's error text (Blink's WebIDL wording, no `code`).
   var webErrors = require('internal/web_errors');
-  var web = webErrors.web;
   var context = webErrors.context;
   var typeError = webErrors.typeError;
   var argumentsRequired = webErrors.argumentsRequired;
@@ -101,7 +85,6 @@
   var MathFloor = Math.floor;
   var MathPow = Math.pow;
   var parseIntG = P.parseInt;
-  var decodeURIComponentG = decodeURIComponent;
   var isFiniteG = isFinite;
   var TextEncoderG = TextEncoder;
   var TextDecoderG = TextDecoder;
@@ -134,7 +117,6 @@
   var idna = require('internal/idna');
   var FAILURE = idna.FAILURE;
   var domainToASCII = idna.domainToASCII;
-  var domainToUnicode = idna.domainToUnicode;
 
   // ------------------------------------------------------------------ //
   // Percent-encoding                                                    //
@@ -1212,8 +1194,8 @@
   }
 
   // The constructor's parse. The arguments convert in order, `url` then `base`, and only
-  // `undefined` skips the base: `null` is the string "null", an invalid base, in Chrome
-  // and node alike (tests/web/cases/url-webidl.expected; node's `${base}`).
+  // `undefined` skips the base: `null` is the string "null", an invalid base, as in
+  // Chrome (tests/web/cases/url-webidl.expected).
   function parseURLOrThrow(input, base) {
     var str = typeof input === 'string' ? input : toStringArg(input, 'URL');
     var baseStr;
@@ -1221,10 +1203,10 @@
     if (base !== undefined) {
       baseStr = typeof base === 'string' ? base : toStringArg(base, 'URL');
       baseRecord = basicURLParse(baseStr);
-      if (baseRecord === FAILURE) throw invalidURL(str, baseStr, true);
+      if (baseRecord === FAILURE) throw invalidURL(true);
     }
     var record = basicURLParse(str, baseRecord);
-    if (record === FAILURE) throw invalidURL(str, baseStr, false);
+    if (record === FAILURE) throw invalidURL(false);
     return record;
   }
 
@@ -1240,26 +1222,15 @@
     return basicURLParse(str, baseRecord);
   }
 
-  // The constructor's parse failure. Window: Chrome's TypeError, which names the base
-  // when it is the base that failed (tests/web/cases/url-errors.expected). Node:
-  // ERR_INVALID_URL in its C++ shape — String(e) is `TypeError: Invalid URL` — carrying
-  // `input`, and `base` when the parse ran against one (node 26.13.0, case 76).
-  function invalidURL(input, base, badBase) {
-    if (web) return typeError('URL', undefined, badBase ? 'Invalid base URL' : 'Invalid URL');
-    var err = nativeError(TypeErrorG, 'ERR_INVALID_URL', 'Invalid URL');
-    err.input = input;
-    if (base !== undefined) err.base = base;
-    return err;
+  // The constructor's parse failure: Chrome's TypeError, which names the base when it is
+  // the base that failed (tests/web/cases/url-errors.expected).
+  function invalidURL(badBase) {
+    return typeError('URL', undefined, badBase ? 'Invalid base URL' : 'Invalid URL');
   }
 
-  // The href setter's parse failure. Window: Chrome's attribute-setter TypeError. Node:
-  // ERR_INVALID_URL in its JS shape, `TypeError [ERR_INVALID_URL]: Invalid URL`, since
-  // node's setter throws from JS (node 26.13.0, case 76).
-  function invalidHref(input) {
-    if (web) return pageError(new TypeErrorG(setterContext('href') + 'Invalid URL'));
-    var err = nodeError(TypeErrorG, 'ERR_INVALID_URL', 'Invalid URL');
-    err.input = input;
-    return err;
+  // The href setter's parse failure: Chrome's attribute-setter TypeError.
+  function invalidHref() {
+    return pageError(new TypeErrorG(setterContext('href') + 'Invalid URL'));
   }
 
   // Blink's prefix for an error raised while setting a URL attribute. web_errors'
@@ -1271,12 +1242,10 @@
   // WebIDL's string conversion of a non-string argument: ToString, which throws on a
   // Symbol where String() would answer "Symbol(…)" — and "Symbol(x)" parses, as a URL
   // with an opaque path. `attr` names the URL attribute being set; otherwise iface/op
-  // place the error as web_errors' context() does. Node throws the same TypeError
-  // without a prefix (V8's text, from its `${value}`).
+  // place the error as web_errors' context() does.
   function toStringArg(value, iface, op, attr) {
     if (typeof value === 'symbol') {
       var detail = 'Cannot convert a Symbol value to a string';
-      if (!web) throw new TypeErrorG(detail);
       if (attr !== undefined) throw pageError(new TypeErrorG(setterContext(attr) + detail));
       throw typeError(iface, op, detail);
     }
@@ -1286,12 +1255,8 @@
 
   // A member called on something that is not a URL / URLSearchParams (`this` is null,
   // a primitive, or an object without the private slot): Blink's "Illegal invocation".
-  // Node: URLSearchParams throws ERR_INVALID_THIS, URL fails V8's private-field brand
-  // check (node 26, probed).
-  function invalidThis(iface) {
-    if (web) return illegalInvocation();
-    if (iface === 'URL') return new TypeErrorG('Receiver must be an instance of class URL');
-    return nodeError(TypeErrorG, 'ERR_INVALID_THIS', 'Value of "this" must be of type ' + iface);
+  function invalidThis() {
+    return illegalInvocation();
   }
 
   // ------------------------------------------------------------------ //
@@ -1378,8 +1343,7 @@
           if (typeof pair !== 'object' && typeof pair !== 'function') {
             throw initError('The provided value cannot be converted to a sequence.');
           }
-          // Node lets for-of throw its own TypeError, as before.
-          if (web && typeof pair[SymbolIterator] !== 'function') {
+          if (typeof pair[SymbolIterator] !== 'function') {
             throw initError('The object must have a callable @@iterator property.');
           }
           var arr = [];
@@ -1387,10 +1351,7 @@
           if (arr.length !== 2) {
             // Blink's text repeats the context prefix; copied from the recording.
             throw initError(
-              web
-                ? context('URLSearchParams') +
-                    'Sequence initializer must only contain pair elements'
-                : 'Each query pair must be an iterable [name, value] tuple',
+              context('URLSearchParams') + 'Sequence initializer must only contain pair elements',
             );
           }
           ArrayPrototypePush(this[kList], [
@@ -1417,18 +1378,16 @@
     this[kList] = formUrlencodedParse(str);
   }
 
-  // A sequence-initializer error from the constructor: Chrome's, with the context
-  // prefix; node's plain TypeError otherwise.
+  // A sequence-initializer error from the constructor: Chrome's, with the context prefix.
   function initError(detail) {
-    if (web) return typeError('URLSearchParams', undefined, detail);
-    return new TypeErrorG(detail);
+    return typeError('URLSearchParams', undefined, detail);
   }
 
   // The list behind a URLSearchParams receiver, or the foreign-receiver error. One
   // load on the success path, the one every member made already.
   function listOf(sp) {
     var list = sp === null || sp === undefined ? undefined : sp[kList];
-    if (list === undefined) throw invalidThis('URLSearchParams');
+    if (list === undefined) throw invalidThis();
     return list;
   }
 
@@ -1488,10 +1447,9 @@
     return out;
   }
 
-  // append/set called with fewer than two arguments: Blink's count, or node's text.
+  // append/set called with fewer than two arguments: Blink's count.
   function missingNameValue(op, present) {
-    if (web) return typeError('URLSearchParams', op, argumentsRequired(2, present));
-    return new TypeErrorG('The "name" and "value" arguments must be specified');
+    return typeError('URLSearchParams', op, argumentsRequired(2, present));
   }
 
   function spUpdate(sp) {
@@ -1520,7 +1478,7 @@
     writable: true,
     value: function del(name) {
       var list = listOf(this);
-      if (web) requireArgs('delete', 1, arguments.length);
+      requireArgs('delete', 1, arguments.length);
       var n = toUSVString(name, 'URLSearchParams', 'delete');
       if (arguments.length > 1 && arguments[1] !== undefined) {
         var val = toUSVString(arguments[1], 'URLSearchParams', 'delete');
@@ -1541,7 +1499,7 @@
     writable: true,
     value: function get(name) {
       var list = listOf(this);
-      if (web) requireArgs('get', 1, arguments.length);
+      requireArgs('get', 1, arguments.length);
       var n = toUSVString(name, 'URLSearchParams', 'get');
       for (var i = 0; i < list.length; i++) {
         if (list[i][0] === n) return list[i][1];
@@ -1555,7 +1513,7 @@
     writable: true,
     value: function getAll(name) {
       var list = listOf(this);
-      if (web) requireArgs('getAll', 1, arguments.length);
+      requireArgs('getAll', 1, arguments.length);
       var n = toUSVString(name, 'URLSearchParams', 'getAll');
       var out = [];
       for (var i = 0; i < list.length; i++) {
@@ -1570,7 +1528,7 @@
     writable: true,
     value: function has(name) {
       var list = listOf(this);
-      if (web) requireArgs('has', 1, arguments.length);
+      requireArgs('has', 1, arguments.length);
       var n = toUSVString(name, 'URLSearchParams', 'has');
       if (arguments.length > 1 && arguments[1] !== undefined) {
         var val = toUSVString(arguments[1], 'URLSearchParams', 'has');
@@ -1630,7 +1588,6 @@
     value: function forEach(callback, thisArg) {
       var list = listOf(this);
       if (typeof callback !== 'function') {
-        if (!web) throw new TypeErrorG('Callback must be a function');
         requireArgs('forEach', 1, arguments.length);
         throw typeError('URLSearchParams', 'forEach', notOfType(1, 'Function'));
       }
@@ -1746,7 +1703,7 @@
   // success path, the one every member made already.
   function recordOf(url) {
     var record = url === null || url === undefined ? undefined : url[kRecord];
-    if (record === undefined) throw invalidThis('URL');
+    if (record === undefined) throw invalidThis();
     return record;
   }
 
@@ -1767,7 +1724,7 @@
       recordOf(this);
       var str = toUSVString(value, 'URL', undefined, 'href');
       var record = basicURLParse(str);
-      if (record === FAILURE) throw invalidHref(str);
+      if (record === FAILURE) throw invalidHref();
       this[kRecord] = record;
       refreshSearchParams(this);
     },
@@ -1985,116 +1942,6 @@
     },
   });
 
-  // ------------------------------------------------------------------ //
-  // node:url helper functions                                          //
-  // ------------------------------------------------------------------ //
-
-  function fileURLToPath(input) {
-    // Node accepts only a string or a real URL instance — not an arbitrary
-    // {href}-shaped object — and rejects everything else with ERR_INVALID_ARG_TYPE
-    // so a programmer error can't silently become a filesystem path.
-    var href;
-    if (typeof input === 'string') href = new URL(input).href;
-    else if (input instanceof URL) href = input.href;
-    else throw ERR_INVALID_ARG_TYPE('path', ['string', 'URL'], input);
-    return fileURLToPathFromHref(href);
-  }
-
-  // The original file: → path translation (kept verbatim so the ESM loader and
-  // node:sqlite, which call it on an href, behave exactly as before).
-  function fileURLToPathFromHref(url) {
-    if (url.slice(0, 5).toLowerCase() !== 'file:') {
-      throw nodeError(TypeErrorG, 'ERR_INVALID_URL_SCHEME', 'The URL must be of scheme file');
-    }
-    var isWindows = process.platform === 'win32';
-    var rest = url.slice(5);
-    var host = '';
-    if (rest.slice(0, 2) === '//') {
-      rest = rest.slice(2);
-      var slash = rest.indexOf('/');
-      host = slash === -1 ? rest : rest.slice(0, slash);
-      rest = slash === -1 ? '/' : rest.slice(slash);
-    }
-    var isLocalhost = StringPrototypeToLowerCase(host) === 'localhost';
-    var hash = rest.indexOf('#');
-    if (hash !== -1) rest = rest.slice(0, hash);
-    var query = rest.indexOf('?');
-    if (query !== -1) rest = rest.slice(0, query);
-    if (reTest(PERCENT_2F_RE, rest) || (isWindows && reTest(PERCENT_5C_RE, rest))) {
-      // node words the two platforms differently and attaches the href as `input`.
-      var sepErr = nodeError(
-        TypeErrorG,
-        'ERR_INVALID_FILE_URL_PATH',
-        isWindows
-          ? 'File URL path must not include encoded \\ or / characters'
-          : 'File URL path must not include encoded / characters',
-      );
-      sepErr.input = url;
-      throw sepErr;
-    }
-
-    if (isWindows) {
-      var winPath = decodeURIComponentG(StringPrototypeReplaceAll(rest, '/', '\\'));
-      if (host !== '' && !isLocalhost) {
-        return '\\\\' + host + winPath;
-      }
-      var letter = StringPrototypeCharCodeAt(winPath, 1) | 0x20;
-      if (letter < 97 || letter > 122 || StringPrototypeCharAt(winPath, 2) !== ':') {
-        throw nodeError(TypeErrorG, 'ERR_INVALID_FILE_URL_PATH', 'File URL path must be absolute');
-      }
-      return winPath.slice(1);
-    }
-
-    if (host !== '' && !isLocalhost) {
-      throw nodeError(
-        TypeErrorG,
-        'ERR_INVALID_FILE_URL_HOST',
-        'File URL host must be "localhost" or empty on ' + process.platform,
-      );
-    }
-    return decodeURIComponentG(rest);
-  }
-
-  function urlToHttpOptions(url) {
-    // Mirror Node's `{ __proto__: null, ...url, <standard fields> }`: own
-    // enumerable properties (e.g. request options a caller attached to the URL)
-    // are copied first, then the standard http.request fields are layered on top.
-    var options = ObjectCreate(null);
-    var ownKeys = ObjectKeys(url);
-    for (var i = 0; i < ownKeys.length; i++) options[ownKeys[i]] = url[ownKeys[i]];
-    options.protocol = url.protocol;
-    options.hostname =
-      typeof url.hostname === 'string' && StringPrototypeStartsWith(url.hostname, '[')
-        ? url.hostname.slice(1, -1)
-        : url.hostname;
-    options.hash = url.hash;
-    options.search = url.search;
-    options.pathname = url.pathname;
-    options.path = '' + (url.pathname || '') + (url.search || '');
-    options.href = url.href;
-    if (url.port !== '') options.port = NumberG(url.port);
-    if (url.username || url.password) {
-      options.auth = decodeURIComponentG(url.username) + ':' + decodeURIComponentG(url.password);
-    }
-    return options;
-  }
-
-  // Extract and host-parse the domain argument to domainToASCII/Unicode, applying
-  // the same preprocessing the URL parser does: remove ASCII tab/newline, then take
-  // everything up to the first authority terminator (/ \ ? #). Returns the parsed
-  // host string, or FAILURE for an invalid domain.
-  function hostFromDomainArg(domain) {
-    var input = stripChars(StringG(domain), isTabOrNewline);
-    for (var i = 0; i < input.length; i++) {
-      var c = StringPrototypeCharCodeAt(input, i);
-      if (c === 0x2f || c === 0x5c || c === 0x3f || c === 0x23) {
-        input = input.slice(0, i);
-        break;
-      }
-    }
-    return parseHost(input, true);
-  }
-
   // Preserve the object-URL statics internal/blob.js attaches to globalThis.URL (it
   // runs first and stubs URL). Copy any it already set onto the real class so
   // `URL.createObjectURL`/`revokeObjectURL` keep working.
@@ -2109,8 +1956,7 @@
   }
 
   // The interface objects a page sees (internal/native_shape): Blink's member order
-  // and lengths, recorded from Chrome 158 in tests/web/cases/shape-url.expected. Both
-  // surfaces export the same objects, so require('url').URL is the global.
+  // and lengths, recorded from Chrome 158 in tests/web/cases/shape-url.expected.
   var PublicURL = defineInterface({
     name: 'URL',
     impl: URL,
@@ -2162,28 +2008,5 @@
   module.exports = {
     URL: PublicURL,
     URLSearchParams: PublicURLSearchParams,
-    fileURLToPath: fileURLToPath,
-    urlToHttpOptions: urlToHttpOptions,
-    // Node's domainToASCII/domainToUnicode validate their input as a host (the
-    // same machinery URL parsing uses) and return '' for anything that is not a
-    // valid domain — so they can be used as a normalization/validation primitive.
-    // Route through hostFromDomainArg (which applies the URL parser's host
-    // preprocessing: strip tab/newline, cut at the first authority terminator,
-    // then host-parse) so forbidden characters, bad percent/UTF-8, NUL, and
-    // URL-shaped strings all collapse to '' exactly as Node does.
-    domainToASCII: function (domain) {
-      var host = hostFromDomainArg(domain);
-      return host === FAILURE ? '' : host;
-    },
-    domainToUnicode: function (domain) {
-      var host = hostFromDomainArg(domain);
-      return host === FAILURE ? '' : domainToUnicode(host);
-    },
-    // For node/url.js's format(), which node frames in node:url and so stays there:
-    // the record slot, the path serializer, and the Punycode host decoder (the
-    // unvalidated one; the public `domainToUnicode` above validates first).
-    kRecord: kRecord,
-    serializePath: serializePath,
-    hostToUnicode: domainToUnicode,
   };
 });
