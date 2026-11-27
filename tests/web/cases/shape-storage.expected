@@ -1,0 +1,52 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs shape-storage
+# ---
+== Storage
+global Storage data -cw fn name="Storage" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Storage() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object Storage]
+prototype [[Prototype]] Object.prototype
+proto length accessor ec
+  get name="get length" length=0 own=[length,name] prototype=false ctor=false src="function get length() { [native code] }"
+  set undefined
+proto clear data ecw fn name="clear" length=0 own=[length,name] prototype=false ctor=false src="function clear() { [native code] }"
+proto getItem data ecw fn name="getItem" length=1 own=[length,name] prototype=false ctor=false src="function getItem() { [native code] }"
+proto key data ecw fn name="key" length=1 own=[length,name] prototype=false ctor=false src="function key() { [native code] }"
+proto removeItem data ecw fn name="removeItem" length=1 own=[length,name] prototype=false ctor=false src="function removeItem() { [native code] }"
+proto setItem data ecw fn name="setItem" length=2 own=[length,name] prototype=false ctor=false src="function setItem() { [native code] }"
+proto constructor data -cw fn name="Storage" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Storage() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "Storage"
+== localStorage
+global localStorage accessor ec
+  get name="get localStorage" length=0 own=[length,name] prototype=false ctor=false src="function get localStorage() { [native code] }"
+  set undefined
+object [object Storage] [[Prototype]] Storage.prototype
+proto length accessor ec
+  get name="get length" length=0 own=[length,name] prototype=false ctor=false src="function get length() { [native code] }"
+  set undefined
+proto clear data ecw fn name="clear" length=0 own=[length,name] prototype=false ctor=false src="function clear() { [native code] }"
+proto getItem data ecw fn name="getItem" length=1 own=[length,name] prototype=false ctor=false src="function getItem() { [native code] }"
+proto key data ecw fn name="key" length=1 own=[length,name] prototype=false ctor=false src="function key() { [native code] }"
+proto removeItem data ecw fn name="removeItem" length=1 own=[length,name] prototype=false ctor=false src="function removeItem() { [native code] }"
+proto setItem data ecw fn name="setItem" length=2 own=[length,name] prototype=false ctor=false src="function setItem() { [native code] }"
+proto constructor data -cw fn name="Storage" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Storage() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "Storage"
+== sessionStorage
+global sessionStorage accessor ec
+  get name="get sessionStorage" length=0 own=[length,name] prototype=false ctor=false src="function get sessionStorage() { [native code] }"
+  set undefined
+object [object Storage] [[Prototype]] Storage.prototype
+proto length accessor ec
+  get name="get length" length=0 own=[length,name] prototype=false ctor=false src="function get length() { [native code] }"
+  set undefined
+proto clear data ecw fn name="clear" length=0 own=[length,name] prototype=false ctor=false src="function clear() { [native code] }"
+proto getItem data ecw fn name="getItem" length=1 own=[length,name] prototype=false ctor=false src="function getItem() { [native code] }"
+proto key data ecw fn name="key" length=1 own=[length,name] prototype=false ctor=false src="function key() { [native code] }"
+proto removeItem data ecw fn name="removeItem" length=1 own=[length,name] prototype=false ctor=false src="function removeItem() { [native code] }"
+proto setItem data ecw fn name="setItem" length=2 own=[length,name] prototype=false ctor=false src="function setItem() { [native code] }"
+proto constructor data -cw fn name="Storage" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Storage() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "Storage"

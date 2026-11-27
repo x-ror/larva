@@ -421,6 +421,8 @@
     Map: Map,
     Set: Set,
     WeakMap: WeakMap,
+    // internal/storage's legacy platform objects (named properties).
+    Proxy: Proxy,
     Symbol: Symbol,
     // The METHOD, not just the object. Capturing `Symbol` alone is not enough: `.for` is a
     // writable property on it, so a lazily-evaluated module reading `P.Symbol.for` at its
@@ -480,6 +482,13 @@
     ReflectOwnKeys: Reflect.ownKeys,
     ReflectGetPrototypeOf: Reflect.getPrototypeOf,
     ReflectConstruct: Reflect.construct,
+    // internal/storage's Proxy handler: the ordinary operation a trap falls back to.
+    ReflectHas: Reflect.has,
+    ReflectGet: Reflect.get,
+    ReflectSet: Reflect.set,
+    ReflectDefineProperty: Reflect.defineProperty,
+    ReflectDeleteProperty: Reflect.deleteProperty,
+    ReflectGetOwnPropertyDescriptor: Reflect.getOwnPropertyDescriptor,
     JSONStringify: JSON.stringify,
     JSONParse: JSON.parse,
     MathTrunc: Math.trunc,

@@ -94,6 +94,9 @@
   // The `performance` global: a Performance EventTarget whose User Timing marks clone
   // their `detail` through structured_clone, so after both.
   req('internal/performance');
+  // Storage and the localStorage/sessionStorage attributes; its quota error is a
+  // QuotaExceededError, so after internal/domexception.
+  req('internal/storage');
 
   // internal/crypto/random installs the WHATWG `crypto` global at its module-eval.
   // internal/blob mints object-URL ids with crypto.randomUUID, but it is instantiated

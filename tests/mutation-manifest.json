@@ -3896,6 +3896,24 @@
       "replace": "",
       "gate": "odin:cmd/lava:main.dom_wrapper_identity_and_a_second_page_sees_nothing_of_the_first",
       "expect_detail": "data-r=\"false,false"
+    },
+    {
+      "name": "storage-named dies when the named setter ignores the receiver",
+      "why": "An assignment through an object inheriting from localStorage would store an item instead of defining a property on that object, as Chrome does.",
+      "source": "pkg/runtime/js/internal/storage.js",
+      "find": "if (receiver === proxy && typeof p === 'string' && !ReflectHas(t, p)) {",
+      "replace": "if (typeof p === 'string' && !ReflectHas(t, p)) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL storage-named"
+    },
+    {
+      "name": "storage-errors dies when setItem stops checking the quota",
+      "why": "A page could grow an area without bound where Chrome throws QuotaExceededError past 5 MiB code units.",
+      "source": "pkg/runtime/js/internal/storage.js",
+      "find": "if (next > QUOTA) {",
+      "replace": "if (false) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL storage-errors"
     }
   ]
 }
