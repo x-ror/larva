@@ -144,26 +144,13 @@
     ]),
   };
 
-  // Internal helpers fetch.js uses to build/feed a response-body stream without
-  // duplicating controller plumbing. Not reachable from a page.
+  // Internal helpers the platform's own bodies use (Blob.prototype.stream(), fetch's
+  // Request/Response bodies): byte streams built on the internal controller
+  // (readablestream.js createBytesSourceStream / createTransportByteStream). Not
+  // reachable from a page.
   api._internal = {
-    createReadableStreamWithController: function (sourceHooks, highWaterMark, sizeAlgorithm) {
-      var captured = { controller: undefined };
-      var stream = new ReadableStream(
-        {
-          start: function (controller) {
-            captured.controller = controller;
-            if (sourceHooks && typeof sourceHooks.start === 'function')
-              sourceHooks.start(controller);
-          },
-          pull: sourceHooks && sourceHooks.pull,
-          cancel: sourceHooks && sourceHooks.cancel,
-        },
-        { highWaterMark: highWaterMark, size: sizeAlgorithm },
-      );
-      captured.stream = stream;
-      return captured;
-    },
+    createBytesSourceStream: readable.createBytesSourceStream,
+    createTransportByteStream: readable.createTransportByteStream,
     isReadableStream: function (value) {
       return value instanceof ReadableStream;
     },

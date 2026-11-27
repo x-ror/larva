@@ -91,6 +91,12 @@
   // cannot reach the internal path.
   var INTERNAL = { __proto__: null };
 
+  // The largest chunk Blob.prototype.stream() delivers to a default reader, so a large
+  // Blob is copied out a window at a time rather than whole. Chrome's own size follows
+  // its blob data pipe and varies run to run (see stream()); 64 KiB is one of the
+  // sizes it was observed to use.
+  var BLOB_STREAM_CHUNK = 64 * 1024;
+
   // toNativeEndings is `str.replace(/\r?\n/g, EOL)` — every CRLF or lone LF
   // becomes the platform terminator. No regex: a GLOBAL replace under a forged
   // `RegExp.prototype.exec` never returns, so `new Blob([text], {endings:'native'})`
@@ -489,16 +495,26 @@
       return PromiseResolve(blobJoin(this.#parts, this.#size));
     }
 
+    /**
+     * The contents as a byte stream.
+     * @returns {ReadableStream} a `type: 'bytes'` stream, readable by a BYOB reader.
+     * @node Chrome 158 (tests/web/cases/streams-body-bytes): a byte stream; a small
+     *       Blob arrives as ONE chunk however many parts built it, a fresh Uint8Array
+     *       over a buffer of its own size; reading it leaves the Blob readable.
+     * @deviates Chunks hold at most BLOB_STREAM_CHUNK (64 KiB) bytes. Chrome's size
+     *   depends on its blob data pipe — one 200000-byte chunk on one run, 65536-byte
+     *   chunks on the next (observed recording this case) — so no recording pins it;
+     *   the bound keeps a large Blob's stream from copying it whole at once.
+     */
     stream() {
       if (!isBlob(this)) throw invalidThis();
-      var parts = this.#parts;
-      var ReadableStream = require('internal/webstreams/index').ReadableStream;
-      return new ReadableStream({
-        start: function (controller) {
-          for (var i = 0; i < parts.length; i++) controller.enqueue(new Uint8ArrayG(parts[i]));
-          controller.close();
-        },
-      });
+      // Late-bound: webstreams loads after this eager module. The source copies every
+      // chunk out of #parts, so the Blob's own bytes are never transferred (detached).
+      return require('internal/webstreams/index')._internal.createBytesSourceStream(
+        this.#parts,
+        this.#size,
+        BLOB_STREAM_CHUNK,
+      );
     }
 
     /**

@@ -1497,6 +1497,21 @@
     }
 
     var transferred = transferBuffer(buffer);
+    byteControllerEnqueueOwned(c, transferred, byteOffset, byteLength);
+  }
+
+  // The rest of enqueue, for a buffer nothing but the stream can reach: one enqueue
+  // just transferred, or one a platform source made itself (createBytesSourceStream's
+  // copies, createTransportByteStream's native chunks). Those skip the transfer
+  // because no page holds a view to detach, and JSC's ArrayBuffer transfer COPIES:
+  // 64 KiB alloc+transfer cost ~64 us against ~34 us for the alloc alone (2000
+  // iterations each, one `lava run`), which put a fetched body's text() at 1.29x.
+  function byteControllerEnqueueOwned(c, transferred, byteOffset, byteLength) {
+    var stream = c._controlledReadableStream;
+    if (c._closeRequested || stream._state !== 'readable') {
+      return;
+    }
+
     if (c._pendingPullIntos.length > 0) {
       var first = c._pendingPullIntos[0];
       if (isDetached(first.buf)) {
@@ -2693,6 +2708,189 @@
     return [branch1, branch2];
   }
 
+  // ---- the platform's own byte sources ------------------------------------------
+  //
+  // Chrome hands out the bodies it makes itself — Blob.prototype.stream(), a Request's
+  // or a Response's body, a fetched response's body — as byte streams, so a page can
+  // read them with a BYOB reader (tests/web/cases/streams-body-bytes). The two
+  // builders below make such streams on the internal controller, never through the
+  // public constructor or controller methods a page can replace.
+
+  // Closes a platform byte source. A BYOB read still pending is answered with what it
+  // holds (spec: the source's respond(0) once closed), or it would never settle. One
+  // holding a partial element errors the stream with Chrome's text for its internal
+  // close, which has no "Failed to execute" context (streams-body-bytes "byob u16";
+  // the page-called controller.close() keeps it, streams-byob-errors).
+  function closeByteSource(c) {
+    var stream = c._controlledReadableStream;
+    if (stream._state !== 'readable' || c._closeRequested) {
+      return;
+    }
+
+    if (c._queueTotalSize === 0 && c._pendingPullIntos.length > 0) {
+      var head = c._pendingPullIntos[0];
+      if (head.bytesFilled % head.elementSize !== 0) {
+        var e = bareTypeError('Cannot close while responding');
+        byteControllerError(c, e);
+        throw e;
+      }
+    }
+
+    byteControllerClose(c);
+    if (stream._state === 'closed' && c._pendingPullIntos.length > 0) {
+      byteControllerRespondInternal(c, 0);
+    }
+  }
+
+  // A byte stream over immutable in-memory `parts` (Uint8Arrays, `size` bytes in all),
+  // delivered in chunks of at most `chunkMax` bytes that may span parts.
+  //
+  // Every chunk is a COPY into a buffer nothing else holds: a BYOB read copies straight
+  // into the reader's view, a default read into a new buffer. `parts` belong to a Blob,
+  // or to a body a clone shares, and a page owns every chunk it reads — handing out a
+  // view of a part would let the page rewrite the Blob through it, and the spec's
+  // enqueue would detach it outright (pinned by streams-body-bytes "intact" and the
+  // mutation manifest). Because the copy is the stream's own, it is enqueued and
+  // responded WITHOUT the spec's transfer (byteControllerEnqueueOwned), which would
+  // only copy it again. Nothing is copied before a read: the high-water mark is 0, so
+  // pull runs only for a pending read, and building the stream does not disturb it.
+  function createBytesSourceStream(parts, size, chunkMax) {
+    var stream = newReadableStreamObject();
+    var c = newByteController();
+    var index = 0;
+    var offset = 0;
+    var remaining = size;
+
+    // Copies the next `n` bytes into `dest` from 0. A part is viewed through its own
+    // buffer, not subarray(), which would consult the page-reachable @@species.
+    function copyOut(dest, n) {
+      var at = 0;
+      while (at < n) {
+        var part = parts[index];
+        var length = TypedArrayPrototypeGetLength(part);
+        var take = MathMin(length - offset, n - at);
+        if (take > 0) {
+          Uint8ArrayPrototypeSet(
+            dest,
+            new Uint8ArrayP(
+              TypedArrayPrototypeGetBuffer(part),
+              TypedArrayPrototypeGetByteOffset(part) + offset,
+              take,
+            ),
+            at,
+          );
+          at += take;
+          offset += take;
+        }
+
+        if (offset === length) {
+          index++;
+          offset = 0;
+        }
+      }
+
+      remaining -= n;
+    }
+
+    // The source closes on the pull AFTER its last bytes, not with them: a read that
+    // the last bytes left short of a whole element then fails as Chrome's does.
+    function pullAlgorithm() {
+      try {
+        if (remaining === 0) {
+          parts = null;
+          closeByteSource(c);
+        } else if (c._pendingPullIntos.length > 0) {
+          var first = c._pendingPullIntos[0];
+          var n = MathMin(first.count - first.bytesFilled, remaining);
+          copyOut(new Uint8ArrayP(first.buf, first.start + first.bytesFilled, n), n);
+          byteControllerRespondInternal(c, n);
+        } else {
+          var chunk = new Uint8ArrayP(MathMin(chunkMax, remaining));
+          copyOut(chunk, TypedArrayPrototypeGetLength(chunk));
+          byteControllerEnqueueOwned(
+            c,
+            TypedArrayPrototypeGetBuffer(chunk),
+            TypedArrayPrototypeGetByteOffset(chunk),
+            TypedArrayPrototypeGetLength(chunk),
+          );
+        }
+      } catch (e) {
+        return promiseRejectedWith(e);
+      }
+
+      return promiseResolvedWith(undefined);
+    }
+
+    function cancelAlgorithm() {
+      parts = null;
+      remaining = 0;
+      return promiseResolvedWith(undefined);
+    }
+
+    setUpReadableByteStreamController(
+      stream,
+      c,
+      noop,
+      pullAlgorithm,
+      cancelAlgorithm,
+      0,
+      undefined,
+    );
+    return stream;
+  }
+
+  // A byte stream a native transport feeds (fetch's response body). `hooks.pull` and
+  // `hooks.cancel` are called synchronously; the returned handle's enqueue(bytes)
+  // reports whether to keep reading (desiredSize > 0 against `highWaterMark` bytes),
+  // and is a no-op answering false once the stream is closed, cancelled or errored. A
+  // chunk is enqueued as is and NOT transferred (byteControllerEnqueueOwned), so the
+  // transport must hand over a buffer nothing else holds: fetch_deliver_chunk
+  // allocates one per chunk and keeps no reference.
+  function createTransportByteStream(hooks, highWaterMark) {
+    var stream = newReadableStreamObject();
+    var c = newByteController();
+    setUpReadableByteStreamController(
+      stream,
+      c,
+      noop,
+      function () {
+        hooks.pull();
+        return promiseResolvedWith(undefined);
+      },
+      function (reason) {
+        hooks.cancel(reason);
+        return promiseResolvedWith(undefined);
+      },
+      highWaterMark,
+      undefined,
+    );
+    return {
+      __proto__: null,
+      stream: stream,
+      enqueue: function (bytes) {
+        if (stream._state !== 'readable' || c._closeRequested) {
+          return false;
+        }
+
+        byteControllerEnqueueOwned(
+          c,
+          TypedArrayPrototypeGetBuffer(bytes),
+          TypedArrayPrototypeGetByteOffset(bytes),
+          TypedArrayPrototypeGetByteLength(bytes),
+        );
+        return byteControllerGetDesiredSize(c) > 0;
+      },
+      close: function () {
+        try {
+          closeByteSource(c);
+        } catch {}
+      },
+      error: function (e) {
+        byteControllerError(c, e);
+      },
+    };
+  }
+
   module.exports = {
     ReadableStream: ReadableStream,
     ReadableStreamDefaultReader: ReadableStreamDefaultReader,
@@ -2701,6 +2899,8 @@
     ReadableByteStreamController: ReadableByteStreamController,
     ReadableStreamBYOBRequest: ReadableStreamBYOBRequest,
     createReadableStream: createReadableStream,
+    createBytesSourceStream: createBytesSourceStream,
+    createTransportByteStream: createTransportByteStream,
     readableStreamDefaultControllerCanCloseOrEnqueue:
       readableStreamDefaultControllerCanCloseOrEnqueue,
     readableStreamDefaultControllerClose: readableStreamDefaultControllerClose,

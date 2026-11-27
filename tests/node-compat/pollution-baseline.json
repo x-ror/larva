@@ -86,7 +86,7 @@
   "internal/fetch/body.js": {
     "method": 0,
     "invoke": 0,
-    "accessor": 2,
+    "accessor": 0,
     "global": 0
   },
   "internal/fetch/headers.js": {

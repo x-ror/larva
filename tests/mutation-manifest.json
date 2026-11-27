@@ -4036,6 +4036,15 @@
       "replace": "if (false) {",
       "gate": "make:test-web",
       "expect_detail": "FAIL streams-byob-errors"
+    },
+    {
+      "name": "streams-body-bytes dies when a platform byte source enqueues its own bytes instead of a copy",
+      "why": "A Blob.stream() or Response.body chunk that is a view of the source's own part lets the page rewrite the Blob (or a clone's body) by writing into the chunk; under the spec's enqueue it would detach the part instead.",
+      "source": "pkg/runtime/js/internal/webstreams/readablestream.js",
+      "find": "copyOut(chunk, TypedArrayPrototypeGetLength(chunk));",
+      "replace": "chunk = parts[index++]; remaining -= TypedArrayPrototypeGetLength(chunk);",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL streams-body-bytes"
     }
   ]
 }
