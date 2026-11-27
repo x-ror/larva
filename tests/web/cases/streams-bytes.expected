@@ -1,0 +1,54 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs streams-bytes
+# ---
+globals function function
+controller [object ReadableByteStreamController] desiredSize 0
+enqueued buffer detached 0 0
+desiredSize after enqueue -4
+default read 1 done=false Uint8Array(off 0 len 4 buf 4)[1,2,3,4]
+default read 2 done=false Uint8Array(off 1 len 2 buf 3)[6,7]
+default read 3 done=true undefined
+hwm 10 after 4 bytes 6
+byob small view done=false Uint8Array(off 0 len 3 buf 3)[1,2,3] original detached 0
+byob rest done=false Uint8Array(off 2 len 2 buf 8)[4,5]
+byob after close done=true Uint8Array(off 0 len 0 buf 4)[]
+closed resolves 
+byobRequest view Uint8Array(off 0 len 8 buf 8)[0,0,0,0,0,0,0,0]
+uint16 read done=false Uint16Array(off 0 len 2 buf 8)[1,2]
+uint16 read 2 done=false Uint16Array(off 0 len 2 buf 4)[3,4]
+DataView read done=false DataView(off 0 len 2 buf 2)[9,8]
+queue left done=false Uint8Array(off 0 len 1 buf 4)[7]
+min 4 after 2 bytes settled false
+min 4 read done=false Uint8Array(off 0 len 5 buf 6)[1,2,3,4,5]
+min after close (partial) done=true Uint16Array(off 0 len 2 buf 6)[6,7]
+respond done=false Uint8Array(off 0 len 2 buf 4)[10,11]
+respondWithNewView done=false Uint8Array(off 1 len 1 buf 6)[12]
+respond(0) after close done=true Uint8Array(off 0 len 0 buf 2)[]
+pull saw Uint8Array(off 0 len 4 buf 4)[0,0,0,0] | Uint8Array(off 1 len 3 buf 6)[0,0,0] | Uint8Array(off 0 len 2 buf 2)[0,0]
+auto read 1 done=false Uint8Array(off 0 len 3 buf 5)[1,2,3]
+auto read 2 done=true undefined
+auto pull saw Uint8Array(off 0 len 5 buf 5)[0,0,0,0,0] | Uint8Array(off 0 len 5 buf 5)[0,0,0,0,0]
+no auto read done=false Uint8Array(off 0 len 1 buf 1)[42] request 
+pull events start,pull 3,pull 1,read,pull 1
+cancel pending done=true undefined reason why
+error pending rejected broke
+closed rejects broke
+close pending done=true Uint16Array(off 0 len 0 buf 4)[]
+first done=false Uint8Array(off 0 len 1 buf 1)[1]
+then default done=false Uint8Array(off 1 len 3 buf 4)[2,3,4]
+then default done done=true undefined
+tee a done=false Uint8Array(off 0 len 2 buf 2)[1,2]
+tee b done=false Uint8Array(off 0 len 2 buf 2)[1,2] same buffer false
+tee a 2 done=false Uint8Array(off 0 len 2 buf 4)[3,4]
+tee b 2 done=false Uint8Array(off 0 len 2 buf 2)[3,4]
+tee a 3 done=true Uint8Array(off 0 len 0 buf 4)[]
+tee b 3 done=true undefined
+tee locked true
+iterate Uint8Array(off 0 len 1 buf 1)[1] Uint8Array(off 0 len 2 buf 2)[2,3]
+pipeTo Uint8Array(off 0 len 2 buf 2)[7,8]
+request view Uint8Array(off 4 len 8 buf 16)[0,0,0,0,0,0,0,0] same object true
+uint32 read done=false Uint32Array(off 4 len 4 buf 16)[4,3,2,1]
+end

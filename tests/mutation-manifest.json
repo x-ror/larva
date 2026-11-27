@@ -3865,7 +3865,7 @@
       "name": "clone-transfer dies when DataCloneError loses its context prefix",
       "why": "Blink's message starts \"Failed to execute 'structuredClone' on 'Window': \".",
       "source": "pkg/runtime/js/internal/structured_clone.js",
-      "find": "    return pageError(\n      new DOMException(context('Window', 'structuredClone') + detail, 'DataCloneError'),\n    );",
+      "find": "    return pageError(new DOMException(cloneContext + detail, 'DataCloneError'));",
       "replace": "    return pageError(new DOMException(detail, 'DataCloneError'));",
       "gate": "make:test-web",
       "expect_detail": "FAIL clone-transfer"
@@ -3914,6 +3914,51 @@
       "replace": "if (false) {",
       "gate": "make:test-web",
       "expect_detail": "FAIL storage-errors"
+    },
+    {
+      "name": "streams-bytes dies when enqueue does not transfer the chunk's buffer",
+      "why": "Chrome detaches the buffer behind an enqueued view; without the transfer the page keeps a live handle on bytes the stream later hands to a reader.",
+      "source": "pkg/runtime/js/internal/webstreams/readablestream.js",
+      "find": "var transferred = transferBuffer(buffer);",
+      "replace": "var transferred = buffer;",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL streams-bytes"
+    },
+    {
+      "name": "streams-bytes dies when a BYOB read fills a partial element",
+      "why": "A Uint16Array read must take whole elements and leave the odd byte queued; filling it makes the view length fractional.",
+      "source": "pkg/runtime/js/internal/webstreams/readablestream.js",
+      "find": "var maxAlignedBytes = maxBytesFilled - (maxBytesFilled % desc.elementSize);",
+      "replace": "var maxAlignedBytes = maxBytesFilled;",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL streams-bytes"
+    },
+    {
+      "name": "streams-bytes dies when read(view, {min}) is ignored",
+      "why": "With `min` dropped a read settles on the first element, where Chrome waits for `min` of them.",
+      "source": "pkg/runtime/js/internal/webstreams/readablestream.js",
+      "find": "minimumFill: min * type.size,",
+      "replace": "minimumFill: type.size,",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL streams-bytes"
+    },
+    {
+      "name": "streams-bytes dies when the byte tee hands both branches the same chunk",
+      "why": "Each branch must get its own copy; sharing one view transfers it into the first branch and leaves the second a detached chunk.",
+      "source": "pkg/runtime/js/internal/webstreams/readablestream.js",
+      "find": "return cloneAsUint8Array(chunk);",
+      "replace": "return chunk;",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL streams-bytes"
+    },
+    {
+      "name": "streams-byob-errors dies when close() accepts a pending read holding part of an element",
+      "why": "Chrome throws 'Cannot close while responding' and errors the stream; closing would resolve a view whose length is not a whole number of elements.",
+      "source": "pkg/runtime/js/internal/webstreams/readablestream.js",
+      "find": "if (first.bytesFilled % first.elementSize !== 0) {",
+      "replace": "if (false) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL streams-byob-errors"
     }
   ]
 }
