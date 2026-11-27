@@ -1,0 +1,26 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs console-extras
+# ---
+context [object Object] false
+context keys dir:wec/dir/1/function dir() { [native code] } dirxml:wec/dirxml/1/function dirxml() { [native code] } table:wec/table/1/function table() { [native code] } groupEnd:wec/groupEnd/1/function groupEnd() { [native code] } clear:wec/clear/1/function clear() { [native code] } count:wec/count/1/function count() { [native code] } countReset:wec/countReset/1/function countReset() { [native code] } profile:wec/profile/1/function profile() { [native code] } profileEnd:wec/profileEnd/1/function profileEnd() { [native code] } debug:wec/debug/1/function debug() { [native code] } error:wec/error/1/function error() { [native code] } info:wec/info/1/function info() { [native code] } log:wec/log/1/function log() { [native code] } warn:wec/warn/1/function warn() { [native code] } trace:wec/trace/1/function trace() { [native code] } group:wec/group/1/function group() { [native code] } groupCollapsed:wec/groupCollapsed/1/function groupCollapsed() { [native code] } time:wec/time/1/function time() { [native code] } timeLog:wec/timeLog/1/function timeLog() { [native code] } timeEnd:wec/timeEnd/1/function timeEnd() { [native code] } timeStamp:wec/timeStamp/1/function timeStamp() { [native code] } assert:wec/assert/1/function assert() { [native code] }
+context fresh true true
+context name converted THREW RangeError: boom
+createTask() THREW Error: First argument must be a non-empty string.
+createTask empty THREW Error: First argument must be a non-empty string.
+createTask number THREW Error: First argument must be a non-empty string.
+task [object Object] run:wec/run/0/function run() { [native code] }
+task proto constructor:wc//0/function () { [native code] } true
+run ran 0 true
+run result 7
+run throws THREW RangeError: inner
+run non-function THREW Error: First argument must be a function.
+run nothing THREW Error: First argument must be a function.
+memory [object MemoryInfo] own []
+memory proto totalJSHeapSize,usedJSHeapSize,jsHeapSizeLimit,Symbol(Symbol.toStringTag) true
+memory fresh true undefined
+memory values number,true,true,true
+memory foreign THREW TypeError: Illegal invocation
+memory assigned [object MemoryInfo]

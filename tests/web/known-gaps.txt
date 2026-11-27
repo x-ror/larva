@@ -8,10 +8,8 @@
 # starts matching Chrome fails until its line and pin are removed.
 # `unplanned` marks a gap no removal stage closes: it needs an issue of its own.
 
-robust-console-poisoned unplanned: bootstrap/console.js reads Array.prototype.slice live, so a page that replaces it can no longer log (print writes through console.log on Lava)
 robust-resizable-views unplanned: Chrome refuses a view over a resizable ArrayBuffer in every WebIDL byte argument (no [AllowResizable]); Lava reads the view's current bytes. Closes with WebIDL conversions (#12)
 robust-view-probe unplanned: as robust-resizable-views: Chrome refuses the resizable-backed window, Lava decodes it as empty (it never reads the stale bytes this case guards against)
-shape-console unplanned: console has no context/createTask/memory (#114); every other member matches Chrome's shape
 shape-crypto unplanned: no crypto.subtle (SubtleCrypto is not implemented); the Crypto interface and getRandomValues/randomUUID match Chrome (#114)
 shape-events unplanned: EventTarget.prototype has no when() (Chrome 158's Observable API; there is no Observable global either); every other EventTarget, Event and CustomEvent member matches Chrome's shape and order
 shape-fetch unplanned: Request.prototype and Response.prototype have no formData() (FormData is not implemented, as shape-missing lists) and no textStream() (Chrome 158's decoded-text body stream, not implemented); every other member matches Chrome's shape and order (#114)

@@ -64,36 +64,11 @@
   req('internal/primordials').lockIntrinsics();
   // Function.prototype.toString's mask and the helper every Web API global is defined
   // through (#114): before the first module that installs one, and before user code.
+  req('internal/native_shape');
   // bootstrap/console.js ran before this loader and has no `require`, so its namespace is
-  // shaped here, still before user code: Blink's member order (Chrome 158,
-  // tests/web/cases/shape-console.expected; context, createTask and memory are the gap).
-  req('internal/native_shape').defineNamespace(globalThis.console, 'console', [
-    'debug',
-    'error',
-    'info',
-    'log',
-    'warn',
-    'dir',
-    'dirxml',
-    'table',
-    'trace',
-    'group',
-    'groupCollapsed',
-    'groupEnd',
-    'clear',
-    'count',
-    'countReset',
-    'assert',
-    'profile',
-    'profileEnd',
-    'time',
-    'timeLog',
-    'timeEnd',
-    'timeStamp',
-    '@@toStringTag',
-  ]);
-  // node's console.Console constructor: not a member of Chrome's console namespace.
-  delete globalThis.console.Console;
+  // shaped here, still before user code, with context/createTask/memory added
+  // (internal/console).
+  req('internal/console');
   // FinalizationRegistry cleanups and WebAssembly settlements back onto the page's own
   // loop (#91, #97). Before any module that could allocate a registry, and before user
   // code, which must only ever see the wrapped constructors.

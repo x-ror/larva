@@ -1,9 +1,9 @@
 {
   "bootstrap/console.js": {
     "method": 53,
-    "invoke": 3,
+    "invoke": 0,
     "accessor": 2,
-    "global": 40
+    "global": 37
   },
   "bootstrap/loader.js": {
     "method": 0,
@@ -30,6 +30,12 @@
     "global": 0
   },
   "internal/blob.js": {
+    "method": 0,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 0
+  },
+  "internal/console.js": {
     "method": 0,
     "invoke": 0,
     "accessor": 0,
