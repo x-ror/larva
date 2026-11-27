@@ -1,7 +1,5 @@
-'use strict';
-
-// Startup micro-benchmark target: the smallest possible program. bench/run.mjs spawns
-// this repeatedly under both runtimes and times the whole process (boot + teardown), so
-// it measures interpreter/runtime startup cost rather than any in-script work. It must
-// emit no ##BENCH## line — the elapsed time is measured externally by the orchestrator.
-process.exitCode = 0;
+// Startup target: the smallest possible page script. bench/run.mjs spawns
+// `lava run` on this repeatedly and times the whole process (boot, Window global
+// install, teardown), so it measures runtime start-up rather than in-script work.
+// It is run WITHOUT the harness and must emit no ##BENCH## line.
+void 0;

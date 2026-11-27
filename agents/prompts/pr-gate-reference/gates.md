@@ -52,7 +52,7 @@ Since S5 (#130) Larva has one surface, the Window profile, and its only oracle i
 
 Any PR titled `perf(...)`, or claiming speed or memory anywhere in its body, must carry numbers with their method: `make bench-pages` (pages per thread), a micro-benchmark run interleaved against master, or a profile. For JSC's sampling profiler, set `JSC_useSamplingProfiler=1` plus a dump directory.
 
-`make bench` / `make bench-gate` (`bench/micro`, `bench/thresholds.json`) still drive the deleted Node surface and do not run. Re-basing them on `lava run` is open work, and a human owns `bench/`.
+`make bench` runs `bench/micro` under `lava run` (Window globals) on a baseline binary and on `bin/lava`, interleaved, and prints ns/op for both with the new/base ratio: that is the "micro-benchmark run interleaved against master" (the baseline defaults to `origin/master`, built once in a temporary worktree; `BASE=<path>` or `BASE_REF=<ref>` picks another). `make bench-gate` fails on a new/base ratio above its cap in `bench/thresholds.json`, caps set from measured A/A noise (`bench/README.md`). Both are local only, not in CI. There is no Chrome column yet; Node is no longer a yardstick for them.
 
 ## Backends
 
