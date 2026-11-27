@@ -1,6 +1,6 @@
 # Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
-# chrome: Google Chrome 158.0.8127.88
-# date: 2026-11-26
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
 # runs: 3 identical
 # command: node scripts/record-chrome.mjs shape-streams
 # ---
@@ -64,6 +64,36 @@ proto enqueue data ecw fn name="enqueue" length=0 own=[length,name] prototype=fa
 proto error data ecw fn name="error" length=0 own=[length,name] prototype=false ctor=false src="function error() { [native code] }"
 proto constructor data -cw fn name="ReadableStreamDefaultController" length=0 own=[length,name,prototype] prototype=true ctor=true src="function ReadableStreamDefaultController() { [native code] }"
 proto [Symbol(Symbol.toStringTag)] data -c- string "ReadableStreamDefaultController"
+== ReadableByteStreamController
+global ReadableByteStreamController data -cw fn name="ReadableByteStreamController" length=0 own=[length,name,prototype] prototype=true ctor=true src="function ReadableByteStreamController() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object ReadableByteStreamController]
+prototype [[Prototype]] Object.prototype
+proto byobRequest accessor ec
+  get name="get byobRequest" length=0 own=[length,name] prototype=false ctor=false src="function get byobRequest() { [native code] }"
+  set undefined
+proto desiredSize accessor ec
+  get name="get desiredSize" length=0 own=[length,name] prototype=false ctor=false src="function get desiredSize() { [native code] }"
+  set undefined
+proto close data ecw fn name="close" length=0 own=[length,name] prototype=false ctor=false src="function close() { [native code] }"
+proto enqueue data ecw fn name="enqueue" length=1 own=[length,name] prototype=false ctor=false src="function enqueue() { [native code] }"
+proto error data ecw fn name="error" length=0 own=[length,name] prototype=false ctor=false src="function error() { [native code] }"
+proto constructor data -cw fn name="ReadableByteStreamController" length=0 own=[length,name,prototype] prototype=true ctor=true src="function ReadableByteStreamController() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "ReadableByteStreamController"
+== ReadableStreamBYOBRequest
+global ReadableStreamBYOBRequest data -cw fn name="ReadableStreamBYOBRequest" length=0 own=[length,name,prototype] prototype=true ctor=true src="function ReadableStreamBYOBRequest() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object ReadableStreamBYOBRequest]
+prototype [[Prototype]] Object.prototype
+proto view accessor ec
+  get name="get view" length=0 own=[length,name] prototype=false ctor=false src="function get view() { [native code] }"
+  set undefined
+proto respond data ecw fn name="respond" length=1 own=[length,name] prototype=false ctor=false src="function respond() { [native code] }"
+proto respondWithNewView data ecw fn name="respondWithNewView" length=1 own=[length,name] prototype=false ctor=false src="function respondWithNewView() { [native code] }"
+proto constructor data -cw fn name="ReadableStreamBYOBRequest" length=0 own=[length,name,prototype] prototype=true ctor=true src="function ReadableStreamBYOBRequest() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "ReadableStreamBYOBRequest"
 == WritableStream
 global WritableStream data -cw fn name="WritableStream" length=0 own=[length,name,prototype] prototype=true ctor=true src="function WritableStream() { [native code] }"
 [[Prototype]] Function.prototype

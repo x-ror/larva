@@ -3968,6 +3968,78 @@
       "replace": "DEFAULT_USER_AGENT :: \"larva/0.1\"\n",
       "gate": "odin:cmd/lava:main.window_env_reports_the_profile",
       "expect_detail": "larva/0.1"
+    },
+    {
+      "name": "tests/dom dom-window-events.page dies when a node's path stops at the document",
+      "why": "Without the window on the path a window listener sees nothing of a node's event and composedPath() lacks it (the 4a known gap).",
+      "source": "pkg/runtime/js/internal/event_target.js",
+      "find": "if (hostWindow !== null && state.type !== 'load' && hostIsDocument(top)) {",
+      "replace": "if (false) {",
+      "gate": "make:test-dom",
+      "expect_detail": "dom-window-events.page"
+    },
+    {
+      "name": "tests/dom dom-load.page dies when a platform event runs every listener in one call",
+      "why": "Without a yield per listener the page loader cannot checkpoint microtasks between two load listeners, so a microtask runs after both instead of between them.",
+      "source": "pkg/runtime/js/internal/event_target.js",
+      "find": "        if (entry.removed) continue;\n        if (entry.once) removeEntry(listeners, state.type, entry);\n        invoke(entry, target, event, state);\n        yield;\n",
+      "replace": "        if (entry.removed) continue;\n        if (entry.once) removeEntry(listeners, state.type, entry);\n        invoke(entry, target, event, state);\n",
+      "gate": "make:test-dom",
+      "expect_detail": "dom-load.page"
+    },
+    {
+      "name": "tests/dom dom-live-collections.page dies when childNodes is a fresh list per read",
+      "why": "A static childNodes is a new object per read and misses later mutations.",
+      "source": "pkg/runtime/js/internal/dom.js",
+      "find": "      if (lists.childNodes === null) lists.childNodes = liveList(NodeList, nChildNodes, this, null);\n",
+      "replace": "      lists.childNodes = liveList(NodeList, nChildNodes, this, null);\n",
+      "gate": "make:test-dom",
+      "expect_detail": "dom-live-collections.page"
+    },
+    {
+      "name": "streams-bytes dies when enqueue does not transfer the chunk's buffer",
+      "why": "Chrome detaches the buffer behind an enqueued view; without the transfer the page keeps a live handle on bytes the stream later hands to a reader.",
+      "source": "pkg/runtime/js/internal/webstreams/readablestream.js",
+      "find": "var transferred = transferBuffer(buffer);",
+      "replace": "var transferred = buffer;",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL streams-bytes"
+    },
+    {
+      "name": "streams-bytes dies when a BYOB read fills a partial element",
+      "why": "A Uint16Array read must take whole elements and leave the odd byte queued; filling it makes the view length fractional.",
+      "source": "pkg/runtime/js/internal/webstreams/readablestream.js",
+      "find": "var maxAlignedBytes = maxBytesFilled - (maxBytesFilled % desc.elementSize);",
+      "replace": "var maxAlignedBytes = maxBytesFilled;",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL streams-bytes"
+    },
+    {
+      "name": "streams-bytes dies when read(view, {min}) is ignored",
+      "why": "With `min` dropped a read settles on the first element, where Chrome waits for `min` of them.",
+      "source": "pkg/runtime/js/internal/webstreams/readablestream.js",
+      "find": "minimumFill: min * type.size,",
+      "replace": "minimumFill: type.size,",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL streams-bytes"
+    },
+    {
+      "name": "streams-bytes dies when the byte tee hands both branches the same chunk",
+      "why": "Each branch must get its own copy; sharing one view transfers it into the first branch and leaves the second a detached chunk.",
+      "source": "pkg/runtime/js/internal/webstreams/readablestream.js",
+      "find": "return cloneAsUint8Array(chunk);",
+      "replace": "return chunk;",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL streams-bytes"
+    },
+    {
+      "name": "streams-byob-errors dies when close() accepts a pending read holding part of an element",
+      "why": "Chrome throws 'Cannot close while responding' and errors the stream; closing would resolve a view whose length is not a whole number of elements.",
+      "source": "pkg/runtime/js/internal/webstreams/readablestream.js",
+      "find": "if (first.bytesFilled % first.elementSize !== 0) {",
+      "replace": "if (false) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL streams-byob-errors"
     }
   ]
 }

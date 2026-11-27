@@ -791,7 +791,7 @@ page_fail_with_exception :: proc(page: ^Page, exception: jsc.JSValueRef) -> bool
 // page_ended reports whether a limit or a requested stop has ended the page, with the
 // Result that says which. A stop (process.exit in a runner page) is a normal end: .Ok
 // with the exit code the page asked for.
-@(private = "file")
+@(private)
 page_ended :: proc(page: ^Page) -> (bool, Result) {
 	if kill := vm_kill_reason(page.vm); kill != .None {
 		return true, page_killed(kill)

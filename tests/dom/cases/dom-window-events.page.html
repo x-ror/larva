@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head><title>window events</title></head>
+<body>
+<div id="outer"><span id="leaf">leaf</span></div>
+<pre id="log"></pre>
+<script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function name(n) {
+  return n === window ? 'window' : n === document ? 'document' : n.id;
+}
+var leaf = document.getElementById('leaf');
+var seen = [];
+function rec(tag) {
+  return function (e) {
+    seen.push(tag + '@' + name(e.currentTarget) + ':' + e.eventPhase + (this === e.currentTarget ? '' : '!this'));
+  };
+}
+log('shape ' + (window instanceof EventTarget) + ' ' + typeof window.addEventListener + ' ' +
+  (window.addEventListener === EventTarget.prototype.addEventListener) + ' ' +
+  Object.prototype.hasOwnProperty.call(window, 'addEventListener'));
+
+window.addEventListener('ping', rec('win-capture'), true);
+window.addEventListener('ping', rec('win-bubble'));
+document.addEventListener('ping', rec('doc-capture'), true);
+document.addEventListener('ping', rec('doc-bubble'));
+leaf.addEventListener('ping', rec('leaf'));
+var r = leaf.dispatchEvent(new Event('ping', { bubbles: true }));
+log('bubbling ' + r + ' ' + seen.join(' '));
+
+seen = [];
+leaf.dispatchEvent(new Event('ping'));
+log('non-bubbling ' + seen.join(' '));
+
+seen = [];
+var path = null;
+window.addEventListener('probe', function (e) {
+  path = e.composedPath().map(name).join(',') + ' target=' + name(e.target);
+});
+leaf.dispatchEvent(new Event('probe', { bubbles: true }));
+log('path ' + path);
+
+seen = [];
+var stopper = function (e) { seen.push('stop@' + name(e.currentTarget)); e.stopPropagation(); };
+window.addEventListener('ping', stopper, true);
+leaf.dispatchEvent(new Event('ping', { bubbles: true }));
+window.removeEventListener('ping', stopper, true);
+log('stopped ' + seen.join(' '));
+
+seen = [];
+var direct = window.dispatchEvent(new Event('ping', { bubbles: true, cancelable: true }));
+log('direct ' + direct + ' ' + seen.join(' '));
+
+var bare = [];
+addEventListener('bare', function (e) { bare.push(name(e.currentTarget) + ':' + name(e.target) + ':' + e.eventPhase); });
+dispatchEvent(new Event('bare'));
+log('unqualified ' + bare.join(' '));
+
+var vetoed = 0;
+window.addEventListener('veto', function (e) { e.preventDefault(); vetoed++; });
+var res = leaf.dispatchEvent(new Event('veto', { bubbles: true, cancelable: true }));
+log('veto ' + res + ' ' + vetoed);
+
+var custom = null;
+window.addEventListener('custom', function (e) { custom = e.detail + ':' + e.composedPath().length; });
+document.body.dispatchEvent(new CustomEvent('custom', { bubbles: true, detail: 'd' }));
+log('custom ' + custom);
+
+window.addEventListener('DOMContentLoaded', function (e) {
+  log('window DOMContentLoaded ' + e.isTrusted + ' ' + e.eventPhase + ' ' + name(e.target) + ' ' + name(e.currentTarget) +
+    ' ' + e.composedPath().map(name).join(','));
+});
+window.addEventListener('DOMContentLoaded', function (e) {
+  log('window capture DOMContentLoaded ' + e.eventPhase);
+}, true);
+document.addEventListener('DOMContentLoaded', function (e) {
+  log('document DOMContentLoaded ' + e.eventPhase);
+});
+</script>
+</body>
+</html>
