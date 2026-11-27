@@ -94,6 +94,11 @@
   // The `performance` global: a Performance EventTarget whose User Timing marks clone
   // their `detail` through structured_clone, so after both.
   req('internal/performance');
+  // `location`/`history` (the page URL and its session history) and `navigator`/`screen`
+  // with the window's geometry (the client profile). History's state is a structured
+  // clone, so after structured_clone; Screen is an EventTarget.
+  req('internal/location');
+  req('internal/navigator');
   // Storage and the localStorage/sessionStorage attributes; its quota error is a
   // QuotaExceededError, so after internal/domexception.
   req('internal/storage');
