@@ -135,6 +135,48 @@ is_html :: proc(r: ^Response) -> bool {
 	return ascii_equal_fold(media, "text/html") || ascii_equal_fold(media, "application/xhtml+xml")
 }
 
+// charset returns the `charset` parameter of the response's Content-Type, unquoted:
+// the transport-layer encoding label the HTML sniffing algorithm (pkg/html
+// decode_document) ranks below a BOM and above <meta>. "" when there is none. A view
+// into the header; label validity is the decoder's call, not this one's.
+//
+// Simpler than the Fetch standard's "extract a MIME type": the last Content-Type header
+// is not preferred over an earlier one and a quoted value keeps its backslash escapes.
+// Neither shape appears in tests/dom's corpus; a real labeled page carries one header
+// and a bare token.
+charset :: proc(r: ^Response) -> string {
+	content_type, ok := header(r, "Content-Type")
+
+	if !ok {
+		return ""
+	}
+
+	rest := content_type
+	for {
+		semi := strings.index_byte(rest, ';')
+
+		if semi < 0 {
+			return ""
+		}
+
+		rest = rest[semi + 1:]
+		param := trim_ows(strings.truncate_to_byte(rest, ';'))
+		eq := strings.index_byte(param, '=')
+
+		if eq < 0 || !ascii_equal_fold(trim_ows(param[:eq]), "charset") {
+			continue
+		}
+
+		value := trim_ows(param[eq + 1:])
+
+		if len(value) >= 2 && value[0] == '"' && value[len(value) - 1] == '"' {
+			value = value[1:len(value) - 1]
+		}
+
+		return value
+	}
+}
+
 response_destroy :: proc(r: ^Response) {
 	context.allocator = r.allocator
 	for &h in r.headers {

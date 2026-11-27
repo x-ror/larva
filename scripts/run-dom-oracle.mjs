@@ -35,6 +35,7 @@ import {
   fragmentContext,
   handCases,
   lavaArgs,
+  navCharset,
   listCases,
   splitViews,
   unitsOf,
@@ -140,7 +141,7 @@ async function runCase(name) {
       out.push({ name: unit, verdict: 'fail', detail: broken });
       continue;
     }
-    const actual = await runLava(lavaArgs(view, context, file));
+    const actual = await runLava(lavaArgs(view, context, file, navCharset(name)));
 
     // Only a listed view is pinned; the case's other view must still match Chrome.
     if (update && known.has(unit)) {

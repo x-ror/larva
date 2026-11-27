@@ -1,0 +1,18 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-dom.mjs charset-transport-latin1.nav-iso-8859-1
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       "€™ café"
+|     "
+"
+#serialize
+<!DOCTYPE html><html><head></head><body><p>€™ café</p>
+</body></html>

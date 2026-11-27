@@ -25,7 +25,7 @@ endif
 SOURCE ?= console.log('hello from Lava')
 FILE ?=
 
-.PHONY: gates test-stdio test-web record-web test-dom record-dom help env sdk-diff test-one bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-mutation check-jsc check-native native-deps test test-all test-odin-serial test-odin test-eventloop-odin test-runtime-odin test-html-odin test-http-odin test-sqlite-odin test-odin-green bench bench-gate fmt clean test-bench-pages-smoke bench-pages bench-html
+.PHONY: gates test-stdio test-web record-web test-dom record-dom help env sdk-diff test-one bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-mutation check-jsc check-native native-deps test test-all test-odin-serial test-odin test-eventloop-odin test-runtime-odin test-html-odin test-http-odin test-sqlite-odin test-odin-green bench bench-gate fmt clean test-fetch-html-smoke test-bench-pages-smoke bench-pages bench-html
 
 help:
 	@printf '%s\n' 'Lava commands'
@@ -79,6 +79,7 @@ help:
 	@printf '%s\n' '  make gates              Run routed gates for the current diff (stops on first failure)'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Smokes (bind local ports)'
+	@printf '%s\n' '  make test-fetch-html-smoke  lava fetch (redirect, coding, charset) vs tests/dom recordings'
 	@printf '%s\n' '  make test-bench-pages-smoke  bench/pages builds, runs, and fails on a refused page'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Bench / report'
@@ -333,6 +334,12 @@ else
 test-sqlite-odin:
 	$(ODIN) test pkg/std/sqlite
 endif
+
+# `lava fetch` end to end (DOM stage 3c): tests/dom navigation cases served behind a
+# redirect, compressed, with their Content-Type; stdout must equal each case's Chrome
+# `#serialize` view. Binds a 127.0.0.1 port, so not in `make test`; needs no Chrome.
+test-fetch-html-smoke: build
+	LAVA_BIN="$(LAVA)" node scripts/run-fetch-html-smoke.mjs
 
 # bench/pages, small: a valid run must report no failed page and a budget-0 run must
 # exit 1 with every page counted failed. Links the runtime, so native-deps, not lava.

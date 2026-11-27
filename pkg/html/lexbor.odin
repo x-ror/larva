@@ -31,9 +31,13 @@ lxb_document :: distinct rawptr // lxb_html_document_t *
 larva_hook :: distinct rawptr // larva_html_hook * (shim)
 css_engine :: distinct rawptr // larva_css * (shim)
 css_list :: distinct rawptr // lxb_css_selector_list_t *
+encoding_data :: distinct rawptr // const lxb_encoding_data_t * (lexbor's static table)
 
 // Returns true to stop the search. C `bool`, so Odin `bool`, never b32 (CLAUDE.md §4).
 css_found_cb :: #type proc "c" (node: Node, ctx: rawptr) -> bool
+
+// Receives a piece of decoded UTF-8; false stops the decode. C `bool`, so Odin `bool`.
+decode_write_cb :: #type proc "c" (ctx: rawptr, data: [^]u8, len: c.size_t) -> bool
 
 @(default_calling_convention = "c")
 foreign lexbor {
@@ -61,6 +65,10 @@ foreign lexbor {
 	larva_html_template_content :: proc(node: Node) -> Node ---
 	larva_html_doctype_part :: proc(node: Node, part: c.int, len: ^c.size_t) -> [^]u8 ---
 	larva_html_parse_fragment :: proc(doc: lxb_document, ctx: [^]u8, ctx_len: c.size_t, html: [^]u8, len: c.size_t) -> Node ---
+
+	larva_html_sniff :: proc(data: [^]u8, len: c.size_t, label: [^]u8, label_len: c.size_t, skip: ^c.size_t, source: ^c.int) -> encoding_data ---
+	larva_html_encoding_name :: proc(enc: encoding_data, len: ^c.size_t) -> [^]u8 ---
+	larva_html_decode :: proc(enc: encoding_data, data: [^]u8, len: c.size_t, write: decode_write_cb, ctx: rawptr) -> bool ---
 
 	larva_css_create :: proc() -> css_engine ---
 	larva_css_destroy :: proc(e: css_engine) ---

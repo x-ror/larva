@@ -94,6 +94,26 @@ export function fragmentContext(name) {
   return m[3] ?? `${m[1]} ${m[2]}`;
 }
 
+/**
+ * The transport charset of a navigation case, from its name: `<topic>.nav` is served
+ * as `text/html` and answers '', `<topic>.nav-<label>` as `text/html; charset=<label>`
+ * and answers the label. null for a DOMParser case.
+ *
+ * A navigation case is charset sniffing's (stage 3c): its bytes may be in any encoding,
+ * so Chrome cannot be handed them as a string. navPage loads them into a frame instead,
+ * and `lava html` runs with --sniff or --charset <label> (lavaArgs).
+ */
+export function navCharset(name) {
+  const m = /\.nav(?:-([A-Za-z0-9_-]+))?$/.exec(name);
+  if (!m) return null;
+  return m[1] ?? '';
+}
+
+/** The Content-Type a navigation case is served with (navCharset's charset). */
+export function navContentType(charset) {
+  return charset === '' ? 'text/html' : `text/html; charset=${charset}`;
+}
+
 /** The area a case reports under: its name up to the first '-' or '.'. */
 export function areaOf(name) {
   const m = /^[^.-]+/.exec(name);
@@ -154,9 +174,10 @@ export function splitViews(text) {
   return views;
 }
 
-/** `lava html`'s arguments for one view of one case. */
-export function lavaArgs(view, context, file) {
-  return ['html', `--${view}`, ...(context ? ['--fragment', context] : []), file];
+/** `lava html`'s arguments for one view of one case; `charset` is navCharset's. */
+export function lavaArgs(view, context, file, charset = null) {
+  const sniff = charset === null ? [] : charset === '' ? ['--sniff'] : ['--charset', charset];
+  return ['html', `--${view}`, ...(context ? ['--fragment', context] : []), ...sniff, file];
 }
 
 // --- the views, as Chrome computes them ----------------------------------------------
@@ -303,3 +324,47 @@ ${serializeDocument.toString()}
 </script>
 `;
 }
+
+/**
+ * The harness page Chrome loads for a navigation case (navCharset): the case's bytes
+ * load in a frame from `/raw/<name>` with the case's Content-Type, and the views are
+ * read from the frame's document once it has loaded — before the harness's own load
+ * event, which --dump-dom waits for.
+ *
+ * The frame is `sandbox="allow-same-origin"`: no script runs in it, so `<noscript>`
+ * parses as markup, as in `lava html`, and a corpus page's scripts cannot change the
+ * tree, while the harness can still read it. The harness is served as windows-1252 (it
+ * is ASCII): a same-origin frame with no BOM, label or <meta> inherits its parent's
+ * encoding (the HTML standard's sniffing step for a child navigable; Chrome 158 follows
+ * it), and windows-1252 is what Chrome 158 gives an unlabeled top-level page — probed
+ * with a top-level --dump-dom of UTF-8 bytes served as bare `text/html` — so the frame
+ * decodes as a page navigated to directly would.
+ */
+export function navPage(name) {
+  return `<!doctype html><title>${name}</title>
+<pre id="out"></pre><pre id="err"></pre>
+<script>
+${dumpTree.toString()}
+${serializeDocument.toString()}
+function b64(s) {
+  const bytes = new TextEncoder().encode(s);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+function done(frame) {
+  try {
+    const doc = frame.contentDocument;
+    const views = '#tree\\n' + dumpTree(doc.childNodes) + '#serialize\\n' + serializeDocument(doc);
+    document.getElementById('out').textContent = b64(views);
+  } catch (e) {
+    document.getElementById('err').textContent = b64('error: ' + String(e && e.stack || e) + '\\n');
+  }
+}
+</script>
+<iframe sandbox="allow-same-origin" src="/raw/${name}" onload="done(this)"></iframe>
+`;
+}
+
+/** The Content-Type the harness page of a navigation case is served with (navPage). */
+export const NAV_PAGE_TYPE = 'text/html; charset=windows-1252';

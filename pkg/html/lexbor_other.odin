@@ -16,8 +16,10 @@ lxb_document :: distinct rawptr
 larva_hook :: distinct rawptr
 css_engine :: distinct rawptr
 css_list :: distinct rawptr
+encoding_data :: distinct rawptr
 
 css_found_cb :: #type proc "c" (node: Node, ctx: rawptr) -> bool
+decode_write_cb :: #type proc "c" (ctx: rawptr, data: [^]u8, len: c.size_t) -> bool
 
 lxb_html_document_create :: proc() -> lxb_document {return nil}
 lxb_html_document_destroy :: proc(doc: lxb_document) -> lxb_document {return nil}
@@ -41,6 +43,21 @@ larva_html_template_content :: proc(node: Node) -> Node {return nil}
 larva_html_doctype_part :: proc(node: Node, part: c.int, len: ^c.size_t) -> [^]u8 {len^ = 0; return nil}
 larva_html_parse_fragment :: proc(doc: lxb_document, ctx: [^]u8, ctx_len: c.size_t, html: [^]u8, len: c.size_t) -> Node {
 	return nil
+}
+larva_html_sniff :: proc(
+	data: [^]u8,
+	len: c.size_t,
+	label: [^]u8,
+	label_len: c.size_t,
+	skip: ^c.size_t,
+	source: ^c.int,
+) -> encoding_data {
+	skip^ = 0
+	return nil
+}
+larva_html_encoding_name :: proc(enc: encoding_data, len: ^c.size_t) -> [^]u8 {len^ = 0; return nil}
+larva_html_decode :: proc(enc: encoding_data, data: [^]u8, len: c.size_t, write: decode_write_cb, ctx: rawptr) -> bool {
+	return false
 }
 larva_css_create :: proc() -> css_engine {return nil}
 larva_css_destroy :: proc(e: css_engine) {}

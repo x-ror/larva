@@ -3272,8 +3272,8 @@
       "name": "the DOM oracle runs a fragment case as a fragment",
       "why": "Without --fragment, lava parses `<td>a` as a document while Chrome parsed it as tr.innerHTML: the case compares two different algorithms.",
       "source": "scripts/lib/dom-oracle.mjs",
-      "find": "...(context ? ['--fragment', context] : []), file];",
-      "replace": "file];",
+      "find": "...(context ? ['--fragment', context] : []), ...sniff, file];",
+      "replace": "...sniff, file];",
       "gate": "node-test:scripts/run-dom-oracle.test.mjs",
       "test": "a fragment case runs lava with --fragment and its context",
       "expect_detail": "a fragment case runs lava with --fragment and its context"

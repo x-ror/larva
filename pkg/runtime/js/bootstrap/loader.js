@@ -108,6 +108,8 @@
   // DOMException/QuotaExceededError: required by internal/abort at its top level, named
   // here because it installs the two globals.
   req('internal/domexception');
+  // EventTarget/Event/CustomEvent, which AbortSignal derives from.
+  req('internal/event_target');
   req('internal/abort');
   req('internal/encoding');
   req('internal/url');

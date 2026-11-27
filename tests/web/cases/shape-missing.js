@@ -9,8 +9,6 @@ for (const name of [
   'ReadableStreamBYOBRequest',
   'CompressionStream',
   'DecompressionStream',
-  'EventTarget',
-  'Event',
   'SubtleCrypto',
   'CryptoKey',
   'Performance',
