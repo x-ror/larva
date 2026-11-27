@@ -3655,6 +3655,42 @@
       "expect_detail": "FAIL blob-errors"
     },
     {
+      "name": "xhr-basic dies when setRequestHeader stops dropping forbidden request headers",
+      "why": "A page could then put DNT, Keep-Alive, Via, Expect, Proxy-* and Sec-* (and Cookie, Origin, Referer) on the wire, all of which Chrome ignores; /fx/xhr-echo reports which ones arrived.",
+      "source": "pkg/runtime/js/internal/xhr.js",
+      "find": "      if (isForbiddenHeader(key, value)) return;\n",
+      "replace": "      isForbiddenHeader(key, value);\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL xhr-basic"
+    },
+    {
+      "name": "xhr-basic dies when getAllResponseHeaders stops hiding Set-Cookie",
+      "why": "XHR never exposes Set-Cookie/Set-Cookie2 to a page; fetch's Headers keep them, so the filter is XHR's own.",
+      "source": "pkg/runtime/js/internal/xhr.js",
+      "find": "        if (name === 'set-cookie' || name === 'set-cookie2') continue;\n",
+      "replace": "",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL xhr-basic"
+    },
+    {
+      "name": "xhr-events dies when a body-less request's network error fires the upload's events",
+      "why": "Chrome 158 fires upload abort/timeout for a body-less request but not upload error; the condition is a recorded quirk, not the standard's rule, and nothing else would notice it changing.",
+      "source": "pkg/runtime/js/internal/xhr.js",
+      "find": "    if (!x.uploadComplete && (x.uploadBody || type !== 'error')) {",
+      "replace": "    if (!x.uploadComplete) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL xhr-events"
+    },
+    {
+      "name": "xhr-basic dies when open() fires readystatechange on an already-OPENED request",
+      "why": "The standard and Chrome fire it only on the change to OPENED; a second open() would otherwise report a transition that did not happen.",
+      "source": "pkg/runtime/js/internal/xhr.js",
+      "find": "      if (x.state !== OPENED) {\n        x.state = OPENED;",
+      "replace": "      if (true) {\n        x.state = OPENED;",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL xhr-basic"
+    },
+    {
       "name": "blob-errors dies when Blob converts its options before its parts",
       "why": "WebIDL converts arguments left to right: a part's toString runs before the bag's getters, and a bad part wins over a bad `endings`.",
       "source": "pkg/runtime/js/internal/blob.js",

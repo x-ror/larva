@@ -100,6 +100,10 @@
   }
 
   function assertValidHeaderValue(name, value, ctx) {
+    if (!isValidHeaderValue(value)) throw headerError(ctx, 'Invalid value');
+  }
+
+  function isValidHeaderValue(value) {
     for (var i = 0; i < value.length; i++) {
       // The CAPTURED read, not `value.charCodeAt(i)`. `String.prototype.charCodeAt`
       // is a writable data property like any other, so a hand-rolled scan is only
@@ -111,10 +115,10 @@
       // entry). The same gadget on the HTTP response path is pinned by the
       // charcodeat phase of run-http-smoke.sh against http.js.
       var code = StringPrototypeCharCodeAt(value, i);
-      if (code === 0 || code === 10 || code === 13) {
-        throw headerError(ctx, 'Invalid value');
-      }
+      if (code === 0 || code === 10 || code === 13) return false;
     }
+
+    return true;
   }
 
   // Fetch spec "normalize a byte sequence" (https://fetch.spec.whatwg.org/#concept-header-value-normalize):
@@ -383,6 +387,14 @@
   }
 
   module.exports = {
+    // The checks behind append/set, for XMLHttpRequest's setRequestHeader and open,
+    // which report a failure as a DOMException of their own (internal/xhr).
+    byteString: byteString,
+    normalizeHeaderValue: normalizeHeaderValue,
+    isValidHeaderName: function (name) {
+      return reTest(VALID_HEADER_NAME, name);
+    },
+    isValidHeaderValue: isValidHeaderValue,
     Headers: Headers,
     isHeaders: isHeaders,
     appendRaw: appendRaw,

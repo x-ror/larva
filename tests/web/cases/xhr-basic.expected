@@ -1,0 +1,36 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs xhr-basic
+# ---
+fresh 0 0 "" "" "" "" "" 0 false true  true true 
+fresh readystatechange 1
+opened 1 0
+reopened 1
+text events readystatechange@1 loadstart@1(false,0,0) readystatechange@2 readystatechange@3 progress@3(true,22,22) readystatechange@4 load@4(true,22,22) loadend@4(true,22,22)
+text 200 "OK" /fx/text "hello from the fixture" true
+text type text/plain; charset=utf-8
+utf8 "héllo café ☕ 日本語"
+json {"ok":true,"list":[1,2,3]} json
+json of text null
+arraybuffer true 0,1,2,254,255 same true
+responseText of arraybuffer: InvalidStateError
+blob true 5 "application/octet-stream" 0,1,2,254,255
+text type text "hello from the fixture"
+override "hello from the fixture"
+redirect 200 /fx/text hello from the fixture
+missing events readystatechange@1 loadstart@1(false,0,0) readystatechange@2 readystatechange@3 progress@3(true,8,8) readystatechange@4 load@4(true,8,8) loadend@4(true,8,8)
+missing 404 "Not Found" not here
+head 200 "" readystatechange@1 loadstart@1(false,0,0) readystatechange@2 readystatechange@4 load@4(true,0,22) loadend@4(true,0,22)
+all headers "connection: close\r\ncontent-length: 2\r\ncontent-type: text/plain; charset=utf-8\r\nx-a: one\r\nx-b: two, three\r\n"
+header x-b two, three X-A one set-cookie null none null
+post events readystatechange@1 loadstart@1(false,0,0) readystatechange@2 readystatechange@3 progress@3(true,135,135) readystatechange@4 load@4(true,135,135) loadend@4(true,135,135)
+post {"method":"POST","accept":"*/*","contentType":"text/plain;charset=UTF-8","xTest":"yes","xMulti":"a, b","forbidden":[],"body":"cafÃ©"}
+put bytes {"method":"PUT","accept":"*/*","contentType":"application/x-test","xTest":null,"xMulti":null,"forbidden":[],"body":"hi"}
+post arraybuffer {"method":"POST","accept":"*/*","contentType":null,"xTest":null,"xMulti":null,"forbidden":[],"body":"hi"}
+post blob {"method":"POST","accept":"*/*","contentType":"text/x-blob","xTest":null,"xMulti":null,"forbidden":[],"body":"blob body"}
+post params {"method":"POST","accept":"*/*","contentType":"application/x-www-form-urlencoded;charset=UTF-8","xTest":null,"xMulti":null,"forbidden":[],"body":"a=1&b=2"}
+post object {"method":"POST","accept":"*/*","contentType":"text/plain;charset=UTF-8","xTest":null,"xMulti":null,"forbidden":[],"body":"stringified"}
+post null {"method":"POST","accept":"*/*","contentType":null,"xTest":null,"xMulti":null,"forbidden":[],"body":""}
+get with body {"method":"GET","accept":"*/*","contentType":null,"xTest":null,"xMulti":null,"forbidden":[],"body":""}
