@@ -10,8 +10,8 @@ Layering (never blur it):
 | Layer                    | Path                    | Holds                                      |
 | ------------------------ | ----------------------- | ------------------------------------------ |
 | CLI                      | `cmd/lava`              | argv → loop → `runtime.eval/run_file`      |
-| Runtime orchestration    | `pkg/runtime`           | globals, require, native primitives        |
-| Embedded spec surface    | `pkg/runtime/js/**.js`  | `Buffer`, `fetch`, streams, `URL`, `http`… |
+| Runtime orchestration    | `pkg/runtime`           | globals, internal modules, natives         |
+| Embedded spec surface    | `pkg/runtime/js/**.js`  | `fetch`, streams, `URL`, Blob, encoding…   |
 | Engine FFI / private ABI | `pkg/jsc`               | JSC C API, string/view/host ABI, probes    |
 | Event loop               | `pkg/runtime/eventloop` | phases, timers, io_uring/epoll, threadpool |
 | HTML parser              | `pkg/html`              | lexbor FFI + C shim, incremental `Parser`  |
@@ -22,10 +22,9 @@ Layering (never blur it):
 
 ## 1. How code is judged (ranked, in this order)
 
-1. **Oracle conformance.** For the browser (`Window`/DOM/network) layer, recorded
-   Chrome output is the oracle ([docs/LARVA.md](docs/LARVA.md)); for the base
-   runtime (`Node` profile), Node 26+ is the oracle (the `.nvmrc` floor; 28 is the
-   planned final pin). The observable surface —
+1. **Oracle conformance.** Larva has one global surface, the Window profile (the
+   Node profile was deleted in S5, #130). Recorded Chrome output is the oracle
+   ([docs/LARVA.md](docs/LARVA.md)). The observable surface —
    names, argument coercion order, defaults, thrown error `code`/`name`/`message`,
    event order, return types — matches the oracle, not our reading of the docs.
    Deviation is allowed **only** when it buys measured speed or memory control
@@ -33,8 +32,9 @@ Layering (never blur it):
    down in the code comment, listed in the PR, and covered by a test pinning the
    intended behavior.
 2. **Speed and memory.** Fewer allocations, fewer copies, fewer FFI crossings,
-   less memory per connection/request. A perf claim without a `make bench` number
-   or a profile is not a perf claim.
+   less memory per connection/request. A perf claim without a measured number
+   (`make bench-pages`, a micro-benchmark with its method, or a profile) is not a
+   perf claim.
 
    A number written into a comment carries **how it was measured**, in the same
    breath: what was compared against what, and at what size or count — "0.74x on a
@@ -74,7 +74,7 @@ this order and stop at the first real fit:
    permissive or LGPL (linked dynamically) qualifies, GPL-only and AGPL-only
    third-party code does not. Add the dependency to `NOTICE` in the same PR.
 6. **Hand-rolled** — last resort. Requires a written reason in the file: measured
-   perf, ABI mismatch, allocator control, or a Node semantic the SDK cannot express.
+   perf, ABI mismatch, allocator control, or a Web API semantic the SDK cannot express.
 
 A rejection of an SDK candidate must cite evidence (`core:x/y.odin:NN` plus the
 concrete problem: per-call allocation, wrong error taxonomy, blocking, missing
@@ -107,12 +107,14 @@ make check-js         # bun fmt --check + JS module graph + node:test over scrip
 make check-md         # bun fmt + markdownlint over the repo's docs (make fix-md auto-fixes)
 make check-actions    # actionlint over .github/workflows
 make build            # ./scripts/build.sh → bin/lava
-make test             # Odin unit tests + oracle suites
-make test-lava        # every oracle suite compared node-vs-Lava
-make test-lava-nohostfn  # same suites with the private host-call ABI forced off
+make test             # Odin unit tests + the Chrome oracle suites
+make test-web         # tests/web cases vs their Chrome recordings
+make test-dom         # tests/dom (lava html) vs Chrome recordings
+make test-odin-green  # cmd/lava Odin tests, what CI runs
+make test-fetch-html-smoke  # lava fetch end to end vs tests/dom recordings
 make test-odin-serial # cmd/lava tests on ONE runner thread (shared-thread defects)
 make test-mutation CHANGED=1  # recorded mutations this diff can affect (drop CHANGED for all)
-make bench            # node-vs-Lava ratio table (report-only)
+make bench-pages      # pages-per-thread throughput (report-only)
 ```
 
 Full per-subsystem routing (which smoke/bench a given path requires) lives in
@@ -137,7 +139,7 @@ appears in CI, read the code or shrink the CPU set; do not just re-run.
   `Runtime_State.allocator` at creation and clones _and_ frees through it. Do not
   rely on the ambient `context.allocator`: a `proc "c"` callback resets `context`
   to `runtime.default_context()`, so alloc-inside-callback / free-at-teardown
-  mismatches. Guarded by `module_cache_alloc_test`, `fetch_dns_alloc_test`.
+  mismatches. Guarded by `fetch_dns_alloc_test`.
 - **Temp arena** is freed at one choke point per tick / per require / per eval.
   Anything crossing a loop turn must not live in `context.temp_allocator`.
 - **JSC lifetimes.** Every `JSValueProtect` has exactly one `Unprotect`, on fire
@@ -151,8 +153,8 @@ appears in CI, read the code or shrink the CPU set; do not just re-run.
   be `make`d with the owning allocator, never left to bind implicitly: Odin binds
   a zero-valued map's allocator on its first grow, capturing whatever ambient
   allocator happened to be live. A thread-lived table that adopts a per-eval
-  arena writes through reclaimed memory once that arena is reset. Pinned by
-  `cmd/lava/host_native_alloc_test.odin`.
+  arena writes through reclaimed memory once that arena is reset. Its pin (`host_native_alloc_test`) went with the Node surface in
+  S5; re-pin it the next time host-native tables change.
 - **FFI ABI.** JSC C API `_Bool` returns must be declared `-> bool` (1 byte), not
   `b32` — the historic "predicates are unreliable" bug. Pinned by
   `cmd/lava/jsc_predicates_test.odin`.
@@ -188,7 +190,7 @@ appears in CI, read the code or shrink the CPU set; do not just re-run.
 
 ### Contract comments
 
-Anything on a **user-visible surface** — a native behind a Node API, error
+Anything on a **user-visible surface** — a native behind a Web API, error
 construction, event/callback ordering — carries a structured header above the
 declaration. `odin doc` (and `odin doc -doc-format`, for external tooling) takes
 the comment block verbatim, so this is the doc source, not decoration.
@@ -205,11 +207,11 @@ the comment block verbatim, so this is the doc source, not decoration.
 //   The cached-or-new function object; nil when the host path is unavailable
 //   and the caller must fall back to JSObjectMakeFunctionWithCallback.
 // Node:
-//   setTimeout/setInterval report `.length` 2, every other global 1 — verified
-//   against node 26, not read off the docs.
+//   n/a — Chrome 158: setTimeout/setInterval report `.length` 1, as recorded in
+//   tests/web/cases/shape-operations.expected, not read off the spec.
 // Deviates:
 //   The C-API fallback reports 0 and is not repairable through the public API.
-//   Pinned by tests/node-compat/cases/56-native-function-arity.js.
+//   Pinned by a Lava-only Odin test.
 //
 // <freeform "why" prose continues here: allocator discipline, ordering, the
 // measured reasons — unchanged, and still the bulk of the comment.>
@@ -221,18 +223,18 @@ Rules that keep this from becoming ceremony:
   contract; §4's "comments explain why" still governs everything below it. A
   header that restates the code instead of the contract is noise — delete it.
 - `Params:`/`Returns:` only where the answer is not obvious from the signature.
-- `Node:` records the oracle **and how it was verified**. `Deviates:` names the
+- `Node:` (and JSDoc's `@node`) records the oracle **and how it was verified** —
+  since S5 that is Chrome's recording; the tag keeps its historical name. `Deviates:` names the
   deviation and the test pinning it, per §1 — omit the line when there is none.
-- Internal helpers with no Node counterpart keep the plain why-comment. Do not
+- Internal helpers with no Web API counterpart keep the plain why-comment. Do not
   retrofit existing code; this applies to new and changed surfaces.
 
 ## 5. Embedded JS conventions (`pkg/runtime/js`, incl. the bootstrap preludes)
 
-- **The directory decides visibility.** `js/node/` holds every module user code may
-  `require`, at the path of its specifier (`node/stream/web.js`); `js/internal/`
-  holds what only builtins may require (`require('internal/mime')`); `js/bootstrap/`
-  holds the loader, microtasks, `esm.js` and the console prelude, which are not
-  modules. A new file is embedded and wired by existing in the right directory —
+- **The directory decides what a file is.** `js/internal/` holds the modules, which
+  only other builtins may `require` (`require('internal/url')`) — a page has no
+  `require` at all; `js/bootstrap/` holds the loader, microtasks and the console
+  prelude, which are not modules. A new file is embedded and wired by existing in the right directory —
   there is no file list to edit. `scripts/check-js-graph.mjs` fails on a non-literal
   or unresolvable `require`, an unreachable file, an unembedded directory, or a
   top-level require cycle (a `require` inside a function is the sanctioned late
@@ -241,13 +243,8 @@ Rules that keep this from becoming ceremony:
 - Route through `require('internal/primordials')` — internal modules run alongside user
   code that can poison prototypes. `make check-primordials` is a **ratchet**: a
   hardened file (baseline 0) rejects any new pollutable call. `UPDATE=1` only to
-  _lower_ a baseline.
-  One exception, and do not add a second: `js/bootstrap/esm.js` is evaluated
-  standalone and deliberately kept off the module table, so user code cannot reach
-  the transform — which also denies it a `require`. It takes the table as a factory
-  argument instead (`bootstrap/loader.js` publishes it on the resolver, `globals.odin` passes
-  it in and fails closed without it). The exception is affordable there because the
-  file emits executed source and had to be hardened regardless.
+  _lower_ a baseline. Its baseline file still lives at
+  `tests/node-compat/pollution-baseline.json`, where the protected detector reads it.
 - The ratchet parses with acorn and counts **four** classes, each baselined
   separately: `method` (`arr.push(x)`, and `RegExp`/`Promise`/`Function`
   prototype methods too), `invoke` (`fn.call/apply` — use `ReflectApply`),
@@ -259,24 +256,23 @@ Rules that keep this from becoming ceremony:
   **`Function.prototype.call/apply/bind` are locked** realm-wide before user code
   (`lockIntrinsics`, run by `bootstrap/loader.js`; #450): non-configurable
   accessors, so `Function.prototype.call = x` throws in both modes while
-  `f.call = x` on an ordinary function still defines an own property, as in node.
+  `f.call = x` on an ordinary function still defines an own property, as in Chrome.
   That is a §1 deviation, pinned by `cmd/lava/function_call_lock_test.odin`. What
   it buys: `Function.prototype.call = x` can no longer steer every `.call` at once.
   The held functions are locked too (#494): `call`/`apply`/`bind` and every
   method a primordials wrapper closes over (the set the `callerN`/fixed-arity
   factories record, so a newly wrapped method is covered automatically) are
   non-extensible, so neither an own `call` nor a re-pointed prototype on them
-  reaches a wrapper's `fn.call` or events.js's `apply.call(listener, …)`. Also a
-  §1 deviation — those functions answer as under `node --frozen-intrinsics`
-  (isExtensible false; own property, defineProperty and setPrototypeOf throw) but
-  are not frozen — pinned by the same test. Intrinsics no wrapper holds keep
-  node's extensibility. `call.call(fn, …)` routing was measured and rejected:
+  reaches a wrapper's `fn.call`. Also a §1 deviation — those functions answer as
+  frozen intrinsics would (isExtensible false; own property, defineProperty and
+  setPrototypeOf throw) but are not frozen — pinned by the same test. Intrinsics no
+  wrapper holds keep their ordinary extensibility. `call.call(fn, …)` routing was measured and rejected:
   JSC inlines only `fn.call` (caller1 ~1 ns vs ~55 ns, Linux arm64), costing
   `new URL` 2.64x and `URLSearchParams.get` 3.81x end to end.
   What it does NOT buy: `.call` on a function user code can HOLD outside that
   set — every caller-supplied callback (own `call`, re-pointed prototype), every
   intrinsic captured raw OUTSIDE primordials and invoked with `.call`
-  (`toString.call` in structured_clone.js, `u8Fill.call` in buffer.js), and every
+  (`toString.call` in structured_clone.js), and every
   live prototype read (`Array.prototype.slice.call(…)`), which plain replacement
   already steers. Route those through a primordials wrapper.
   The ratchet therefore counts every `.call`/`.apply` (`invoke`) and `.bind`
@@ -287,11 +283,11 @@ Rules that keep this from becoming ceremony:
   A module-eval capture of an intrinsic or a primordials export is NOT exempt, by
   design: a false negative there is a hole.
   **Module-eval capture is pristine only in a module the loader instantiates BEFORE user
-  code** — the eager list in `bootstrap/loader.js`, plus `stream`/`stdio` via `installStdio`. A LAZY
-  module's factory runs on the user's first `require()`, so a capture there is a live read
-  in disguise — `var StringG = String` at the top of `net.js` is still steerable. Take the
-  handle from the loader instead (`require('internal/primordials')`,
-  `require.pristineBuffer`). The ratchet exempts module-eval reads only in that eager set,
+  code** — the eager list in `bootstrap/loader.js`. A LAZY module's factory runs on its
+  first `require()` from another builtin, which can be after page code ran, so a capture
+  there is a live read in disguise — `var StringG = String` at the top of a lazy module
+  is still steerable. Take the handle from the loader instead
+  (`require('internal/primordials')`). The ratchet exempts module-eval reads only in that eager set,
   which it derives from the loader's `req()` roots closed over top-level requires
   (`scripts/lib/js-graph.mjs`); elsewhere they count as `global`. It used to exempt every
   module-eval capture, which is why #333 shipped. Computed and destructured forms count the same as the dot
@@ -347,33 +343,27 @@ Rules that keep this from becoming ceremony:
   into a preallocated null-prototype array. Getting this wrong cost 1.43x on the
   TextDecoder JS path.
 - New and rewritten code writes constructors as `class` (`class Blob`,
-  `class File extends Blob`), whatever node does internally. **Exception, and do
-  not add to it without a probe:** constructors that npm code inherits from with
-  the pre-ES6 pattern `function S() { Base.call(this) }` + `util.inherits(S, Base)`
-  stay function constructors. That call throws on a class, so a class there breaks
-  working packages, not just a message. Today these are `EventEmitter`, `Stream`,
-  `Readable`, `Writable`, `Duplex`, `Transform`, `PassThrough`, and `Buffer`
-  (callable without `new`). For every other class, the TypeError text for a call
-  without `new` is JSC's own wording: an engine trait, declared with `@deviates`,
-  pinned by a Lava-only assertion, and never printed by an oracle case. Method
-  enumerability stays explicit wherever it is observable today.
+  `class File extends Blob`), with state in private fields — a page must see no own
+  properties on an instance, and the fields are the brand every member checks. A
+  page never reaches the class itself: `internal/native_shape.defineInterface`
+  builds the interface object around it, which gives Blink's text for a call
+  without `new`, Blink's member order, and native-looking functions.
 - Nothing transient lands on `globalThis`; natives arrive as the factory's fourth
   argument.
-- Errors follow the **profile** ([docs/LARVA.md](docs/LARVA.md) decision 1). Node
-  profile: Node-shaped coded errors (`ERR_INVALID_ARG_TYPE`, `ERR_OUT_OF_RANGE`)
-  with Node's exact message template, built through `require('internal/errors')`
-  (`ERR_*`, and `nodeError`/`nativeError` for node's JS/C++ shapes), never a local
-  copy. Window profile (anything a page can reach):
-  plain `TypeError`/`RangeError`/`DOMException` with Chrome's message and no
-  `code`, byte results as plain `Uint8Array`, and no `process`/`require`/`Buffer`
-  reachable. Shared Web API code (`url.js`, `encoding.js`, …) takes its error
-  constructors and byte helpers from the profile and never imports Node error
-  helpers or `buffer` directly.
+- Errors are Chrome's ([docs/LARVA.md](docs/LARVA.md) decision 1): a plain
+  `TypeError`/`RangeError`/`DOMException` with Blink's message and no `code`, built
+  through `require('internal/web_errors')` (`typeError`, `context`,
+  `argumentsRequired`, `notOfType`, `toDOMString`, `illegalInvocation`,
+  `pageError`), never a local copy of the text. WebIDL conversions run in Blink's
+  order (receiver, argument count, arguments left to right, dictionary members as
+  they are converted) — record the order with getters in the Chrome case, it is
+  observable. Byte results are plain `Uint8Array`s; no `process`/`require`/`Buffer`
+  exists.
 - Native byte ops should stay behind a size threshold so small inputs skip FFI
   overhead. NOTE: the constant this rule used to name (`NATIVE_BYTEOP_MIN`) does not
   exist — `bytesToString` crosses to a native codec at every size. Treat the rule as
   the intent, not as something the tree already enforces.
-- **Contract comments** use JSDoc, already the convention in `buffer.js`, so the
+- **Contract comments** use JSDoc, already the convention in `blob.js`, so the
   same block serves editors and any future generator. Same scope rule as §4 —
   exported spec surface, not every closure:
 
@@ -383,45 +373,42 @@ Rules that keep this from becoming ceremony:
    * @param {Uint8Array|ArrayBuffer} [input]
    * @param {{stream?: boolean}} [options]
    * @returns {string}
-   * @throws {TypeError} ERR_INVALID_ARG_TYPE — options is a non-null scalar.
-   * @node Options are validated BEFORE the input is converted; `decode(5, 5)`
-   *       reports the options (node 26, verified).
+   * @throws {TypeError} `… The provided value is not of type 'TextDecodeOptions'.`
+   *   — options is a non-null scalar.
+   * @node Chrome 158 (tests/web/cases/encoding-webidl): the input is converted
+   *       BEFORE the options, so `decode(5, 5)` reports the input.
    * @deviates none
    */
   ```
 
-  `@node` and `@deviates` are repo tags carrying what §1 requires; JSDoc ignores
+  `@node` (the oracle — Chrome's recording since S5) and `@deviates` are repo tags
+  carrying what §1 requires; JSDoc ignores
   unknown tags, so tooling still parses the block.
 
 ## 6. Tests
 
 Oracle-first: a behavior is correct when the same script produces byte-identical
-output under its oracle and under `bin/lava`. Node profile: the oracle is `node`;
-add cases to `tests/node-compat/cases`, `tests/runtime/*`, `tests/std/*`. Window
-profile: the oracle is output **recorded from Chrome** (roadmap stage 0), kept with
-its source; Node's output is never the expectation for a page-facing surface, and
-until a recording exists the behavior is unverified, not passing. Shared Web API
-code needs a case per profile. Lava-only Odin tests (`cmd/lava/*_test.odin`,
+output under its oracle and under `bin/lava`. The oracle is output **recorded from
+Chrome** (roadmap stage 0), kept with its source: page scripts in `tests/web/cases`
+(`make record-web`, `make test-web`) and HTML documents in `tests/dom/cases`
+(`make record-dom`, `make test-dom`); never hand-edit a `.expected`. Until a
+recording exists the behavior is unverified, not passing. Lava-only Odin tests (`cmd/lava/*_test.odin`,
 `pkg/runtime/*_test.odin`) are for what no oracle can see: allocator pairing, probe
 latching, pollution resistance, FFI ABI, and isolation between pages and VMs — a
 second page in a reused VM must see nothing of the first, which a single-page
 test cannot show.
 
-Widening `known-lava-gaps.txt` is a regression and needs an explicit reason.
+Widening `tests/web/known-gaps.txt` or `tests/dom/known-gaps.txt` is a regression
+and needs an explicit reason; each gap is pinned to its current Lava output, so a
+gap that changes fails too.
 
-Two more kinds, both added because hand-picked inputs kept missing edge cases:
+One more kind:
 
-- **Differential property tests** — `tests/property/*.property.test.mjs`.
-  fast-check generates a seeded corpus on the Node side and drives `bin/lava` as a
-  subprocess, one process pair per property, comparing byte-for-byte. For input
-  spaces too large to pick by hand (decoders, URL, buffer). `make test-property`,
-  in CI, `PROPERTY_RUNS=N` to sweep deeper. It earned its place by finding a
-  utf-16le divergence at 5000 inputs that 200 hand-picked ones missed.
 - **Build-tooling tests** — `scripts/**/*.test.mjs` under `node:test`,
   `make test-scripts`, run inside `make check-js`.
 
 **Order: contract → red test → implementation.** Write the contract comment
-(§4/§5) from a real `node` probe, then the tests, and watch them fail _before_
+(§4/§5) from a real Chrome recording, then the tests, and watch them fail _before_
 there is anything to pass them. A test authored after the code routinely asserts
 less than its comment claims, and nothing catches that — two tests landed that
 way in #320, both with confident comments, and mutation is what exposed them.
@@ -461,7 +448,7 @@ Title: `type(scope): imperative summary` (`feat(net):`, `perf(url):`,
 `fix(http):`, `harden(url):`, `build(js):`, `refactor(runtime):`).
 
 Every PR body states: what changed, the reuse verdict (§2), which gates were run
-with results, Node-parity evidence (or the justified deviation), and bench numbers
+with results, Chrome-parity evidence (or the justified deviation), and bench numbers
 if perf is claimed. Run `/pr-gate` before asking for review.
 
 ## 8. Agents in this repo

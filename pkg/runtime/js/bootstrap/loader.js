@@ -7,7 +7,7 @@
 //
 // A factory is compiled on its module's first require, not at context init, so a
 // page pays only for the eager closure below plus what it touches lazily
-// (cmd/lava/lazy_builtins_test.odin's STATIC_EAGER is the current list).
+// (the req() calls below are the current list; scripts/lib/js-graph.mjs reads them).
 // `compile` stays in this closure and the cache below keeps it to one call per module.
 //
 // A module id is its path under pkg/runtime/js without `.js` — `internal/primordials`,
