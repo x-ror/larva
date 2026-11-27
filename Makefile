@@ -382,14 +382,14 @@ ODINFMT ?= odinfmt
 # picohttpparser opts out (its own .clang-format).
 fmt:
 	@if command -v $(ODINFMT) >/dev/null 2>&1; then \
-		for d in cmd/lava pkg/jsc pkg/runtime pkg/std/sqlite pkg/html pkg/http pkg/tls; do $(ODINFMT) -w $$d >/dev/null; done; \
+		for d in cmd/lava pkg/jsc pkg/runtime pkg/std/sqlite pkg/html pkg/http pkg/tls pkg/profile; do $(ODINFMT) -w $$d >/dev/null; done; \
 	else echo 'make fmt: odinfmt not found; set ODINFMT=/path/to/odinfmt'; fi
 	$(ODIN) strip-semicolon cmd/lava -collection:lava=.
 	$(ODIN) strip-semicolon pkg/jsc -no-entry-point
 	clang-format -i pkg/jsc/*.cpp pkg/html/shim/*.c
 	# Multi-line blocks after if/else/for and blank lines around if: no formatter does
 	# either (scripts/fmt-if.mjs). Run after odinfmt, whose convert_do makes the braces.
-	node scripts/fmt-if.mjs cmd/lava pkg/jsc pkg/runtime pkg/std/sqlite pkg/html pkg/http pkg/tls
+	node scripts/fmt-if.mjs cmd/lava pkg/jsc pkg/runtime pkg/std/sqlite pkg/html pkg/http pkg/tls pkg/profile
 
 # `rm` isn't a Windows command and can't take the $(RUNSCRIPT) prefix (bash would treat
 # `rm` as a script), so invoke the shell explicitly: $(SHELL) is Git Bash on Windows and

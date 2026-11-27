@@ -8,6 +8,7 @@ import "core:strings"
 import "core:sync"
 import "core:time"
 import jsc "lava:pkg/jsc"
+import profile "lava:pkg/profile"
 import eventloop "lava:pkg/runtime/eventloop"
 
 // Runtime_State holds per-context state. A pointer to it lives in the global
@@ -93,10 +94,15 @@ Runtime_State :: struct {
 	// teardown to stop requests and join any DNS worker before the loop/context die.
 	active_fetches:    [dynamic]^Fetch_Request,
 	// The page's origin as the embedder gave it (`lava run --origin=`), "" for an opaque
-	// one. BORROWED, not owned: read only while page_create installs the runtime, when
-	// install_internal_modules copies it into a JS string for internal/blob, so it need
-	// outlive nothing but that call.
+	// one: an origin or a whole URL, which is then also the page's URL (`location`).
+	// BORROWED, not owned: read only while page_create installs the runtime, when
+	// install_internal_modules copies it into JS strings for internal/blob and
+	// internal/location, so it need outlive nothing but that call.
 	page_origin:       string,
+	// True while page_run_script evaluates the page's top-level script: the part of a
+	// `lava run` page's life HTML calls "not completely loaded", during which a
+	// fragment navigation replaces the session entry (internal/location).
+	top_script_running: bool,
 	// Embedded builtin factories compiled so far (builtin_compile_cb). Only an
 	// observable for cmd/lava/lazy_builtins_test.odin; nothing branches on it.
 	builtin_compiles:  int,
@@ -1386,6 +1392,8 @@ install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef)
 	set_named(ctx, natives, "internal/fetch", cast(jsc.JSValueRef)make_fetch_bindings(ctx))
 	set_named(ctx, natives, "internal/deferred", cast(jsc.JSValueRef)make_deferred_bindings(ctx))
 	set_named(ctx, natives, "internal/performance", cast(jsc.JSValueRef)make_performance_bindings(ctx))
+	set_named(ctx, natives, "internal/location", cast(jsc.JSValueRef)make_location_bindings(ctx, state.page_origin))
+	set_named(ctx, natives, "internal/navigator", cast(jsc.JSValueRef)make_navigator_bindings(ctx, profile.default_profile()))
 	// Native, not a module: nothing of it is JS a page could see in a stack (wasm.odin).
 	install_wasm(ctx, state)
 

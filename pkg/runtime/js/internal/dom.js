@@ -146,6 +146,8 @@
   var nCreateText = null;
   var nCreateComment = null;
   var nCreateFragment = null;
+  var nCurrentScript = null;
+  var nWrite = null;
 
   // What a mutation native answered (pkg/html Mutation_Error) as the DOMException a
   // page sees. The messages are Chrome's for the common case of each name.
@@ -637,7 +639,7 @@
   /**
    * Document (DOM Standard §4.5) with HTML's document members.
    * @node n/a — Chrome 158, tests/dom/cases/*.page.html.
-   * @deviates No URL, cookie, write or createElementNS yet (stage 4b).
+   * @deviates No URL, cookie or createElementNS yet (stage 4b).
    */
   class Document extends Node {
     get documentElement() {
@@ -659,6 +661,19 @@
 
     get head() {
       return htmlChild(this, 'head', null);
+    }
+
+    /**
+     * The script element whose classic script is running, or null: set around each one
+     * a page runs (pkg/runtime/page_script.odin script_execute), parser-inserted,
+     * deferred, async and inserted alike, and restored after it, so a listener or a
+     * callback that runs later sees null.
+     * @node Chrome 158, tests/dom/cases/dom-script-{external,defer,async,dynamic}.page.
+     * @deviates none for classic scripts; a module script never runs (Lava has no
+     *   module loader), so the null Chrome answers inside one is not observable here.
+     */
+    get currentScript() {
+      return nCurrentScript(this);
     }
 
     get body() {
@@ -764,6 +779,41 @@
       nNodeType(this);
       return query(this, selectors, true, 'Document', 'querySelectorAll', arguments.length);
     }
+
+    /**
+     * Writes markup at the parser's insertion point (HTML's document.write), parsed
+     * before write returns: what it builds is in the tree at once, and a written inline
+     * script runs inside the call; a written external script blocks the parser until
+     * the writing script has returned.
+     * @param {...*} text Each converted to a DOMString, in order, and joined.
+     * @node Chrome 158, tests/dom/cases/dom-script-write.page: `write.length` is 0.
+     * @deviates Only while a parser-inserted script runs: once the document has parsed
+     *   (a deferred or async script, a listener, a timer) the call does nothing, where
+     *   Chrome ignores it from an async or deferred script but runs document.open (the
+     *   page is replaced) from a listener or a timer — that reopening is not modeled.
+     *   TrustedHTML is not modeled either: every argument is a string.
+     */
+    write() {
+      nNodeType(this);
+      nWrite(this, joinText(arguments, 'write', ''));
+    }
+
+    /**
+     * document.write, then a line feed.
+     * @node Chrome 158, tests/dom/cases/dom-script-write.page.
+     * @deviates As write.
+     */
+    writeln() {
+      nNodeType(this);
+      nWrite(this, joinText(arguments, 'writeln', '\n'));
+    }
+  }
+
+  // document.write's arguments as one string, each converted in order, then `end`.
+  function joinText(args, op, end) {
+    var out = '';
+    for (var i = 0; i < args.length; i++) out += toDOMString(args[i], 'Document', op);
+    return out + end;
   }
 
   class HTMLDocument extends Document {}
@@ -1208,6 +1258,7 @@
     'title',
     'body',
     'head',
+    'currentScript',
     'children',
     'firstElementChild',
     'lastElementChild',
@@ -1221,6 +1272,8 @@
     'getElementById:1',
     'querySelector:1',
     'querySelectorAll:1',
+    'write:0',
+    'writeln:0',
   ]);
   define('HTMLDocument', HTMLDocument, PublicDocument, []);
   define('NodeList', NodeList, null, [
@@ -1244,9 +1297,10 @@
    * `window` and `document`.
    * @param {Object} native pkg/runtime/dom.odin's bindings.
    * @param {string[]} names The interfaces Odin makes wrappers of, in its order.
-   * @returns {{protos: Object[], advance: Function, parsed: Function}} The prototypes
-   *   for `names`, in order; the readiness step the page loader fires DOMContentLoaded
-   *   and load with; and the step it hands parser-inserted nodes to for
+   * @returns {{protos: Object[], advance: Function, fireAt: Function, parsed: Function}}
+   *   The prototypes for `names`, in order; the readiness step the page loader fires
+   *   DOMContentLoaded and `load` with; the one it fires a script element's
+   *   `load`/`error` with; and the step it hands parser-inserted nodes to for
    *   MutationObserver.
    * @throws {TypeError} for a name this file does not define: Odin and this file
    *   disagree, and no page may run on a half-built DOM.
@@ -1288,6 +1342,8 @@
     nCreateText = native.createText;
     nCreateComment = native.createComment;
     nCreateFragment = native.createFragment;
+    nCurrentScript = native.currentScript;
+    nWrite = native.write;
 
     // The natives that change the tree, wrapped with the records MutationObserver
     // queues for them (internal/mutation_observer); every mutation below goes through
@@ -1320,7 +1376,13 @@
       protos[j] = impl.prototype;
     }
 
-    return { __proto__: null, protos: protos, advance: advance, parsed: observed.parsed };
+    return {
+      __proto__: null,
+      protos: protos,
+      advance: advance,
+      fireAt: fireAt,
+      parsed: observed.parsed,
+    };
   }
 
   function isDocument(o) {
@@ -1371,21 +1433,47 @@
   }
 
   // The steps of one readiness change, one listener a step (event_target dispatch):
-  // `interactive` is readystatechange then DOMContentLoaded at the document; `complete`
-  // is readystatechange at the document then `load` at the window, targeted at the
+  // `interactive` is readystatechange at the document; `contentloaded` is
+  // DOMContentLoaded at it, with the deferred scripts run in between (HTML's "the end"
+  // steps 3-5, Chrome 158 tests/dom/cases/dom-script-defer.page); `complete` is
+  // readystatechange at the document then `load` at the window, targeted at the
   // document (HTML's legacy target override).
   function* lifecycle(stage) {
     var doc = nDocument();
-    readyState = stage;
-    var steps = events.fireSteps(doc, 'readystatechange', false);
-    while (!ReflectApply(GeneratorPrototypeNext, steps, []).done) yield;
-    if (stage === 'interactive') {
+    var steps;
+    if (stage === 'contentloaded') {
       steps = events.fireSteps(doc, 'DOMContentLoaded', true);
     } else {
+      readyState = stage;
+      steps = events.fireSteps(doc, 'readystatechange', false);
+      while (!ReflectApply(GeneratorPrototypeNext, steps, []).done) yield;
+      if (stage === 'interactive') return;
       steps = events.fireSteps(windowTarget, 'load', false, doc);
     }
 
     while (!ReflectApply(GeneratorPrototypeNext, steps, []).done) yield;
+  }
+
+  // An element's `load` or `error` (HTML's "fire an event" at a script element: not
+  // bubbling, not cancelable), one listener a step, as advance's.
+  function* elementEvent(node, type) {
+    var steps = events.fireSteps(node, type, false);
+    while (!ReflectApply(GeneratorPrototypeNext, steps, []).done) yield;
+  }
+
+  /**
+   * advance's step function for an event at a script element (pkg/runtime/page_script.odin
+   * script_fire): its `load` once its external script ran, its `error` when that script
+   * could not be fetched.
+   * @param {Node} node The script element.
+   * @param {string} type `load` or `error`.
+   * @returns {function(): boolean}
+   */
+  function fireAt(node, type) {
+    var steps = elementEvent(node, type);
+    return function () {
+      return !ReflectApply(GeneratorPrototypeNext, steps, []).done;
+    };
   }
 
   /**
@@ -1394,7 +1482,8 @@
    * remain, so the loader's own call boundary is the microtask checkpoint between two
    * listeners (Chrome 158, tests/dom/cases/dom-load.page: a microtask queued by one
    * `load` listener runs before the next listener).
-   * @param {string} stage `interactive` (parse done) or `complete` (the loop idled).
+   * @param {string} stage `interactive` (parse done), `contentloaded` (the deferred
+   *   scripts ran) or `complete` (the loop idled).
    * @returns {function(): boolean}
    */
   function advance(stage) {

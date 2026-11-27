@@ -13,18 +13,23 @@ Html_View :: enum {
 	Tree,
 }
 
-// run_html_page runs an HTML page end to end (docs/LARVA.md roadmap stage 4a): it creates
+// run_html_page runs an HTML page end to end (docs/LARVA.md roadmap stage 4): it creates
 // the page (page_create: VM, context, Window globals), installs its DOM (dom_install),
-// parses `data` as the document with its classic inline scripts run in document order
-// as the parser reaches each one, moves the document to `interactive` (readystatechange,
-// DOMContentLoaded), runs the page's event loop until it idles, moves it to `complete`
-// (readystatechange, the window's `load`), runs the loop to idle again, and returns a
-// view of the document as it then is.
+// parses `data` as the document with its classic scripts run as HTML runs them
+// (page_script.odin): inline and parser-blocking external ones as the parser reaches
+// each, the parser paused; then it moves the document to `interactive`
+// (readystatechange), runs the `defer` scripts, fires DOMContentLoaded, runs the page's
+// event loop until it idles (async and inserted external scripts are tasks on it), moves
+// the document to `complete` (readystatechange, the window's `load`), runs the loop to
+// idle again, and returns a view of the document as it then is.
 //
 // Params:
 //   data         The document, UTF-8 (a caller with other bytes decodes first,
 //                html.decode_document).
-//   source_name  The page's name, under which its scripts run (stack traces show it).
+//   source_name  The page's name, under which its inline scripts run (stack traces show
+//                it).
+//   document_path  The document's file, which a script's `src` resolves against and is
+//                read beside; "" fails every external script's fetch (its `error`).
 //   loop         Consumed on every path, as by eval.
 //   report       eval's Result_Hook, fired by page_close.
 // Returns:
@@ -38,8 +43,8 @@ Html_View :: enum {
 //   tree and serialization after its scripts with Chrome 158's, read once the frame
 //   holding the page has loaded.
 // Deviates:
-//   External scripts (`src`), module scripts and `defer`/`async` are skipped (stage 4b):
-//   only parser-inserted inline classic scripts run. The document is parsed whole by
+//   Module scripts never run, and a `src` is read from disk (page_script.odin says what
+//   that changes). The document is parsed whole by
 //   lexbor with scripting off, so `<noscript>` content parses as markup, where a
 //   scripted Chrome page parses it as text. `load` fires once the loop has idled after
 //   DOMContentLoaded (there are no subresources to wait for), so a timer set before it
@@ -52,6 +57,7 @@ run_html_page :: proc(
 	report: Result_Hook = nil,
 	report_data: rawptr = nil,
 	origin := "",
+	document_path := "",
 ) -> (
 	result: Result,
 	output: string,
@@ -63,7 +69,7 @@ run_html_page :: proc(
 	page: Page
 
 	if page_create(&page, source_name, loop, origin = origin) {
-		output = html_page_run(&page, data, source_name, view)
+		output = html_page_run(&page, data, source_name, document_path, view)
 	}
 
 	busy_loop: ^eventloop.Loop
@@ -80,7 +86,7 @@ run_html_page :: proc(
 // html_page_run is run_html_page on a page page_create made live: install, parse and
 // script, DOMContentLoaded, the loop, the view.
 @(private = "file")
-html_page_run :: proc(page: ^Page, data: []byte, source_name: string, view: Html_View) -> string {
+html_page_run :: proc(page: ^Page, data: []byte, source_name, document_path: string, view: Html_View) -> string {
 	ctx := cast(jsc.JSContextRef)page.ctx
 
 	vm_cpu_enter(page.vm)
@@ -92,28 +98,21 @@ html_page_run :: proc(page: ^Page, data: []byte, source_name: string, view: Html
 		return ""
 	}
 
-	Script_Run :: struct {
-		page:        ^Page,
-		source_name: string,
-	}
+	scripts_attach(page, document_path, source_name)
 
 	on_script :: proc(p: ^html.Parser, script: html.Node, user_data: rawptr) {
-		run := cast(^Script_Run)user_data
+		page := cast(^Page)user_data
 
 		// A page a limit ended runs nothing more; the parse still finishes, cheaply.
-		if run.page.finished {
+		if page.finished || page.state == nil || page.state.dom == nil {
 			return
 		}
 
-		if source, runs := element_script_source(script); runs {
-			defer delete(source)
-			page_run_element_script(run.page, source, run.source_name)
-		}
+		scripts_parser_reached(page, script)
+		scripts_run_pending(page)
 	}
 
-	run := Script_Run{page, source_name}
-
-	if !html.parse_all(&page.state.dom.parser, data, on_script, &run) {
+	if !html.parse_all(&page.state.dom.parser, data, on_script, page) {
 		page_fail(
 			page,
 			Result {
@@ -131,11 +130,22 @@ html_page_run :: proc(page: ^Page, data: []byte, source_name: string, view: Html
 	}
 
 	dom_advance(ctx, page, .Interactive)
+	scripts_run_deferred(page)
+
+	if page_dom_live(page) {
+		dom_advance(ctx, page, .Content_Loaded)
+	}
+
 	page_run_idle(page)
 
-	// `load` once the loop idled: a Larva page has no subresources to wait for. Then the
-	// loop again, for what the load listeners queued.
-	if !page.finished && page.state != nil && page.state.dom != nil {
+	// `load` once the loop idled: the async and inserted scripts it ran were the page's
+	// only subresources (a page with no loop runs them here). Then the loop again, for
+	// what the load listeners queued.
+	if page_dom_live(page) {
+		scripts_run_ready(page)
+	}
+
+	if page_dom_live(page) {
 		dom_advance(ctx, page, .Complete)
 		page_run_idle(page)
 	}
@@ -158,6 +168,12 @@ html_page_run :: proc(page: ^Page, data: []byte, source_name: string, view: Html
 	return out if ok else ""
 }
 
+// page_dom_live reports whether the page is still running with its DOM.
+@(private = "file")
+page_dom_live :: proc(page: ^Page) -> bool {
+	return !page.finished && page.state != nil && page.state.dom != nil
+}
+
 // page_run_idle ticks the page until its loop idles or the page ends.
 @(private = "file")
 page_run_idle :: proc(page: ^Page) {
@@ -168,76 +184,4 @@ page_run_idle :: proc(page: ^Page) {
 			break
 		}
 	}
-}
-
-// element_script_source returns the text of a parser-inserted `<script>` the page runs —
-// an HTML script element with no `src`, no `nomodule`, and a classic script type —
-// copied with context.allocator.
-//
-// Returns:
-//   runs false for every other script: an external one (stage 4b fetches it), a module,
-//   a data block (`type="text/plain"`, JSON), or an empty one.
-// Chrome:
-//   HTML's "prepare the script element": an absent or empty `type`, or a JavaScript MIME
-//   type essence match, is a classic script.
-@(private = "file")
-element_script_source :: proc(script: html.Node) -> (source: string, runs: bool) {
-	if html.namespace_of(script) != .HTML {
-		return "", false
-	}
-
-	if _, has := html.attr_view(script, "src"); has {
-		return "", false
-	}
-
-	if _, has := html.attr_view(script, "nomodule"); has {
-		return "", false
-	}
-
-	if type, has := html.attr_view(script, "type"); has && !is_classic_script_type(type) {
-		return "", false
-	}
-
-	source = html.text(script, context.allocator)
-	return source, source != ""
-}
-
-// is_classic_script_type reports whether a script's `type` makes it a classic script:
-// the empty string, or a JavaScript MIME type essence (ASCII case-insensitive, after
-// stripping ASCII whitespace — so an all-whitespace type is no script), per the HTML
-// standard's list.
-@(private = "file")
-is_classic_script_type :: proc(type: string) -> bool {
-	if type == "" {
-		return true
-	}
-
-	t := strings.trim(type, " \t\n\f\r")
-
-	JS_TYPES :: [?]string {
-		"application/ecmascript",
-		"application/javascript",
-		"application/x-ecmascript",
-		"application/x-javascript",
-		"text/ecmascript",
-		"text/javascript",
-		"text/javascript1.0",
-		"text/javascript1.1",
-		"text/javascript1.2",
-		"text/javascript1.3",
-		"text/javascript1.4",
-		"text/javascript1.5",
-		"text/jscript",
-		"text/livescript",
-		"text/x-ecmascript",
-		"text/x-javascript",
-	}
-
-	for known in JS_TYPES {
-		if strings.equal_fold(t, known) {
-			return true
-		}
-	}
-
-	return false
 }

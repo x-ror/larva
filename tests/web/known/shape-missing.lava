@@ -7,3 +7,6 @@ DecompressionStream undefined
 SubtleCrypto undefined
 CryptoKey undefined
 reportError undefined
+ScreenOrientation undefined
+PopStateEvent undefined
+HashChangeEvent undefined

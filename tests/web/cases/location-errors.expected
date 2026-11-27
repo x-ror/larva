@@ -1,0 +1,52 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs location-errors
+# ---
+pushState(): TypeError TypeError: Failed to execute 'pushState' on 'History': 2 arguments required, but only 0 present.
+pushState(1): TypeError TypeError: Failed to execute 'pushState' on 'History': 2 arguments required, but only 1 present.
+replaceState(1): TypeError TypeError: Failed to execute 'replaceState' on 'History': 2 arguments required, but only 1 present.
+pushState cross-origin: DOMException SecurityError: Failed to execute 'pushState' on 'History': A history state object with URL 'http://example.com/x' cannot be created in a document with origin 'ORIGIN' and URL 'ORIGIN/page/location-errors'.
+replaceState other scheme: SecurityError: Failed to execute 'replaceState' on 'History': A history state object with URL 'https://HOST/' cannot be created in a document with origin 'ORIGIN' and URL 'ORIGIN/page/location-errors'.
+pushState other port: DOMException SecurityError: Failed to execute 'pushState' on 'History': A history state object with URL 'http://127.0.0.1:1/' cannot be created in a document with origin 'ORIGIN' and URL 'ORIGIN/page/location-errors'.
+pushState invalid url: DOMException SecurityError
+pushState function state: DOMException DataCloneError: Failed to execute 'pushState' on 'History': function f() {} could not be cloned.
+pushState symbol state: DOMException DataCloneError: Failed to execute 'pushState' on 'History': Symbol(s) could not be cloned.
+pushState symbol title: TypeError TypeError: Failed to execute 'pushState' on 'History': Cannot convert a Symbol value to a string
+pushState symbol url: TypeError TypeError: Failed to execute 'pushState' on 'History': Cannot convert a Symbol value to a string
+pushState bad state and url: DOMException DataCloneError: Failed to execute 'pushState' on 'History': () => {} could not be cloned.
+length unchanged true ORIGIN/page/location-errors
+scrollRestoration symbol: TypeError TypeError: Failed to set the 'scrollRestoration' property on 'History': Cannot convert a Symbol value to a string
+assign(): TypeError TypeError: Failed to execute 'assign' on 'Location': 1 argument required, but only 0 present.
+replace(): TypeError TypeError: Failed to execute 'replace' on 'Location': 1 argument required, but only 0 present.
+assign invalid: DOMException SyntaxError
+replace invalid: DOMException SyntaxError
+href invalid: DOMException SyntaxError
+location invalid: DOMException SyntaxError
+assign symbol: TypeError TypeError: Failed to execute 'assign' on 'Location': Cannot convert a Symbol value to a string
+href symbol: TypeError TypeError: Failed to set the 'href' property on 'Location': Cannot convert a Symbol value to a string
+hash symbol: TypeError TypeError: Failed to set the 'hash' property on 'Location': Cannot convert a Symbol value to a string
+href unchanged ORIGIN/page/location-errors
+contains(): TypeError TypeError: Failed to execute 'contains' on 'DOMStringList': 1 argument required, but only 0 present.
+item(): TypeError TypeError: Failed to execute 'item' on 'DOMStringList': 1 argument required, but only 0 present.
+Location href receiver: TypeError TypeError: Illegal invocation
+Location toString receiver: TypeError TypeError: Illegal invocation
+Location assign receiver: TypeError TypeError: Illegal invocation
+History length receiver: TypeError TypeError: Illegal invocation
+History pushState receiver: TypeError TypeError: Illegal invocation
+History back receiver: TypeError TypeError: Illegal invocation
+DOMStringList length receiver: TypeError TypeError: Illegal invocation
+Navigator userAgent receiver: TypeError TypeError: Illegal invocation
+Navigator javaEnabled receiver: TypeError TypeError: Illegal invocation
+Screen width receiver: TypeError TypeError: Illegal invocation
+new Location: TypeError TypeError: Failed to construct 'Location': Illegal constructor
+Location(): TypeError TypeError: Illegal constructor
+new History: TypeError TypeError: Failed to construct 'History': Illegal constructor
+History(): TypeError TypeError: Illegal constructor
+new DOMStringList: TypeError TypeError: Failed to construct 'DOMStringList': Illegal constructor
+DOMStringList(): TypeError TypeError: Illegal constructor
+new Navigator: TypeError TypeError: Failed to construct 'Navigator': Illegal constructor
+Navigator(): TypeError TypeError: Illegal constructor
+new Screen: TypeError TypeError: Failed to construct 'Screen': Illegal constructor
+Screen(): TypeError TypeError: Illegal constructor

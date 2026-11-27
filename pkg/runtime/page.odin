@@ -313,7 +313,9 @@ page_run_script :: proc(page: ^Page, source: string, source_name := "<eval>", ec
 	vm_cpu_enter(vm)
 	defer vm_cpu_exit(vm)
 
+	page.state.top_script_running = true
 	value, exception, alloc_failure := page_evaluate(page, source, source_name)
+	page.state.top_script_running = false
 
 	if alloc_failure != "" {
 		return page_fail(page, Result{status = .Invalid_Input, exit_code = 2, message = alloc_failure})
