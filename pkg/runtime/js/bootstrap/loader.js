@@ -114,6 +114,9 @@
   req('internal/encoding');
   req('internal/url');
   req('internal/structured_clone');
+  // The `performance` global: a Performance EventTarget whose User Timing marks clone
+  // their `detail` through structured_clone, so after both.
+  req('internal/performance');
 
   // internal/crypto/random installs the WHATWG `crypto` global at its module-eval.
   // internal/blob mints object-URL ids with crypto.randomUUID, but it is instantiated

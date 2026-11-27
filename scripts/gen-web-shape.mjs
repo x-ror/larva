@@ -57,7 +57,13 @@ export const FAMILIES = {
     'clearInterval',
   ],
   crypto: ['crypto', 'Crypto'],
-  performance: ['performance'],
+  performance: [
+    'performance',
+    'Performance',
+    'PerformanceEntry',
+    'PerformanceMark',
+    'PerformanceMeasure',
+  ],
   console: ['console'],
 };
 
@@ -73,7 +79,6 @@ export const MISSING = [
   'DecompressionStream',
   'SubtleCrypto',
   'CryptoKey',
-  'Performance',
   'reportError',
 ];
 

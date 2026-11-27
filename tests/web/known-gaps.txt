@@ -8,7 +8,6 @@
 # starts matching Chrome fails until its line and pin are removed.
 # `unplanned` marks a gap no removal stage closes: it needs an issue of its own.
 
-perf-now unplanned: performance is a plain object (no Performance brand, no toJSON)
 robust-console-poisoned unplanned: bootstrap/console.js reads Array.prototype.slice live, so a page that replaces it can no longer log (print writes through console.log on Lava)
 robust-resizable-views unplanned: Chrome refuses a view over a resizable ArrayBuffer in every WebIDL byte argument (no [AllowResizable]); Lava reads the view's current bytes. Closes with WebIDL conversions (#12)
 robust-view-probe unplanned: as robust-resizable-views: Chrome refuses the resizable-backed window, Lava decodes it as empty (it never reads the stale bytes this case guards against)
@@ -17,7 +16,7 @@ shape-crypto unplanned: no crypto.subtle (SubtleCrypto is not implemented); the 
 shape-events unplanned: EventTarget.prototype has no when() (Chrome 158's Observable API; there is no Observable global either); every other EventTarget, Event and CustomEvent member matches Chrome's shape and order
 shape-fetch unplanned: Request.prototype and Response.prototype have no formData() (FormData is not implemented, as shape-missing lists) and no textStream() (Chrome 158's decoded-text body stream, not implemented); every other member matches Chrome's shape and order (#114)
 shape-missing unplanned: the Chrome globals of the shape-* families Larva does not implement (TextEncoderStream, FormData, SubtleCrypto, Performance, reportError, …) — one line each, so implementing one is a visible change
-shape-performance unplanned: performance is a plain data property holding a plain object — no Performance interface, getter, toJSON, mark/measure or entries (as perf-now); now() alone is native-shaped (#114)
+shape-performance unplanned: Performance.prototype has no timing, navigation, memory or eventCounts (PerformanceTiming, PerformanceNavigation, MemoryInfo and EventCounts are not implemented); every other Performance, PerformanceEntry, PerformanceMark and PerformanceMeasure member matches Chrome's shape and order
 streams-byte unplanned: no readable byte streams (ReadableByteStreamController, type 'bytes', BYOB reads)
 timers-string-handler unplanned: a non-function handler is ignored (no timer, the delay not converted) where Chrome converts it to a string and runs it as a script when the timer fires; needs a native that evaluates source in the page's global scope
 url-host-space unplanned: Chrome percent-encodes a space in a special URL's host and accepts it; Lava follows the WHATWG parser and throws. Deciding whether to follow Chrome here is parser work, not message work

@@ -500,14 +500,25 @@
    * configurable accessor whose getter is native-shaped (`get crypto`).
    * @param {string} name
    * @param {Function} get The implementation's getter.
-   * @node n/a — Chrome 158: tests/web/cases/shape-crypto.expected.
+   * @param {boolean} [replaceable] WebIDL's [Replaceable] (`performance`): a native
+   *   `set NAME` that replaces the accessor with a plain data property holding the
+   *   value assigned, as Blink's does.
+   * @node n/a — Chrome 158: tests/web/cases/shape-crypto.expected,
+   *   shape-performance.expected (`performance = 5` then reads 5).
    * @deviates none
    */
-  function defineGlobalAttribute(name, get) {
+  function defineGlobalAttribute(name, get, replaceable) {
+    var set;
+    if (replaceable === true) {
+      set = wrapSetter(name, function (value) {
+        installGlobal(name, value, true);
+      });
+    }
+
     ObjectDefineProperty(globalThis, name, {
       __proto__: null,
       get: wrapGetter(name, get),
-      set: undefined,
+      set: set,
       enumerable: true,
       configurable: true,
     });

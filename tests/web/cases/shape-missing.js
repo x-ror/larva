@@ -11,7 +11,6 @@ for (const name of [
   'DecompressionStream',
   'SubtleCrypto',
   'CryptoKey',
-  'Performance',
   'reportError',
 ])
   print(name + ' ' + typeof globalThis[name]);

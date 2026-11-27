@@ -14,5 +14,4 @@ CompressionStream function
 DecompressionStream function
 SubtleCrypto function
 CryptoKey function
-Performance function
 reportError function

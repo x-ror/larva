@@ -1,6 +1,6 @@
 # Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
-# chrome: Google Chrome 158.0.8127.88
-# date: 2026-11-26
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
 # runs: 3 identical
 # command: node scripts/record-chrome.mjs shape-performance
 # ---
@@ -43,3 +43,89 @@ proto interactionCount accessor ec
   get name="get interactionCount" length=0 own=[length,name] prototype=false ctor=false src="function get interactionCount() { [native code] }"
   set undefined
 proto [Symbol(Symbol.toStringTag)] data -c- string "Performance"
+== Performance
+global Performance data -cw fn name="Performance" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Performance() { [native code] }"
+[[Prototype]] function EventTarget
+call: TypeError: Illegal constructor
+static prototype data --- object [object Performance]
+prototype [[Prototype]] EventTarget.prototype
+proto timeOrigin accessor ec
+  get name="get timeOrigin" length=0 own=[length,name] prototype=false ctor=false src="function get timeOrigin() { [native code] }"
+  set undefined
+proto onresourcetimingbufferfull accessor ec
+  get name="get onresourcetimingbufferfull" length=0 own=[length,name] prototype=false ctor=false src="function get onresourcetimingbufferfull() { [native code] }"
+  set name="set onresourcetimingbufferfull" length=1 own=[length,name] prototype=false ctor=false src="function set onresourcetimingbufferfull() { [native code] }"
+proto clearMarks data ecw fn name="clearMarks" length=0 own=[length,name] prototype=false ctor=false src="function clearMarks() { [native code] }"
+proto clearMeasures data ecw fn name="clearMeasures" length=0 own=[length,name] prototype=false ctor=false src="function clearMeasures() { [native code] }"
+proto clearResourceTimings data ecw fn name="clearResourceTimings" length=0 own=[length,name] prototype=false ctor=false src="function clearResourceTimings() { [native code] }"
+proto getEntries data ecw fn name="getEntries" length=0 own=[length,name] prototype=false ctor=false src="function getEntries() { [native code] }"
+proto getEntriesByName data ecw fn name="getEntriesByName" length=1 own=[length,name] prototype=false ctor=false src="function getEntriesByName() { [native code] }"
+proto getEntriesByType data ecw fn name="getEntriesByType" length=1 own=[length,name] prototype=false ctor=false src="function getEntriesByType() { [native code] }"
+proto mark data ecw fn name="mark" length=1 own=[length,name] prototype=false ctor=false src="function mark() { [native code] }"
+proto measure data ecw fn name="measure" length=1 own=[length,name] prototype=false ctor=false src="function measure() { [native code] }"
+proto setResourceTimingBufferSize data ecw fn name="setResourceTimingBufferSize" length=1 own=[length,name] prototype=false ctor=false src="function setResourceTimingBufferSize() { [native code] }"
+proto toJSON data ecw fn name="toJSON" length=0 own=[length,name] prototype=false ctor=false src="function toJSON() { [native code] }"
+proto now data ecw fn name="now" length=0 own=[length,name] prototype=false ctor=false src="function now() { [native code] }"
+proto constructor data -cw fn name="Performance" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Performance() { [native code] }"
+proto timing accessor ec
+  get name="get timing" length=0 own=[length,name] prototype=false ctor=false src="function get timing() { [native code] }"
+  set undefined
+proto navigation accessor ec
+  get name="get navigation" length=0 own=[length,name] prototype=false ctor=false src="function get navigation() { [native code] }"
+  set undefined
+proto memory accessor ec
+  get name="get memory" length=0 own=[length,name] prototype=false ctor=false src="function get memory() { [native code] }"
+  set undefined
+proto eventCounts accessor ec
+  get name="get eventCounts" length=0 own=[length,name] prototype=false ctor=false src="function get eventCounts() { [native code] }"
+  set undefined
+proto interactionCount accessor ec
+  get name="get interactionCount" length=0 own=[length,name] prototype=false ctor=false src="function get interactionCount() { [native code] }"
+  set undefined
+proto [Symbol(Symbol.toStringTag)] data -c- string "Performance"
+== PerformanceEntry
+global PerformanceEntry data -cw fn name="PerformanceEntry" length=0 own=[length,name,prototype] prototype=true ctor=true src="function PerformanceEntry() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object PerformanceEntry]
+prototype [[Prototype]] Object.prototype
+proto name accessor ec
+  get name="get name" length=0 own=[length,name] prototype=false ctor=false src="function get name() { [native code] }"
+  set undefined
+proto entryType accessor ec
+  get name="get entryType" length=0 own=[length,name] prototype=false ctor=false src="function get entryType() { [native code] }"
+  set undefined
+proto startTime accessor ec
+  get name="get startTime" length=0 own=[length,name] prototype=false ctor=false src="function get startTime() { [native code] }"
+  set undefined
+proto duration accessor ec
+  get name="get duration" length=0 own=[length,name] prototype=false ctor=false src="function get duration() { [native code] }"
+  set undefined
+proto navigationId accessor ec
+  get name="get navigationId" length=0 own=[length,name] prototype=false ctor=false src="function get navigationId() { [native code] }"
+  set undefined
+proto toJSON data ecw fn name="toJSON" length=0 own=[length,name] prototype=false ctor=false src="function toJSON() { [native code] }"
+proto constructor data -cw fn name="PerformanceEntry" length=0 own=[length,name,prototype] prototype=true ctor=true src="function PerformanceEntry() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "PerformanceEntry"
+== PerformanceMark
+global PerformanceMark data -cw fn name="PerformanceMark" length=1 own=[length,name,prototype] prototype=true ctor=true src="function PerformanceMark() { [native code] }"
+[[Prototype]] function PerformanceEntry
+call: TypeError: Failed to construct 'PerformanceMark': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static prototype data --- object [object PerformanceMark]
+prototype [[Prototype]] PerformanceEntry.prototype
+proto detail accessor ec
+  get name="get detail" length=0 own=[length,name] prototype=false ctor=false src="function get detail() { [native code] }"
+  set undefined
+proto constructor data -cw fn name="PerformanceMark" length=1 own=[length,name,prototype] prototype=true ctor=true src="function PerformanceMark() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "PerformanceMark"
+== PerformanceMeasure
+global PerformanceMeasure data -cw fn name="PerformanceMeasure" length=0 own=[length,name,prototype] prototype=true ctor=true src="function PerformanceMeasure() { [native code] }"
+[[Prototype]] function PerformanceEntry
+call: TypeError: Illegal constructor
+static prototype data --- object [object PerformanceMeasure]
+prototype [[Prototype]] PerformanceEntry.prototype
+proto detail accessor ec
+  get name="get detail" length=0 own=[length,name] prototype=false ctor=false src="function get detail() { [native code] }"
+  set undefined
+proto constructor data -cw fn name="PerformanceMeasure" length=0 own=[length,name,prototype] prototype=true ctor=true src="function PerformanceMeasure() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "PerformanceMeasure"

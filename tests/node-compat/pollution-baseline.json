@@ -113,6 +113,12 @@
     "accessor": 0,
     "global": 0
   },
+  "internal/performance.js": {
+    "method": 0,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 0
+  },
   "internal/primordials.js": {
     "method": 0,
     "invoke": 9,
