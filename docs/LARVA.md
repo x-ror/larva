@@ -294,7 +294,7 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
 | 1   | **Multi-VM core** — per-page `Runtime_State`, VM pool per thread, execution limits, Window profile skeleton, start-up cost measured                                                                                                                                                                                                 | N pages run concurrently in one process with isolated VMs; a runaway page is killed alone | In progress | [#3](https://github.com/x-ror/larva/issues/3), [#4](https://github.com/x-ror/larva/issues/4), [#5](https://github.com/x-ror/larva/issues/5)                                                |
 | 2   | **Network** — BoringSSL, HTTP/2 (nghttp2), per-session connection pool and TLS sessions, CONNECT proxies, cookie jar, redirects, gzip/brotli/zstd, Chrome client profiles                                                                                                                                                           | ClientHello and H2 fingerprints match the claimed Chrome version                          | In progress | [#6](https://github.com/x-ror/larva/issues/6), [#7](https://github.com/x-ror/larva/issues/7), [#8](https://github.com/x-ror/larva/issues/8), [#9](https://github.com/x-ror/larva/issues/9) |
 | 3   | **HTML + DOM** — streaming parser (pause/resume at `<script>`), tree, mutation, events, serialization, CSS selectors, XPath, shadow DOM, same-origin iframes; `larva fetch URL`                                                                                                                                                     | Static pages serialize like the oracle                                                    | Not started | [#10](https://github.com/x-ror/larva/issues/10), [#11](https://github.com/x-ror/larva/issues/11)                                                                                           |
-| 4   | **Window** — DOM bindings, script execution (sync/defer/async/module), XHR, `location`/`history`, storage, `MutationObserver`, profile-driven `navigator`/`screen`/timezone, plausible fake geometry                                                                                                                                | Oracle JS pages match after `load`                                                        | Not started | [#12](https://github.com/x-ror/larva/issues/12), [#13](https://github.com/x-ror/larva/issues/13), [#14](https://github.com/x-ror/larva/issues/14)                                          |
+| 4   | **Window** — DOM bindings, script execution (sync/defer/async/module), XHR, `location`/`history`, storage, `MutationObserver`, profile-driven `navigator`/`screen`/timezone, plausible fake geometry                                                                                                                                | Oracle JS pages match after `load`                                                        | In progress | [#12](https://github.com/x-ror/larva/issues/12), [#13](https://github.com/x-ror/larva/issues/13), [#14](https://github.com/x-ror/larva/issues/14)                                          |
 | 5   | **HTTP server & adapter** — stateless HTTP crawling API: selector and DOM wait conditions, network-idle wait across XHR **and** `fetch`, custom script evaluation with async and scroll helpers, interaction actions DSL, cookie and network capture, response metadata headers, structured error codes, hard per-page kill timeout | Drop-in backend behind per-domain A/B routing                                             | Not started | [#15](https://github.com/x-ror/larva/issues/15)                                                                                                                                            |
 | 6   | **Scale and CDP** — memory limits per page, recycling, then CDP for Puppeteer/Playwright                                                                                                                                                                                                                                            | —                                                                                         | Not started | [#16](https://github.com/x-ror/larva/issues/16), [#17](https://github.com/x-ror/larva/issues/17)                                                                                           |
 
@@ -324,6 +324,20 @@ Stage 1 so far, on the Window global surface (the only one since S5b):
 
 Still open in stage 1: killing a page on its heap sample (a VM is retired on one,
 decision 2).
+
+Stage 4a, the first slice of stage 4 (#12): `lava page <file.html>` runs an HTML page
+end to end (`pkg/runtime/page_html.odin`) — the document parsed with its inline classic
+scripts run as the parser reaches each one, `document` and `window` in scope,
+DOMContentLoaded, the loop to idle, then the document printed. The bindings are
+hand-written (`pkg/runtime/dom.odin`, `pkg/runtime/js/internal/dom.js`): Node, Element,
+HTMLElement and its per-tag subclasses, Document, CharacterData, Text, Comment,
+DocumentType, DocumentFragment, NodeList and HTMLCollection, with events propagating
+along the tree. Wrappers follow decision 4's rule — one JSClass per interface, made
+lazily, recorded and protected until the page closes, private slot cleared before the
+document is freed — pinned by `cmd/lava/dom_page_test.odin`; the behaviour is compared
+with Chrome by tests/dom's `*.page` cases. Left for 4b: a WebIDL generator, external,
+module, `defer` and `async` scripts, live collections, `window` as an EventTarget and
+`load`, and reflected attributes.
 
 ## Risks
 

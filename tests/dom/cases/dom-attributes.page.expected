@@ -1,0 +1,138 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-dom.mjs dom-attributes.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "attributes"
+|   "
+"
+|   <body>
+|     "
+"
+|     <a>
+|       id="renamed"
+|       data-mixed="M"
+|       class="two three"
+|       title="T2"
+|       data-empty=""
+|       data-num="5"
+|       quote="say "hi" & <bye>"
+|       "link"
+|     "
+"
+|     <pre>
+|       id="log"
+|       "get /x /x M null
+"
+|       "has true true false
+"
+|       "set T2 "" string
+"
+|       "removed false null
+"
+|       "reflect renamed two three true null
+"
+|       "fresh "" "" null
+"
+|       "invalid InvalidCharacterError
+"
+|       "missing argument TypeError
+"
+|       "escaped <a id="renamed" data-mixed="M" class="two three" title="T2" data-empty="" data-num="5" quote="say &quot;hi&quot; &amp; &lt;bye&gt;">link</a>
+"
+|     "
+"
+|     <script>
+|       "
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+var a = document.getElementById('link');
+log('get ' + a.getAttribute('href') + ' ' + a.getAttribute('HREF') + ' ' + a.getAttribute('data-mixed') + ' ' + a.getAttribute('missing'));
+log('has ' + a.hasAttribute('href') + ' ' + a.hasAttribute('DATA-MIXED') + ' ' + a.hasAttribute('nope'));
+a.setAttribute('Title', 'T1');
+a.setAttribute('title', 'T2');
+a.setAttribute('data-empty', '');
+a.setAttribute('data-num', 5);
+log('set ' + a.getAttribute('title') + ' ' + JSON.stringify(a.getAttribute('data-empty')) + ' ' + typeof a.getAttribute('data-num'));
+a.removeAttribute('HREF');
+a.removeAttribute('never-there');
+log('removed ' + a.hasAttribute('href') + ' ' + a.getAttribute('href'));
+a.id = 'renamed';
+a.className = 'two three';
+log('reflect ' + a.getAttribute('id') + ' ' + a.getAttribute('class') + ' ' + (document.getElementById('renamed') === a) + ' ' + document.getElementById('link'));
+var span = document.createElement('span');
+log('fresh ' + JSON.stringify(span.id) + ' ' + JSON.stringify(span.className) + ' ' + span.getAttribute('id'));
+try {
+  a.setAttribute('bad name', 'x');
+} catch (e) {
+  log('invalid ' + e.name);
+}
+try {
+  a.getAttribute();
+} catch (e) {
+  log('missing argument ' + e.constructor.name);
+}
+a.setAttribute('quote', 'say "hi" & <bye>');
+log('escaped ' + a.outerHTML);
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head><title>attributes</title></head>
+<body>
+<a id="renamed" data-mixed="M" class="two three" title="T2" data-empty="" data-num="5" quote="say &quot;hi&quot; &amp; &lt;bye&gt;">link</a>
+<pre id="log">get /x /x M null
+has true true false
+set T2 "" string
+removed false null
+reflect renamed two three true null
+fresh "" "" null
+invalid InvalidCharacterError
+missing argument TypeError
+escaped &lt;a id="renamed" data-mixed="M" class="two three" title="T2" data-empty="" data-num="5" quote="say &amp;quot;hi&amp;quot; &amp;amp; &amp;lt;bye&amp;gt;"&gt;link&lt;/a&gt;
+</pre>
+<script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+var a = document.getElementById('link');
+log('get ' + a.getAttribute('href') + ' ' + a.getAttribute('HREF') + ' ' + a.getAttribute('data-mixed') + ' ' + a.getAttribute('missing'));
+log('has ' + a.hasAttribute('href') + ' ' + a.hasAttribute('DATA-MIXED') + ' ' + a.hasAttribute('nope'));
+a.setAttribute('Title', 'T1');
+a.setAttribute('title', 'T2');
+a.setAttribute('data-empty', '');
+a.setAttribute('data-num', 5);
+log('set ' + a.getAttribute('title') + ' ' + JSON.stringify(a.getAttribute('data-empty')) + ' ' + typeof a.getAttribute('data-num'));
+a.removeAttribute('HREF');
+a.removeAttribute('never-there');
+log('removed ' + a.hasAttribute('href') + ' ' + a.getAttribute('href'));
+a.id = 'renamed';
+a.className = 'two three';
+log('reflect ' + a.getAttribute('id') + ' ' + a.getAttribute('class') + ' ' + (document.getElementById('renamed') === a) + ' ' + document.getElementById('link'));
+var span = document.createElement('span');
+log('fresh ' + JSON.stringify(span.id) + ' ' + JSON.stringify(span.className) + ' ' + span.getAttribute('id'));
+try {
+  a.setAttribute('bad name', 'x');
+} catch (e) {
+  log('invalid ' + e.name);
+}
+try {
+  a.getAttribute();
+} catch (e) {
+  log('missing argument ' + e.constructor.name);
+}
+a.setAttribute('quote', 'say "hi" & <bye>');
+log('escaped ' + a.outerHTML);
+</script>
+
+
+</body></html>

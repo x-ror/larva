@@ -1,0 +1,180 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-dom.mjs dom-document.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   lang="en"
+|   <head>
+|     <meta>
+|       charset="utf-8"
+|     <title>
+|       "Changed  title"
+|   "
+"
+|   <body>
+|     "
+"
+|     <div>
+|       id="d"
+|       "div"
+|     "
+"
+|     <pre>
+|       id="log"
+|       "window true true object
+"
+|       "document 9 #document null true
+"
+|       "root HTML HEAD BODY
+"
+|       "doctype 10 html html
+"
+|       "title "The document"
+"
+|       "title set "Changed title" Changed  title
+"
+|       "children 1 1 HTML
+"
+|       "tags [object HTMLDocument] [object HTMLDivElement] [object Text] [object Comment]
+"
+|       "chain div HTMLDivElement>HTMLElement>Element>Node>EventTarget>Object
+"
+|       "chain body HTMLBodyElement>HTMLElement>Element>Node>EventTarget>Object
+"
+|       "chain doc HTMLDocument>Document>Node>EventTarget>Object
+"
+|       "chain text Text>CharacterData>Node>EventTarget>Object
+"
+|       "chain comment Comment>CharacterData>Node>EventTarget>Object
+"
+|       "chain list NodeList>Object HTMLCollection>Object
+"
+|       "chain misc HTMLParagraphElement,HTMLAnchorElement,HTMLSpanElement,HTMLElement,HTMLUnknownElement,HTMLElement
+"
+|       "instanceof true true true true
+"
+|       "constants 1 3 8 9
+"
+|       "illegal TypeError TypeError
+"
+|       "receiver TypeError: Illegal invocation
+"
+|       "native function appendChild() { [native code] } function get parentNode() { [native code] }
+"
+|       "created DIV custom-el
+"
+|       "head META utf-8 en
+"
+|     "
+"
+|     <script>
+|       "
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function chain(o) {
+  var out = [];
+  for (var p = Object.getPrototypeOf(o); p !== null; p = Object.getPrototypeOf(p)) out.push(p.constructor.name);
+  return out.join('>');
+}
+log('window ' + (window === globalThis) + ' ' + (window.document === document) + ' ' + typeof window);
+log('document ' + document.nodeType + ' ' + document.nodeName + ' ' + document.parentNode + ' ' + document.isConnected);
+log('root ' + document.documentElement.tagName + ' ' + document.head.tagName + ' ' + document.body.tagName);
+log('doctype ' + document.firstChild.nodeType + ' ' + document.firstChild.nodeName + ' ' + document.firstChild.name);
+log('title ' + JSON.stringify(document.title));
+document.title = 'Changed  title';
+log('title set ' + JSON.stringify(document.title) + ' ' + document.querySelector('title').textContent);
+log('children ' + document.children.length + ' ' + document.childElementCount + ' ' + document.firstElementChild.tagName);
+log('tags ' + Object.prototype.toString.call(document) + ' ' + Object.prototype.toString.call(document.getElementById('d')) + ' ' + Object.prototype.toString.call(document.createTextNode('')) + ' ' + Object.prototype.toString.call(document.createComment('')));
+log('chain div ' + chain(document.getElementById('d')));
+log('chain body ' + chain(document.body));
+log('chain doc ' + chain(document));
+log('chain text ' + chain(document.createTextNode('x')));
+log('chain comment ' + chain(document.createComment('x')));
+log('chain list ' + chain(document.body.childNodes) + ' ' + chain(document.body.children));
+log('chain misc ' + [document.createElement('p'), document.createElement('a'), document.createElement('span'), document.createElement('section'), document.createElement('foo'), document.createElement('my-widget')].map(function (e) { return Object.getPrototypeOf(e).constructor.name; }).join(','));
+log('instanceof ' + (document.body instanceof Node) + ' ' + (document.body instanceof EventTarget) + ' ' + (document instanceof Document) + ' ' + (document.createTextNode('') instanceof CharacterData));
+log('constants ' + Node.ELEMENT_NODE + ' ' + Node.TEXT_NODE + ' ' + document.body.COMMENT_NODE + ' ' + Node.DOCUMENT_NODE);
+log('illegal ' + (function () { try { new Node(); } catch (e) { return e.constructor.name; } })() + ' ' + (function () { try { new HTMLDivElement(); } catch (e) { return e.constructor.name; } })());
+var get = Object.getOwnPropertyDescriptor(Node.prototype, 'parentNode').get;
+log('receiver ' + (function () { try { get.call({}); } catch (e) { return e.constructor.name + ': ' + e.message; } })());
+log('native ' + Function.prototype.toString.call(Node.prototype.appendChild) + ' ' + Function.prototype.toString.call(get));
+log('created ' + document.createElement('DIV').tagName + ' ' + document.createElement('Custom-El').localName);
+var head = document.head;
+var meta = head.firstChild;
+log('head ' + meta.tagName + ' ' + meta.getAttribute('charset') + ' ' + document.documentElement.getAttribute('lang'));
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Changed  title</title></head>
+<body>
+<div id="d">div</div>
+<pre id="log">window true true object
+document 9 #document null true
+root HTML HEAD BODY
+doctype 10 html html
+title "The document"
+title set "Changed title" Changed  title
+children 1 1 HTML
+tags [object HTMLDocument] [object HTMLDivElement] [object Text] [object Comment]
+chain div HTMLDivElement&gt;HTMLElement&gt;Element&gt;Node&gt;EventTarget&gt;Object
+chain body HTMLBodyElement&gt;HTMLElement&gt;Element&gt;Node&gt;EventTarget&gt;Object
+chain doc HTMLDocument&gt;Document&gt;Node&gt;EventTarget&gt;Object
+chain text Text&gt;CharacterData&gt;Node&gt;EventTarget&gt;Object
+chain comment Comment&gt;CharacterData&gt;Node&gt;EventTarget&gt;Object
+chain list NodeList&gt;Object HTMLCollection&gt;Object
+chain misc HTMLParagraphElement,HTMLAnchorElement,HTMLSpanElement,HTMLElement,HTMLUnknownElement,HTMLElement
+instanceof true true true true
+constants 1 3 8 9
+illegal TypeError TypeError
+receiver TypeError: Illegal invocation
+native function appendChild() { [native code] } function get parentNode() { [native code] }
+created DIV custom-el
+head META utf-8 en
+</pre>
+<script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function chain(o) {
+  var out = [];
+  for (var p = Object.getPrototypeOf(o); p !== null; p = Object.getPrototypeOf(p)) out.push(p.constructor.name);
+  return out.join('>');
+}
+log('window ' + (window === globalThis) + ' ' + (window.document === document) + ' ' + typeof window);
+log('document ' + document.nodeType + ' ' + document.nodeName + ' ' + document.parentNode + ' ' + document.isConnected);
+log('root ' + document.documentElement.tagName + ' ' + document.head.tagName + ' ' + document.body.tagName);
+log('doctype ' + document.firstChild.nodeType + ' ' + document.firstChild.nodeName + ' ' + document.firstChild.name);
+log('title ' + JSON.stringify(document.title));
+document.title = 'Changed  title';
+log('title set ' + JSON.stringify(document.title) + ' ' + document.querySelector('title').textContent);
+log('children ' + document.children.length + ' ' + document.childElementCount + ' ' + document.firstElementChild.tagName);
+log('tags ' + Object.prototype.toString.call(document) + ' ' + Object.prototype.toString.call(document.getElementById('d')) + ' ' + Object.prototype.toString.call(document.createTextNode('')) + ' ' + Object.prototype.toString.call(document.createComment('')));
+log('chain div ' + chain(document.getElementById('d')));
+log('chain body ' + chain(document.body));
+log('chain doc ' + chain(document));
+log('chain text ' + chain(document.createTextNode('x')));
+log('chain comment ' + chain(document.createComment('x')));
+log('chain list ' + chain(document.body.childNodes) + ' ' + chain(document.body.children));
+log('chain misc ' + [document.createElement('p'), document.createElement('a'), document.createElement('span'), document.createElement('section'), document.createElement('foo'), document.createElement('my-widget')].map(function (e) { return Object.getPrototypeOf(e).constructor.name; }).join(','));
+log('instanceof ' + (document.body instanceof Node) + ' ' + (document.body instanceof EventTarget) + ' ' + (document instanceof Document) + ' ' + (document.createTextNode('') instanceof CharacterData));
+log('constants ' + Node.ELEMENT_NODE + ' ' + Node.TEXT_NODE + ' ' + document.body.COMMENT_NODE + ' ' + Node.DOCUMENT_NODE);
+log('illegal ' + (function () { try { new Node(); } catch (e) { return e.constructor.name; } })() + ' ' + (function () { try { new HTMLDivElement(); } catch (e) { return e.constructor.name; } })());
+var get = Object.getOwnPropertyDescriptor(Node.prototype, 'parentNode').get;
+log('receiver ' + (function () { try { get.call({}); } catch (e) { return e.constructor.name + ': ' + e.message; } })());
+log('native ' + Function.prototype.toString.call(Node.prototype.appendChild) + ' ' + Function.prototype.toString.call(get));
+log('created ' + document.createElement('DIV').tagName + ' ' + document.createElement('Custom-El').localName);
+var head = document.head;
+var meta = head.firstChild;
+log('head ' + meta.tagName + ' ' + meta.getAttribute('charset') + ' ' + document.documentElement.getAttribute('lang'));
+</script>
+
+
+</body></html>

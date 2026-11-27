@@ -23,6 +23,10 @@
 // A navigation case (`<topic>.nav[-<label>].html`, stage 3c) is recorded through a
 // page load instead of DOMParser: its bytes are served with its Content-Type into a
 // frame of the harness (dom-oracle.mjs navPage), so Chrome sniffs and decodes them.
+//
+// A scripted page case (`<topic>.page.html`, stage 4a) loads the same way, as UTF-8 and
+// with scripting on (dom-oracle.mjs scriptedPage): its views are of the document after
+// its scripts ran.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -31,11 +35,15 @@ import {
   domPage,
   fragmentContext,
   inputProblem,
+  isPageCase,
   listCases,
   NAV_PAGE_TYPE,
   navCharset,
   navContentType,
   navPage,
+  PAGE_CONTENT_TYPE,
+  PAGE_CSP,
+  scriptedPage,
   splitViews,
 } from './lib/dom-oracle.mjs';
 import {
@@ -82,11 +90,15 @@ const inputs = new Map();
 const pageFor = (name) => {
   const input = inputs.get(name);
   if (input === undefined) return null;
+  if (isPageCase(name)) return scriptedPage(name);
   if (navCharset(name) !== null) return { type: NAV_PAGE_TYPE, body: navPage(name) };
   return domPage(name, input, fragmentContext(name));
 };
 const rawFor = (name) => {
   const input = inputs.get(name);
+  if (input !== undefined && isPageCase(name)) {
+    return { type: PAGE_CONTENT_TYPE, body: input, csp: PAGE_CSP };
+  }
   const charset = navCharset(name);
   return input === undefined || charset === null
     ? null

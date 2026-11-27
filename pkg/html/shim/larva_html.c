@@ -131,8 +131,10 @@ typedef struct {
 	size_t value;
 } larva_html_layout_entry;
 
-#define LARVA_OFF(key, type, field) {key, offsetof(type, field)}
-#define LARVA_VAL(key, v) {key, (size_t)(v)}
+#define LARVA_OFF(key, type, field)                                                                                    \
+	{ key, offsetof(type, field) }
+#define LARVA_VAL(key, v)                                                                                              \
+	{ key, (size_t)(v) }
 
 static const larva_html_layout_entry larva_layout[] = {
 	LARVA_VAL("node.size", sizeof(lxb_dom_node_t)),
@@ -290,6 +292,217 @@ lxb_dom_node_t *larva_html_parse_fragment(lxb_html_document_t *doc, const lxb_ch
 	}
 
 	return lxb_dom_interface_node(ctx);
+}
+
+// --- DOM mutation (stage 4, pkg/html/mutate.odin) ---
+//
+// One rule runs through all of these: a node is NEVER destroyed while its document
+// lives. A JS wrapper may hold any node a script ever saw (docs/LARVA.md decision 4), so
+// removing, replacing or overwriting children only detaches them; their memory goes with
+// the document. lexbor's own conveniences that destroy (lxb_dom_node_text_content_set,
+// lxb_dom_node_replace_all, lxb_html_element_inner_html_set) are therefore not used.
+
+// What a spec mutation answered, as pkg/html/mutate.odin's Mutation_Error numbers it: a
+// stable subset of lexbor's lxb_dom_exception_code_t, which is not mirrored.
+enum {
+	LARVA_MUT_OK = 0,
+	LARVA_MUT_HIERARCHY = 1,
+	LARVA_MUT_NOT_FOUND = 2,
+	LARVA_MUT_NOT_SUPPORTED = 3,
+	LARVA_MUT_FAILED = 4,
+};
+
+static int larva_mut_code(lxb_dom_exception_code_t ex) {
+	switch (ex) {
+	case LXB_DOM_EXCEPTION_OK:
+		return LARVA_MUT_OK;
+	case LXB_DOM_EXCEPTION_HIERARCHY_REQUEST_ERR:
+		return LARVA_MUT_HIERARCHY;
+	case LXB_DOM_EXCEPTION_NOT_FOUND_ERR:
+		return LARVA_MUT_NOT_FOUND;
+	case LXB_DOM_EXCEPTION_NOT_SUPPORTED_ERR:
+		return LARVA_MUT_NOT_SUPPORTED;
+	default:
+		return LARVA_MUT_FAILED;
+	}
+}
+
+// Node.appendChild / insertBefore (`child` NULL appends) with the spec's pre-insertion
+// validity checks, which lexbor implements (lxb_dom_node_pre_insert).
+int larva_html_insert_before(lxb_dom_node_t *parent, lxb_dom_node_t *node, lxb_dom_node_t *child) {
+	return larva_mut_code(lxb_dom_node_insert_before_spec(parent, node, child));
+}
+
+int larva_html_remove_child(lxb_dom_node_t *parent, lxb_dom_node_t *child) {
+	return larva_mut_code(lxb_dom_node_remove_child(parent, child));
+}
+
+int larva_html_replace_child(lxb_dom_node_t *parent, lxb_dom_node_t *node, lxb_dom_node_t *child) {
+	return larva_mut_code(lxb_dom_node_replace_child(parent, node, child));
+}
+
+// Whether an element's name is in lexbor's static tag table (every HTML element, the
+// obsolete ones and SVG/MathML names among them) rather than one interned at parse
+// time: the DOM bindings tell an HTMLUnknownElement from a known element by it.
+bool larva_html_tag_known(lxb_dom_node_t *node) {
+	return node->type == LXB_DOM_NODE_TYPE_ELEMENT && node->local_name < LXB_TAG__LAST_ENTRY;
+}
+
+// Detaches `node` from its parent, if it has one (ChildNode.remove()).
+void larva_html_detach(lxb_dom_node_t *node) {
+	if (node->parent != NULL) {
+		lxb_dom_node_remove(node);
+	}
+}
+
+lxb_dom_node_t *larva_html_create_element(lxb_dom_node_t *doc_node, const lxb_char_t *name, size_t len) {
+	lxb_dom_element_t *el = lxb_dom_document_create_element(lxb_dom_interface_document(doc_node), name, len, NULL);
+	return el != NULL ? lxb_dom_interface_node(el) : NULL;
+}
+
+// `kind` 3 makes a text node, 8 a comment, 11 a document fragment (`data` unused).
+lxb_dom_node_t *larva_html_create_node(lxb_dom_node_t *doc_node, int kind, const lxb_char_t *data, size_t len) {
+	lxb_dom_document_t *doc = lxb_dom_interface_document(doc_node);
+	void *n = NULL;
+
+	switch (kind) {
+	case LXB_DOM_NODE_TYPE_TEXT:
+		n = lxb_dom_document_create_text_node(doc, data, len);
+		break;
+	case LXB_DOM_NODE_TYPE_COMMENT:
+		n = lxb_dom_document_create_comment(doc, data, len);
+		break;
+	case LXB_DOM_NODE_TYPE_DOCUMENT_FRAGMENT:
+		n = lxb_dom_document_create_document_fragment(doc);
+		break;
+	}
+
+	return n != NULL ? lxb_dom_interface_node(n) : NULL;
+}
+
+lxb_dom_node_t *larva_html_clone(lxb_dom_node_t *node, bool deep) {
+	return lxb_dom_node_clone(node, deep);
+}
+
+// Node.nodeName: the tag name (uppercase for an HTML element), `#text`, `#comment`,
+// `#document`, a doctype's name…
+const lxb_char_t *larva_html_node_name(lxb_dom_node_t *node, size_t *len) {
+	*len = 0;
+	const lxb_char_t *s = lxb_dom_node_name(node, len);
+	return s != NULL ? s : (const lxb_char_t *)"";
+}
+
+// Sets attribute `name` (already lowercased for an HTML element) to `value`.
+bool larva_html_set_attr(lxb_dom_node_t *node, const lxb_char_t *name, size_t name_len, const lxb_char_t *value,
+						 size_t value_len) {
+	if (node->type != LXB_DOM_NODE_TYPE_ELEMENT) {
+		return false;
+	}
+
+	return lxb_dom_element_set_attribute(lxb_dom_interface_element(node), name, name_len, value, value_len) != NULL;
+}
+
+void larva_html_remove_attr(lxb_dom_node_t *node, const lxb_char_t *name, size_t name_len) {
+	if (node->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+		lxb_dom_element_remove_attribute(lxb_dom_interface_element(node), name, name_len);
+	}
+}
+
+// The character data of a text, comment or processing instruction, replaced whole
+// (lexbor's replace ignores its offset and count).
+bool larva_html_set_data(lxb_dom_node_t *node, const lxb_char_t *data, size_t len) {
+	switch (node->type) {
+	case LXB_DOM_NODE_TYPE_TEXT:
+	case LXB_DOM_NODE_TYPE_COMMENT:
+	case LXB_DOM_NODE_TYPE_PROCESSING_INSTRUCTION:
+	case LXB_DOM_NODE_TYPE_CDATA_SECTION:
+		return lxb_dom_character_data_replace(lxb_dom_interface_character_data(node), data, len, 0, 0) == LXB_STATUS_OK;
+	default:
+		return false;
+	}
+}
+
+// Element/DocumentFragment textContent: the children are detached (not destroyed, see
+// above) and, for a non-empty string, replaced by one text node.
+bool larva_html_set_text_content(lxb_dom_node_t *node, const lxb_char_t *data, size_t len) {
+	if (node->type != LXB_DOM_NODE_TYPE_ELEMENT && node->type != LXB_DOM_NODE_TYPE_DOCUMENT_FRAGMENT) {
+		return larva_html_set_data(node, data, len);
+	}
+
+	lxb_dom_text_t *text = NULL;
+
+	// Created first, so a failed allocation leaves the children where they were.
+	if (len > 0) {
+		text = lxb_dom_document_create_text_node(node->owner_document, data, len);
+
+		if (text == NULL) {
+			return false;
+		}
+	}
+
+	while (node->first_child != NULL) {
+		lxb_dom_node_remove(node->first_child);
+	}
+
+	if (text != NULL) {
+		lxb_dom_node_insert_child(node, lxb_dom_interface_node(text));
+	}
+
+	return true;
+}
+
+// Element.innerHTML = html: the fragment parsing algorithm with `node` as the context,
+// into `node`'s own document, replacing its children (a template's content).
+//
+// A parser of its own, not the document's: the document's parser is the one a page is
+// still being parsed with while its scripts run (pkg/html Parser pauses there), and
+// lexbor's fragment entry points (lxb_html_document_parse_fragment,
+// lxb_html_element_inner_html_set) reuse and clean it, which would end that parse. The
+// fragment's nodes are allocated from the document's memory (lexbor gives the fragment a
+// document that inherits its owner's), so they move into the tree as any other node.
+bool larva_html_set_inner_html(lxb_dom_node_t *node, const lxb_char_t *html, size_t len) {
+	if (node->type != LXB_DOM_NODE_TYPE_ELEMENT) {
+		return false;
+	}
+
+	lxb_html_parser_t *parser = lxb_html_parser_create();
+
+	if (parser == NULL) {
+		return false;
+	}
+
+	if (lxb_html_parser_init(parser) != LXB_STATUS_OK) {
+		lxb_html_parser_destroy(parser);
+		return false;
+	}
+
+	lxb_dom_node_t *root = lxb_html_parse_fragment_by_tag_id(parser, lxb_html_interface_document(node->owner_document),
+															 node->local_name, node->ns, html, len);
+
+	if (root == NULL) {
+		lxb_html_parser_destroy(parser);
+		return false;
+	}
+
+	lxb_dom_node_t *to = node;
+	lxb_dom_node_t *content = larva_html_template_content(node);
+
+	if (content != NULL) {
+		to = content;
+	}
+
+	while (to->first_child != NULL) {
+		lxb_dom_node_remove(to->first_child);
+	}
+
+	while (root->first_child != NULL) {
+		lxb_dom_node_t *n = root->first_child;
+		lxb_dom_node_remove_wo_events(n);
+		lxb_dom_node_insert_child(to, n);
+	}
+
+	lxb_html_parser_destroy(parser);
+	return true;
 }
 
 larva_css *larva_css_create(void) {

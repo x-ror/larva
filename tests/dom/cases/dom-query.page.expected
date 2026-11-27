@@ -1,0 +1,189 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-dom.mjs dom-query.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "query"
+|   "
+"
+|   <body>
+|     "
+"
+|     <section>
+|       id="s1"
+|       class="card big"
+|       "
+  "
+|       <h2>
+|         class="title"
+|         "First"
+|       "
+  "
+|       <ul>
+|         <li>
+|           class="item"
+|           "a"
+|         <li>
+|           class="item odd"
+|           "b"
+|         <li>
+|           class="item"
+|           "c"
+|       "
+"
+|     "
+"
+|     <section>
+|       id="s2"
+|       class="card"
+|       "
+  "
+|       <h2>
+|         class="title"
+|         "Second"
+|       "
+  "
+|       <p>
+|         class="item odd"
+|         "d"
+|       "
+"
+|     "
+"
+|     <pre>
+|       id="log"
+|       "first a First
+"
+|       "none null
+"
+|       "all LI:a,LI:b,LI:c,P:d
+"
+|       "list H2,LI:b,H2,P:d
+"
+|       "scoped P:d Second
+"
+|       "attr SECTION b
+"
+|       "byTag 3 15 1
+"
+|       "byClass LI:b,P:d 2 0
+"
+|       "byId SECTION null null
+"
+|       "collection s2 a
+"
+|       "invalid SyntaxError DOMException
+"
+|       "missing TypeError
+"
+|       "detached in null
+"
+|     "
+"
+|     <script>
+|       "
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function names(list) {
+  var out = [];
+  for (var i = 0; i < list.length; i++) out.push(list[i].tagName + (list[i].textContent.length < 3 ? ':' + list[i].textContent : ''));
+  return out.join(',');
+}
+log('first ' + document.querySelector('.item').textContent + ' ' + document.querySelector('section > h2').textContent);
+log('none ' + document.querySelector('.missing'));
+log('all ' + names(document.querySelectorAll('.item')));
+log('list ' + names(document.querySelectorAll('h2, .odd')));
+var s2 = document.getElementById('s2');
+log('scoped ' + names(s2.querySelectorAll('.item')) + ' ' + s2.querySelector('h2').textContent);
+log('attr ' + names(document.querySelectorAll('[class~="big"]')) + ' ' + document.querySelector('li:nth-child(2)').textContent);
+log('byTag ' + document.getElementsByTagName('LI').length + ' ' + document.getElementsByTagName('*').length + ' ' + s2.getElementsByTagName('p').length);
+log('byClass ' + names(document.getElementsByClassName('item odd')) + ' ' + document.getElementsByClassName('card').length + ' ' + document.getElementsByClassName('  ').length);
+log('byId ' + document.getElementById('s1').tagName + ' ' + document.getElementById('nope') + ' ' + document.getElementById(''));
+log('collection ' + document.getElementsByClassName('card').namedItem('s2').id + ' ' + document.querySelectorAll('li').item(0).textContent);
+try {
+  document.querySelector('a[');
+} catch (e) {
+  log('invalid ' + e.name + ' ' + e.constructor.name);
+}
+try {
+  document.querySelector();
+} catch (e) {
+  log('missing ' + e.constructor.name);
+}
+var made = document.createElement('div');
+made.innerHTML = '<span class="x">in</span>';
+log('detached ' + made.querySelector('.x').textContent + ' ' + document.querySelector('.x'));
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head><title>query</title></head>
+<body>
+<section id="s1" class="card big">
+  <h2 class="title">First</h2>
+  <ul><li class="item">a</li><li class="item odd">b</li><li class="item">c</li></ul>
+</section>
+<section id="s2" class="card">
+  <h2 class="title">Second</h2>
+  <p class="item odd">d</p>
+</section>
+<pre id="log">first a First
+none null
+all LI:a,LI:b,LI:c,P:d
+list H2,LI:b,H2,P:d
+scoped P:d Second
+attr SECTION b
+byTag 3 15 1
+byClass LI:b,P:d 2 0
+byId SECTION null null
+collection s2 a
+invalid SyntaxError DOMException
+missing TypeError
+detached in null
+</pre>
+<script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function names(list) {
+  var out = [];
+  for (var i = 0; i < list.length; i++) out.push(list[i].tagName + (list[i].textContent.length < 3 ? ':' + list[i].textContent : ''));
+  return out.join(',');
+}
+log('first ' + document.querySelector('.item').textContent + ' ' + document.querySelector('section > h2').textContent);
+log('none ' + document.querySelector('.missing'));
+log('all ' + names(document.querySelectorAll('.item')));
+log('list ' + names(document.querySelectorAll('h2, .odd')));
+var s2 = document.getElementById('s2');
+log('scoped ' + names(s2.querySelectorAll('.item')) + ' ' + s2.querySelector('h2').textContent);
+log('attr ' + names(document.querySelectorAll('[class~="big"]')) + ' ' + document.querySelector('li:nth-child(2)').textContent);
+log('byTag ' + document.getElementsByTagName('LI').length + ' ' + document.getElementsByTagName('*').length + ' ' + s2.getElementsByTagName('p').length);
+log('byClass ' + names(document.getElementsByClassName('item odd')) + ' ' + document.getElementsByClassName('card').length + ' ' + document.getElementsByClassName('  ').length);
+log('byId ' + document.getElementById('s1').tagName + ' ' + document.getElementById('nope') + ' ' + document.getElementById(''));
+log('collection ' + document.getElementsByClassName('card').namedItem('s2').id + ' ' + document.querySelectorAll('li').item(0).textContent);
+try {
+  document.querySelector('a[');
+} catch (e) {
+  log('invalid ' + e.name + ' ' + e.constructor.name);
+}
+try {
+  document.querySelector();
+} catch (e) {
+  log('missing ' + e.constructor.name);
+}
+var made = document.createElement('div');
+made.innerHTML = '<span class="x">in</span>';
+log('detached ' + made.querySelector('.x').textContent + ' ' + document.querySelector('.x'));
+</script>
+
+
+</body></html>

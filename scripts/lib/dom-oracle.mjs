@@ -56,7 +56,7 @@ export function handCases(cases) {
 // The stages of the DOM plan (docs/LARVA.md roadmap stage 3) a known gap may wait
 // on; tests/dom/README.md says what each one changes. `unplanned` is a gap no stage
 // closes — a lexbor parser divergence, typically — and needs an issue of its own.
-export const STAGES = ['3b', '3c', '3d', '3e', '3f', '3g', '3h', 'unplanned'];
+export const STAGES = ['3b', '3c', '3d', '3e', '3f', '3g', '3h', '4b', 'unplanned'];
 
 // What judge's details name for this suite (web-oracle.mjs WEB_SUITE is the shape).
 export const DOM_SUITE = {
@@ -174,8 +174,27 @@ export function splitViews(text) {
   return views;
 }
 
-/** `lava html`'s arguments for one view of one case; `charset` is navCharset's. */
-export function lavaArgs(view, context, file, charset = null) {
+/**
+ * Whether a case is a scripted page case (stage 4a): `<topic>.page`. Its HTML is loaded
+ * as a page with scripting on, in Chrome and under `lava page`, and the views are of the
+ * document once its scripts have run (scriptedPage).
+ */
+export function isPageCase(name) {
+  return /\.page$/.test(name);
+}
+
+// How a page case is served to Chrome's frame: as UTF-8 (`lava page` reads UTF-8), and
+// under a CSP that lets its inline scripts run while still keeping every subresource
+// on the machine.
+export const PAGE_CONTENT_TYPE = 'text/html; charset=utf-8';
+export const PAGE_CSP = "default-src 'none'; script-src 'unsafe-inline'";
+
+/**
+ * `lava html`'s arguments for one view of one case — `lava page`'s for a page case;
+ * `charset` is navCharset's.
+ */
+export function lavaArgs(view, context, file, charset = null, page = false) {
+  if (page) return ['page', `--${view}`, file];
   const sniff = charset === null ? [] : charset === '' ? ['--sniff'] : ['--charset', charset];
   return ['html', `--${view}`, ...(context ? ['--fragment', context] : []), ...sniff, file];
 }
@@ -368,3 +387,39 @@ function done(frame) {
 
 /** The Content-Type the harness page of a navigation case is served with (navPage). */
 export const NAV_PAGE_TYPE = 'text/html; charset=windows-1252';
+
+/**
+ * The harness page Chrome loads for a scripted page case (isPageCase): the case loads in
+ * a frame from `/raw/<name>`, served as PAGE_CONTENT_TYPE under PAGE_CSP, with scripting
+ * ON — no sandbox — so its inline scripts run as the parser reaches them, as under
+ * `lava page`. The views are read from the frame's document at its load event, after
+ * every parser-inserted script and DOMContentLoaded listener has run and before the
+ * harness's own load, which --dump-dom waits for. A case must therefore finish its work
+ * by then: no timers whose callbacks change the tree (Lava runs its loop to idle, Chrome
+ * reads at load).
+ */
+export function scriptedPage(name) {
+  return `<!doctype html><meta charset="utf-8"><title>${name}</title>
+<pre id="out"></pre><pre id="err"></pre>
+<script>
+${dumpTree.toString()}
+${serializeDocument.toString()}
+function b64(s) {
+  const bytes = new TextEncoder().encode(s);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+function done(frame) {
+  try {
+    const doc = frame.contentDocument;
+    const views = '#tree\\n' + dumpTree(doc.childNodes) + '#serialize\\n' + serializeDocument(doc);
+    document.getElementById('out').textContent = b64(views);
+  } catch (e) {
+    document.getElementById('err').textContent = b64('error: ' + String(e && e.stack || e) + '\\n');
+  }
+}
+</script>
+<iframe src="/raw/${name}" onload="done(this)"></iframe>
+`;
+}

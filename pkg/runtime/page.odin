@@ -423,6 +423,47 @@ page_eval :: proc(page: ^Page, source: string, source_name := "<page_eval>") -> 
 	return result, true
 }
 
+// page_run_element_script runs one of an HTML page's own classic `<script>`s on a live
+// page (page_html.odin), while its parser is paused at that script.
+//
+// Returns:
+//   false when the page has ended — a limit kill, a requested stop, a source the runtime
+//   could not allocate — or was not live; the parse must stop and page_close returns
+//   the Result. A throw is not that: it is reported as the page's uncaught error
+//   (stderr, and exit code 1 at close) and the caller goes on with the next script.
+// Chrome:
+//   A script element's error is reported to the page (the console) and the parser runs
+//   the next script. Unverified beyond that: no recorded case throws, since the
+//   recorder refuses a page error.
+//
+// Charged to the page's CPU budget like page_run_script. JSC drains the microtask queue
+// as the call leaves the VM, which is HTML's microtask checkpoint after a script.
+page_run_element_script :: proc(page: ^Page, source, source_name: string) -> bool {
+	if page.finished || page.ctx == nil || page.state == nil {
+		return false
+	}
+
+	vm_cpu_enter(page.vm)
+	_, exception, alloc_failure := page_evaluate(page, source, source_name)
+	vm_cpu_exit(page.vm)
+
+	if ended, end := page_ended(page); ended {
+		return page_fail(page, end)
+	}
+
+	if alloc_failure != "" {
+		return page_fail(page, Result{status = .Invalid_Input, exit_code = 2, message = alloc_failure})
+	}
+
+	if exception != nil {
+		ctx := cast(jsc.JSContextRef)page.ctx
+		report_uncaught(ctx, exception)
+		mark_async_failed(ctx)
+	}
+
+	return true
+}
+
 // page_run_until ticks a live page until `cond` holds, its loop idles, `deadline_ms`
 // passes, or the page ends.
 //
@@ -724,8 +765,9 @@ page_close :: proc(
 	return
 }
 
-// page_fail records an early Result; page_close returns it after the teardown.
-@(private = "file")
+// page_fail records an early Result; page_close returns it after the teardown. Package
+// private: the HTML page loader (page_html.odin) ends a page through it too.
+@(private)
 page_fail :: proc(page: ^Page, result: Result) -> bool {
 	page.finished = true
 	page.result = result

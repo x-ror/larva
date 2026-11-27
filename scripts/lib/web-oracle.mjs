@@ -507,7 +507,8 @@ function send(res, status, type, body) {
  * `rawFor(name)`, when given, answers `/raw/<name>` with `{type, body}` (null for no
  * such case): the DOM suite's navigation cases, served as bytes with the Content-Type
  * under test and a CSP that blocks every subresource, so a corpus page's stylesheet or
- * image reference never leaves the machine.
+ * image reference never leaves the machine. A `csp` in the answer replaces that policy:
+ * the DOM suite's scripted page cases allow their inline scripts and nothing else.
  */
 export function startServer(casesDir = CASES_DIR, { pageFor, rawFor } = {}) {
   const server = createServer((req, res) => {
@@ -525,7 +526,7 @@ export function startServer(casesDir = CASES_DIR, { pageFor, rawFor } = {}) {
         res.writeHead(200, {
           'Content-Type': doc.type,
           'Content-Length': String(doc.body.length),
-          'Content-Security-Policy': "default-src 'none'",
+          'Content-Security-Policy': doc.csp ?? "default-src 'none'",
         });
         return res.end(doc.body);
       }

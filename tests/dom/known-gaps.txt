@@ -141,3 +141,8 @@ html5lib-foreign-fragment-066.frag-svg-svg.tree 3e: fragment context in the SVG 
 # in-select insertion mode still drops it. A lexbor parser divergence: needs an issue.
 html5lib-tests_innerhtml_1-076.frag-select.serialize unplanned: lexbor drops <input> in a select fragment, Chrome 158 keeps it
 html5lib-tests_innerhtml_1-076.frag-select.tree unplanned: lexbor drops <input> in a select fragment, Chrome 158 keeps it
+
+# Scripted page cases (stage 4a, `lava page`): a node's event path ends at the document,
+# because Larva's window is not an EventTarget yet (internal/event_target dispatchPath).
+dom-events.page.serialize 4b: composedPath() of a node's event lacks the window
+dom-events.page.tree 4b: composedPath() of a node's event lacks the window

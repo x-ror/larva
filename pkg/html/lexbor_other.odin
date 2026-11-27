@@ -59,6 +59,24 @@ larva_html_encoding_name :: proc(enc: encoding_data, len: ^c.size_t) -> [^]u8 {l
 larva_html_decode :: proc(enc: encoding_data, data: [^]u8, len: c.size_t, write: decode_write_cb, ctx: rawptr) -> bool {
 	return false
 }
+// The mutation shim: no document exists off Linux, so no node ever reaches these; each
+// still answers failure rather than pretending to succeed.
+larva_html_insert_before :: proc(parent, node, child: Node) -> c.int {return 4}
+larva_html_remove_child :: proc(parent, child: Node) -> c.int {return 4}
+larva_html_replace_child :: proc(parent, node, child: Node) -> c.int {return 4}
+larva_html_detach :: proc(node: Node) {}
+larva_html_tag_known :: proc(node: Node) -> bool {return false}
+larva_html_create_element :: proc(doc: Node, name: [^]u8, len: c.size_t) -> Node {return nil}
+larva_html_create_node :: proc(doc: Node, kind: c.int, data: [^]u8, len: c.size_t) -> Node {return nil}
+larva_html_clone :: proc(node: Node, deep: bool) -> Node {return nil}
+larva_html_node_name :: proc(node: Node, len: ^c.size_t) -> [^]u8 {len^ = 0; return nil}
+larva_html_set_attr :: proc(node: Node, name: [^]u8, name_len: c.size_t, value: [^]u8, value_len: c.size_t) -> bool {
+	return false
+}
+larva_html_remove_attr :: proc(node: Node, name: [^]u8, name_len: c.size_t) {}
+larva_html_set_data :: proc(node: Node, data: [^]u8, len: c.size_t) -> bool {return false}
+larva_html_set_text_content :: proc(node: Node, data: [^]u8, len: c.size_t) -> bool {return false}
+larva_html_set_inner_html :: proc(node: Node, html: [^]u8, len: c.size_t) -> bool {return false}
 larva_css_create :: proc() -> css_engine {return nil}
 larva_css_destroy :: proc(e: css_engine) {}
 larva_css_compile :: proc(e: css_engine, css: [^]u8, len: c.size_t) -> css_list {return nil}

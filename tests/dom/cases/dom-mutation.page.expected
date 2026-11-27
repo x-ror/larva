@@ -1,0 +1,256 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-dom.mjs dom-mutation.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "mutation"
+|   "
+"
+|   <body>
+|     "
+"
+|     <ul>
+|       id="list"
+|       <li>
+|         "z"
+|       <li>
+|         "r"
+|       <li>
+|       <li>
+|         "a"
+|       "TAIL"
+|     "
+"
+|     <div>
+|       id="target"
+|       <em>
+|         "f1"
+|       <!-- f2 -->
+|       <ul>
+|         id="copy"
+|         <li>
+|           "z"
+|         <li>
+|           "r"
+|         <li>
+|           "d"
+|         <li>
+|         <li>
+|           "a"
+|     "
+"
+|     <pre>
+|       id="log"
+|       "append returns true 4 LI
+"
+|       "insertBefore returns true first z
+"
+|       "removeChild returns true parent null
+"
+|       "removed keeps b b
+"
+|       "replaceChild returns true null
+"
+|       "moved true
+"
+|       "fragment 11 #document-fragment 2
+"
+|       "fragment emptied 0 target 2
+"
+|       "clone 0 5 list true
+"
+|       "ancestor HierarchyRequestError
+"
+|       "not a child NotFoundError
+"
+|       "bad reference NotFoundError
+"
+|       "not a node TypeError
+"
+|       "remove 4
+"
+|       "data TAIL TAIL
+"
+|     "
+"
+|     <script>
+|       "
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+var list = document.getElementById('list');
+var items = list.children;
+var a = items[0];
+var b = items[1];
+var c = items[2];
+
+var d = document.createElement('LI');
+d.appendChild(document.createTextNode('d'));
+log('append returns ' + (list.appendChild(d) === d) + ' ' + list.children.length + ' ' + d.tagName);
+
+var z = document.createElement('li');
+z.textContent = 'z';
+log('insertBefore returns ' + (list.insertBefore(z, a) === z) + ' first ' + list.firstChild.textContent);
+list.insertBefore(document.createElement('li'), null);
+
+log('removeChild returns ' + (list.removeChild(b) === b) + ' parent ' + b.parentNode);
+log('removed keeps ' + b.textContent + ' ' + b.firstChild.data);
+
+var r = document.createElement('li');
+r.textContent = 'r';
+log('replaceChild returns ' + (list.replaceChild(r, c) === c) + ' ' + c.parentNode);
+
+// Moving: appending a node that is already in the tree moves it.
+list.appendChild(a);
+log('moved ' + (list.lastChild === a));
+
+var frag = document.createDocumentFragment();
+frag.appendChild(document.createElement('em')).textContent = 'f1';
+frag.appendChild(document.createComment('f2'));
+log('fragment ' + frag.nodeType + ' ' + frag.nodeName + ' ' + frag.childNodes.length);
+var target = document.getElementById('target');
+target.appendChild(frag);
+log('fragment emptied ' + frag.childNodes.length + ' target ' + target.childNodes.length);
+
+var shallow = list.cloneNode();
+var deep = list.cloneNode(true);
+log('clone ' + shallow.childNodes.length + ' ' + deep.childNodes.length + ' ' + deep.id + ' ' + (deep.parentNode === null));
+target.appendChild(deep);
+deep.id = 'copy';
+
+try {
+  list.appendChild(document.body);
+} catch (e) {
+  log('ancestor ' + e.name);
+}
+try {
+  list.removeChild(target);
+} catch (e) {
+  log('not a child ' + e.name);
+}
+try {
+  list.insertBefore(document.createElement('li'), target);
+} catch (e) {
+  log('bad reference ' + e.name);
+}
+try {
+  list.appendChild('text');
+} catch (e) {
+  log('not a node ' + e.constructor.name);
+}
+
+b.remove();
+d.remove();
+log('remove ' + list.children.length);
+var t = document.createTextNode('tail');
+list.appendChild(t);
+t.data = 'TAIL';
+log('data ' + t.data + ' ' + list.lastChild.nodeValue);
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head><title>mutation</title></head>
+<body>
+<ul id="list"><li>z</li><li>r</li><li></li><li>a</li>TAIL</ul>
+<div id="target"><em>f1</em><!--f2--><ul id="copy"><li>z</li><li>r</li><li>d</li><li></li><li>a</li></ul></div>
+<pre id="log">append returns true 4 LI
+insertBefore returns true first z
+removeChild returns true parent null
+removed keeps b b
+replaceChild returns true null
+moved true
+fragment 11 #document-fragment 2
+fragment emptied 0 target 2
+clone 0 5 list true
+ancestor HierarchyRequestError
+not a child NotFoundError
+bad reference NotFoundError
+not a node TypeError
+remove 4
+data TAIL TAIL
+</pre>
+<script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+var list = document.getElementById('list');
+var items = list.children;
+var a = items[0];
+var b = items[1];
+var c = items[2];
+
+var d = document.createElement('LI');
+d.appendChild(document.createTextNode('d'));
+log('append returns ' + (list.appendChild(d) === d) + ' ' + list.children.length + ' ' + d.tagName);
+
+var z = document.createElement('li');
+z.textContent = 'z';
+log('insertBefore returns ' + (list.insertBefore(z, a) === z) + ' first ' + list.firstChild.textContent);
+list.insertBefore(document.createElement('li'), null);
+
+log('removeChild returns ' + (list.removeChild(b) === b) + ' parent ' + b.parentNode);
+log('removed keeps ' + b.textContent + ' ' + b.firstChild.data);
+
+var r = document.createElement('li');
+r.textContent = 'r';
+log('replaceChild returns ' + (list.replaceChild(r, c) === c) + ' ' + c.parentNode);
+
+// Moving: appending a node that is already in the tree moves it.
+list.appendChild(a);
+log('moved ' + (list.lastChild === a));
+
+var frag = document.createDocumentFragment();
+frag.appendChild(document.createElement('em')).textContent = 'f1';
+frag.appendChild(document.createComment('f2'));
+log('fragment ' + frag.nodeType + ' ' + frag.nodeName + ' ' + frag.childNodes.length);
+var target = document.getElementById('target');
+target.appendChild(frag);
+log('fragment emptied ' + frag.childNodes.length + ' target ' + target.childNodes.length);
+
+var shallow = list.cloneNode();
+var deep = list.cloneNode(true);
+log('clone ' + shallow.childNodes.length + ' ' + deep.childNodes.length + ' ' + deep.id + ' ' + (deep.parentNode === null));
+target.appendChild(deep);
+deep.id = 'copy';
+
+try {
+  list.appendChild(document.body);
+} catch (e) {
+  log('ancestor ' + e.name);
+}
+try {
+  list.removeChild(target);
+} catch (e) {
+  log('not a child ' + e.name);
+}
+try {
+  list.insertBefore(document.createElement('li'), target);
+} catch (e) {
+  log('bad reference ' + e.name);
+}
+try {
+  list.appendChild('text');
+} catch (e) {
+  log('not a node ' + e.constructor.name);
+}
+
+b.remove();
+d.remove();
+log('remove ' + list.children.length);
+var t = document.createTextNode('tail');
+list.appendChild(t);
+t.data = 'TAIL';
+log('data ' + t.data + ' ' + list.lastChild.nodeValue);
+</script>
+
+
+</body></html>

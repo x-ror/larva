@@ -82,6 +82,10 @@ foreign jsc_lib {
 	JSObjectCallAsConstructor :: proc(ctx: JSContextRef, object: JSObjectRef, argument_count: c.size_t, arguments: [^]JSValueRef, exception: ^JSValueRef) -> JSObjectRef ---
 	// A pending promise and its two resolving functions (JSObjectRef.h, public C API).
 	JSObjectGetPrototype :: proc(ctx: JSContextRef, object: JSObjectRef) -> JSValueRef ---
+	// DOM wrappers (pkg/runtime/dom.odin): one class supplies the private slot, the
+	// interface prototype is set per wrapper, and the class is the natives' brand check.
+	JSObjectSetPrototype :: proc(ctx: JSContextRef, object: JSObjectRef, value: JSValueRef) ---
+	JSValueIsObjectOfClass :: proc(ctx: JSContextRef, value: JSValueRef, js_class: JSClassRef) -> bool ---
 	JSGlobalContextRetain :: proc(ctx: JSGlobalContextRef) -> JSGlobalContextRef ---
 	JSObjectMakeDeferredPromise :: proc(ctx: JSContextRef, resolve: ^JSObjectRef, reject: ^JSObjectRef, exception: ^JSValueRef) -> JSObjectRef ---
 	JSValueIsInstanceOfConstructor :: proc(ctx: JSContextRef, value: JSValueRef, constructor: JSObjectRef, exception: ^JSValueRef) -> bool ---
