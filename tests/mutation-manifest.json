@@ -4004,6 +4004,60 @@
       "replace": "if (false) {",
       "gate": "make:test-web",
       "expect_detail": "FAIL streams-byob-errors"
+    },
+    {
+      "name": "page_scripts_free_the_jobs_that_never_ran dies when scripts_destroy keeps the deferred jobs",
+      "why": "A page that ends before its defer scripts run would leak every source it read from disk, once per page, for the life of a crawler.",
+      "source": "pkg/runtime/page_script.odin",
+      "find": "\tfor &job in s.deferred {\n\t\tscript_job_free(s, &job)\n\t}\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.page_scripts_free_the_jobs_that_never_ran",
+      "expect_detail": "allocations outlived the page"
+    },
+    {
+      "name": "page_script_src_reads_regular_files_only dies when a script src may name a device",
+      "why": "Without the regular-file check a page's script src naming /dev/zero reads forever, and one naming a FIFO blocks the page's thread.",
+      "source": "pkg/runtime/page_script.odin",
+      "find": "info.type != .Regular || ",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.page_script_src_reads_regular_files_only",
+      "expect_detail": "load dev"
+    },
+    {
+      "name": "dom-script-defer.page dies when the deferred scripts are not run before DOMContentLoaded",
+      "why": "Chrome runs defer scripts after the interactive readystatechange and before DOMContentLoaded; skipping them drops their effects and their load events.",
+      "source": "pkg/runtime/page_html.odin",
+      "find": "\tscripts_run_deferred(page)\n",
+      "replace": "",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-script-defer.page"
+    },
+    {
+      "name": "dom-script-write.page dies when document.write does not parse its text before returning",
+      "why": "Chrome parses written markup inside the write call: the written element is in the tree when write returns and a written inline script runs within it.",
+      "source": "pkg/runtime/page_script.odin",
+      "find": "\t\tscript, status := html.pump_written(&dom.parser)\n",
+      "replace": "\t\tscript, status := html.Node(nil), html.Pump_Status.Need_Input\n",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-script-write.page"
+    },
+    {
+      "name": "dom-script-external.page dies when document.currentScript is not set around a script",
+      "why": "document.currentScript must name the running script element; leaving it null breaks every script that locates itself (loaders, widgets).",
+      "source": "pkg/runtime/page_script.odin",
+      "find": "\ts.current = job.node\n",
+      "replace": "",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-script-external.page"
+    },
+    {
+      "name": "dom-script-dynamic.page dies when an inserted script is not prepared",
+      "why": "A script a page inserts (createElement + appendChild) must run: inline at once, external as a task, the way most third-party loaders inject code.",
+      "source": "pkg/runtime/page_script.odin",
+      "find": "\tfor n in found {\n\t\tscripts_prepare_inserted(dom, n)\n\t}\n",
+      "replace": "",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-script-dynamic.page"
     }
   ]
 }

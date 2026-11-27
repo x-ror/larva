@@ -1,0 +1,107 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-dom.mjs dom-script-module.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "module scripts"
+|     "
+"
+|     <script>
+|       "
+var order = [];
+function name(n) {
+  return n === null ? 'null' : n === document ? 'document' : n === window ? 'window' : n.nodeName + (n.id ? '#' + n.id : '');
+}
+document.addEventListener('DOMContentLoaded', function () {
+  order.push('DOMContentLoaded');
+});
+"
+|     "
+"
+|     <script>
+|       id="m1"
+|       type="module"
+|       "
+order.push('inline module current=' + name(document.currentScript) + ' ' + document.readyState + ' this=' + typeof this);
+"
+|     "
+"
+|     <script>
+|       id="m2"
+|       type="module"
+|       src="dom-script-module.page.1.js"
+|     "
+"
+|     <script>
+|       id="fallback"
+|       nomodule=""
+|       "order.push('nomodule (never)');"
+|     "
+"
+|     <script>
+|       id="classic"
+|       "order.push('classic ' + document.readyState);"
+|     "
+"
+|   "
+"
+|   <body>
+|     "
+"
+|     <pre>
+|       id="log"
+|       "classic loading
+inline module current=null interactive this=undefined
+external module current=null interactive
+DOMContentLoaded
+"
+|     "
+"
+|     <script>
+|       "
+window.addEventListener('load', function () {
+  document.getElementById('log').textContent = order.join('\n') + '\n';
+});
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head><title>module scripts</title>
+<script>
+var order = [];
+function name(n) {
+  return n === null ? 'null' : n === document ? 'document' : n === window ? 'window' : n.nodeName + (n.id ? '#' + n.id : '');
+}
+document.addEventListener('DOMContentLoaded', function () {
+  order.push('DOMContentLoaded');
+});
+</script>
+<script id="m1" type="module">
+order.push('inline module current=' + name(document.currentScript) + ' ' + document.readyState + ' this=' + typeof this);
+</script>
+<script id="m2" type="module" src="dom-script-module.page.1.js"></script>
+<script id="fallback" nomodule="">order.push('nomodule (never)');</script>
+<script id="classic">order.push('classic ' + document.readyState);</script>
+</head>
+<body>
+<pre id="log">classic loading
+inline module current=null interactive this=undefined
+external module current=null interactive
+DOMContentLoaded
+</pre>
+<script>
+window.addEventListener('load', function () {
+  document.getElementById('log').textContent = order.join('\n') + '\n';
+});
+</script>
+
+
+</body></html>

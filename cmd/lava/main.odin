@@ -447,7 +447,15 @@ page_command :: proc(args: []string) {
 	}
 
 	loop := eventloop.init(real_time = true)
-	result, output := lava_runtime.run_html_page(data, path, &loop, view, report = print_result, origin = origin)
+	result, output := lava_runtime.run_html_page(
+		data,
+		path,
+		&loop,
+		view,
+		report = print_result,
+		origin = origin,
+		document_path = path,
+	)
 	delete(data)
 
 	// The dump ends every line itself; the markup gets one newline, as `lava html`'s.

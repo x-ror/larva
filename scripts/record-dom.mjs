@@ -26,7 +26,8 @@
 //
 // A scripted page case (`<topic>.page.html`, stage 4a) loads the same way, as UTF-8 and
 // with scripting on (dom-oracle.mjs scriptedPage): its views are of the document after
-// its scripts ran.
+// its scripts ran. Its external scripts are sibling `.js` files, served from /raw/ beside
+// it (dom-oracle.mjs pageScript), as `lava page` reads them from beside the case.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -43,6 +44,8 @@ import {
   navPage,
   PAGE_CONTENT_TYPE,
   PAGE_CSP,
+  PAGE_SCRIPT_TYPE,
+  pageScript,
   scriptedPage,
   splitViews,
 } from './lib/dom-oracle.mjs';
@@ -95,6 +98,11 @@ const pageFor = (name) => {
   return domPage(name, input, fragmentContext(name));
 };
 const rawFor = (name) => {
+  // A page case's external script: a sibling `.js` file, whichever case asks for it.
+  if (name.endsWith('.js')) {
+    const script = pageScript(name);
+    return script === null ? null : { type: PAGE_SCRIPT_TYPE, body: script };
+  }
   const input = inputs.get(name);
   if (input !== undefined && isPageCase(name)) {
     return { type: PAGE_CONTENT_TYPE, body: input, csp: PAGE_CSP };

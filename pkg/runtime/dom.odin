@@ -157,6 +157,15 @@ Dom_Page :: struct {
 	// internal/dom's advance, which moves the document's readiness on and fires its
 	// events (dom_advance); protected.
 	advance:   jsc.JSValueRef,
+	// internal/dom's fireAt, which fires a script element's load or error
+	// (page_script.odin script_fire); protected.
+	fire_at:   jsc.JSValueRef,
+	// The page this DOM is the document of, for the natives that run a script (an
+	// inserted one, document.write's): set by the page loader once the DOM is installed,
+	// nil until then. The Page outlives the DOM (page_close releases the DOM first).
+	page:      ^Page,
+	// The page's script elements: what has started, what waits to run (page_script.odin).
+	scripts:   Page_Scripts,
 }
 
 // dom_install creates the page's document and installs the DOM on the page's realm —
@@ -182,6 +191,7 @@ dom_install :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) -> string {
 
 	dom.allocator = state.allocator
 	dom.wrappers = make(map[html.Node]jsc.JSObjectRef, state.allocator)
+	scripts_init(&dom.scripts, state.allocator)
 	state.dom = dom
 
 	if !html.init(&dom.parser, dom.allocator) {
@@ -264,6 +274,15 @@ dom_install :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) -> string {
 
 	jsc.JSValueProtect(ctx, advance)
 	dom.advance = advance
+
+	fire_at := get_named(ctx, cast(jsc.JSObjectRef)installed, "fireAt")
+
+	if fire_at == nil || !jsc.JSValueIsObject(ctx, fire_at) {
+		return "internal/dom answered no element event step"
+	}
+
+	jsc.JSValueProtect(ctx, fire_at)
+	dom.fire_at = fire_at
 	return ""
 }
 
@@ -293,6 +312,8 @@ dom_release :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) {
 	}
 
 	unprotect_before_eval_exit(ctx, dom.advance)
+	unprotect_before_eval_exit(ctx, dom.fire_at)
+	scripts_destroy(&dom.scripts)
 	html.selectors_destroy(&dom.selectors)
 	html.destroy(&dom.parser)
 
@@ -324,8 +345,10 @@ dom_document :: proc(state: ^Runtime_State) -> html.Node {
 // Dom_Readiness is a document readiness the page loader moves the document to
 // (HTML's "current document readiness"; it starts `loading`).
 Dom_Readiness :: enum {
-	// The parse is done: readystatechange, then DOMContentLoaded at the document.
+	// The parse is done: readystatechange at the document. The deferred scripts run next.
 	Interactive,
+	// The deferred scripts ran: DOMContentLoaded at the document (readyState stays).
+	Content_Loaded,
 	// The page's loop idled: readystatechange at the document, then `load` at the window.
 	Complete,
 }
@@ -339,7 +362,9 @@ Dom_Readiness :: enum {
 //   throw is reported by the dispatch itself and does not count), or the page ended.
 // Chrome:
 //   Chrome 158, tests/dom/cases/dom-load.page: readyState and the order of
-//   readystatechange, DOMContentLoaded, load, and the microtasks between listeners.
+//   readystatechange, DOMContentLoaded, load, and the microtasks between listeners;
+//   tests/dom/cases/dom-script-defer.page: the deferred scripts between the
+//   `interactive` readystatechange and DOMContentLoaded.
 dom_advance :: proc(ctx: jsc.JSContextRef, page: ^Page, stage: Dom_Readiness) -> bool {
 	state := page.state
 
@@ -347,8 +372,13 @@ dom_advance :: proc(ctx: jsc.JSContextRef, page: ^Page, stage: Dom_Readiness) ->
 		return false
 	}
 
-	name := "interactive" if stage == .Interactive else "complete"
-	args := [1]jsc.JSValueRef{js_string_value(ctx, name)}
+	NAMES :: [Dom_Readiness]string {
+		.Interactive    = "interactive",
+		.Content_Loaded = "contentloaded",
+		.Complete       = "complete",
+	}
+	names := NAMES
+	args := [1]jsc.JSValueRef{js_string_value(ctx, names[stage])}
 	exception: jsc.JSValueRef
 	vm_cpu_enter(page.vm)
 	step := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)state.dom.advance, nil, 1, raw_data(args[:]), &exception)
@@ -357,6 +387,18 @@ dom_advance :: proc(ctx: jsc.JSContextRef, page: ^Page, stage: Dom_Readiness) ->
 	if exception != nil || step == nil || !jsc.JSValueIsObject(ctx, step) {
 		return false
 	}
+
+	return dom_run_steps(ctx, page, step)
+}
+
+// dom_run_steps calls a step function internal/dom answered (advance's, fireAt's) until
+// it answers false: one listener a call, so JSC's microtask drain as each call leaves the
+// VM is the checkpoint after each listener.
+//
+// Returns:
+//   false when the page ended, its DOM went, or a step threw past the dispatch.
+dom_run_steps :: proc(ctx: jsc.JSContextRef, page: ^Page, step: jsc.JSValueRef) -> bool {
+	exception: jsc.JSValueRef
 
 	// Our own root across the steps: each one can allocate, and so collect.
 	jsc.JSValueProtect(ctx, step)
@@ -580,6 +622,8 @@ make_dom_bindings :: proc(ctx: jsc.JSContextRef) -> jsc.JSObjectRef {
 		{"createText", dom_create_text_cb},
 		{"createComment", dom_create_comment_cb},
 		{"createFragment", dom_create_fragment_cb},
+		{"currentScript", dom_current_script_cb},
+		{"write", dom_write_cb},
 	}
 
 	object := jsc.JSObjectMake(ctx, nil, nil)
@@ -705,7 +749,6 @@ dom_nodes_array :: proc(ctx: jsc.JSContextRef, dom: ^Dom_Page, nodes: []html.Nod
 
 // dom_walk_next is the node after `n` in tree order within `root`'s subtree; nil past
 // its end.
-@(private = "file")
 dom_walk_next :: proc(n, root: html.Node) -> html.Node {
 	if first := html.first_child(n); first != nil {
 		return first
@@ -962,10 +1005,16 @@ dom_set_text_content_cb :: proc "c" (
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	call, ok := dom_enter(ctx, argc, argv, exception)
 
-	if ok && !html.set_text_content(call.node, dom_arg_string(call, 0)) {
-		exception^ = make_native_error(ctx, "RangeError", "Failed to set 'textContent': out of memory.")
+	if !ok {
+		return dom_undefined(ctx)
 	}
 
+	if !html.set_text_content(call.node, dom_arg_string(call, 0)) {
+		exception^ = make_native_error(ctx, "RangeError", "Failed to set 'textContent': out of memory.")
+		return dom_undefined(ctx)
+	}
+
+	scripts_children_changed(call.dom, call.node)
 	return dom_undefined(ctx)
 }
 
@@ -1030,7 +1079,36 @@ dom_insert_before_cb :: proc "c" (
 		return jsc.JSValueMakeNumber(ctx, f64(html.Mutation_Error.Failed))
 	}
 
-	return jsc.JSValueMakeNumber(ctx, f64(html.insert_before(call.node, node, dom_arg_node(call, 1))))
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+	inserted := dom_inserted_roots(node)
+	code := html.insert_before(call.node, node, dom_arg_node(call, 1))
+
+	// After the tree holds them: an inserted script runs now (or is queued), and the
+	// parent's children changed (page_script.odin).
+	if code == .None {
+		scripts_inserted(call.dom, call.node, inserted)
+	}
+
+	return jsc.JSValueMakeNumber(ctx, f64(code))
+}
+
+// dom_inserted_roots lists what inserting `node` puts in the tree: its children for a
+// document fragment (which empties), `node` itself otherwise. In the temp arena.
+@(private = "file")
+dom_inserted_roots :: proc(node: html.Node) -> []html.Node {
+	if html.node_type(node) != .Document_Fragment {
+		roots := make([]html.Node, 1, context.temp_allocator)
+		roots[0] = node
+		return roots
+	}
+
+	roots := make([dynamic]html.Node, 0, 4, context.temp_allocator)
+
+	for child := html.first_child(node); child != nil; child = html.next_sibling(child) {
+		append(&roots, child)
+	}
+
+	return roots[:]
 }
 
 dom_remove_child_cb :: proc "c" (
@@ -1066,10 +1144,21 @@ dom_replace_child_cb :: proc "c" (
 		return dom_undefined(ctx)
 	}
 
-	return jsc.JSValueMakeNumber(
-		ctx,
-		f64(html.replace_child(call.node, dom_arg_node(call, 0), dom_arg_node(call, 1))),
-	)
+	node := dom_arg_node(call, 0)
+
+	if node == nil {
+		return jsc.JSValueMakeNumber(ctx, f64(html.Mutation_Error.Failed))
+	}
+
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+	inserted := dom_inserted_roots(node)
+	code := html.replace_child(call.node, node, dom_arg_node(call, 1))
+
+	if code == .None {
+		scripts_inserted(call.dom, call.node, inserted)
+	}
+
+	return jsc.JSValueMakeNumber(ctx, f64(code))
 }
 
 dom_remove_cb :: proc "c" (
@@ -1138,6 +1227,7 @@ dom_clone_cb :: proc "c" (
 		return dom_undefined(ctx)
 	}
 
+	scripts_cloned(call.dom, call.node, copied, deep)
 	return dom_wrap(ctx, call.dom, copied)
 }
 
@@ -1197,12 +1287,21 @@ dom_set_attribute_cb :: proc "c" (
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	call, ok := dom_enter(ctx, argc, argv, exception)
 
-	if ok {
-		name := dom_attr_name(call.node, dom_arg_string(call, 0))
+	if !ok {
+		return dom_undefined(ctx)
+	}
 
-		if !html.set_attr(call.node, name, dom_arg_string(call, 1)) {
-			exception^ = make_native_error(ctx, "RangeError", "Failed to execute 'setAttribute' on 'Element': out of memory.")
-		}
+	name := dom_attr_name(call.node, dom_arg_string(call, 0))
+	_, had_src := html.attr_view(call.node, "src")
+
+	if !html.set_attr(call.node, name, dom_arg_string(call, 1)) {
+		exception^ = make_native_error(ctx, "RangeError", "Failed to execute 'setAttribute' on 'Element': out of memory.")
+		return dom_undefined(ctx)
+	}
+
+	// A src on a script that had none may start it (page_script.odin).
+	if name == "src" && !had_src {
+		scripts_src_set(call.dom, call.node)
 	}
 
 	return dom_undefined(ctx)
@@ -1285,10 +1384,22 @@ dom_set_inner_html_cb :: proc "c" (
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	call, ok := dom_enter(ctx, argc, argv, exception)
 
-	if ok && !html.set_inner_html(call.node, dom_arg_string(call, 0)) {
-		exception^ = make_native_error(ctx, "RangeError", "Failed to set 'innerHTML': the fragment could not be parsed.")
+	if !ok {
+		return dom_undefined(ctx)
 	}
 
+	if !html.set_inner_html(call.node, dom_arg_string(call, 0)) {
+		exception^ = make_native_error(
+			ctx,
+			"RangeError",
+			"Failed to set 'innerHTML': the fragment could not be parsed.",
+		)
+		return dom_undefined(ctx)
+	}
+
+	// The fragment parser's scripts never run; the element's own children changed.
+	scripts_parsed_inert(call.dom, call.node)
+	scripts_children_changed(call.dom, call.node)
 	return dom_undefined(ctx)
 }
 
@@ -1562,6 +1673,46 @@ dom_create_fragment_cb :: proc "c" (
 	}
 
 	return dom_created(call, exception, html.create_fragment(call.node), "createDocumentFragment")
+}
+
+// document.currentScript: the script element page_script.odin is running, or null.
+dom_current_script_cb :: proc "c" (
+	ctx: jsc.JSContextRef,
+	function: jsc.JSObjectRef,
+	this_object: jsc.JSObjectRef,
+	argc: c.size_t,
+	argv: [^]jsc.JSValueRef,
+	exception: ^jsc.JSValueRef,
+) -> jsc.JSValueRef {
+	context = runtime.default_context()
+	call, ok := dom_enter(ctx, argc, argv, exception)
+
+	if !ok {
+		return dom_undefined(ctx)
+	}
+
+	return dom_wrap(ctx, call.dom, call.dom.scripts.current)
+}
+
+// document.write(text): the text internal/dom joined, written at the insertion point
+// and parsed there (page_script.odin scripts_write).
+dom_write_cb :: proc "c" (
+	ctx: jsc.JSContextRef,
+	function: jsc.JSObjectRef,
+	this_object: jsc.JSObjectRef,
+	argc: c.size_t,
+	argv: [^]jsc.JSValueRef,
+	exception: ^jsc.JSValueRef,
+) -> jsc.JSValueRef {
+	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+	call, ok := dom_enter(ctx, argc, argv, exception)
+
+	if ok {
+		scripts_write(call.dom, dom_arg_string(call, 0))
+	}
+
+	return dom_undefined(ctx)
 }
 
 // dom_created wraps a node a create* native made; a nil node is the receiver not being

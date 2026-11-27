@@ -1,0 +1,30 @@
+# exit 0
+<!DOCTYPE html><html><head><title>module scripts</title>
+<script>
+var order = [];
+function name(n) {
+  return n === null ? 'null' : n === document ? 'document' : n === window ? 'window' : n.nodeName + (n.id ? '#' + n.id : '');
+}
+document.addEventListener('DOMContentLoaded', function () {
+  order.push('DOMContentLoaded');
+});
+</script>
+<script id="m1" type="module">
+order.push('inline module current=' + name(document.currentScript) + ' ' + document.readyState + ' this=' + typeof this);
+</script>
+<script id="m2" type="module" src="dom-script-module.page.1.js"></script>
+<script id="fallback" nomodule="">order.push('nomodule (never)');</script>
+<script id="classic">order.push('classic ' + document.readyState);</script>
+</head>
+<body>
+<pre id="log">classic loading
+DOMContentLoaded
+</pre>
+<script>
+window.addEventListener('load', function () {
+  document.getElementById('log').textContent = order.join('\n') + '\n';
+});
+</script>
+
+
+</body></html>
