@@ -1,0 +1,217 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-dom.mjs site-legacy-latin1.nav
+# ---
+#tree
+| <html>
+|   <head>
+|     "
+"
+|     <meta>
+|       http-equiv="Content-Type"
+|       content="text/html; charset=iso-8859-1"
+|     "
+"
+|     <title>
+|       "Bienvenue sur la page de Jean-François"
+|     "
+"
+|     <meta>
+|       name="Generator"
+|       content="Microsoft FrontPage 4.0"
+|     "
+"
+|   "
+"
+|   <body>
+|     bgcolor="#FFFFFF"
+|     text="#000000"
+|     link="#0000FF"
+|     vlink="#800080"
+|     onload="init()"
+|     "
+"
+|     <center>
+|       <font>
+|         face="Arial"
+|         size="5"
+|         color="navy"
+|         <b>
+|           "Bienvenue !"
+|     "
+"
+|     <p>
+|       "Dernière mise à jour : 12/03/1999
+"
+|       <table>
+|         width="600"
+|         border="0"
+|         cellpadding="4"
+|         cellspacing="0"
+|         align="center"
+|         "
+"
+|         <tbody>
+|           <tr>
+|             "
+"
+|             <td>
+|               width="150"
+|               valign="top"
+|               bgcolor="#EEEEEE"
+|               "
+"
+|               <font>
+|                 face="Verdana"
+|                 size="2"
+|                 "
+"
+|                 <a>
+|                   href="index.htm"
+|                   "Accueil"
+|                 <br>
+|                 "
+"
+|                 <a>
+|                   href="photos.htm"
+|                   "Mes photos"
+|                 <br>
+|                 "
+"
+|                 <a>
+|                   href="liens.htm"
+|                   "Liens"
+|                 <br>
+|                 "
+"
+|                 <img>
+|                   src="images/construction.gif"
+|                   width="40"
+|                   height="38"
+|                   border="0"
+|                   alt="En construction"
+|                 "
+"
+|               "
+"
+|             <td>
+|               valign="top"
+|               "
+"
+|               <font>
+|                 face="Verdana"
+|                 size="2"
+|                 "
+"
+|                 <p>
+|                   "Ceci est ma page personnelle. Vous y trouverez des photos de vacances à Noël, en Île-de-France et ailleurs.
+"
+|                 <p>
+|                   "N'hésitez pas à signer mon "
+|                   <a>
+|                     href="mailto:jf@example.fr"
+|                     "livre d'or"
+|                   " « merci » !
+"
+|                 <ul>
+|                   "
+"
+|                   <li>
+|                     "Météo : ensoleillé
+"
+|                   <li>
+|                     "Température : 23°C
+"
+|                   <li>
+|                     "Prix : 15 FF - soit environ 2,29 EUR
+"
+|                 "
+"
+|                 <hr>
+|                   size="1"
+|                   noshade=""
+|                 "
+"
+|                 <map>
+|                   name="nav"
+|                   <area>
+|                     shape="rect"
+|                     coords="0,0,50,20"
+|                     href="index.htm"
+|                     alt="Accueil"
+|                 "
+"
+|                 <img>
+|                   src="images/barre.gif"
+|                   usemap="#nav"
+|                   border="0"
+|                 "
+"
+|               "
+"
+|       "
+"
+|     <p>
+|       align="center"
+|       <font>
+|         size="1"
+|         "Vous êtes le visiteur n° "
+|         <img>
+|           src="/cgi-bin/compteur.pl"
+|           alt="compteur"
+|       "
+"
+|       <script>
+|         language="JavaScript"
+|         "
+<!--
+function init() { if (document.images) { window.status = "Bonne visite !"; } }
+// -->
+"
+|       "
+
+
+"
+#serialize
+<html><head>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<title>Bienvenue sur la page de Jean-François</title>
+<meta name="Generator" content="Microsoft FrontPage 4.0">
+</head>
+<body bgcolor="#FFFFFF" text="#000000" link="#0000FF" vlink="#800080" onload="init()">
+<center><font face="Arial" size="5" color="navy"><b>Bienvenue !</b></font></center>
+<p>Dernière mise à jour : 12/03/1999
+<table width="600" border="0" cellpadding="4" cellspacing="0" align="center">
+<tbody><tr>
+<td width="150" valign="top" bgcolor="#EEEEEE">
+<font face="Verdana" size="2">
+<a href="index.htm">Accueil</a><br>
+<a href="photos.htm">Mes photos</a><br>
+<a href="liens.htm">Liens</a><br>
+<img src="images/construction.gif" width="40" height="38" border="0" alt="En construction">
+</font>
+</td><td valign="top">
+<font face="Verdana" size="2">
+<p>Ceci est ma page personnelle. Vous y trouverez des photos de vacances à Noël, en Île-de-France et ailleurs.
+</p><p>N'hésitez pas à signer mon <a href="mailto:jf@example.fr">livre d'or</a> «&nbsp;merci&nbsp;» !
+</p><ul>
+<li>Météo : ensoleillé
+</li><li>Température : 23°C
+</li><li>Prix : 15 FF - soit environ 2,29 EUR
+</li></ul>
+<hr size="1" noshade="">
+<map name="nav"><area shape="rect" coords="0,0,50,20" href="index.htm" alt="Accueil"></map>
+<img src="images/barre.gif" usemap="#nav" border="0">
+</font>
+</td></tr></tbody></table>
+</p><p align="center"><font size="1">Vous êtes le visiteur n° <img src="/cgi-bin/compteur.pl" alt="compteur"></font>
+<script language="JavaScript">
+<!--
+function init() { if (document.images) { window.status = "Bonne visite !"; } }
+// -->
+</script>
+
+
+</p></body></html>

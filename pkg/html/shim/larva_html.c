@@ -1,9 +1,11 @@
 #include <lexbor/css/css.h>
 #include <lexbor/dom/dom.h>
+#include <lexbor/encoding/encoding.h>
 #include <lexbor/html/html.h>
 #include <lexbor/selectors/selectors.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <string.h>
 
 typedef struct {
 	lxb_html_tokenizer_token_f orig;
@@ -17,6 +19,18 @@ typedef struct {
 	lxb_css_parser_t *parser;
 	lxb_selectors_t *selectors;
 } larva_css;
+
+// Where larva_html_sniff found the encoding; pkg/html/encoding.odin's Encoding_Source
+// mirrors the values.
+enum {
+	LARVA_ENC_BOM = 1,
+	LARVA_ENC_TRANSPORT = 2,
+	LARVA_ENC_META = 3,
+	LARVA_ENC_DEFAULT = 4,
+};
+
+// Receives decoded UTF-8; returns false to stop the decode (the sink could not grow).
+typedef bool (*larva_html_write_f)(void *ctx, const lxb_char_t *data, size_t len);
 
 typedef bool (*larva_css_found_f)(lxb_dom_node_t *node, void *ctx);
 
@@ -117,8 +131,10 @@ typedef struct {
 	size_t value;
 } larva_html_layout_entry;
 
-#define LARVA_OFF(key, type, field) {key, offsetof(type, field)}
-#define LARVA_VAL(key, v) {key, (size_t)(v)}
+#define LARVA_OFF(key, type, field)                                                                                    \
+	{ key, offsetof(type, field) }
+#define LARVA_VAL(key, v)                                                                                              \
+	{ key, (size_t)(v) }
 
 static const larva_html_layout_entry larva_layout[] = {
 	LARVA_VAL("node.size", sizeof(lxb_dom_node_t)),
@@ -337,4 +353,172 @@ bool larva_css_find(larva_css *e, lxb_dom_node_t *root, const lxb_css_selector_l
 	larva_css_find_ctx f = {found, ctx};
 	lxb_status_t st = lxb_selectors_find(e->selectors, root, list, larva_css_found, &f);
 	return st == LXB_STATUS_OK || st == LXB_STATUS_STOP || st == LXB_STATUS_STOPPED;
+}
+
+// The HTML standard's encoding sniffing algorithm (#determining-the-character-encoding),
+// the steps a navigation runs, over lexbor's encoding module: a BOM, then the transport
+// layer's charset `label` (Content-Type), then the <meta> prescan of the first 1024
+// bytes, then the default. `*skip` is how many BOM bytes to drop before decoding.
+// NULL only when lexbor could not allocate the prescan's state.
+//
+// What the spec has between the prescan and the default is left out on purpose: the
+// parent document's encoding (an iframe inherits it; tests/dom's recorder makes that
+// windows-1252, the default, so it is invisible) and the user's locale and content
+// detection, which Chrome 158 does not apply to an unlabeled HTTP page — recorded:
+// tests/dom/cases/charset-default-utf8-bytes.nav.html decodes as windows-1252.
+const lxb_encoding_data_t *larva_html_sniff(const lxb_char_t *data, size_t len, const lxb_char_t *label,
+											size_t label_len, size_t *skip, int *source) {
+	*skip = 0;
+	lxb_encoding_t bom = lxb_encoding_bom_sniff(data, len);
+
+	if (bom != LXB_ENCODING_DEFAULT) {
+		*skip = bom == LXB_ENCODING_UTF_8 ? 3 : 2;
+		*source = LARVA_ENC_BOM;
+		return lxb_encoding_data(bom);
+	}
+
+	// An unknown label is ignored, as if the transport had named none.
+	if (label_len > 0) {
+		const lxb_encoding_data_t *t = lxb_encoding_data_by_pre_name(label, label_len);
+
+		if (t != NULL) {
+			*source = LARVA_ENC_TRANSPORT;
+			return t;
+		}
+	}
+
+	lxb_html_encoding_t em;
+
+	if (lxb_html_encoding_init(&em) != LXB_STATUS_OK) {
+		lxb_html_encoding_destroy(&em, false);
+		return NULL;
+	}
+
+	size_t n = 0;
+	const lxb_char_t *name = lxb_html_encoding_prescan(&em, data, data + (len < 1024 ? len : 1024), &n);
+
+	// Chrome 158 goes on looking past the spec's 1024 bytes for as long as the head
+	// lasts: a <meta charset> after 1100 bytes of comment, or after 5 KB of <style>, still
+	// decides, one after `<body>` does not (charset-meta-late{,-far,-body}.nav). Blink
+	// tokenizes up to the first tag that is not head content; the end of the prescan here
+	// is the first `<body` instead, a cheaper stand-in that agrees on those recordings
+	// and differs on a page with no <body> tag whose late <meta> follows body content.
+	if (name == NULL && len > 1024) {
+		size_t limit = len;
+
+		for (size_t i = 0; i + 5 <= len; i++) {
+			if (data[i] == '<' && (data[i + 1] | 0x20) == 'b' && (data[i + 2] | 0x20) == 'o' &&
+				(data[i + 3] | 0x20) == 'd' && (data[i + 4] | 0x20) == 'y') {
+				limit = i;
+				break;
+			}
+		}
+
+		if (limit > 1024) {
+			lxb_html_encoding_clean(&em);
+			name = lxb_html_encoding_prescan(&em, data, data + limit, &n);
+		}
+	}
+
+	// prescan_validate is the spec's last prescan step: utf-16be/le name UTF-8 there and
+	// x-user-defined windows-1252. The name may point into `em`, so validate first.
+	const lxb_encoding_data_t *meta = name != NULL ? lxb_encoding_data_prescan_validate(name, n) : NULL;
+	lxb_html_encoding_destroy(&em, false);
+
+	if (meta != NULL) {
+		*source = LARVA_ENC_META;
+		return meta;
+	}
+
+	*source = LARVA_ENC_DEFAULT;
+	return lxb_encoding_data(LXB_ENCODING_WINDOWS_1252);
+}
+
+// The encoding's WHATWG name, as `document.characterSet` reports it (lexbor's table).
+const lxb_char_t *larva_html_encoding_name(const lxb_encoding_data_t *enc, size_t *len) {
+	*len = strlen((const char *)enc->name);
+	return enc->name;
+}
+
+// Decodes `data` from `enc` to UTF-8, handing the output to `write` a piece at a time.
+// Malformed input decodes to U+FFFD, as the spec's "decode" does; the BOM is the
+// caller's to skip (larva_html_sniff says how much). Returns false when `write` refused
+// a piece or lexbor's decoder failed.
+//
+// Two fixed stack buffers, codepoints then UTF-8, rather than an output sized up front:
+// the bound on expansion differs per encoding (one windows-1252 byte is up to 3 UTF-8
+// bytes, a replacement for one bad byte too), and the sink grows as Odin's allocator
+// lets it.
+bool larva_html_decode(const lxb_encoding_data_t *enc, const lxb_char_t *data, size_t len, larva_html_write_f write,
+					   void *ctx) {
+	static const lxb_codepoint_t replacement[] = {LXB_ENCODING_REPLACEMENT_CODEPOINT};
+	lxb_codepoint_t cps[1024];
+	lxb_char_t out[sizeof(cps) / sizeof(cps[0]) * 4];
+	lxb_encoding_decode_t dec;
+
+	if (lxb_encoding_decode_init(&dec, enc, cps, sizeof(cps) / sizeof(cps[0])) != LXB_STATUS_OK ||
+		lxb_encoding_decode_replace_set(&dec, replacement, 1) != LXB_STATUS_OK) {
+		return false;
+	}
+
+	const lxb_char_t *p = data;
+	const lxb_char_t *end = data + len;
+	bool more = true;
+	bool finished = false;
+
+	while (more) {
+		lxb_status_t st;
+
+		if (!finished) {
+			st = enc->decode(&dec, &p, end);
+
+			if (st == LXB_STATUS_OK) {
+				finished = true;
+				// The end of input: a sequence left incomplete becomes one U+FFFD.
+				st = lxb_encoding_decode_finish(&dec);
+			}
+		} else {
+			st = lxb_encoding_decode_finish(&dec);
+		}
+
+		if (st != LXB_STATUS_OK && st != LXB_STATUS_SMALL_BUFFER) {
+			return false;
+		}
+
+		more = st == LXB_STATUS_SMALL_BUFFER;
+		size_t used = 0;
+
+		for (size_t i = 0; i < dec.buffer_used; i++) {
+			lxb_char_t *o = out + used;
+			lxb_codepoint_t cp = cps[i];
+
+			if (cp < 0x80) {
+				o[0] = (lxb_char_t)cp;
+				used += 1;
+			} else if (cp < 0x800) {
+				o[0] = (lxb_char_t)(0xC0 | (cp >> 6));
+				o[1] = (lxb_char_t)(0x80 | (cp & 0x3F));
+				used += 2;
+			} else if (cp < 0x10000) {
+				o[0] = (lxb_char_t)(0xE0 | (cp >> 12));
+				o[1] = (lxb_char_t)(0x80 | ((cp >> 6) & 0x3F));
+				o[2] = (lxb_char_t)(0x80 | (cp & 0x3F));
+				used += 3;
+			} else {
+				o[0] = (lxb_char_t)(0xF0 | (cp >> 18));
+				o[1] = (lxb_char_t)(0x80 | ((cp >> 12) & 0x3F));
+				o[2] = (lxb_char_t)(0x80 | ((cp >> 6) & 0x3F));
+				o[3] = (lxb_char_t)(0x80 | (cp & 0x3F));
+				used += 4;
+			}
+		}
+
+		dec.buffer_used = 0;
+
+		if (used > 0 && !write(ctx, out, used)) {
+			return false;
+		}
+	}
+
+	return true;
 }

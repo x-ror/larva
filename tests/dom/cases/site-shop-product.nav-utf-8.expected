@@ -1,0 +1,306 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-dom.mjs site-shop-product.nav-utf-8
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   lang="fr"
+|   <head>
+|     "
+"
+|     <meta>
+|       http-equiv="X-UA-Compatible"
+|       content="IE=edge"
+|     "
+"
+|     <meta>
+|       charset="utf-8"
+|     "
+"
+|     <title>
+|       "Chaussures de randonnée Alpina 2 — Boutique Exemple"
+|     "
+"
+|     <script>
+|       type="application/json"
+|       id="__PRODUCT__"
+|       "{"sku":"ALP-2-42","price":129.9,"currency":"EUR","note":"<\/script> stays inside"}"
+|     "
+"
+|     <base>
+|       href="/fr/"
+|     "
+"
+|   "
+"
+|   <body>
+|     itemscope=""
+|     itemtype="https://schema.org/Product"
+|     "
+"
+|     <div>
+|       class="banner"
+|       role="region"
+|       aria-label="Promotion"
+|       "Livraison offerte dès 50 € !"
+|     "
+"
+|     <nav>
+|       class="breadcrumb"
+|       <a>
+|         href="/"
+|         "Accueil"
+|       " › "
+|       <a>
+|         href="/fr/homme"
+|         "Homme"
+|       " › "
+|       <span>
+|         itemprop="name"
+|         "Alpina 2"
+|     "
+"
+|     <section>
+|       class="product"
+|       "
+  "
+|       <div>
+|         class="gallery"
+|         "
+    "
+|         <img>
+|           src="alpina-2-a.jpg"
+|           alt="Alpina 2, vue de profil"
+|           itemprop="image"
+|         "
+    "
+|         <img>
+|           src="alpina-2-b.jpg"
+|           alt=""
+|         "
+  "
+|       "
+  "
+|       <div>
+|         class="buy-box"
+|         "
+    "
+|         <h1>
+|           itemprop="name"
+|           "Chaussures de randonnée Alpina 2"
+|         "
+    "
+|         <p>
+|           class="price"
+|           itemprop="offers"
+|           itemscope=""
+|           itemtype="https://schema.org/Offer"
+|           <span>
+|             itemprop="price"
+|             content="129.90"
+|             "129,90 €"
+|           " "
+|           <s>
+|             "159,00 €"
+|         "
+    "
+|         <form>
+|           action="/cart/add"
+|           method="post"
+|           class="add-to-cart"
+|           "
+      "
+|           <input>
+|             type="hidden"
+|             name="sku"
+|             value="ALP-2"
+|           "
+      "
+|           <label>
+|             "Pointure
+        "
+|             <select>
+|               name="size"
+|               required=""
+|               "
+          "
+|               <option>
+|                 value=""
+|                 "Choisir…
+          "
+|               <option>
+|                 value="41"
+|                 "41
+          "
+|               <option>
+|                 value="42"
+|                 selected=""
+|                 "42
+          "
+|               <optgroup>
+|                 label="Grandes tailles"
+|                 <option>
+|                   value="46"
+|                   "46"
+|                 <option>
+|                   value="47"
+|                   disabled=""
+|                   "47 (épuisé)"
+|               "
+        "
+|             "
+      "
+|           "
+      "
+|           <label>
+|             <input>
+|               type="checkbox"
+|               name="gift"
+|               value="1"
+|             " Emballage cadeau"
+|           "
+      "
+|           <button>
+|             type="submit"
+|             class="btn btn--primary"
+|             "Ajouter au panier"
+|           "
+    "
+|         "
+    "
+|         <details>
+|           <summary>
+|             "Caractéristiques"
+|           "
+      "
+|           <table>
+|             class="specs"
+|             "
+        "
+|             <tbody>
+|               <tr>
+|                 <th>
+|                   scope="row"
+|                   "Poids"
+|                 <td>
+|                   "480 g"
+|               "
+        "
+|               <tr>
+|                 <th>
+|                   scope="row"
+|                   "Matière"
+|                 <td>
+|                   "Cuir & textile"
+|               "
+        "
+|               <tr>
+|                 <th>
+|                   scope="row"
+|                   "Imperméable"
+|                 <td>
+|                   "Oui ✓"
+|                 "
+      "
+|           "
+    "
+|         "
+  "
+|       "
+"
+|     "
+"
+|     <template>
+|       id="review-tpl"
+|       content
+|         <li>
+|           class="review"
+|           <span>
+|             class="stars"
+|           <p>
+|             class="text"
+|     "
+"
+|     <ul>
+|       class="reviews"
+|       data-count="2"
+|       "
+  "
+|       <li>
+|         class="review"
+|         <span>
+|           class="stars"
+|           aria-label="5 sur 5"
+|           "★★★★★"
+|         <p>
+|           class="text"
+|           "Très confortables dès la première sortie."
+|       "
+  "
+|       <li>
+|         class="review"
+|         <span>
+|           class="stars"
+|           aria-label="4 sur 5"
+|           "★★★★☆"
+|         <p>
+|           class="text"
+|           "Taille un peu petit."
+|       "
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html lang="fr"><head>
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta charset="utf-8">
+<title>Chaussures de randonnée Alpina 2 — Boutique Exemple</title>
+<script type="application/json" id="__PRODUCT__">{"sku":"ALP-2-42","price":129.9,"currency":"EUR","note":"<\/script> stays inside"}</script>
+<base href="/fr/">
+</head>
+<body itemscope="" itemtype="https://schema.org/Product">
+<div class="banner" role="region" aria-label="Promotion">Livraison offerte dès 50&nbsp;€ !</div>
+<nav class="breadcrumb"><a href="/">Accueil</a> › <a href="/fr/homme">Homme</a> › <span itemprop="name">Alpina 2</span></nav>
+<section class="product">
+  <div class="gallery">
+    <img src="alpina-2-a.jpg" alt="Alpina 2, vue de profil" itemprop="image">
+    <img src="alpina-2-b.jpg" alt="">
+  </div>
+  <div class="buy-box">
+    <h1 itemprop="name">Chaussures de randonnée Alpina&nbsp;2</h1>
+    <p class="price" itemprop="offers" itemscope="" itemtype="https://schema.org/Offer"><span itemprop="price" content="129.90">129,90&nbsp;€</span> <s>159,00 €</s></p>
+    <form action="/cart/add" method="post" class="add-to-cart">
+      <input type="hidden" name="sku" value="ALP-2">
+      <label>Pointure
+        <select name="size" required="">
+          <option value="">Choisir…
+          </option><option value="41">41
+          </option><option value="42" selected="">42
+          </option><optgroup label="Grandes tailles"><option value="46">46</option><option value="47" disabled="">47 (épuisé)</option></optgroup>
+        </select>
+      </label>
+      <label><input type="checkbox" name="gift" value="1"> Emballage cadeau</label>
+      <button type="submit" class="btn btn--primary">Ajouter au panier</button>
+    </form>
+    <details><summary>Caractéristiques</summary>
+      <table class="specs">
+        <tbody><tr><th scope="row">Poids</th><td>480&nbsp;g</td></tr>
+        <tr><th scope="row">Matière</th><td>Cuir &amp; textile</td></tr>
+        <tr><th scope="row">Imperméable</th><td>Oui ✓</td>
+      </tr></tbody></table>
+    </details>
+  </div>
+</section>
+<template id="review-tpl"><li class="review"><span class="stars"></span><p class="text"></p></li></template>
+<ul class="reviews" data-count="2">
+  <li class="review"><span class="stars" aria-label="5 sur 5">★★★★★</span><p class="text">Très confortables dès la première sortie.</p></li>
+  <li class="review"><span class="stars" aria-label="4 sur 5">★★★★☆</span><p class="text">Taille un peu petit.</p></li>
+</ul>
+
+
+</body></html>

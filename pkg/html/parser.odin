@@ -30,7 +30,8 @@ import "core:strings"
 // parse_all wraps that loop for input already in memory.
 //
 // Known limits:
-//   - Input is taken as UTF-8: no charset sniffing (BOM, <meta charset>, Content-Type).
+//   - Input is taken as UTF-8. A navigation's bytes go through decode_document
+//     (encoding.odin) first, whole: there is no streaming decoder yet.
 //   - Script nesting level and document.open (a write after the parse ended) are not
 //     modelled; write is refused once the document is done.
 //   - A `</script` split between written text and the input that follows it is not

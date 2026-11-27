@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta charset="utf-8">
+<title>Chaussures de randonnée Alpina 2 — Boutique Exemple</title>
+<script type="application/json" id="__PRODUCT__">{"sku":"ALP-2-42","price":129.9,"currency":"EUR","note":"<\/script> stays inside"}</script>
+<base href="/fr/">
+</head>
+<body itemscope itemtype="https://schema.org/Product">
+<div class="banner" role="region" aria-label="Promotion">Livraison offerte dès 50&nbsp;€ !</div>
+<nav class="breadcrumb"><a href="/">Accueil</a> › <a href="/fr/homme">Homme</a> › <span itemprop="name">Alpina 2</span></nav>
+<section class="product">
+  <div class="gallery">
+    <img src="alpina-2-a.jpg" alt="Alpina 2, vue de profil" itemprop="image">
+    <img src="alpina-2-b.jpg" alt="">
+  </div>
+  <div class="buy-box">
+    <h1 itemprop="name">Chaussures de randonnée Alpina&nbsp;2</h1>
+    <p class="price" itemprop="offers" itemscope itemtype="https://schema.org/Offer"><span itemprop="price" content="129.90">129,90&nbsp;€</span> <s>159,00 €</s></p>
+    <form action="/cart/add" method="post" class="add-to-cart">
+      <input type="hidden" name="sku" value="ALP-2">
+      <label>Pointure
+        <select name="size" required>
+          <option value="">Choisir…
+          <option value="41">41
+          <option value="42" selected>42
+          <optgroup label="Grandes tailles"><option value="46">46<option value="47" disabled>47 (épuisé)</optgroup>
+        </select>
+      </label>
+      <label><input type="checkbox" name="gift" value="1"> Emballage cadeau</label>
+      <button type="submit" class="btn btn--primary">Ajouter au panier</button>
+    </form>
+    <details><summary>Caractéristiques</summary>
+      <table class="specs">
+        <tr><th scope="row">Poids</th><td>480&nbsp;g</td></tr>
+        <tr><th scope="row">Matière</th><td>Cuir & textile</td></tr>
+        <tr><th scope="row">Imperméable</th><td>Oui ✓</td>
+      </table>
+    </details>
+  </div>
+</section>
+<template id="review-tpl"><li class="review"><span class="stars"></span><p class="text"></p></li></template>
+<ul class="reviews" data-count="2">
+  <li class="review"><span class="stars" aria-label="5 sur 5">★★★★★</span><p class="text">Très confortables dès la première sortie.</p></li>
+  <li class="review"><span class="stars" aria-label="4 sur 5">★★★★☆</span><p class="text">Taille un peu petit.</p></li>
+</ul>
+</body>
+</html>

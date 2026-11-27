@@ -19,6 +19,10 @@
 // Chrome in its own profile, so cases share nothing but the server; the html5lib
 // corpus (~1800 cases) takes minutes with it instead of a quarter of an hour. A name
 // ending in '-' selects every case it prefixes.
+//
+// A navigation case (`<topic>.nav[-<label>].html`, stage 3c) is recorded through a
+// page load instead of DOMParser: its bytes are served with its Content-Type into a
+// frame of the harness (dom-oracle.mjs navPage), so Chrome sniffs and decodes them.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -28,6 +32,10 @@ import {
   fragmentContext,
   inputProblem,
   listCases,
+  NAV_PAGE_TYPE,
+  navCharset,
+  navContentType,
+  navPage,
   splitViews,
 } from './lib/dom-oracle.mjs';
 import {
@@ -69,18 +77,30 @@ try {
 }
 
 const inputs = new Map();
+// A navigation case (navCharset) is a frame in its harness, served its bytes from
+// /raw/; every other case travels inside its harness page.
 const pageFor = (name) => {
   const input = inputs.get(name);
-  return input === undefined ? null : domPage(name, input, fragmentContext(name));
+  if (input === undefined) return null;
+  if (navCharset(name) !== null) return { type: NAV_PAGE_TYPE, body: navPage(name) };
+  return domPage(name, input, fragmentContext(name));
+};
+const rawFor = (name) => {
+  const input = inputs.get(name);
+  const charset = navCharset(name);
+  return input === undefined || charset === null
+    ? null
+    : { type: navContentType(charset), body: input };
 };
 
-const server = await startServer(CASES_DIR, { pageFor });
+const server = await startServer(CASES_DIR, { pageFor, rawFor });
 const date = new Date().toISOString().slice(0, 10);
 let failed = 0;
 
 const recordOne = async (name) => {
   const input = readFileSync(join(CASES_DIR, `${name}.html`));
-  const problem = inputProblem(input);
+  // A navigation case's bytes are the charset sniffing under test: any encoding goes.
+  const problem = navCharset(name) === null ? inputProblem(input) : null;
   if (problem) {
     failed++;
     console.error(`FAIL ${name}: the input ${problem}`);

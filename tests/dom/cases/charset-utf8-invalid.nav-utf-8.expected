@@ -1,0 +1,18 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-dom.mjs charset-utf8-invalid.nav-utf-8
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       "a�b�c�d���e�"
+|     "
+"
+#serialize
+<!DOCTYPE html><html><head></head><body><p>a�b�c�d���e�</p>
+</body></html>

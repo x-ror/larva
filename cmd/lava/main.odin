@@ -59,11 +59,13 @@ Usage:
                         --origin sets the page origin object URLs are minted
                         under (default: opaque, blob:null/<uuid>)
   lava html [--scripts] [--chunk N] [--select CSS] [--tree|--serialize]
-            [--fragment CTX] <file|->
+            [--fragment CTX] [--sniff|--charset LABEL] <file|->
                         Parse HTML and print the serialized document (or its
-                        html5lib-format tree, or a CTX element's innerHTML parse)
+                        html5lib-format tree, or a CTX element's innerHTML parse);
+                        input is UTF-8 unless --sniff determines its encoding as
+                        a navigation does (--charset: as served with that charset)
   lava fetch <url>      Fetch a page without JS; status and headers on stderr,
-                        the serialized HTML on stdout
+                        the serialized HTML on stdout, decoded per its charset
   lava --version        Print version
   lava --help           Print help
 
@@ -235,10 +237,16 @@ print_result :: proc(result: lava_runtime.Result, user_data: rawptr) {
 // Chrome. --fragment CTX parses the input as the innerHTML of a CTX element
 // (html.parse_fragment) and prints the views of its children; no script pauses there,
 // so it takes neither --scripts nor --chunk.
+//
+// The input is taken as UTF-8, as DOMParser takes a string — what tests/dom's DOMParser
+// cases compare against. --sniff decodes it as a navigation would instead
+// (html.decode_document: BOM, <meta> prescan, windows-1252), and --charset LABEL as if
+// it had been served with `Content-Type: text/html; charset=LABEL`; tests/dom's `.nav`
+// cases run with them. Neither applies to a fragment, which is a string in Chrome too.
 html_command :: proc(args: []string) {
 	usage :: proc() -> ! {
 		fmt.eprintln(
-			"usage: lava html [--scripts] [--chunk N] [--select CSS] [--tree|--serialize] [--fragment CTX] <file|->",
+			"usage: lava html [--scripts] [--chunk N] [--select CSS] [--tree|--serialize] [--fragment CTX] [--sniff|--charset LABEL] <file|->",
 		)
 		os.exit(2)
 	}
@@ -248,8 +256,8 @@ html_command :: proc(args: []string) {
 	}
 	opts: Html_Options
 	chunk := 0
-	path, css, fragment := "", "", ""
-	tree, serialize := false, false
+	path, css, fragment, charset := "", "", "", ""
+	tree, serialize, sniff := false, false, false
 	for i := 0; i < len(args); i += 1 {
 		switch a := args[i]; {
 		case a == "--scripts":
@@ -258,6 +266,17 @@ html_command :: proc(args: []string) {
 			tree = true
 		case a == "--serialize":
 			serialize = true
+		case a == "--sniff":
+			sniff = true
+		case a == "--charset":
+			i += 1
+
+			if i == len(args) || args[i] == "" {
+				usage()
+			}
+
+			charset = args[i]
+			sniff = true
 		case a == "--fragment":
 			i += 1
 
@@ -299,7 +318,7 @@ html_command :: proc(args: []string) {
 		usage()
 	}
 
-	if fragment != "" && (opts.list_scripts || chunk > 0) {
+	if fragment != "" && (opts.list_scripts || chunk > 0 || sniff) {
 		usage()
 	}
 
@@ -312,6 +331,18 @@ html_command :: proc(args: []string) {
 	if err != nil {
 		fmt.eprintfln("lava html: cannot read %s: %v", path, err)
 		os.exit(1)
+	}
+
+	if sniff {
+		text, _, decoded := html.decode_document(data, charset)
+
+		if !decoded {
+			fmt.eprintln("lava html: the input could not be decoded")
+			os.exit(1)
+		}
+
+		delete(data)
+		data = text
 	}
 
 	report :: proc(p: ^html.Parser, script: html.Node, user_data: rawptr) {
@@ -425,6 +456,12 @@ EXIT_USAGE :: 2
 // fetch_command loads a page over pkg/http with no JS engine involved, prints the
 // status line, final URL and headers on stderr, and the document re-serialized by
 // pkg/html on stdout. A body that is not HTML is written out as it came.
+//
+// pkg/http follows redirects and undoes the Content-Encoding (gzip, deflate, br, zstd);
+// an HTML body is then decoded per the sniffing algorithm with Content-Type's charset as
+// the transport label (html.decode_document), and the encoding chosen is reported on
+// stderr as `charset: <name> (<step>)`. The markup on stdout is always UTF-8, as
+// Chrome's serialization of the DOM is.
 fetch_command :: proc(args: []string) {
 	if len(args) != 1 || (len(args[0]) > 0 && args[0][0] == '-') {
 		fmt.eprintln("usage: lava fetch <url>")
@@ -469,10 +506,19 @@ print_fetched :: proc(resp: ^http.Response) -> int {
 		return 0
 	}
 
+	text, enc, decoded := html.decode_document(resp.body[:], http.charset(resp))
+	defer delete(text)
+
+	if !decoded {
+		fmt.eprintln("lava fetch: the body could not be decoded")
+		return EXIT_FETCH_FAILED
+	}
+
+	fmt.eprintfln("charset: %s (%v)", enc.name, enc.source)
 	p: html.Parser
 	defer html.destroy(&p)
 	markup: string
-	ok := html.init(&p) && html.parse_all(&p, resp.body[:])
+	ok := html.init(&p) && html.parse_all(&p, text)
 
 	if ok {
 		markup, ok = html.serialize(&p)

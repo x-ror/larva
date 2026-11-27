@@ -1,0 +1,23 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-dom.mjs charset-meta-http-equiv.nav
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <meta>
+|       http-equiv="Content-Type"
+|       content="text/html; charset=iso-8859-1"
+|     <title>
+|       "x"
+|   <body>
+|     <p>
+|       "€ café © ÿ"
+|     "
+"
+#serialize
+<!DOCTYPE html><html><head><meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1"><title>x</title></head><body><p>€ café © ÿ</p>
+</body></html>

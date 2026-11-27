@@ -1,0 +1,21 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-dom.mjs charset-meta-unquoted.nav
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <meta>
+|       content="text/html;charset=UTF-8"
+|       http-equiv="content-type"
+|   <body>
+|     <p>
+|       "naïve ✓"
+|     "
+"
+#serialize
+<!DOCTYPE html><html><head><meta content="text/html;charset=UTF-8" http-equiv="content-type"></head><body><p>naïve ✓</p>
+</body></html>
