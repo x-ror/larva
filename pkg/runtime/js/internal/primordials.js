@@ -421,7 +421,6 @@
     Map: Map,
     Set: Set,
     WeakMap: WeakMap,
-    // internal/storage's legacy platform objects (named properties).
     Proxy: Proxy,
     Symbol: Symbol,
     // The METHOD, not just the object. Capturing `Symbol` alone is not enough: `.for` is a
@@ -482,13 +481,15 @@
     ReflectOwnKeys: Reflect.ownKeys,
     ReflectGetPrototypeOf: Reflect.getPrototypeOf,
     ReflectConstruct: Reflect.construct,
-    // internal/storage's Proxy handler: the ordinary operation a trap falls back to.
-    ReflectHas: Reflect.has,
     ReflectGet: Reflect.get,
     ReflectSet: Reflect.set,
+    ReflectHas: Reflect.has,
     ReflectDefineProperty: Reflect.defineProperty,
     ReflectDeleteProperty: Reflect.deleteProperty,
     ReflectGetOwnPropertyDescriptor: Reflect.getOwnPropertyDescriptor,
+    // %GeneratorPrototype%.next, for a builtin that steps its own generator: a page can
+    // reach and replace the prototype's `next` through any generator of its own.
+    GeneratorPrototypeNext: Object.getPrototypeOf(function* () {}).prototype.next,
     JSONStringify: JSON.stringify,
     JSONParse: JSON.parse,
     MathTrunc: Math.trunc,
