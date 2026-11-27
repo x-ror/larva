@@ -24,10 +24,10 @@
     "global": 2
   },
   "internal/abort.js": {
-    "method": 6,
-    "invoke": 2,
+    "method": 0,
+    "invoke": 0,
     "accessor": 0,
-    "global": 5
+    "global": 2
   },
   "internal/base64.js": {
     "method": 2,
@@ -78,6 +78,12 @@
     "global": 0
   },
   "internal/errors.js": {
+    "method": 0,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 0
+  },
+  "internal/event_target.js": {
     "method": 0,
     "invoke": 0,
     "accessor": 0,

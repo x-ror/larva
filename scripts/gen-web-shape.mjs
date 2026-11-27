@@ -43,6 +43,7 @@ export const FAMILIES = {
     'ByteLengthQueuingStrategy',
     'CountQueuingStrategy',
   ],
+  events: ['EventTarget', 'Event', 'CustomEvent'],
   abort: ['AbortController', 'AbortSignal'],
   domexception: ['DOMException', 'QuotaExceededError'],
   operations: [
@@ -70,8 +71,6 @@ export const MISSING = [
   'ReadableStreamBYOBRequest',
   'CompressionStream',
   'DecompressionStream',
-  'EventTarget',
-  'Event',
   'SubtleCrypto',
   'CryptoKey',
   'Performance',

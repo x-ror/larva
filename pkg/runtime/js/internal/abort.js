@@ -1,16 +1,26 @@
 // AbortController / AbortSignal (WHATWG DOM standard, also used across Node).
-// Installed as globals like Buffer. AbortSignal is a minimal EventTarget that
-// only carries the "abort" event, which is all the platform uses it for.
+// Installed as globals at module-eval. AbortSignal derives from internal/event_target's
+// EventTarget and fires its `abort` event through that module's dispatch.
 (function (require, module, _exports) {
   'use strict';
 
   var ABORT = 'abort';
+  var P = require('internal/primordials');
   var DOMException = require('internal/domexception').DOMException;
+  var eventTarget = require('internal/event_target');
   var webErrors = require('internal/web_errors');
   var defineInterface = require('internal/native_shape').defineInterface;
+  var ArrayFrom = P.ArrayFrom;
+  var ArrayPrototypePush1 = P.ArrayPrototypePush1;
+  var TypeErrorP = P.TypeError;
+  var EventTargetImpl = eventTarget.EventTargetImpl;
+  var attachHandler = eventTarget.attachHandler;
+  var detachHandler = eventTarget.detachHandler;
+  var fireEvent = eventTarget.fireEvent;
   var web = webErrors.web;
   var typeError = webErrors.typeError;
   var pageError = webErrors.pageError;
+  var illegalInvocation = webErrors.illegalInvocation;
 
   // The default reasons are DOMExceptions on both surfaces — Chrome's and node's shape
   // alike (name AbortError/TimeoutError, legacy code 20/23, no own `code`). Only the text
@@ -36,122 +46,153 @@
     );
   }
 
-  // The implementation's constructor is never called: a page reaches native_shape's
-  // interface object, which refuses construction itself (`illegal`), and the platform
-  // mints signals through newSignal.
-  function AbortSignal() {
-    throw new TypeError('Illegal constructor');
-  }
+  // The platform mints signals through newSignal; a page reaches native_shape's
+  // interface object, which refuses construction itself (`illegal`), so the token
+  // check below only keeps internal code honest.
+  var INTERNAL = { __proto__: null };
 
-  // Internal constructor: AbortSignal is not directly constructable, so
-  // controllers and the static factories mint instances through here.
-  function newSignal() {
-    var signal = Object.create(AbortSignal.prototype);
-    signal._aborted = false;
-    signal._reason = undefined;
-    signal._listeners = [];
-    signal._onabort = null;
-    return signal;
-  }
+  // Brand readers and the abort steps, assigned in the static block below — the one
+  // place outside the class body that may name the private fields.
+  var isSignal;
+  var newSignal;
+  var abortedSignal;
+  var signalAborted;
+  var signalReason;
+  var signalAbort;
+  var addAbortAlgorithm;
+  var follow;
+  var readOnabort;
 
-  function fireAbort(signal) {
-    var event = { type: ABORT, target: signal, currentTarget: signal };
-    if (typeof signal._onabort === 'function') {
-      try {
-        signal._onabort.call(signal, event);
-      } catch (e) {
-        reportOrIgnore(e);
+  /**
+   * AbortSignal (DOM Standard §3.2): an EventTarget whose one event is `abort`.
+   * @node n/a — Chrome 158: tests/web/cases/abort-*.expected, shape-abort.expected and
+   *   events-target.expected (the `abort` event is trusted; `onabort` takes its place
+   *   in listener order when first set; a page's own `abort` Event runs the listeners
+   *   without aborting the signal).
+   * @deviates A signal from AbortSignal.any() follows the signals it was given, not
+   *   their own sources (the standard flattens a dependent source to its sources), and
+   *   a live source holds it strongly until that source aborts, where the standard
+   *   holds dependents weakly.
+   */
+  class AbortSignal extends EventTargetImpl {
+    #aborted = false;
+    #reason = undefined;
+    #onabort = null;
+    // The listener entry `onabort` occupies while it is non-null.
+    #handler = null;
+    // The standard's abort algorithms: internal steps run before the event fires (a
+    // listener's `signal` option).
+    #algorithms = [];
+    // Signals from AbortSignal.any() that abort with this one.
+    #dependents = null;
+
+    constructor(token) {
+      if (token !== INTERNAL) throw new TypeErrorP('Illegal constructor');
+      super();
+    }
+
+    get aborted() {
+      if (!isSignal(this)) throw illegalInvocation();
+      return this.#aborted;
+    }
+
+    get reason() {
+      if (!isSignal(this)) throw illegalInvocation();
+      return this.#reason;
+    }
+
+    get onabort() {
+      if (!isSignal(this)) throw illegalInvocation();
+      return this.#onabort;
+    }
+
+    set onabort(fn) {
+      if (!isSignal(this)) throw illegalInvocation();
+      this.#onabort = typeof fn === 'function' ? fn : null;
+      if (this.#onabort !== null && this.#handler === null) {
+        this.#handler = attachHandler(this, ABORT, readOnabort);
+      } else if (this.#onabort === null && this.#handler !== null) {
+        detachHandler(this, ABORT, this.#handler);
+        this.#handler = null;
       }
     }
-    var listeners = signal._listeners.slice();
-    for (var i = 0; i < listeners.length; i++) {
-      if (listeners[i].once) {
-        var at = signal._listeners.indexOf(listeners[i]);
-        if (at !== -1) signal._listeners.splice(at, 1);
-      }
-      try {
-        listeners[i].fn.call(signal, event);
-      } catch (e) {
-        reportOrIgnore(e);
-      }
-    }
-  }
 
-  // Node calls reportError() for listener throws; surface via console.error as a
-  // best-effort equivalent (keeps throw from silently swallowing or propagating).
-  function reportOrIgnore(e) {
-    if (typeof console !== 'undefined' && typeof console.error === 'function') {
-      console.error('Unhandled error in abort listener:', e);
+    throwIfAborted() {
+      if (!isSignal(this)) throw illegalInvocation();
+      if (this.#aborted) throw this.#reason;
     }
-  }
 
-  function runAbort(signal, reason) {
-    if (signal._aborted) return;
-    signal._aborted = true;
-    signal._reason = reason === undefined ? abortError() : reason;
-    fireAbort(signal);
-    // An aborted signal can never fire again: drop every listener so their
-    // closures (and anything they capture) become collectable immediately.
-    signal._listeners.length = 0;
-  }
+    static {
+      isSignal = function (o) {
+        return typeof o === 'object' && o !== null && #aborted in o;
+      };
+      newSignal = function () {
+        return new AbortSignal(INTERNAL);
+      };
+      abortedSignal = function (reason) {
+        var signal = new AbortSignal(INTERNAL);
+        signal.#aborted = true;
+        signal.#reason = reason === undefined ? abortError() : reason;
+        return signal;
+      };
+      signalAborted = function (signal) {
+        return signal.#aborted;
+      };
+      signalReason = function (signal) {
+        return signal.#reason;
+      };
+      readOnabort = function (signal) {
+        return signal.#onabort;
+      };
+      addAbortAlgorithm = function (signal, algorithm) {
+        if (!signal.#aborted) ArrayPrototypePush1(signal.#algorithms, algorithm);
+      };
+      follow = function (dependent, source) {
+        if (source.#dependents === null) source.#dependents = [];
+        ArrayPrototypePush1(source.#dependents, dependent);
+      };
+      // Algorithms are dropped once run: an aborted signal never runs them again, and
+      // what they close over (a listener's whole target) becomes collectable.
+      var runAbortSteps = function (signal) {
+        var algorithms = signal.#algorithms;
+        signal.#algorithms = [];
+        for (var i = 0; i < algorithms.length; i++) algorithms[i]();
+        fireEvent(signal, ABORT);
+      };
+      // The standard's "signal abort": the reason goes on the signal and on every
+      // dependent first; then each runs its abort steps (its algorithms, then the
+      // trusted `abort` event), the signal before its dependents.
+      signalAbort = function (signal, reason) {
+        if (signal.#aborted) return;
+        signal.#aborted = true;
+        signal.#reason = reason === undefined ? abortError() : reason;
+        var dependents = signal.#dependents;
+        signal.#dependents = null;
+        var toAbort = [];
+        if (dependents !== null) {
+          for (var i = 0; i < dependents.length; i++) {
+            var dependent = dependents[i];
+            if (dependent.#aborted) continue;
+            dependent.#aborted = true;
+            dependent.#reason = signal.#reason;
+            ArrayPrototypePush1(toAbort, dependent);
+          }
+        }
 
-  Object.defineProperty(AbortSignal.prototype, 'aborted', {
-    get: function () {
-      return this._aborted;
-    },
-    configurable: true,
-  });
-  Object.defineProperty(AbortSignal.prototype, 'reason', {
-    get: function () {
-      return this._reason;
-    },
-    configurable: true,
-  });
-  Object.defineProperty(AbortSignal.prototype, 'onabort', {
-    get: function () {
-      return this._onabort;
-    },
-    set: function (fn) {
-      this._onabort = typeof fn === 'function' ? fn : null;
-    },
-    configurable: true,
-  });
-  AbortSignal.prototype.throwIfAborted = function () {
-    if (this._aborted) throw this._reason;
-  };
-  function findListener(list, listener) {
-    for (var i = 0; i < list.length; i++) {
-      if (list[i].fn === listener) return i;
+        runAbortSteps(signal);
+        for (var j = 0; j < toAbort.length; j++) runAbortSteps(toAbort[j]);
+      };
     }
-    return -1;
   }
-  AbortSignal.prototype.addEventListener = function (type, listener, options) {
-    if (type !== ABORT || typeof listener !== 'function') return;
-    if (findListener(this._listeners, listener) === -1) {
-      this._listeners.push({ fn: listener, once: !!(options && options.once) });
-    }
-  };
-  AbortSignal.prototype.removeEventListener = function (type, listener) {
-    if (type !== ABORT) return;
-    var index = findListener(this._listeners, listener);
-    if (index !== -1) this._listeners.splice(index, 1);
-  };
-  AbortSignal.prototype.dispatchEvent = function (event) {
-    if (event && event.type === ABORT) fireAbort(this);
-    return true;
-  };
 
   AbortSignal.abort = function (reason) {
-    var signal = newSignal();
-    signal._aborted = true;
-    signal._reason = reason === undefined ? abortError() : reason;
-    return signal;
+    return abortedSignal(reason);
   };
 
   AbortSignal.timeout = function (delay) {
     var signal = newSignal();
     var timer = setTimeout(function () {
-      runAbort(signal, timeoutError());
+      signalAbort(signal, timeoutError());
     }, delay);
     if (timer && typeof timer.unref === 'function') timer.unref();
     return signal;
@@ -173,31 +214,20 @@
           : 'The object must have a callable @@iterator property.',
       );
     }
-    var combined = newSignal();
-    var list = Array.from(signals);
+    var list = ArrayFrom(signals);
     for (var i = 0; i < list.length; i++) {
-      if (list[i]._aborted) {
-        runAbort(combined, list[i]._reason);
-        return combined;
+      if (!isSignal(list[i])) {
+        throw typeError('AbortSignal', 'any', "Failed to convert value to 'AbortSignal'.");
       }
     }
-    // Keep per-source listeners so we can unsubscribe them all once the combined
-    // signal fires — prevents a leak on long-lived parent signals.
-    var handlers = [];
-    function onSourceAbort(source) {
-      return function () {
-        // Remove all handlers from all sources before triggering the combined abort.
-        for (var j = 0; j < list.length; j++) {
-          list[j].removeEventListener(ABORT, handlers[j]);
-        }
-        runAbort(combined, source._reason);
-      };
+
+    // A source already aborted gives a signal born aborted, with no event.
+    for (var j = 0; j < list.length; j++) {
+      if (signalAborted(list[j])) return abortedSignal(signalReason(list[j]));
     }
-    for (var k = 0; k < list.length; k++) {
-      var handler = onSourceAbort(list[k]);
-      handlers.push(handler);
-      list[k].addEventListener(ABORT, handler);
-    }
+
+    var combined = newSignal();
+    for (var k = 0; k < list.length; k++) follow(combined, list[k]);
     return combined;
   };
 
@@ -212,13 +242,12 @@
     }
 
     abort(reason) {
-      runAbort(this.#signal, reason);
+      signalAbort(this.#signal, reason);
     }
   }
 
   // The interface objects a page sees (internal/native_shape), in Blink's member order
-  // (Chrome 158, tests/web/cases/shape-abort.expected). AbortSignal's EventTarget
-  // methods are its own until EventTarget exists (a known gap of shape-abort).
+  // (Chrome 158, tests/web/cases/shape-abort.expected).
   var PublicAbortController = defineInterface({
     name: 'AbortController',
     impl: AbortController,
@@ -230,21 +259,18 @@
     impl: AbortSignal,
     length: 0,
     illegal: true,
+    parent: eventTarget.EventTarget,
     statics: ['abort:0', 'any:1', 'timeout:1'],
-    members: [
-      // EventTarget's, here until EventTarget exists; first, so Blink's own order
-      // follows them.
-      'addEventListener:2',
-      'removeEventListener:2',
-      'dispatchEvent:1',
-      'aborted',
-      'reason',
-      'onabort',
-      'throwIfAborted:0',
-      'constructor',
-      '@@toStringTag',
-    ],
+    members: ['aborted', 'reason', 'onabort', 'throwIfAborted:0', 'constructor', '@@toStringTag'],
   });
 
-  module.exports = { AbortController: PublicAbortController, AbortSignal: PublicAbortSignal };
+  module.exports = P.ObjectFreeze({
+    __proto__: null,
+    AbortController: PublicAbortController,
+    AbortSignal: PublicAbortSignal,
+    // For internal/event_target's `signal` option.
+    isSignal: isSignal,
+    signalAborted: signalAborted,
+    addAbortAlgorithm: addAbortAlgorithm,
+  });
 });

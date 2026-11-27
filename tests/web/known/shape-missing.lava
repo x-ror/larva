@@ -7,8 +7,6 @@ ReadableByteStreamController undefined
 ReadableStreamBYOBRequest undefined
 CompressionStream undefined
 DecompressionStream undefined
-EventTarget undefined
-Event undefined
 SubtleCrypto undefined
 CryptoKey undefined
 Performance undefined

@@ -1,0 +1,78 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs events-target
+# ---
+defaults ping false false false false    0 false true false number true 0
+own keys ["isTrusted"]
+isTrusted function true false shared true
+init 42 true true true
+undefined type undefined
+phases 0 1 2 3
+proto phase 2
+custom 1 null true
+tags [object Event] [object CustomEvent] [object EventTarget]
+Event dict bubbles,cancelable,composed
+CustomEvent dict bubbles,cancelable,composed,detail
+add dict capture,once,passive,signal
+remove dict capture
+dispatch returned true
+order [a:true:2:true:true,path:1:true,b,b,obj:true]
+after 0 true  0 true
+removed bubble b [a:true:2:true:true,path:1:true,b,obj:true]
+all removed []
+re-dispatch true
+late [late handleEvent]
+once [once,always,always]
+passive dispatch true
+passive [passive false]
+signal [signalled]
+mutate first [r1]
+mutate second [r1,added]
+cancelable false
+not cancelable true
+cancel [prevented true false,prevented false true]
+returnValue=false true false
+returnValue=true true
+stopImmediate [s1,cancelBubble true]
+cancelBubble after true
+stopPropagation [b1,b2]
+preset cancelBubble true
+preset cancelBubble [b1,b2]
+cancelBubble=false true
+initEvent second true true
+initCustomEvent d true det
+initEvent during dispatch [during during]
+subclass [x true true]
+signal is EventTarget true
+AbortSignal proto true
+fake abort true false
+fake abort [listener abort true false,onabort true,listener 2]
+real abort [listener abort true true,onabort true,listener 2]
+onabort non-function null
+Event(): TypeError TypeError "Failed to construct 'Event': Please use the 'new' operator, this DOM object constructor cannot be called as a function." own code false
+new Event(): TypeError TypeError "Failed to construct 'Event': 1 argument required, but only 0 present." own code false
+new Event(symbol): TypeError TypeError "Failed to construct 'Event': Cannot convert a Symbol value to a string" own code false
+new Event(x, 1): TypeError TypeError "Failed to construct 'Event': The provided value is not of type 'EventInit'." own code false
+EventTarget(): TypeError TypeError "Failed to construct 'EventTarget': Please use the 'new' operator, this DOM object constructor cannot be called as a function." own code false
+CustomEvent(): TypeError TypeError "Failed to construct 'CustomEvent': Please use the 'new' operator, this DOM object constructor cannot be called as a function." own code false
+new CustomEvent(): TypeError TypeError "Failed to construct 'CustomEvent': 1 argument required, but only 0 present." own code false
+new CustomEvent(x, 1): TypeError TypeError "Failed to construct 'CustomEvent': The provided value is not of type 'CustomEventInit'." own code false
+initCustomEvent on Event: TypeError TypeError "Illegal invocation" own code false
+addEventListener(): TypeError TypeError "Failed to execute 'addEventListener' on 'EventTarget': 2 arguments required, but only 1 present." own code false
+addEventListener(x, 1): TypeError TypeError "Failed to execute 'addEventListener' on 'EventTarget': parameter 2 is not of type 'Object'." own code false
+addEventListener(x, f, 1): no throw
+removeEventListener(): TypeError TypeError "Failed to execute 'removeEventListener' on 'EventTarget': 2 arguments required, but only 1 present." own code false
+removeEventListener(x, 1): TypeError TypeError "Failed to execute 'removeEventListener' on 'EventTarget': parameter 2 is not of type 'Object'." own code false
+addEventListener signal 1: TypeError TypeError "Failed to execute 'addEventListener' on 'EventTarget': Failed to read the 'signal' property from 'AddEventListenerOptions': Failed to convert value to 'AbortSignal'." own code false
+addEventListener signal null: TypeError TypeError "Failed to execute 'addEventListener' on 'EventTarget': Failed to read the 'signal' property from 'AddEventListenerOptions': Failed to convert value to 'AbortSignal'." own code false
+dispatchEvent(): TypeError TypeError "Failed to execute 'dispatchEvent' on 'EventTarget': 1 argument required, but only 0 present." own code false
+dispatchEvent({}): TypeError TypeError "Failed to execute 'dispatchEvent' on 'EventTarget': parameter 1 is not of type 'Event'." own code false
+addEventListener on {}: TypeError TypeError "Illegal invocation" own code false
+dispatchEvent on {}: TypeError TypeError "Illegal invocation" own code false
+type on {}: TypeError TypeError "Illegal invocation" own code false
+detail on Event: TypeError TypeError "Illegal invocation" own code false
+initEvent(): TypeError TypeError "Failed to execute 'initEvent' on 'Event': 1 argument required, but only 0 present." own code false
+re-dispatch while dispatching: DOMException InvalidStateError "Failed to execute 'dispatchEvent' on 'EventTarget': The event is already being dispatched." own code false
+dispatch on another target: DOMException InvalidStateError "Failed to execute 'dispatchEvent' on 'EventTarget': The event is already being dispatched." own code false
