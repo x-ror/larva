@@ -421,6 +421,7 @@
     Map: Map,
     Set: Set,
     WeakMap: WeakMap,
+    Proxy: Proxy,
     Symbol: Symbol,
     // The METHOD, not just the object. Capturing `Symbol` alone is not enough: `.for` is a
     // writable property on it, so a lazily-evaluated module reading `P.Symbol.for` at its
@@ -480,6 +481,15 @@
     ReflectOwnKeys: Reflect.ownKeys,
     ReflectGetPrototypeOf: Reflect.getPrototypeOf,
     ReflectConstruct: Reflect.construct,
+    ReflectGet: Reflect.get,
+    ReflectSet: Reflect.set,
+    ReflectHas: Reflect.has,
+    ReflectDefineProperty: Reflect.defineProperty,
+    ReflectDeleteProperty: Reflect.deleteProperty,
+    ReflectGetOwnPropertyDescriptor: Reflect.getOwnPropertyDescriptor,
+    // %GeneratorPrototype%.next, for a builtin that steps its own generator: a page can
+    // reach and replace the prototype's `next` through any generator of its own.
+    GeneratorPrototypeNext: Object.getPrototypeOf(function* () {}).prototype.next,
     JSONStringify: JSON.stringify,
     JSONParse: JSON.parse,
     MathTrunc: Math.trunc,
@@ -659,6 +669,16 @@
     // Note it still reads the receiver's `constructor` / Symbol.species, per spec — the
     // method is pristine, not the species lookup. Node's own primordial does the same.
     ArrayBufferPrototypeSlice: caller2(ArrayBuffer.prototype.slice),
+    // The Streams spec's TransferArrayBuffer and IsDetachedBuffer, for readable byte
+    // streams (webstreams/readablestream.js): every enqueue and BYOB read moves the
+    // caller's buffer, and the page's old handle must read as detached, as in Chrome
+    // (tests/web/cases/streams-bytes). Both are writable/configurable on the prototype,
+    // so a byte stream reading them live would let a page skip the detach — and keep a
+    // second handle on memory the stream has handed to another reader.
+    ArrayBufferPrototypeTransfer: caller0(ArrayBuffer.prototype.transfer),
+    ArrayBufferPrototypeGetDetached: safeGetter(
+      Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'detached').get,
+    ),
     ArrayBufferPrototypeGetByteLength: safeGetter(
       Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'byteLength').get,
     ),

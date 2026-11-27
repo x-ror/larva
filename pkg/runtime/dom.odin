@@ -154,8 +154,9 @@ Dom_Page :: struct {
 	wrappers:  map[html.Node]jsc.JSObjectRef,
 	// Each interface's prototype, from internal/dom's install; protected.
 	protos:    [Dom_Interface]jsc.JSObjectRef,
-	// internal/event_target's fireEvent, for the events the page loader fires; protected.
-	fire:      jsc.JSValueRef,
+	// internal/dom's advance, which moves the document's readiness on and fires its
+	// events (dom_advance); protected.
+	advance:   jsc.JSValueRef,
 }
 
 // dom_install creates the page's document and installs the DOM on the page's realm —
@@ -255,14 +256,14 @@ dom_install :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) -> string {
 		dom.protos[iface] = cast(jsc.JSObjectRef)proto
 	}
 
-	fire := get_named(ctx, cast(jsc.JSObjectRef)installed, "fire")
+	advance := get_named(ctx, cast(jsc.JSObjectRef)installed, "advance")
 
-	if fire == nil || !jsc.JSValueIsObject(ctx, fire) {
-		return "internal/dom answered no event dispatcher"
+	if advance == nil || !jsc.JSValueIsObject(ctx, advance) {
+		return "internal/dom answered no readiness step"
 	}
 
-	jsc.JSValueProtect(ctx, fire)
-	dom.fire = fire
+	jsc.JSValueProtect(ctx, advance)
+	dom.advance = advance
 	return ""
 }
 
@@ -291,7 +292,7 @@ dom_release :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) {
 		unprotect_before_eval_exit(ctx, cast(jsc.JSValueRef)proto)
 	}
 
-	unprotect_before_eval_exit(ctx, dom.fire)
+	unprotect_before_eval_exit(ctx, dom.advance)
 	html.selectors_destroy(&dom.selectors)
 	html.destroy(&dom.parser)
 
@@ -320,27 +321,69 @@ dom_document :: proc(state: ^Runtime_State) -> html.Node {
 	return html.document(&state.dom.parser)
 }
 
-// dom_fire dispatches a trusted event named `type` at `node`'s wrapper, propagating
-// through the tree (internal/event_target fireEvent).
+// Dom_Readiness is a document readiness the page loader moves the document to
+// (HTML's "current document readiness"; it starts `loading`).
+Dom_Readiness :: enum {
+	// The parse is done: readystatechange, then DOMContentLoaded at the document.
+	Interactive,
+	// The page's loop idled: readystatechange at the document, then `load` at the window.
+	Complete,
+}
+
+// dom_advance moves the document to `stage` and fires that change's events, one listener
+// per call into JS (internal/dom advance), so that JSC's microtask drain at the end of
+// each call is the checkpoint after each listener a browser has.
 //
 // Returns:
-//   false when the page has no DOM, the wrapper could not be made, or the dispatch threw
-//   (a listener's throw is reported by the dispatch itself and does not count).
-dom_fire :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State, node: html.Node, type: string, bubbles: bool) -> bool {
-	if state == nil || state.dom == nil || state.dom.fire == nil {
+//   false when the page has no DOM, or a step threw past the dispatch (a listener's
+//   throw is reported by the dispatch itself and does not count), or the page ended.
+// Chrome:
+//   Chrome 158, tests/dom/cases/dom-load.page: readyState and the order of
+//   readystatechange, DOMContentLoaded, load, and the microtasks between listeners.
+dom_advance :: proc(ctx: jsc.JSContextRef, page: ^Page, stage: Dom_Readiness) -> bool {
+	state := page.state
+
+	if state == nil || state.dom == nil || state.dom.advance == nil {
 		return false
 	}
 
-	target := dom_wrap(ctx, state.dom, node)
-
-	if !jsc.JSValueIsObject(ctx, target) {
-		return false
-	}
-
-	args := [3]jsc.JSValueRef{target, js_string_value(ctx, type), jsc.JSValueMakeBoolean(ctx, b32(bubbles))}
+	name := "interactive" if stage == .Interactive else "complete"
+	args := [1]jsc.JSValueRef{js_string_value(ctx, name)}
 	exception: jsc.JSValueRef
-	jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)state.dom.fire, nil, 3, raw_data(args[:]), &exception)
-	return exception == nil
+	vm_cpu_enter(page.vm)
+	step := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)state.dom.advance, nil, 1, raw_data(args[:]), &exception)
+	vm_cpu_exit(page.vm)
+
+	if exception != nil || step == nil || !jsc.JSValueIsObject(ctx, step) {
+		return false
+	}
+
+	// Our own root across the steps: each one can allocate, and so collect.
+	jsc.JSValueProtect(ctx, step)
+	defer jsc.JSValueUnprotect(ctx, step)
+
+	for {
+		if page.finished || page.state == nil || page.state.dom == nil {
+			return false
+		}
+
+		vm_cpu_enter(page.vm)
+		more := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)step, nil, 0, nil, &exception)
+		vm_cpu_exit(page.vm)
+
+		if ended, end := page_ended(page); ended {
+			page_fail(page, end)
+			return false
+		}
+
+		if exception != nil {
+			return false
+		}
+
+		if !jsc.JSValueToBoolean(ctx, more) {
+			return true
+		}
+	}
 }
 
 // dom_wrap returns `node`'s wrapper, making, recording and protecting it on first use;

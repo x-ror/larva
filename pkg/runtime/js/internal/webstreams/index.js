@@ -5,15 +5,13 @@
 // through this same ReadableStream type, so there is one stream implementation, not
 // a fetch-only fork. The loader instantiates this file before fetch.
 //
-// Scope: the default (chunk) ReadableStream
-// path is implemented in full — reader, async iteration, tee, cancel, locking,
-// desiredSize-driven backpressure, pipeTo, and pipeThrough. WritableStream and
-// TransformStream are implemented to the level pipeTo/pipeThrough need (and are
-// generally usable). Byte streams / BYOB are deliberately deferred: a
-// `type: 'bytes'` source or a `mode: 'byob'` reader throws an explicit error, and
-// ReadableStreamBYOBReader exists as a constructor that reports the same. Text
-// encoder/decoder streams and (de)compression streams are intentionally not
-// provided here.
+// Scope: ReadableStream is implemented in full, default and byte streams alike —
+// readers (default and BYOB), the byte controller and its BYOB requests, async
+// iteration, tee (the byte tee included), cancel, locking, desiredSize-driven
+// backpressure, pipeTo, and pipeThrough. WritableStream and TransformStream are
+// implemented to the level pipeTo/pipeThrough need (and are generally usable). Text
+// encoder/decoder streams and (de)compression streams are intentionally not provided
+// here.
 //
 // The implementation lives beside this file, laid out like node's
 // lib/internal/webstreams (util, queuingstrategies, readablestream, writablestream,
@@ -30,6 +28,8 @@
   var ReadableStreamDefaultReader = readable.ReadableStreamDefaultReader;
   var ReadableStreamBYOBReader = readable.ReadableStreamBYOBReader;
   var ReadableStreamDefaultController = readable.ReadableStreamDefaultController;
+  var ReadableByteStreamController = readable.ReadableByteStreamController;
+  var ReadableStreamBYOBRequest = readable.ReadableStreamBYOBRequest;
   var WritableStream = writable.WritableStream;
   var WritableStreamDefaultWriter = writable.WritableStreamDefaultWriter;
   var WritableStreamDefaultController = writable.WritableStreamDefaultController;
@@ -91,6 +91,20 @@
       ReadableStreamDefaultController,
       0,
       ['desiredSize', 'close:0', 'enqueue:0', 'error:0'],
+      true,
+    ),
+    ReadableByteStreamController: iface(
+      'ReadableByteStreamController',
+      ReadableByteStreamController,
+      0,
+      ['byobRequest', 'desiredSize', 'close:0', 'enqueue:1', 'error:0'],
+      true,
+    ),
+    ReadableStreamBYOBRequest: iface(
+      'ReadableStreamBYOBRequest',
+      ReadableStreamBYOBRequest,
+      0,
+      ['view', 'respond:1', 'respondWithNewView:1'],
       true,
     ),
     WritableStream: iface('WritableStream', WritableStream, 0, [

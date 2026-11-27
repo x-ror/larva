@@ -1,0 +1,117 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs streams-byob-errors
+# ---
+type bogus: RangeError: Failed to construct 'ReadableStream': Invalid type is specified code=undefined
+type Symbol: TypeError: Failed to construct 'ReadableStream': Cannot convert a Symbol value to a string code=undefined
+type null: RangeError: Failed to construct 'ReadableStream': Invalid type is specified code=undefined
+bytes + size: RangeError: Failed to construct 'ReadableStream': Cannot create byte stream with size() defined on the strategy code=undefined
+bytes hwm -1: RangeError: Failed to construct 'ReadableStream': A queuing strategy's highWaterMark property must be a nonnegative, non-NaN number code=undefined
+bytes hwm NaN: RangeError: Failed to construct 'ReadableStream': A queuing strategy's highWaterMark property must be a nonnegative, non-NaN number code=undefined
+autoAllocate 0: TypeError: Failed to construct 'ReadableStream': autoAllocateChunkSize cannot be 0 code=undefined
+autoAllocate -1: TypeError: Failed to construct 'ReadableStream': Failed to read the 'autoAllocateChunkSize' property from 'UnderlyingSource': Value is outside the 'unsigned long long' value range. code=undefined
+autoAllocate NaN: TypeError: Failed to construct 'ReadableStream': Failed to read the 'autoAllocateChunkSize' property from 'UnderlyingSource': Value is not of type 'unsigned long long'. code=undefined
+autoAllocate 2^53: TypeError: Failed to construct 'ReadableStream': Failed to read the 'autoAllocateChunkSize' property from 'UnderlyingSource': Value is outside the 'unsigned long long' value range. code=undefined
+autoAllocate 1.5: no throw false
+pull not callable: TypeError: Failed to construct 'ReadableStream': Failed to read the 'pull' property from 'UnderlyingSource': The given value is not a function. code=undefined
+start throws: SyntaxError: boom code=undefined
+source member order: no throw false
+order size,highWaterMark,type,autoAllocateChunkSize,cancel,pull,start,type
+getReader mode bogus: TypeError: Failed to execute 'getReader' on 'ReadableStream': Failed to read the 'mode' property from 'ReadableStreamGetReaderOptions': The provided value 'bogus' is not a valid enum value of type ReadableStreamReaderMode. code=undefined
+getReader byob on default: TypeError: Failed to execute 'getReader' on 'ReadableStream': Cannot use a BYOB reader with a non-byte stream code=undefined
+getReader(5): TypeError: Failed to execute 'getReader' on 'ReadableStream': The provided value is not of type 'ReadableStreamGetReaderOptions'. code=undefined
+getReader byob locked: TypeError: Failed to execute 'getReader' on 'ReadableStream': ReadableStreamBYOBReader constructor can only accept readable streams that are not yet locked to a reader code=undefined
+BYOBReader(): TypeError: Failed to construct 'ReadableStreamBYOBReader': 1 argument required, but only 0 present. code=undefined
+BYOBReader({}): TypeError: Failed to construct 'ReadableStreamBYOBReader': parameter 1 is not of type 'ReadableStream'. code=undefined
+BYOBReader(default): TypeError: Failed to construct 'ReadableStreamBYOBReader': Cannot use a BYOB reader with a non-byte stream code=undefined
+BYOBReader call: TypeError: Failed to construct 'ReadableStreamBYOBReader': Please use the 'new' operator, this DOM object constructor cannot be called as a function. code=undefined
+BYOBReader(locked): TypeError: Failed to construct 'ReadableStreamBYOBReader': ReadableStreamBYOBReader constructor can only accept readable streams that are not yet locked to a reader code=undefined
+read(): rejected TypeError: Failed to execute 'read' on 'ReadableStreamBYOBReader': 1 argument required, but only 0 present.
+read({}): rejected TypeError: Failed to execute 'read' on 'ReadableStreamBYOBReader': parameter 1 is not of type 'ArrayBufferView'.
+read(ArrayBuffer): rejected TypeError: Failed to execute 'read' on 'ReadableStreamBYOBReader': parameter 1 is not of type 'ArrayBufferView'.
+read(empty view): rejected TypeError: Failed to execute 'read' on 'ReadableStreamBYOBReader': This readable stream reader cannot be used to read as the view has byte length equal to 0
+read(empty buffer): rejected TypeError: Failed to execute 'read' on 'ReadableStreamBYOBReader': This readable stream reader cannot be used to read as the view has byte length equal to 0
+read(detached): rejected TypeError: Failed to execute 'read' on 'ReadableStreamBYOBReader': This readable stream reader cannot be used to read as the view has byte length equal to 0
+read min 0: rejected TypeError: Failed to execute 'read' on 'ReadableStreamBYOBReader': min cannot be 0
+read min 5 of 4: rejected RangeError: Failed to execute 'read' on 'ReadableStreamBYOBReader': min cannot be larger than view's length
+read min 3 of DataView 2: rejected RangeError: Failed to execute 'read' on 'ReadableStreamBYOBReader': min cannot be larger than view's byteLength
+read min -1: rejected TypeError: Failed to execute 'read' on 'ReadableStreamBYOBReader': Failed to read the 'min' property from 'ReadableStreamBYOBReaderReadOptions': Value is outside the 'unsigned long long' value range.
+read min NaN: rejected TypeError: Failed to execute 'read' on 'ReadableStreamBYOBReader': Failed to read the 'min' property from 'ReadableStreamBYOBReaderReadOptions': Value is not of type 'unsigned long long'.
+read options 5: rejected TypeError: Failed to execute 'read' on 'ReadableStreamBYOBReader': The provided value is not of type 'ReadableStreamBYOBReaderReadOptions'.
+read released: rejected TypeError: Failed to execute 'read' on 'ReadableStreamBYOBReader': This readable stream reader has been released and cannot be used to read from its previous owner stream
+cancel released: rejected TypeError: Failed to execute 'cancel' on 'ReadableStreamBYOBReader': This readable stream reader has been released and cannot be used to cancel its previous owner stream
+closed released: rejected TypeError: This readable stream reader has been released and cannot be used to monitor the stream's state
+releaseLock again: no throw undefined
+pending read on release: rejected TypeError: Releasing BYOB reader
+controller.close partial: TypeError: Failed to execute 'close' on 'ReadableByteStreamController': Cannot close while responding code=undefined
+close with partial element: rejected TypeError: Failed to execute 'close' on 'ReadableByteStreamController': Cannot close while responding
+closed after partial: rejected TypeError: Failed to execute 'close' on 'ReadableByteStreamController': Cannot close while responding
+enqueue(): TypeError: Failed to execute 'enqueue' on 'ReadableByteStreamController': 1 argument required, but only 0 present. code=undefined
+enqueue({}): TypeError: Failed to execute 'enqueue' on 'ReadableByteStreamController': parameter 1 is not of type 'ArrayBufferView'. code=undefined
+enqueue(ArrayBuffer): TypeError: Failed to execute 'enqueue' on 'ReadableByteStreamController': parameter 1 is not of type 'ArrayBufferView'. code=undefined
+enqueue(empty): TypeError: Failed to execute 'enqueue' on 'ReadableByteStreamController': chunk is empty code=undefined
+enqueue(detached): TypeError: Failed to execute 'enqueue' on 'ReadableByteStreamController': chunk is empty code=undefined
+desiredSize: no throw 0
+byobRequest none: no throw null
+close: no throw undefined
+close twice: TypeError: Failed to execute 'close' on 'ReadableByteStreamController': Cannot close a readable stream that is not readable code=undefined
+enqueue after close: TypeError: Failed to execute 'enqueue' on 'ReadableByteStreamController': stream is not readable code=undefined
+error after close: no throw undefined
+desiredSize closed: no throw 0
+enqueue errored: TypeError: Failed to execute 'enqueue' on 'ReadableByteStreamController': stream is not readable code=undefined
+close errored: TypeError: Failed to execute 'close' on 'ReadableByteStreamController': Cannot close a readable stream that is not readable code=undefined
+desiredSize errored: no throw null
+read errored: rejected RangeError: bad
+request [object ReadableStreamBYOBRequest] view Uint8Array(4)
+respond(): TypeError: Failed to execute 'respond' on 'ReadableStreamBYOBRequest': 1 argument required, but only 0 present. code=undefined
+respond(5): RangeError: Failed to execute 'respond' on 'ReadableStreamBYOBRequest': available read buffer is too small for specified number of bytes code=undefined
+respond(-1): TypeError: Failed to execute 'respond' on 'ReadableStreamBYOBRequest': Value is outside the 'unsigned long long' value range. code=undefined
+respond(0) readable: TypeError: Failed to execute 'respond' on 'ReadableStreamBYOBRequest': bytes written is 0 code=undefined
+respondWithNewView(): TypeError: Failed to execute 'respondWithNewView' on 'ReadableStreamBYOBRequest': 1 argument required, but only 0 present. code=undefined
+respondWithNewView({}): TypeError: Failed to execute 'respondWithNewView' on 'ReadableStreamBYOBRequest': parameter 1 is not of type 'ArrayBufferView'. code=undefined
+respondWithNewView offset: RangeError: Failed to execute 'respondWithNewView' on 'ReadableStreamBYOBRequest': supplied view's byte offset doesn't match the expected value code=undefined
+respondWithNewView other buffer: RangeError: Failed to execute 'respondWithNewView' on 'ReadableStreamBYOBRequest': buffer byte lengths are not equal code=undefined
+respond(1): no throw undefined
+read for respond: resolved done=false value=Uint8Array(1)
+view after respond: no throw null
+respond after respond: TypeError: Failed to execute 'respond' on 'ReadableStreamBYOBRequest': Cannot respond to an invalidated ReadableStreamBYOBRequest code=undefined
+respondWithNewView after respond: TypeError: Failed to execute 'respondWithNewView' on 'ReadableStreamBYOBRequest': Cannot respond to an invalidated ReadableStreamBYOBRequest code=undefined
+respond(1) closed: TypeError: Failed to execute 'respond' on 'ReadableStreamBYOBRequest': bytes written is not 0 code=undefined
+respondWithNewView non-empty closed: TypeError: Failed to execute 'respondWithNewView' on 'ReadableStreamBYOBRequest': view's byte length is not 0 code=undefined
+respond(0) closed: no throw undefined
+read then close: resolved done=true value=Uint8Array(0)
+enqueue invalidates: resolved done=false value=Uint8Array(1)
+request view after enqueue: no throw null
+enqueue detaches the view: no throw 0
+close with queue: no throw undefined
+close again: TypeError: Failed to execute 'close' on 'ReadableByteStreamController': Cannot close a readable stream that has already been requested to be closed code=undefined
+enqueue close requested: TypeError: Failed to execute 'enqueue' on 'ReadableByteStreamController': close requested already code=undefined
+desiredSize close requested: no throw -1
+read partial element close requested: rejected TypeError: close requested
+closed after partial read: rejected TypeError: close requested
+respond(NaN): TypeError: Failed to execute 'respond' on 'ReadableStreamBYOBRequest': Value is not of type 'unsigned long long'. code=undefined
+respond(Infinity): TypeError: Failed to execute 'respond' on 'ReadableStreamBYOBRequest': Value is infinite and not of type 'unsigned long long'. code=undefined
+respondWithNewView empty readable: TypeError: Failed to execute 'respondWithNewView' on 'ReadableStreamBYOBRequest': view's byte length is 0 code=undefined
+respondWithNewView past descriptor: RangeError: Failed to execute 'respondWithNewView' on 'ReadableStreamBYOBRequest': supplied view is too large for the read buffer code=undefined
+respondWithNewView DataView: no throw undefined
+read for new view: resolved done=false value=Uint8Array(2)
+new ReadableByteStreamController: TypeError: Failed to construct 'ReadableByteStreamController': Illegal constructor code=undefined
+ReadableByteStreamController(): TypeError: Illegal constructor code=undefined
+new ReadableStreamBYOBRequest: TypeError: Failed to construct 'ReadableStreamBYOBRequest': Illegal constructor code=undefined
+byobRequest on {}: TypeError: Illegal invocation code=undefined
+desiredSize on {}: TypeError: Illegal invocation code=undefined
+close on {}: TypeError: Illegal invocation code=undefined
+enqueue on {}: TypeError: Illegal invocation code=undefined
+error on {}: TypeError: Illegal invocation code=undefined
+view on {}: TypeError: Illegal invocation code=undefined
+respond on {}: TypeError: Illegal invocation code=undefined
+respondWithNewView on {}: TypeError: Illegal invocation code=undefined
+closed on {}: rejected TypeError: Failed to read the 'closed' property from 'ReadableStreamBYOBReader': Illegal invocation
+read on {}: rejected TypeError: Failed to execute 'read' on 'ReadableStreamBYOBReader': Illegal invocation
+cancel on {}: rejected TypeError: Failed to execute 'cancel' on 'ReadableStreamBYOBReader': Illegal invocation
+releaseLock on {}: TypeError: Illegal invocation code=undefined
+byte enqueue on default controller: TypeError: Illegal invocation code=undefined
+default enqueue on byte controller: TypeError: Illegal invocation code=undefined
+end

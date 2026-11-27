@@ -7,8 +7,6 @@
 TextEncoderStream function
 TextDecoderStream function
 FileReader function
-ReadableByteStreamController function
-ReadableStreamBYOBRequest function
 CompressionStream function
 DecompressionStream function
 SubtleCrypto function

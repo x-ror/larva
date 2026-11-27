@@ -551,6 +551,7 @@
     markNative: markNative,
     wrapOperation: wrapOperation,
     wrapGetter: wrapGetter,
+    wrapSetter: wrapSetter,
     installGlobal: installGlobal,
     defineGlobalAttribute: defineGlobalAttribute,
     defineNamespace: defineNamespace,

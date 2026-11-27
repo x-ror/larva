@@ -40,7 +40,21 @@
   var DOMException = require('internal/domexception').DOMException;
   var ObjectDefineProperty = P.ObjectDefineProperty;
   var ObjectFreeze = P.ObjectFreeze;
+  var ObjectGetPrototypeOf = P.ObjectGetPrototypeOf;
+  var ObjectSetPrototypeOf = P.ObjectSetPrototypeOf;
+  var ProxyP = P.Proxy;
   var ReflectApply = P.ReflectApply;
+  var ReflectDefineProperty = P.ReflectDefineProperty;
+  var ReflectDeleteProperty = P.ReflectDeleteProperty;
+  var ReflectGet = P.ReflectGet;
+  var ReflectGetOwnPropertyDescriptor = P.ReflectGetOwnPropertyDescriptor;
+  var ReflectHas = P.ReflectHas;
+  var ReflectOwnKeys = P.ReflectOwnKeys;
+  var ReflectSet = P.ReflectSet;
+  var GeneratorPrototypeNext = P.GeneratorPrototypeNext;
+  var WeakMapP = P.WeakMap;
+  var WeakMapPrototypeGet = P.WeakMapPrototypeGet;
+  var WeakMapPrototypeSet = P.WeakMapPrototypeSet;
   var SymbolIterator = P.Symbol.iterator;
   var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;
   var StringPrototypeSlice = P.StringPrototypeSlice;
@@ -53,8 +67,11 @@
   var toDOMString = webErrors.toDOMString;
   var typeError = webErrors.typeError;
 
-  // Hands a list's items to its constructor; no page argument is it.
+  // Hands a list to its constructor; no page argument is it.
   var INTERNAL = { __proto__: null };
+
+  // The document's readiness (Document.readyState); advance() moves it on.
+  var readyState = 'loading';
 
   var ELEMENT_NODE = 1;
   var TEXT_NODE = 3;
@@ -211,7 +228,7 @@
       );
     }
 
-    return all ? new NodeList(INTERNAL, found) : found;
+    return all ? staticList(found) : found;
   }
 
   // HTML's "strip and collapse ASCII whitespace", for document.title.
@@ -236,9 +253,8 @@
   /**
    * Node (DOM Standard §4.4). Illegal to construct, as in Chrome.
    * @node n/a — Chrome 158, tests/dom/cases/*.page.html.
-   * @deviates childNodes is a static NodeList, a new one per read, where Chrome's is
-   *   live and the same object each time; a page that holds one across a mutation sees
-   *   the old children.
+   * @deviates none: childNodes is live and the same object on every read, as in
+   *   Chrome (tests/dom/cases/dom-live-collections.page).
    */
   class Node extends events.EventTargetImpl {
     get nodeType() {
@@ -269,7 +285,10 @@
     }
 
     get childNodes() {
-      return new NodeList(INTERNAL, nChildNodes(this));
+      nNodeType(this);
+      var lists = listsOf(this);
+      if (lists.childNodes === null) lists.childNodes = liveList(NodeList, nChildNodes, this, null);
+      return lists.childNodes;
     }
 
     get firstChild() {
@@ -372,8 +391,10 @@
    * Element (DOM Standard §4.9), with the ParentNode and ChildNode members Blink puts
    * on its prototype.
    * @node n/a — Chrome 158, tests/dom/cases/*.page.html.
-   * @deviates children and getElementsBy* are static HTMLCollections (Chrome's are
-   *   live); attributes, namespaceURI, closest and matches are absent (stage 4b).
+   * @deviates attributes, namespaceURI, closest and matches are absent (stage 4b).
+   *   children and getElementsBy* are live and cached per node (and per name), as in
+   *   Chrome (tests/dom/cases/dom-live-collections.page); a named property of an
+   *   HTMLCollection (`coll.someId`) is absent, namedItem() answers it.
    */
   class Element extends Node {
     get localName() {
@@ -441,14 +462,14 @@
       nNodeType(this);
       needArgs(arguments.length, 1, 'Element', 'getElementsByTagName');
       var name = toDOMString(qualifiedName, 'Element', 'getElementsByTagName');
-      return new HTMLCollection(INTERNAL, nByTagName(this, name));
+      return byName(this, 'byTag', nByTagName, name);
     }
 
     getElementsByClassName(classNames) {
       nNodeType(this);
       needArgs(arguments.length, 1, 'Element', 'getElementsByClassName');
       var names = toDOMString(classNames, 'Element', 'getElementsByClassName');
-      return new HTMLCollection(INTERNAL, nByClassName(this, names));
+      return byName(this, 'byClass', nByClassName, names);
     }
 
     get innerHTML() {
@@ -464,7 +485,7 @@
     }
 
     get children() {
-      return new HTMLCollection(INTERNAL, elementChildren(this));
+      return childrenOf(this);
     }
 
     get firstElementChild() {
@@ -580,7 +601,7 @@
 
   class DocumentFragment extends Node {
     get children() {
-      return new HTMLCollection(INTERNAL, elementChildren(this));
+      return childrenOf(this);
     }
 
     get firstElementChild() {
@@ -615,11 +636,24 @@
   /**
    * Document (DOM Standard §4.5) with HTML's document members.
    * @node n/a — Chrome 158, tests/dom/cases/*.page.html.
-   * @deviates No readyState, URL, cookie, write or createElementNS yet (stage 4b).
+   * @deviates No URL, cookie, write or createElementNS yet (stage 4b).
    */
   class Document extends Node {
     get documentElement() {
       return firstElement(this, true);
+    }
+
+    /**
+     * HTML's document readiness: `loading` while the parser runs, `interactive` from
+     * just before DOMContentLoaded, `complete` from just before the window's `load`.
+     * @node Chrome 158, tests/dom/cases/dom-load.page.
+     * @deviates `complete` (and `load`) wait for the page's event loop to idle, since a
+     *   Larva page has no subresources to wait for: a timer a script set before then
+     *   runs before `load`, where Chrome's order with it is a race.
+     */
+    get readyState() {
+      nNodeType(this);
+      return readyState;
     }
 
     get head() {
@@ -650,7 +684,7 @@
     }
 
     get children() {
-      return new HTMLCollection(INTERNAL, elementChildren(this));
+      return childrenOf(this);
     }
 
     get firstElementChild() {
@@ -710,14 +744,14 @@
       nNodeType(this);
       needArgs(arguments.length, 1, 'Document', 'getElementsByTagName');
       var name = toDOMString(qualifiedName, 'Document', 'getElementsByTagName');
-      return new HTMLCollection(INTERNAL, nByTagName(this, name));
+      return byName(this, 'byTag', nByTagName, name);
     }
 
     getElementsByClassName(classNames) {
       nNodeType(this);
       needArgs(arguments.length, 1, 'Document', 'getElementsByClassName');
       var names = toDOMString(classNames, 'Document', 'getElementsByClassName');
-      return new HTMLCollection(INTERNAL, nByClassName(this, names));
+      return byName(this, 'byClass', nByClassName, names);
     }
 
     querySelector(selectors) {
@@ -747,8 +781,157 @@
     return null;
   }
 
+  // A list's state, keyed by what a page holds of it (the list itself, or the proxy in
+  // front of a live one, and that proxy's target): `items` for a static list
+  // (querySelectorAll's), `compute` for a live one, which recomputes its items from the
+  // tree at every access — the MVP of a live collection (stage 4b), with no cache to
+  // invalidate. A private field cannot be the brand here: a member called through the
+  // proxy gets the proxy as `this`.
+  var listState = new WeakMapP();
+
+  // A node's live lists, made on first use and the same object on every read after, as
+  // Blink caches them: childNodes, children, and one per name for getElementsBy*.
+  var nodeLists = new WeakMapP();
+
+  function listsOf(node) {
+    var lists = WeakMapPrototypeGet(nodeLists, node);
+    if (lists === undefined) {
+      lists = { __proto__: null, childNodes: null, children: null, byTag: null, byClass: null };
+      WeakMapPrototypeSet(nodeLists, node, lists);
+    }
+
+    return lists;
+  }
+
+  function childrenOf(node) {
+    nNodeType(node);
+    var lists = listsOf(node);
+    if (lists.children === null) {
+      lists.children = liveList(HTMLCollection, elementChildren, node, null);
+    }
+
+    return lists.children;
+  }
+
+  // A getElementsBy* collection: one per node, kind and name.
+  function byName(node, kind, compute, name) {
+    var lists = listsOf(node);
+    var table = lists[kind];
+    if (table === null) {
+      table = { __proto__: null };
+      lists[kind] = table;
+    }
+
+    var list = table[name];
+    if (list === undefined) {
+      list = liveList(HTMLCollection, compute, node, name);
+      table[name] = list;
+    }
+
+    return list;
+  }
+
+  function itemsOfState(rec) {
+    if (rec.compute === null) return rec.items;
+    return rec.arg === null ? rec.compute(rec.node) : rec.compute(rec.node, rec.arg);
+  }
+
+  // The brand check of every NodeList and HTMLCollection member, and its items now.
+  function listItems(o) {
+    var rec = WeakMapPrototypeGet(listState, o);
+    if (rec === undefined) throw illegalInvocation();
+    return itemsOfState(rec);
+  }
+
+  // `key` as an array index (a canonical numeric string below 2^32 - 1), or -1: the
+  // property names a list answers from its items (WebIDL's indexed properties).
+  function arrayIndex(key) {
+    if (typeof key !== 'string') return -1;
+    var n = key.length;
+    if (n === 0 || n > 10) return -1;
+    var c = StringPrototypeCharCodeAt(key, 0);
+    if (c === 0x30) return n === 1 ? 0 : -1;
+    var v = 0;
+    for (var i = 0; i < n; i++) {
+      c = StringPrototypeCharCodeAt(key, i);
+      if (c < 0x30 || c > 0x39) return -1;
+      v = v * 10 + (c - 0x30);
+    }
+
+    return v < 4294967295 ? v : -1;
+  }
+
+  // The legacy platform object's indexed properties, as a proxy's traps over the list
+  // object (its target): read-only, enumerable, configurable, recomputed per access.
+  // Null-prototype, so a page's Object.prototype cannot add a trap.
+  var LIVE_HANDLER = {
+    __proto__: null,
+    get: function (target, key, receiver) {
+      var at = arrayIndex(key);
+      if (at !== -1) {
+        var items = listItems(target);
+        if (at < items.length) return items[at];
+      }
+
+      return ReflectGet(target, key, receiver);
+    },
+    has: function (target, key) {
+      var at = arrayIndex(key);
+      if (at !== -1) return at < listItems(target).length;
+      return ReflectHas(target, key);
+    },
+    getOwnPropertyDescriptor: function (target, key) {
+      var at = arrayIndex(key);
+      if (at !== -1) {
+        var items = listItems(target);
+        if (at >= items.length) return undefined;
+        return {
+          __proto__: null,
+          value: items[at],
+          writable: false,
+          enumerable: true,
+          configurable: true,
+        };
+      }
+
+      return ReflectGetOwnPropertyDescriptor(target, key);
+    },
+    ownKeys: function (target) {
+      var items = listItems(target);
+      var keys = [];
+      var n = 0;
+      for (var i = 0; i < items.length; i++) keys[n++] = '' + i;
+      var own = ReflectOwnKeys(target);
+      for (var j = 0; j < own.length; j++) keys[n++] = own[j];
+      return keys;
+    },
+    defineProperty: function (target, key, desc) {
+      if (arrayIndex(key) !== -1) return false;
+      return ReflectDefineProperty(target, key, desc);
+    },
+    set: function (target, key, value, receiver) {
+      if (arrayIndex(key) !== -1) return false;
+      return ReflectSet(target, key, value, receiver);
+    },
+    deleteProperty: function (target, key) {
+      var at = arrayIndex(key);
+      if (at !== -1) return at >= listItems(target).length;
+      return ReflectDeleteProperty(target, key);
+    },
+  };
+
+  // A live list of `Impl` over `node`: `compute(node[, arg])` answers its items.
+  function liveList(Impl, compute, node, arg) {
+    var target = new Impl(INTERNAL);
+    var rec = { __proto__: null, items: null, compute: compute, node: node, arg: arg };
+    var proxy = new ProxyP(target, LIVE_HANDLER);
+    WeakMapPrototypeSet(listState, target, rec);
+    WeakMapPrototypeSet(listState, proxy, rec);
+    return proxy;
+  }
+
   // The indexed own properties of a static list: what Blink reports for an index of a
-  // NodeList or HTMLCollection, enumerable and configurable but not writable.
+  // NodeList, enumerable and configurable but not writable.
   var INDEX_DESC = {
     __proto__: null,
     value: null,
@@ -756,41 +939,46 @@
     enumerable: true,
     configurable: true,
   };
-  function stampItems(list, items) {
+
+  // A static NodeList of `items` (querySelectorAll's).
+  function staticList(items) {
+    var list = new NodeList(INTERNAL);
+    var rec = { __proto__: null, items: items, compute: null, node: null, arg: null };
+    WeakMapPrototypeSet(listState, list, rec);
     for (var i = 0; i < items.length; i++) {
       INDEX_DESC.value = items[i];
       ObjectDefineProperty(list, i, INDEX_DESC);
     }
 
     INDEX_DESC.value = null;
+    return list;
   }
 
   /**
-   * NodeList: a static list in Larva (see Node's @deviates).
-   * @node n/a — Chrome 158, tests/dom/cases/*.page.html.
+   * NodeList: live for childNodes, static for querySelectorAll, as in Chrome.
+   * @node n/a — Chrome 158, tests/dom/cases/dom-live-collections.page.
+   * @deviates A live list is a Proxy over the list object (its indexed properties are
+   *   traps), so `this` is checked against a WeakMap instead of a private field; nothing
+   *   a page reads tells the two apart.
    */
   class NodeList {
-    #items;
-
-    constructor(token, items) {
+    constructor(token) {
       if (token !== INTERNAL) throw illegalInvocation();
-      this.#items = items;
-      stampItems(this, items);
     }
 
     get length() {
-      return itemsOf(this).length;
+      return listItems(this).length;
     }
 
     item(index) {
-      var items = itemsOf(this);
+      var items = listItems(this);
       needArgs(arguments.length, 1, 'NodeList', 'item');
       var v = items[index >>> 0];
       return v === undefined ? null : v;
     }
 
     forEach(callback) {
-      var items = itemsOf(this);
+      listItems(this);
       needArgs(arguments.length, 1, 'NodeList', 'forEach');
       if (typeof callback !== 'function') {
         throw typeError(
@@ -801,60 +989,63 @@
       }
 
       var thisArg = arguments[1];
-      for (var i = 0; i < items.length; i++) ReflectApply(callback, thisArg, [items[i], i, this]);
+      for (var i = 0; ; i++) {
+        var items = listItems(this);
+        if (i >= items.length) break;
+        ReflectApply(callback, thisArg, [items[i], i, this]);
+      }
     }
 
     *entries() {
-      var items = itemsOf(this);
-      for (var i = 0; i < items.length; i++) yield [i, items[i]];
+      listItems(this);
+      for (var i = 0; ; i++) {
+        var items = listItems(this);
+        if (i >= items.length) return;
+        yield [i, items[i]];
+      }
     }
 
     *keys() {
-      var items = itemsOf(this);
-      for (var i = 0; i < items.length; i++) yield i;
+      listItems(this);
+      for (var i = 0; ; i++) {
+        if (i >= listItems(this).length) return;
+        yield i;
+      }
     }
 
     *values() {
-      var items = itemsOf(this);
-      for (var i = 0; i < items.length; i++) yield items[i];
-    }
-
-    static {
-      itemsOf = function (o) {
-        if (typeof o !== 'object' || o === null || !(#items in o)) throw illegalInvocation();
-        return o.#items;
-      };
+      listItems(this);
+      for (var i = 0; ; i++) {
+        var items = listItems(this);
+        if (i >= items.length) return;
+        yield items[i];
+      }
     }
   }
 
-  var itemsOf;
-
   /**
-   * HTMLCollection: a static list of elements in Larva (see Element's @deviates).
-   * @node n/a — Chrome 158, tests/dom/cases/*.page.html.
+   * HTMLCollection: always live (children, getElementsByTagName/ClassName).
+   * @node n/a — Chrome 158, tests/dom/cases/dom-live-collections.page.
+   * @deviates As NodeList's; no named properties (namedItem answers them).
    */
   class HTMLCollection {
-    #items;
-
-    constructor(token, items) {
+    constructor(token) {
       if (token !== INTERNAL) throw illegalInvocation();
-      this.#items = items;
-      stampItems(this, items);
     }
 
     get length() {
-      return collectionOf(this).length;
+      return listItems(this).length;
     }
 
     item(index) {
-      var items = collectionOf(this);
+      var items = listItems(this);
       needArgs(arguments.length, 1, 'HTMLCollection', 'item');
       var v = items[index >>> 0];
       return v === undefined ? null : v;
     }
 
     namedItem(name) {
-      var items = collectionOf(this);
+      var items = listItems(this);
       needArgs(arguments.length, 1, 'HTMLCollection', 'namedItem');
       name = toDOMString(name, 'HTMLCollection', 'namedItem');
       if (name === '') return null;
@@ -868,19 +1059,14 @@
     }
 
     *[SymbolIterator]() {
-      var items = collectionOf(this);
-      for (var i = 0; i < items.length; i++) yield items[i];
-    }
-
-    static {
-      collectionOf = function (o) {
-        if (typeof o !== 'object' || o === null || !(#items in o)) throw illegalInvocation();
-        return o.#items;
-      };
+      listItems(this);
+      for (var i = 0; ; i++) {
+        var items = listItems(this);
+        if (i >= items.length) return;
+        yield items[i];
+      }
     }
   }
-
-  var collectionOf;
 
   // The per-tag subclasses of HTMLElement Larva maps elements to
   // (pkg/runtime/dom.odin element_interface names the same set); every other HTML
@@ -1017,6 +1203,7 @@
   ]);
   var PublicDocument = define('Document', Document, PublicNode, [
     'documentElement',
+    'readyState',
     'title',
     'body',
     'head',
@@ -1099,14 +1286,15 @@
     nCreateComment = native.createComment;
     nCreateFragment = native.createFragment;
 
-    events.setHostTargets(nIsNode, nParent);
     var global = globalThis;
+    events.setHostTargets(nIsNode, nParent, global, isDocument);
     nativeShape.defineGlobalAttribute('window', function () {
       return global;
     });
     nativeShape.defineGlobalAttribute('document', function () {
       return nDocument();
     });
+    installWindowTarget(global);
 
     var protos = [];
     for (var j = 0; j < names.length; j++) {
@@ -1115,7 +1303,88 @@
       protos[j] = impl.prototype;
     }
 
-    return { __proto__: null, protos: protos, fire: events.fireEvent };
+    return { __proto__: null, protos: protos, advance: advance };
+  }
+
+  function isDocument(o) {
+    return nNodeType(o) === DOCUMENT_NODE;
+  }
+
+  // The window's `onload` (HTML's event handler IDL attribute on Window): the handler,
+  // and the listener entry it holds in the window's `load` list while non-null.
+  var windowTarget = null;
+  var onload = null;
+  var onloadEntry = null;
+
+  function readOnload() {
+    return onload;
+  }
+
+  /**
+   * Makes the page's global an EventTarget, as Chrome's window is: its [[Prototype]]
+   * chain reaches EventTarget.prototype, so addEventListener and the rest are
+   * inherited, not own; and `onload`.
+   * @node Chrome 158, tests/dom/cases/dom-window-events.page and dom-load.page.
+   * @deviates The chain is global → its class prototype → EventTarget.prototype: Blink's
+   *   Window.prototype and WindowProperties are not modeled, so `window instanceof
+   *   Window` is still false (there is no Window interface object yet). onload is the
+   *   window's one event handler attribute so far.
+   */
+  function installWindowTarget(global) {
+    windowTarget = global;
+    ObjectSetPrototypeOf(ObjectGetPrototypeOf(global), events.EventTarget.prototype);
+    ObjectDefineProperty(global, 'onload', {
+      __proto__: null,
+      get: nativeShape.wrapGetter('onload', function () {
+        return onload;
+      }),
+      set: nativeShape.wrapSetter('onload', function (fn) {
+        // [LegacyTreatNonObjectAsNull]: any object is kept, anything else is null.
+        onload = (typeof fn === 'object' && fn !== null) || typeof fn === 'function' ? fn : null;
+        if (onload !== null && onloadEntry === null) {
+          onloadEntry = events.attachHandler(global, 'load', readOnload);
+        } else if (onload === null && onloadEntry !== null) {
+          events.detachHandler(global, 'load', onloadEntry);
+          onloadEntry = null;
+        }
+      }),
+      enumerable: true,
+      configurable: true,
+    });
+  }
+
+  // The steps of one readiness change, one listener a step (event_target dispatch):
+  // `interactive` is readystatechange then DOMContentLoaded at the document; `complete`
+  // is readystatechange at the document then `load` at the window, targeted at the
+  // document (HTML's legacy target override).
+  function* lifecycle(stage) {
+    var doc = nDocument();
+    readyState = stage;
+    var steps = events.fireSteps(doc, 'readystatechange', false);
+    while (!ReflectApply(GeneratorPrototypeNext, steps, []).done) yield;
+    if (stage === 'interactive') {
+      steps = events.fireSteps(doc, 'DOMContentLoaded', true);
+    } else {
+      steps = events.fireSteps(windowTarget, 'load', false, doc);
+    }
+
+    while (!ReflectApply(GeneratorPrototypeNext, steps, []).done) yield;
+  }
+
+  /**
+   * Moves the document to `stage` and hands the page loader the step function that
+   * fires its events: each call runs at most one listener and answers whether more
+   * remain, so the loader's own call boundary is the microtask checkpoint between two
+   * listeners (Chrome 158, tests/dom/cases/dom-load.page: a microtask queued by one
+   * `load` listener runs before the next listener).
+   * @param {string} stage `interactive` (parse done) or `complete` (the loop idled).
+   * @returns {function(): boolean}
+   */
+  function advance(stage) {
+    var steps = lifecycle(stage);
+    return function () {
+      return !ReflectApply(GeneratorPrototypeNext, steps, []).done;
+    };
   }
 
   module.exports = ObjectFreeze({ __proto__: null, install: install });

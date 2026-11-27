@@ -4,8 +4,6 @@ for (const name of [
   'TextEncoderStream',
   'TextDecoderStream',
   'FileReader',
-  'ReadableByteStreamController',
-  'ReadableStreamBYOBRequest',
   'CompressionStream',
   'DecompressionStream',
   'SubtleCrypto',

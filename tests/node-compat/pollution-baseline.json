@@ -53,6 +53,12 @@
     "accessor": 0,
     "global": 0
   },
+  "internal/dom.js": {
+    "method": 0,
+    "invoke": 0,
+    "accessor": 0,
+    "global": 0
+  },
   "internal/domexception.js": {
     "method": 0,
     "invoke": 0,
@@ -177,7 +183,7 @@
     "method": 10,
     "invoke": 0,
     "accessor": 0,
-    "global": 30
+    "global": 19
   },
   "internal/webstreams/transformstream.js": {
     "method": 3,
