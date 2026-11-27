@@ -3865,7 +3865,7 @@
       "name": "clone-transfer dies when DataCloneError loses its context prefix",
       "why": "Blink's message starts \"Failed to execute 'structuredClone' on 'Window': \".",
       "source": "pkg/runtime/js/internal/structured_clone.js",
-      "find": "    return pageError(\n      new DOMException(context('Window', 'structuredClone') + detail, 'DataCloneError'),\n    );",
+      "find": "    return pageError(new DOMException(cloneContext + detail, 'DataCloneError'));",
       "replace": "    return pageError(new DOMException(detail, 'DataCloneError'));",
       "gate": "make:test-web",
       "expect_detail": "FAIL clone-transfer"
