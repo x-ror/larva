@@ -477,5 +477,12 @@
 
   bodyModule.defineBody(Request.prototype, 'Request');
 
-  module.exports = { Request: Request, FETCH: FETCH, requestState: requestState };
+  module.exports = {
+    Request: Request,
+    FETCH: FETCH,
+    requestState: requestState,
+    // For XMLHttpRequest's open() (internal/xhr), which reports its own errors.
+    FORBIDDEN_METHODS: FORBIDDEN_METHODS,
+    NORMALIZED_METHODS: NORMALIZED_METHODS,
+  };
 });

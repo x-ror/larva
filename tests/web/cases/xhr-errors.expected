@@ -1,0 +1,64 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs xhr-errors
+# ---
+call without new: TypeError TypeError: Failed to construct 'XMLHttpRequest': Please use the 'new' operator, this DOM object constructor cannot be called as a function. code=undefined
+Upload construct: TypeError TypeError: Failed to construct 'XMLHttpRequestUpload': Illegal constructor code=undefined
+EventTarget construct: TypeError TypeError: Failed to construct 'XMLHttpRequestEventTarget': Illegal constructor code=undefined
+ProgressEvent no args: TypeError TypeError: Failed to construct 'ProgressEvent': 1 argument required, but only 0 present. code=undefined
+ProgressEvent bad init: TypeError TypeError: Failed to construct 'ProgressEvent': The provided value is not of type 'ProgressEventInit'. code=undefined
+ProgressEvent NaN loaded: TypeError TypeError: Failed to construct 'ProgressEvent': Failed to read the 'loaded' property from 'ProgressEventInit': The provided double value is non-finite. code=undefined
+ProgressEvent Infinity total: TypeError TypeError: Failed to construct 'ProgressEvent': Failed to read the 'total' property from 'ProgressEventInit': The provided double value is non-finite. code=undefined
+ProgressEvent string loaded: returned 7
+open no args: TypeError TypeError: Failed to execute 'open' on 'XMLHttpRequest': 2 arguments required, but only 0 present. code=undefined
+open one arg: TypeError TypeError: Failed to execute 'open' on 'XMLHttpRequest': 2 arguments required, but only 1 present. code=undefined
+open bad method: DOMException SyntaxError: Failed to execute 'open' on 'XMLHttpRequest': 'b d' is not a valid HTTP method. code=12
+open empty method: DOMException SyntaxError: Failed to execute 'open' on 'XMLHttpRequest': '' is not a valid HTTP method. code=12
+open CONNECT: DOMException SecurityError: Failed to execute 'open' on 'XMLHttpRequest': 'connect' HTTP method is unsupported. code=18
+open TRACE: DOMException SecurityError: Failed to execute 'open' on 'XMLHttpRequest': 'TRACE' HTTP method is unsupported. code=18
+open TRACK: DOMException SecurityError: Failed to execute 'open' on 'XMLHttpRequest': 'track' HTTP method is unsupported. code=18
+open bad url: DOMException SyntaxError: Failed to execute 'open' on 'XMLHttpRequest': Invalid URL code=12
+open symbol method: TypeError TypeError: Failed to execute 'open' on 'XMLHttpRequest': Cannot convert a Symbol value to a string code=undefined
+send unsent: DOMException InvalidStateError: Failed to execute 'send' on 'XMLHttpRequest': The object's state must be OPENED. code=11
+setRequestHeader unsent: DOMException InvalidStateError: Failed to execute 'setRequestHeader' on 'XMLHttpRequest': The object's state must be OPENED. code=11
+setRequestHeader one arg: TypeError TypeError: Failed to execute 'setRequestHeader' on 'XMLHttpRequest': 2 arguments required, but only 1 present. code=undefined
+setRequestHeader bad name: DOMException SyntaxError: Failed to execute 'setRequestHeader' on 'XMLHttpRequest': 'a b' is not a valid HTTP header field name. code=12
+setRequestHeader empty name: DOMException SyntaxError: Failed to execute 'setRequestHeader' on 'XMLHttpRequest': '' is not a valid HTTP header field name. code=12
+setRequestHeader bad value: DOMException SyntaxError: Failed to execute 'setRequestHeader' on 'XMLHttpRequest': 'x
+y' is not a valid HTTP header field value. code=12
+setRequestHeader non-latin1: TypeError TypeError: Failed to execute 'setRequestHeader' on 'XMLHttpRequest': String contains non ISO-8859-1 code point. code=undefined
+setRequestHeader forbidden: no throw
+setRequestHeader trims: no throw
+getResponseHeader no args: TypeError TypeError: Failed to execute 'getResponseHeader' on 'XMLHttpRequest': 1 argument required, but only 0 present. code=undefined
+getResponseHeader bad name: returned null
+overrideMimeType no args: TypeError TypeError: Failed to execute 'overrideMimeType' on 'XMLHttpRequest': 1 argument required, but only 0 present. code=undefined
+overrideMimeType unsent: no throw
+responseType bogus: returned ""
+responseType document: returned "document"
+responseText of json: DOMException InvalidStateError: Failed to read the 'responseText' property from 'XMLHttpRequest': The value is only accessible if the object's 'responseType' is '' or 'text' (was 'json'). code=11
+timeout coerces: returned 12
+timeout negative: returned 4294967295
+withCredentials coerces: returned true
+sync open with timeout: DOMException InvalidAccessError: Failed to execute 'open' on 'XMLHttpRequest': Synchronous requests must not set a timeout. code=15
+sync open then timeout: DOMException InvalidAccessError: Failed to set the 'timeout' property on 'XMLHttpRequest': Timeouts cannot be set for synchronous requests made from a document. code=15
+sync responseType: DOMException InvalidAccessError: Failed to set the 'responseType' property on 'XMLHttpRequest': The response type cannot be changed for synchronous requests made from a document. code=15
+sync open with responseType: DOMException InvalidAccessError: Failed to execute 'open' on 'XMLHttpRequest': Synchronous requests from a document must not set a response type. code=15
+sync open readyState: returned 1
+open async undefined: DOMException InvalidAccessError: Failed to set the 'timeout' property on 'XMLHttpRequest': Timeouts cannot be set for synchronous requests made from a document. code=15
+getter on a foreign receiver: TypeError TypeError: Illegal invocation code=undefined
+handler on a foreign receiver: TypeError TypeError: Illegal invocation code=undefined
+upload handler: returned "function true"
+send twice: DOMException InvalidStateError: Failed to execute 'send' on 'XMLHttpRequest': The object's state must be OPENED. code=11
+setRequestHeader after send: DOMException InvalidStateError: Failed to execute 'setRequestHeader' on 'XMLHttpRequest': The object's state must be OPENED. code=11
+withCredentials after send: DOMException InvalidStateError: Failed to set the 'withCredentials' property on 'XMLHttpRequest': The value may only be set if the object's state is UNSENT or OPENED. code=11
+timeout after send: returned 600000
+responseType when done: DOMException InvalidStateError: Failed to set the 'responseType' property on 'XMLHttpRequest': The response type cannot be set if the object's state is LOADING or DONE. code=11
+overrideMimeType when done: DOMException InvalidStateError: Failed to execute 'overrideMimeType' on 'XMLHttpRequest': MimeType cannot be overridden when the state is LOADING or DONE. code=11
+overrideMimeType when opened: no throw
+method get -> GET
+method pOsT -> POST
+method delete -> DELETE
+method options -> OPTIONS
+method Put -> PUT

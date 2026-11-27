@@ -1,0 +1,122 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs shape-xhr
+# ---
+== XMLHttpRequestEventTarget
+global XMLHttpRequestEventTarget data -cw fn name="XMLHttpRequestEventTarget" length=0 own=[length,name,prototype] prototype=true ctor=true src="function XMLHttpRequestEventTarget() { [native code] }"
+[[Prototype]] function EventTarget
+call: TypeError: Illegal constructor
+static prototype data --- object [object XMLHttpRequestEventTarget]
+prototype [[Prototype]] EventTarget.prototype
+proto onloadstart accessor ec
+  get name="get onloadstart" length=0 own=[length,name] prototype=false ctor=false src="function get onloadstart() { [native code] }"
+  set name="set onloadstart" length=1 own=[length,name] prototype=false ctor=false src="function set onloadstart() { [native code] }"
+proto onprogress accessor ec
+  get name="get onprogress" length=0 own=[length,name] prototype=false ctor=false src="function get onprogress() { [native code] }"
+  set name="set onprogress" length=1 own=[length,name] prototype=false ctor=false src="function set onprogress() { [native code] }"
+proto onabort accessor ec
+  get name="get onabort" length=0 own=[length,name] prototype=false ctor=false src="function get onabort() { [native code] }"
+  set name="set onabort" length=1 own=[length,name] prototype=false ctor=false src="function set onabort() { [native code] }"
+proto onerror accessor ec
+  get name="get onerror" length=0 own=[length,name] prototype=false ctor=false src="function get onerror() { [native code] }"
+  set name="set onerror" length=1 own=[length,name] prototype=false ctor=false src="function set onerror() { [native code] }"
+proto onload accessor ec
+  get name="get onload" length=0 own=[length,name] prototype=false ctor=false src="function get onload() { [native code] }"
+  set name="set onload" length=1 own=[length,name] prototype=false ctor=false src="function set onload() { [native code] }"
+proto ontimeout accessor ec
+  get name="get ontimeout" length=0 own=[length,name] prototype=false ctor=false src="function get ontimeout() { [native code] }"
+  set name="set ontimeout" length=1 own=[length,name] prototype=false ctor=false src="function set ontimeout() { [native code] }"
+proto onloadend accessor ec
+  get name="get onloadend" length=0 own=[length,name] prototype=false ctor=false src="function get onloadend() { [native code] }"
+  set name="set onloadend" length=1 own=[length,name] prototype=false ctor=false src="function set onloadend() { [native code] }"
+proto constructor data -cw fn name="XMLHttpRequestEventTarget" length=0 own=[length,name,prototype] prototype=true ctor=true src="function XMLHttpRequestEventTarget() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "XMLHttpRequestEventTarget"
+== XMLHttpRequest
+global XMLHttpRequest data -cw fn name="XMLHttpRequest" length=0 own=[length,name,prototype,UNSENT,OPENED,HEADERS_RECEIVED,LOADING,DONE] prototype=true ctor=true src="function XMLHttpRequest() { [native code] }"
+[[Prototype]] function XMLHttpRequestEventTarget
+call: TypeError: Failed to construct 'XMLHttpRequest': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static UNSENT data e-- number 0
+static OPENED data e-- number 1
+static HEADERS_RECEIVED data e-- number 2
+static LOADING data e-- number 3
+static DONE data e-- number 4
+static prototype data --- object [object XMLHttpRequest]
+prototype [[Prototype]] XMLHttpRequestEventTarget.prototype
+proto onreadystatechange accessor ec
+  get name="get onreadystatechange" length=0 own=[length,name] prototype=false ctor=false src="function get onreadystatechange() { [native code] }"
+  set name="set onreadystatechange" length=1 own=[length,name] prototype=false ctor=false src="function set onreadystatechange() { [native code] }"
+proto readyState accessor ec
+  get name="get readyState" length=0 own=[length,name] prototype=false ctor=false src="function get readyState() { [native code] }"
+  set undefined
+proto timeout accessor ec
+  get name="get timeout" length=0 own=[length,name] prototype=false ctor=false src="function get timeout() { [native code] }"
+  set name="set timeout" length=1 own=[length,name] prototype=false ctor=false src="function set timeout() { [native code] }"
+proto withCredentials accessor ec
+  get name="get withCredentials" length=0 own=[length,name] prototype=false ctor=false src="function get withCredentials() { [native code] }"
+  set name="set withCredentials" length=1 own=[length,name] prototype=false ctor=false src="function set withCredentials() { [native code] }"
+proto upload accessor ec
+  get name="get upload" length=0 own=[length,name] prototype=false ctor=false src="function get upload() { [native code] }"
+  set undefined
+proto responseURL accessor ec
+  get name="get responseURL" length=0 own=[length,name] prototype=false ctor=false src="function get responseURL() { [native code] }"
+  set undefined
+proto status accessor ec
+  get name="get status" length=0 own=[length,name] prototype=false ctor=false src="function get status() { [native code] }"
+  set undefined
+proto statusText accessor ec
+  get name="get statusText" length=0 own=[length,name] prototype=false ctor=false src="function get statusText() { [native code] }"
+  set undefined
+proto responseType accessor ec
+  get name="get responseType" length=0 own=[length,name] prototype=false ctor=false src="function get responseType() { [native code] }"
+  set name="set responseType" length=1 own=[length,name] prototype=false ctor=false src="function set responseType() { [native code] }"
+proto response accessor ec
+  get name="get response" length=0 own=[length,name] prototype=false ctor=false src="function get response() { [native code] }"
+  set undefined
+proto responseText accessor ec
+  get name="get responseText" length=0 own=[length,name] prototype=false ctor=false src="function get responseText() { [native code] }"
+  set undefined
+proto UNSENT data e-- number 0
+proto OPENED data e-- number 1
+proto HEADERS_RECEIVED data e-- number 2
+proto LOADING data e-- number 3
+proto DONE data e-- number 4
+proto abort data ecw fn name="abort" length=0 own=[length,name] prototype=false ctor=false src="function abort() { [native code] }"
+proto getAllResponseHeaders data ecw fn name="getAllResponseHeaders" length=0 own=[length,name] prototype=false ctor=false src="function getAllResponseHeaders() { [native code] }"
+proto getResponseHeader data ecw fn name="getResponseHeader" length=1 own=[length,name] prototype=false ctor=false src="function getResponseHeader() { [native code] }"
+proto open data ecw fn name="open" length=2 own=[length,name] prototype=false ctor=false src="function open() { [native code] }"
+proto overrideMimeType data ecw fn name="overrideMimeType" length=1 own=[length,name] prototype=false ctor=false src="function overrideMimeType() { [native code] }"
+proto send data ecw fn name="send" length=0 own=[length,name] prototype=false ctor=false src="function send() { [native code] }"
+proto setRequestHeader data ecw fn name="setRequestHeader" length=2 own=[length,name] prototype=false ctor=false src="function setRequestHeader() { [native code] }"
+proto constructor data -cw fn name="XMLHttpRequest" length=0 own=[length,name,prototype,UNSENT,OPENED,HEADERS_RECEIVED,LOADING,DONE] prototype=true ctor=true src="function XMLHttpRequest() { [native code] }"
+proto responseXML accessor ec
+  get name="get responseXML" length=0 own=[length,name] prototype=false ctor=false src="function get responseXML() { [native code] }"
+  set undefined
+proto setPrivateToken data ecw fn name="setPrivateToken" length=1 own=[length,name] prototype=false ctor=false src="function setPrivateToken() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "XMLHttpRequest"
+== XMLHttpRequestUpload
+global XMLHttpRequestUpload data -cw fn name="XMLHttpRequestUpload" length=0 own=[length,name,prototype] prototype=true ctor=true src="function XMLHttpRequestUpload() { [native code] }"
+[[Prototype]] function XMLHttpRequestEventTarget
+call: TypeError: Illegal constructor
+static prototype data --- object [object XMLHttpRequestUpload]
+prototype [[Prototype]] XMLHttpRequestEventTarget.prototype
+proto constructor data -cw fn name="XMLHttpRequestUpload" length=0 own=[length,name,prototype] prototype=true ctor=true src="function XMLHttpRequestUpload() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "XMLHttpRequestUpload"
+== ProgressEvent
+global ProgressEvent data -cw fn name="ProgressEvent" length=1 own=[length,name,prototype] prototype=true ctor=true src="function ProgressEvent() { [native code] }"
+[[Prototype]] function Event
+call: TypeError: Failed to construct 'ProgressEvent': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static prototype data --- object [object ProgressEvent]
+prototype [[Prototype]] Event.prototype
+proto lengthComputable accessor ec
+  get name="get lengthComputable" length=0 own=[length,name] prototype=false ctor=false src="function get lengthComputable() { [native code] }"
+  set undefined
+proto loaded accessor ec
+  get name="get loaded" length=0 own=[length,name] prototype=false ctor=false src="function get loaded() { [native code] }"
+  set undefined
+proto total accessor ec
+  get name="get total" length=0 own=[length,name] prototype=false ctor=false src="function get total() { [native code] }"
+  set undefined
+proto constructor data -cw fn name="ProgressEvent" length=1 own=[length,name,prototype] prototype=true ctor=true src="function ProgressEvent() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "ProgressEvent"
