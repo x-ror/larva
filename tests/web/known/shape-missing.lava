@@ -2,8 +2,6 @@
 TextEncoderStream undefined
 TextDecoderStream undefined
 FileReader undefined
-ReadableByteStreamController undefined
-ReadableStreamBYOBRequest undefined
 CompressionStream undefined
 DecompressionStream undefined
 SubtleCrypto undefined
