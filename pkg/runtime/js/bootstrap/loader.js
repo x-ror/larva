@@ -106,5 +106,15 @@
   // bootstrap/microtasks.js defines queueMicrotask through internal/native_shape, and
   // has no `require`: install_microtasks reads it off this handle, so it is shaped as
   // every other Web API global (#114).
-  return Object.freeze({ __proto__: null, nativeShape: req('internal/native_shape') });
+  //
+  // installDom is the page loader's (pkg/runtime/dom.odin dom_install): an HTML page's
+  // DOM, required on first use rather than here, so a page with no document — every
+  // `lava run` page — never compiles internal/dom. Called before the page's first script.
+  return Object.freeze({
+    __proto__: null,
+    nativeShape: req('internal/native_shape'),
+    installDom: function (native, names) {
+      return req('internal/dom').install(native, names);
+    },
+  });
 });

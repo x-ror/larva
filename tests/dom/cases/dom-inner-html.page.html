@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head><title>innerHTML</title></head>
+<body>
+<div id="box"><p class="keep">old <b>bold</b></p></div>
+<table id="table"><tbody id="rows"></tbody></table>
+<pre id="log"></pre>
+<script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+var box = document.getElementById('box');
+var old = box.firstChild;
+log('get ' + box.innerHTML);
+log('outer ' + old.outerHTML);
+box.innerHTML = '<span>new</span> text &amp; <i>more</i><br>';
+log('set ' + box.childNodes.length + ' ' + box.firstChild.tagName + ' ' + box.innerHTML);
+log('old kept ' + old.parentNode + ' ' + old.textContent + ' ' + old.className);
+old.firstChild.data = 'still usable';
+box.appendChild(old);
+
+var rows = document.getElementById('rows');
+rows.innerHTML = '<tr><td>1</td><td>2</td></tr><tr><td>3</td></tr>';
+log('rows ' + rows.children.length + ' ' + rows.firstChild.firstChild.tagName);
+
+var p = document.createElement('p');
+p.innerHTML = 'a<!--c-->b<script>never()<\/script>';
+log('detached ' + p.childNodes.length + ' ' + p.innerHTML);
+document.body.appendChild(p);
+
+var t = document.createElement('div');
+t.textContent = '<b>not markup</b> & "quotes"';
+log('textContent ' + t.innerHTML + ' ' + t.childNodes.length);
+t.textContent = '';
+log('cleared ' + t.childNodes.length + ' ' + JSON.stringify(t.innerHTML));
+t.innerHTML = null;
+log('null ' + JSON.stringify(t.innerHTML));
+var pre = document.createElement('pre');
+pre.textContent = 'x';
+box.appendChild(pre);
+log('box ' + box.outerHTML);
+</script>
+</body>
+</html>

@@ -18,6 +18,7 @@ import {
   dumpTree,
   fragmentContext,
   inputProblem,
+  isPageCase,
   joinViews,
   lavaArgs,
   navCharset,
@@ -82,6 +83,20 @@ test('a navigation case names its transport charset and runs lava with sniffing'
     '--serialize',
     '--charset',
     'euc-kr',
+    'f.html',
+  ]);
+});
+
+test('a scripted page case runs under lava page, not lava html', () => {
+  assert.equal(isPageCase('dom-mutation.page'), true);
+  assert.equal(isPageCase('void-elements'), false);
+  assert.equal(isPageCase('a.page.frag-div'), false);
+  assert.equal(fragmentContext('dom-mutation.page'), null);
+  assert.equal(navCharset('dom-mutation.page'), null);
+  assert.deepEqual(lavaArgs('tree', null, 'f.html', null, true), ['page', '--tree', 'f.html']);
+  assert.deepEqual(lavaArgs('serialize', null, 'f.html', null, true), [
+    'page',
+    '--serialize',
     'f.html',
   ]);
 });

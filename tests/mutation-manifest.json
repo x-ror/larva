@@ -3878,6 +3878,24 @@
       "replace": "",
       "gate": "odin:cmd/lava:main.run_args_origin_flag",
       "expect_detail": "a repeated --origin must be refused"
+    },
+    {
+      "name": "dom_teardown_clears_wrappers_before_the_document_goes dies when dom_release leaves a wrapper's private slot set",
+      "why": "A pooled VM keeps a closed page's wrappers until its next collection; one still pointing at its node reads the freed document (docs/LARVA.md decision 4's teardown order).",
+      "source": "pkg/runtime/dom.odin",
+      "find": "\t\tjsc.JSObjectSetPrivate(wrapper, nil)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.dom_teardown_clears_wrappers_before_the_document_goes",
+      "expect_detail": "dom_release left a wrapper pointing at its node"
+    },
+    {
+      "name": "dom_wrapper_identity_and_a_second_page_sees_nothing_of_the_first dies when dom_wrap stops recording wrappers",
+      "why": "Without the node -> wrapper map every read makes a new object: a.firstChild !== a.firstChild, and expandos and listeners vanish.",
+      "source": "pkg/runtime/dom.odin",
+      "find": "\tdom.wrappers[node] = wrapper\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.dom_wrapper_identity_and_a_second_page_sees_nothing_of_the_first",
+      "expect_detail": "data-r=\"false,false"
     }
   ]
 }

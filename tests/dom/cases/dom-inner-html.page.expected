@@ -1,0 +1,172 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-dom.mjs dom-inner-html.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "innerHTML"
+|   "
+"
+|   <body>
+|     "
+"
+|     <div>
+|       id="box"
+|       <span>
+|         "new"
+|       " text & "
+|       <i>
+|         "more"
+|       <br>
+|       <p>
+|         class="keep"
+|         "still usable"
+|         <b>
+|           "bold"
+|       <pre>
+|         "x"
+|     "
+"
+|     <table>
+|       id="table"
+|       <tbody>
+|         id="rows"
+|         <tr>
+|           <td>
+|             "1"
+|           <td>
+|             "2"
+|         <tr>
+|           <td>
+|             "3"
+|     "
+"
+|     <pre>
+|       id="log"
+|       "get <p class="keep">old <b>bold</b></p>
+"
+|       "outer <p class="keep">old <b>bold</b></p>
+"
+|       "set 4 SPAN <span>new</span> text &amp; <i>more</i><br>
+"
+|       "old kept null old bold keep
+"
+|       "rows 2 TD
+"
+|       "detached 4 a<!--c-->b<script>never()</script>
+"
+|       "textContent &lt;b&gt;not markup&lt;/b&gt; &amp; "quotes" 1
+"
+|       "cleared 0 ""
+"
+|       "null ""
+"
+|       "box <div id="box"><span>new</span> text &amp; <i>more</i><br><p class="keep">still usable<b>bold</b></p><pre>x</pre></div>
+"
+|     "
+"
+|     <script>
+|       "
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+var box = document.getElementById('box');
+var old = box.firstChild;
+log('get ' + box.innerHTML);
+log('outer ' + old.outerHTML);
+box.innerHTML = '<span>new</span> text &amp; <i>more</i><br>';
+log('set ' + box.childNodes.length + ' ' + box.firstChild.tagName + ' ' + box.innerHTML);
+log('old kept ' + old.parentNode + ' ' + old.textContent + ' ' + old.className);
+old.firstChild.data = 'still usable';
+box.appendChild(old);
+
+var rows = document.getElementById('rows');
+rows.innerHTML = '<tr><td>1</td><td>2</td></tr><tr><td>3</td></tr>';
+log('rows ' + rows.children.length + ' ' + rows.firstChild.firstChild.tagName);
+
+var p = document.createElement('p');
+p.innerHTML = 'a<!--c-->b<script>never()<\/script>';
+log('detached ' + p.childNodes.length + ' ' + p.innerHTML);
+document.body.appendChild(p);
+
+var t = document.createElement('div');
+t.textContent = '<b>not markup</b> & "quotes"';
+log('textContent ' + t.innerHTML + ' ' + t.childNodes.length);
+t.textContent = '';
+log('cleared ' + t.childNodes.length + ' ' + JSON.stringify(t.innerHTML));
+t.innerHTML = null;
+log('null ' + JSON.stringify(t.innerHTML));
+var pre = document.createElement('pre');
+pre.textContent = 'x';
+box.appendChild(pre);
+log('box ' + box.outerHTML);
+"
+|     <p>
+|       "a"
+|       <!-- c -->
+|       "b"
+|       <script>
+|         "never()"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head><title>innerHTML</title></head>
+<body>
+<div id="box"><span>new</span> text &amp; <i>more</i><br><p class="keep">still usable<b>bold</b></p><pre>x</pre></div>
+<table id="table"><tbody id="rows"><tr><td>1</td><td>2</td></tr><tr><td>3</td></tr></tbody></table>
+<pre id="log">get &lt;p class="keep"&gt;old &lt;b&gt;bold&lt;/b&gt;&lt;/p&gt;
+outer &lt;p class="keep"&gt;old &lt;b&gt;bold&lt;/b&gt;&lt;/p&gt;
+set 4 SPAN &lt;span&gt;new&lt;/span&gt; text &amp;amp; &lt;i&gt;more&lt;/i&gt;&lt;br&gt;
+old kept null old bold keep
+rows 2 TD
+detached 4 a&lt;!--c--&gt;b&lt;script&gt;never()&lt;/script&gt;
+textContent &amp;lt;b&amp;gt;not markup&amp;lt;/b&amp;gt; &amp;amp; "quotes" 1
+cleared 0 ""
+null ""
+box &lt;div id="box"&gt;&lt;span&gt;new&lt;/span&gt; text &amp;amp; &lt;i&gt;more&lt;/i&gt;&lt;br&gt;&lt;p class="keep"&gt;still usable&lt;b&gt;bold&lt;/b&gt;&lt;/p&gt;&lt;pre&gt;x&lt;/pre&gt;&lt;/div&gt;
+</pre>
+<script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+var box = document.getElementById('box');
+var old = box.firstChild;
+log('get ' + box.innerHTML);
+log('outer ' + old.outerHTML);
+box.innerHTML = '<span>new</span> text &amp; <i>more</i><br>';
+log('set ' + box.childNodes.length + ' ' + box.firstChild.tagName + ' ' + box.innerHTML);
+log('old kept ' + old.parentNode + ' ' + old.textContent + ' ' + old.className);
+old.firstChild.data = 'still usable';
+box.appendChild(old);
+
+var rows = document.getElementById('rows');
+rows.innerHTML = '<tr><td>1</td><td>2</td></tr><tr><td>3</td></tr>';
+log('rows ' + rows.children.length + ' ' + rows.firstChild.firstChild.tagName);
+
+var p = document.createElement('p');
+p.innerHTML = 'a<!--c-->b<script>never()<\/script>';
+log('detached ' + p.childNodes.length + ' ' + p.innerHTML);
+document.body.appendChild(p);
+
+var t = document.createElement('div');
+t.textContent = '<b>not markup</b> & "quotes"';
+log('textContent ' + t.innerHTML + ' ' + t.childNodes.length);
+t.textContent = '';
+log('cleared ' + t.childNodes.length + ' ' + JSON.stringify(t.innerHTML));
+t.innerHTML = null;
+log('null ' + JSON.stringify(t.innerHTML));
+var pre = document.createElement('pre');
+pre.textContent = 'x';
+box.appendChild(pre);
+log('box ' + box.outerHTML);
+</script><p>a<!--c-->b<script>never()</script></p>
+
+
+</body></html>

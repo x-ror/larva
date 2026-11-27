@@ -1,7 +1,9 @@
 /**
- * @fileoverview EventTarget, Event and CustomEvent (DOM Standard §2) for targets that
+ * @fileoverview EventTarget, Event and CustomEvent (DOM Standard §2): for targets that
  * are not nodes — a page's `new EventTarget()`, its subclasses, and AbortSignal
- * (internal/abort) — installed as globals at module-eval.
+ * (internal/abort) — installed as globals at module-eval; and for a page's DOM nodes
+ * (internal/dom), which register as host targets (setHostTargets) and dispatch along
+ * the tree, capture, target and bubble (dispatchPath).
  *
  * The oracle is Chrome 158 (tests/web/cases/events-target.expected, shape-events), and
  * where Blink and the standard part ways on a target with no parent, this follows
@@ -41,6 +43,8 @@
   var ObjectDefineProperty = P.ObjectDefineProperty;
   var ReflectApply = P.ReflectApply;
   var TypeErrorP = P.TypeError;
+  var WeakMapPrototypeGet = P.WeakMapPrototypeGet;
+  var WeakMapPrototypeSet = P.WeakMapPrototypeSet;
   // Captured at this eager eval, as is the origin timeStamp counts from.
   var DateNow = Date.now;
   var TIME_ORIGIN = DateNow();
@@ -53,7 +57,9 @@
   var typeError = webErrors.typeError;
 
   var NONE = 0;
+  var CAPTURING_PHASE = 1;
   var AT_TARGET = 2;
+  var BUBBLING_PHASE = 3;
   var PHASES = { __proto__: null, NONE: 0, CAPTURING_PHASE: 1, AT_TARGET: 2, BUBBLING_PHASE: 3 };
   var PHASE_NAMES = ['NONE', 'CAPTURING_PHASE', 'AT_TARGET', 'BUBBLING_PHASE'];
   var SIGNAL_TEXT =
@@ -68,6 +74,17 @@
   var isEvent;
   var listenersOf;
   var detailOf;
+
+  // Host targets: the DOM's node wrappers (internal/dom, stage 4), which pkg/runtime/dom.odin
+  // makes natively — JSObjectMake, then the interface prototype — so no constructor runs
+  // and they carry no #listeners. internal/dom names them once per page through
+  // setHostTargets: `hostBrand(o)` is true for a wrapper, `hostParent(o)` is the node an
+  // event propagates to next (null past the document). Their listener lists live here,
+  // keyed by the wrapper; a wrapper lives as long as its page (it is protected until the
+  // page closes), so an entry never outlives what it describes.
+  var hostBrand = null;
+  var hostParent = null;
+  var hostListeners = new P.WeakMap();
 
   // internal/abort derives from this module, so its brand check is bound on first use
   // (a require inside a function: the sanctioned late binding).
@@ -168,7 +185,10 @@
 
     composedPath() {
       var state = eventState(this);
-      return state.currentTarget === null ? [] : [state.currentTarget];
+      if (state.currentTarget === null) return [];
+      // A node's dispatch: the whole propagation path, target first.
+      if (state.path !== null) return ArrayPrototypeSlice(state.path, 0);
+      return [state.currentTarget];
     }
 
     initEvent(type) {
@@ -235,6 +255,8 @@
       trusted: false,
       timeStamp: DateNow() - TIME_ORIGIN,
       detail: null,
+      // The propagation path of a host target's dispatch, while it runs; null otherwise.
+      path: null,
     };
   }
 
@@ -484,13 +506,21 @@
       }
 
       state.trusted = false;
-      return dispatch(this, event, state);
+      return dispatchAny(this, event, state);
     }
 
     static {
       listenersOf = function (o) {
-        if (typeof o !== 'object' || o === null || !(#listeners in o)) throw illegalInvocation();
-        return o.#listeners;
+        if (typeof o !== 'object' || o === null) throw illegalInvocation();
+        if (#listeners in o) return o.#listeners;
+        if (hostBrand === null || !hostBrand(o)) throw illegalInvocation();
+        var listeners = WeakMapPrototypeGet(hostListeners, o);
+        if (listeners === undefined) {
+          listeners = { __proto__: null };
+          WeakMapPrototypeSet(hostListeners, o, listeners);
+        }
+
+        return listeners;
       };
     }
   }
@@ -523,6 +553,65 @@
     return !state.canceled;
   }
 
+  // A node propagates; every other target runs as above.
+  function dispatchAny(target, event, state) {
+    if (hostBrand !== null && hostBrand(target)) return dispatchPath(target, event, state);
+    return dispatch(target, event, state);
+  }
+
+  // The DOM Standard's dispatch over a node's path (target, then each parent up to the
+  // document): a capturing pass from the top down to the target, then a bubbling pass
+  // back up, the latter only for an event that bubbles. At the target both passes run
+  // with eventPhase AT_TARGET, capture listeners first — what Chrome does since 89.
+  // The stop-propagation flag ends the dispatch between two targets;
+  // stopImmediatePropagation also ends the target's own list (invokePhase).
+  //
+  // Deviates: the path ends at the document. Chrome's goes on to the window, which is not
+  // an EventTarget in Larva yet (stage 4b); a listener on `window` sees nothing of a
+  // node's event.
+  function dispatchPath(target, event, state) {
+    state.dispatching = true;
+    state.target = target;
+    var path = [target];
+    for (var p = hostParent(target); p !== null; p = hostParent(p)) ArrayPrototypePush1(path, p);
+    state.path = path;
+    for (var i = path.length - 1; i >= 0; i--) {
+      if (state.stopPropagation) break;
+      state.phase = i === 0 ? AT_TARGET : CAPTURING_PHASE;
+      invokePhase(path[i], event, state, true);
+    }
+
+    for (var j = 0; j < path.length; j++) {
+      if (state.stopPropagation) break;
+      if (j > 0 && !state.bubbles) break;
+      state.phase = j === 0 ? AT_TARGET : BUBBLING_PHASE;
+      invokePhase(path[j], event, state, false);
+    }
+
+    state.phase = NONE;
+    state.currentTarget = null;
+    state.path = null;
+    state.dispatching = false;
+    return !state.canceled;
+  }
+
+  // One target's listeners for one pass: those registered with `capture` equal to
+  // `capture`, from a snapshot of the list taken now.
+  function invokePhase(target, event, state, capture) {
+    state.currentTarget = target;
+    var listeners = listenersOf(target);
+    var list = listeners[state.type];
+    if (list === undefined || list.length === 0) return;
+    var snapshot = ArrayPrototypeSlice(list, 0);
+    for (var i = 0; i < snapshot.length; i++) {
+      if (state.stopImmediatePropagation) break;
+      var entry = snapshot[i];
+      if (entry.removed || entry.capture !== capture) continue;
+      if (entry.once) removeEntry(listeners, state.type, entry);
+      invoke(entry, target, event, state);
+    }
+  }
+
   function invoke(entry, target, event, state) {
     var callback = entry.callback;
     state.inPassiveListener = entry.passive;
@@ -551,15 +640,29 @@
 
   /**
    * Fires a trusted event of `type` at `target` — the platform's own `abort`.
-   * @param {EventTarget} target An instance of the implementation class.
+   * @param {EventTarget} target An instance of the implementation class, or a node.
    * @param {string} type
+   * @param {boolean} [bubbles] The event's `bubbles` (DOMContentLoaded's is true).
    * @returns {boolean} false when a listener canceled it.
    */
-  function fireEvent(target, type) {
+  function fireEvent(target, type, bubbles) {
     var state = newState(type);
     state.trusted = true;
+    state.bubbles = bubbles === true;
     var event = new Event(INTERNAL, state);
-    return dispatch(target, event, state);
+    return dispatchAny(target, event, state);
+  }
+
+  /**
+   * Makes the DOM's node wrappers EventTargets (see hostBrand). Once per page: the
+   * module instance is the page's, and internal/dom calls this from its install.
+   * @param {function(*): boolean} brand True for a node wrapper; never throws.
+   * @param {function(Object): ?Object} parent The next node of a dispatch's path.
+   */
+  function setHostTargets(brand, parent) {
+    if (hostBrand !== null) throw new TypeErrorP('event_target: host targets are set once');
+    hostBrand = brand;
+    hostParent = parent;
   }
 
   /**
@@ -658,6 +761,7 @@
     CustomEvent: PublicCustomEvent,
     EventTargetImpl: EventTarget,
     fireEvent: fireEvent,
+    setHostTargets: setHostTargets,
     attachHandler: attachHandler,
     detachHandler: detachHandler,
   });

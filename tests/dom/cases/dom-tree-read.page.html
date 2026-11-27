@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head><title>tree read</title></head>
+<body>
+<div id="root" class="a b"><p>one <b>two</b> three</p><!--note--><span>four</span></div>
+<pre id="log"></pre>
+<script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+var root = document.getElementById('root');
+var p = root.firstChild;
+log('root ' + root.nodeType + ' ' + root.nodeName + ' ' + root.tagName + ' ' + root.localName);
+log('id ' + root.id + ' class ' + root.className);
+log('parent ' + root.parentNode.nodeName + ' ' + root.parentElement.tagName);
+log('children ' + root.childNodes.length + ' ' + root.children.length + ' ' + root.childElementCount);
+log('first ' + root.firstChild.nodeName + ' last ' + root.lastChild.nodeName);
+log('comment ' + p.nextSibling.nodeType + ' ' + p.nextSibling.nodeName + ' ' + p.nextSibling.data);
+log('siblings ' + p.nextSibling.nextSibling.tagName + ' ' + root.lastChild.previousSibling.nodeName);
+log('elements ' + root.firstElementChild.tagName + ' ' + root.lastElementChild.tagName);
+log('element siblings ' + p.nextElementSibling.tagName + ' ' + (p.previousElementSibling === null));
+log('text ' + JSON.stringify(p.textContent) + ' ' + JSON.stringify(root.textContent));
+log('text node ' + p.firstChild.nodeType + ' ' + p.firstChild.nodeName + ' ' + JSON.stringify(p.firstChild.data) + ' ' + p.firstChild.length);
+log('nodeValue ' + JSON.stringify(p.firstChild.nodeValue) + ' ' + root.nodeValue);
+log('identity ' + (root.firstChild === p) + ' ' + (p.parentNode === root) + ' ' + (root.childNodes[0] === p));
+log('hasChildNodes ' + root.hasChildNodes() + ' ' + p.firstChild.hasChildNodes());
+log('contains ' + root.contains(p.firstChild) + ' ' + p.contains(root) + ' ' + root.contains(root) + ' ' + root.contains(null));
+log('connected ' + root.isConnected + ' ' + document.createElement('i').isConnected);
+log('owner ' + (root.ownerDocument === document) + ' ' + document.ownerDocument);
+p.expando = 42;
+log('expando ' + root.firstChild.expando);
+var seen = [];
+root.childNodes.forEach(function (n, i) { seen.push(i + ':' + n.nodeName); });
+log('forEach ' + seen.join(','));
+var it = [];
+for (var n of root.children) it.push(n.tagName);
+log('iterate ' + it.join(',') + ' item ' + root.children.item(1).tagName + ' ' + root.childNodes.item(9));
+</script>
+</body>
+</html>

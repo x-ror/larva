@@ -37,6 +37,8 @@ main :: proc() {
 		run_command(args[2:])
 	case "html":
 		html_command(args[2:])
+	case "page":
+		page_command(args[2:])
 	case "fetch":
 		fetch_command(args[2:])
 	case:
@@ -62,6 +64,11 @@ Usage:
                         html5lib-format tree, or a CTX element's innerHTML parse);
                         input is UTF-8 unless --sniff determines its encoding as
                         a navigation does (--charset: as served with that charset)
+  lava page [--tree|--serialize] [--origin=<origin>] <file.html>
+                        Run an HTML page: parse it with its inline classic scripts
+                        run as the parser reaches them (document/window exposed),
+                        run the event loop to idle, then print the document's
+                        serialization (or its html5lib-format tree); input is UTF-8
   lava fetch <url>      Fetch a page without JS; status and headers on stderr,
                         the serialized HTML on stdout, decoded per its charset
   lava --version        Print version
@@ -385,6 +392,77 @@ html_command :: proc(args: []string) {
 	}
 
 	html.destroy(&p)
+}
+
+// page_command runs an HTML file as a page (lava_runtime.run_html_page): its inline
+// classic scripts run as the parser reaches them, with `document` and `window` in scope,
+// the event loop runs until it idles, and the document is printed — serialized, or as
+// the html5lib-format tree with --tree — the two views tests/dom's `*.page.html` cases
+// compare with Chrome. What scripts write with console goes to stdout first. A script's
+// throw is reported on stderr and the page goes on; the exit code is then 1.
+//
+// The input is taken as UTF-8, as tests/dom serves its page cases (`text/html;
+// charset=utf-8`); `--origin` is `lava run`'s.
+page_command :: proc(args: []string) {
+	usage :: proc() -> ! {
+		fmt.eprintln("usage: lava page [--tree|--serialize] [--origin=<origin>] <file.html>")
+		os.exit(2)
+	}
+
+	view := lava_runtime.Html_View.Serialize
+	path, origin := "", ""
+	tree, serialize := false, false
+	for a in args {
+		switch {
+		case a == "--tree":
+			tree = true
+		case a == "--serialize":
+			serialize = true
+		case strings.has_prefix(a, "--origin="):
+			origin = a[len("--origin="):]
+
+			if origin == "" {
+				usage()
+			}
+		case len(a) > 1 && a[0] == '-', path != "":
+			usage()
+		case:
+			path = a
+		}
+	}
+
+	if path == "" || (tree && serialize) {
+		usage()
+	}
+
+	if tree {
+		view = .Tree
+	}
+
+	data, err := os.read_entire_file(path, context.allocator)
+
+	if err != nil {
+		fmt.eprintfln("lava page: cannot read %s: %v", path, err)
+		os.exit(1)
+	}
+
+	loop := eventloop.init(real_time = true)
+	result, output := lava_runtime.run_html_page(data, path, &loop, view, report = print_result, origin = origin)
+	delete(data)
+
+	// The dump ends every line itself; the markup gets one newline, as `lava html`'s.
+	if output != "" {
+		if tree {
+			lava_runtime.process_write(os.stdout, output)
+		} else {
+			lava_runtime.process_write(os.stdout, output, "\n")
+		}
+	}
+
+	delete(output)
+	exit_code := result.exit_code
+	lava_runtime.result_destroy(&result)
+	os.exit(exit_code)
 }
 
 // select_and_print prints the outerHTML of every match of `css` under `root`, one

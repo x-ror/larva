@@ -1,0 +1,145 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-dom.mjs dom-script-order.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "script order"
+|     "
+"
+|     <script>
+|       "
+var order = [];
+order.push('head:' + (document.body === null) + ':' + document.getElementsByTagName('script').length);
+"
+|     "
+"
+|   "
+"
+|   <body>
+|     "
+"
+|     <p>
+|       id="before"
+|       "changed by script 1"
+|     "
+"
+|     <script>
+|       "
+order.push('body1:' + (document.getElementById('before') !== null) + ':' + (document.getElementById('after') === null));
+var me = document.getElementsByTagName('script');
+order.push('self:' + me.length + ':' + (me[me.length - 1].nextSibling === null));
+document.getElementById('before').textContent = 'changed by script 1';
+"
+|     "
+"
+|     <p>
+|       id="after"
+|       "after"
+|     "
+"
+|     <script>
+|       type="text/plain"
+|       "order.push('data block ran');"
+|     "
+"
+|     <script>
+|       type=""
+|       "order.push('empty type');"
+|     "
+"
+|     <script>
+|       type="TEXT/JavaScript"
+|       "order.push('mime type');"
+|     "
+"
+|     <script>
+|       nomodule=""
+|       "order.push('nomodule ran');"
+|     "
+"
+|     <script>
+|       "
+order.push('body2:' + document.getElementById('after').textContent);
+order.push('microtask-queued');
+Promise.resolve().then(function () { order.push('microtask'); });
+"
+|     "
+"
+|     <script>
+|       "
+order.push('body3');
+"
+|     "
+"
+|     <pre>
+|       id="log"
+|       "head:true:1
+body1:true:true
+self:2:true
+empty type
+mime type
+body2:after
+microtask-queued
+microtask
+body3
+"
+|     "
+"
+|     <script>
+|       "
+document.getElementById('log').textContent = order.join('\n') + '\n';
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head><title>script order</title>
+<script>
+var order = [];
+order.push('head:' + (document.body === null) + ':' + document.getElementsByTagName('script').length);
+</script>
+</head>
+<body>
+<p id="before">changed by script 1</p>
+<script>
+order.push('body1:' + (document.getElementById('before') !== null) + ':' + (document.getElementById('after') === null));
+var me = document.getElementsByTagName('script');
+order.push('self:' + me.length + ':' + (me[me.length - 1].nextSibling === null));
+document.getElementById('before').textContent = 'changed by script 1';
+</script>
+<p id="after">after</p>
+<script type="text/plain">order.push('data block ran');</script>
+<script type="">order.push('empty type');</script>
+<script type="TEXT/JavaScript">order.push('mime type');</script>
+<script nomodule="">order.push('nomodule ran');</script>
+<script>
+order.push('body2:' + document.getElementById('after').textContent);
+order.push('microtask-queued');
+Promise.resolve().then(function () { order.push('microtask'); });
+</script>
+<script>
+order.push('body3');
+</script>
+<pre id="log">head:true:1
+body1:true:true
+self:2:true
+empty type
+mime type
+body2:after
+microtask-queued
+microtask
+body3
+</pre>
+<script>
+document.getElementById('log').textContent = order.join('\n') + '\n';
+</script>
+
+
+</body></html>

@@ -100,6 +100,9 @@ Runtime_State :: struct {
 	// Embedded builtin factories compiled so far (builtin_compile_cb). Only an
 	// observable for cmd/lava/lazy_builtins_test.odin; nothing branches on it.
 	builtin_compiles:  int,
+	// The page's DOM (dom.odin), for an HTML page (page_html.odin); nil for a script page.
+	// Released by destroy_runtime_state through dom_release, while the context lives.
+	dom:               ^Dom_Page,
 }
 
 // JS_Callback bridges a JS function into an event-loop Callback. The function
@@ -150,6 +153,8 @@ destroy_runtime_state :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) {
 
 	fetch_shutdown_active(state)
 	fetch_destroy_pending(state)
+	// Wrappers first (private slot cleared, then unprotected), the document after them.
+	dom_release(ctx, state)
 	// The thread-local host-call registry's entries are keyed by the context POINTER,
 	// which JSC reuses for a later context, so they must go while this context is still
 	// the owner.

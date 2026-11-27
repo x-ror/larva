@@ -44,6 +44,20 @@ encoding sniffing algorithm over lexbor's encoding module (`pkg/html/encoding.od
 them to `lava fetch` behind a redirect and a content coding, against the same
 recordings.
 
+`cases/<topic>.page.html` are **scripted page cases** (stage 4a): a page with
+scripting on, whose views are of the document after its scripts ran. The recorder
+serves the bytes as `text/html; charset=utf-8` into an unsandboxed frame of a harness
+page (`scriptedPage` in `scripts/lib/dom-oracle.mjs`), under a CSP that allows the
+case's inline scripts and blocks every subresource, and reads the frame's document at
+its load event. Lava runs `lava page --tree|--serialize`: the same bytes parsed with
+their inline classic scripts run as the parser reaches each one, DOMContentLoaded fired,
+the event loop run until it idles. A case reports by writing into its own document (a
+`<pre id="log">` it appends text to), never through `console`, which `lava page` prints
+to stdout ahead of the view. It must finish its work by the load event: no timer whose
+callback changes the tree, and no external, module, `defer` or `async` script, which
+`lava page` does not run yet (4b). The `dom-*.page` cases cover the DOM surface stage 4a
+binds (`pkg/runtime/dom.odin`, `pkg/runtime/js/internal/dom.js`).
+
 Each case has two **views**, compared byte for byte and judged apart:
 
 - **tree** — `lava html --tree`: the html5lib tree-construction format, one line
@@ -127,6 +141,7 @@ is the step of the DOM plan that closes it:
 | `3f`        | shadow DOM and declarative shadow roots                                    |
 | `3g`        | XPath                                                                      |
 | `3h`        | same-origin frames                                                         |
+| `4b`        | the rest of the Window DOM: window as an EventTarget, external scripts     |
 | `unplanned` | no stage closes it (a lexbor parser divergence); needs an issue of its own |
 
 When stage 3b landed, all 120 hand-case views and 3440 of the 3568 html5lib views

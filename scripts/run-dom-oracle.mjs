@@ -34,6 +34,7 @@ import {
   areaOf,
   fragmentContext,
   handCases,
+  isPageCase,
   lavaArgs,
   navCharset,
   listCases,
@@ -141,7 +142,7 @@ async function runCase(name) {
       out.push({ name: unit, verdict: 'fail', detail: broken });
       continue;
     }
-    const actual = await runLava(lavaArgs(view, context, file, navCharset(name)));
+    const actual = await runLava(lavaArgs(view, context, file, navCharset(name), isPageCase(name)));
 
     // Only a listed view is pinned; the case's other view must still match Chrome.
     if (update && known.has(unit)) {

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head><title>mutation</title></head>
+<body>
+<ul id="list"><li>a</li><li>b</li><li>c</li></ul>
+<div id="target"></div>
+<pre id="log"></pre>
+<script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+var list = document.getElementById('list');
+var items = list.children;
+var a = items[0];
+var b = items[1];
+var c = items[2];
+
+var d = document.createElement('LI');
+d.appendChild(document.createTextNode('d'));
+log('append returns ' + (list.appendChild(d) === d) + ' ' + list.children.length + ' ' + d.tagName);
+
+var z = document.createElement('li');
+z.textContent = 'z';
+log('insertBefore returns ' + (list.insertBefore(z, a) === z) + ' first ' + list.firstChild.textContent);
+list.insertBefore(document.createElement('li'), null);
+
+log('removeChild returns ' + (list.removeChild(b) === b) + ' parent ' + b.parentNode);
+log('removed keeps ' + b.textContent + ' ' + b.firstChild.data);
+
+var r = document.createElement('li');
+r.textContent = 'r';
+log('replaceChild returns ' + (list.replaceChild(r, c) === c) + ' ' + c.parentNode);
+
+// Moving: appending a node that is already in the tree moves it.
+list.appendChild(a);
+log('moved ' + (list.lastChild === a));
+
+var frag = document.createDocumentFragment();
+frag.appendChild(document.createElement('em')).textContent = 'f1';
+frag.appendChild(document.createComment('f2'));
+log('fragment ' + frag.nodeType + ' ' + frag.nodeName + ' ' + frag.childNodes.length);
+var target = document.getElementById('target');
+target.appendChild(frag);
+log('fragment emptied ' + frag.childNodes.length + ' target ' + target.childNodes.length);
+
+var shallow = list.cloneNode();
+var deep = list.cloneNode(true);
+log('clone ' + shallow.childNodes.length + ' ' + deep.childNodes.length + ' ' + deep.id + ' ' + (deep.parentNode === null));
+target.appendChild(deep);
+deep.id = 'copy';
+
+try {
+  list.appendChild(document.body);
+} catch (e) {
+  log('ancestor ' + e.name);
+}
+try {
+  list.removeChild(target);
+} catch (e) {
+  log('not a child ' + e.name);
+}
+try {
+  list.insertBefore(document.createElement('li'), target);
+} catch (e) {
+  log('bad reference ' + e.name);
+}
+try {
+  list.appendChild('text');
+} catch (e) {
+  log('not a node ' + e.constructor.name);
+}
+
+b.remove();
+d.remove();
+log('remove ' + list.children.length);
+var t = document.createTextNode('tail');
+list.appendChild(t);
+t.data = 'TAIL';
+log('data ' + t.data + ' ' + list.lastChild.nodeValue);
+</script>
+</body>
+</html>

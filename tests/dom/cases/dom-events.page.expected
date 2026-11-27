@@ -1,0 +1,197 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-dom.mjs dom-events.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "events"
+|   "
+"
+|   <body>
+|     "
+"
+|     <div>
+|       id="outer"
+|       <div>
+|         id="inner"
+|         <span>
+|           id="leaf"
+|           "leaf"
+|     "
+"
+|     <pre>
+|       id="log"
+|       "bubbling true doc-capture@undefined:1 outer-capture@outer:1 leaf-capture@leaf:2 leaf-bubble@leaf:2 outer-bubble@outer:3 doc-bubble@undefined:3
+"
+|       "non-bubbling doc-capture@undefined:1 outer-capture@outer:1 leaf-capture@leaf:2 leaf-bubble@leaf:2
+"
+|       "stopped doc-capture@undefined:1 outer-capture@outer:1 leaf-capture@leaf:2 leaf-bubble@leaf:2 stop@inner
+"
+|       "path SPAN,DIV,DIV,BODY,HTML,#document, target leaf/leaf/inner
+"
+|       "once 1
+"
+|       "cancel true false
+"
+|       "detached 3
+"
+|       "DOMContentLoaded true true 2 true
+"
+|     "
+"
+|     <script>
+|       "
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+var outer = document.getElementById('outer');
+var inner = document.getElementById('inner');
+var leaf = document.getElementById('leaf');
+var seen = [];
+function rec(tag) {
+  return function (e) {
+    seen.push(tag + '@' + e.currentTarget.id + ':' + e.eventPhase);
+  };
+}
+document.addEventListener('ping', rec('doc-capture'), true);
+document.addEventListener('ping', rec('doc-bubble'));
+outer.addEventListener('ping', rec('outer-bubble'));
+outer.addEventListener('ping', rec('outer-capture'), true);
+leaf.addEventListener('ping', rec('leaf-bubble'));
+leaf.addEventListener('ping', rec('leaf-capture'), { capture: true });
+var r = leaf.dispatchEvent(new Event('ping', { bubbles: true }));
+log('bubbling ' + r + ' ' + seen.join(' '));
+
+seen = [];
+leaf.dispatchEvent(new Event('ping'));
+log('non-bubbling ' + seen.join(' '));
+
+seen = [];
+var stopper = function (e) { seen.push('stop@' + e.currentTarget.id); e.stopPropagation(); };
+inner.addEventListener('ping', stopper);
+leaf.dispatchEvent(new Event('ping', { bubbles: true }));
+inner.removeEventListener('ping', stopper);
+log('stopped ' + seen.join(' '));
+
+seen = [];
+var path = null;
+var target = null;
+inner.addEventListener('probe', function (e) {
+  path = e.composedPath().map(function (n) { return n.nodeName; }).join(',');
+  target = e.target.id + '/' + e.srcElement.id + '/' + e.currentTarget.id;
+});
+leaf.dispatchEvent(new CustomEvent('probe', { bubbles: true, detail: 1 }));
+log('path ' + path + ' target ' + target);
+
+var count = 0;
+leaf.addEventListener('once', function () { count++; }, { once: true });
+leaf.dispatchEvent(new Event('once'));
+leaf.dispatchEvent(new Event('once'));
+log('once ' + count);
+
+var canceled = leaf.dispatchEvent(new Event('veto', { cancelable: true, bubbles: true }));
+outer.addEventListener('veto', function (e) { e.preventDefault(); });
+var canceled2 = leaf.dispatchEvent(new Event('veto', { cancelable: true, bubbles: true }));
+log('cancel ' + canceled + ' ' + canceled2);
+
+var detached = document.createElement('div');
+var child = detached.appendChild(document.createElement('b'));
+var got = [];
+detached.addEventListener('x', function (e) { got.push(e.eventPhase); });
+child.dispatchEvent(new Event('x', { bubbles: true }));
+log('detached ' + got.join(','));
+
+document.addEventListener('DOMContentLoaded', function (e) {
+  log('DOMContentLoaded ' + e.isTrusted + ' ' + e.bubbles + ' ' + e.eventPhase + ' ' + (e.target === document));
+});
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head><title>events</title></head>
+<body>
+<div id="outer"><div id="inner"><span id="leaf">leaf</span></div></div>
+<pre id="log">bubbling true doc-capture@undefined:1 outer-capture@outer:1 leaf-capture@leaf:2 leaf-bubble@leaf:2 outer-bubble@outer:3 doc-bubble@undefined:3
+non-bubbling doc-capture@undefined:1 outer-capture@outer:1 leaf-capture@leaf:2 leaf-bubble@leaf:2
+stopped doc-capture@undefined:1 outer-capture@outer:1 leaf-capture@leaf:2 leaf-bubble@leaf:2 stop@inner
+path SPAN,DIV,DIV,BODY,HTML,#document, target leaf/leaf/inner
+once 1
+cancel true false
+detached 3
+DOMContentLoaded true true 2 true
+</pre>
+<script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+var outer = document.getElementById('outer');
+var inner = document.getElementById('inner');
+var leaf = document.getElementById('leaf');
+var seen = [];
+function rec(tag) {
+  return function (e) {
+    seen.push(tag + '@' + e.currentTarget.id + ':' + e.eventPhase);
+  };
+}
+document.addEventListener('ping', rec('doc-capture'), true);
+document.addEventListener('ping', rec('doc-bubble'));
+outer.addEventListener('ping', rec('outer-bubble'));
+outer.addEventListener('ping', rec('outer-capture'), true);
+leaf.addEventListener('ping', rec('leaf-bubble'));
+leaf.addEventListener('ping', rec('leaf-capture'), { capture: true });
+var r = leaf.dispatchEvent(new Event('ping', { bubbles: true }));
+log('bubbling ' + r + ' ' + seen.join(' '));
+
+seen = [];
+leaf.dispatchEvent(new Event('ping'));
+log('non-bubbling ' + seen.join(' '));
+
+seen = [];
+var stopper = function (e) { seen.push('stop@' + e.currentTarget.id); e.stopPropagation(); };
+inner.addEventListener('ping', stopper);
+leaf.dispatchEvent(new Event('ping', { bubbles: true }));
+inner.removeEventListener('ping', stopper);
+log('stopped ' + seen.join(' '));
+
+seen = [];
+var path = null;
+var target = null;
+inner.addEventListener('probe', function (e) {
+  path = e.composedPath().map(function (n) { return n.nodeName; }).join(',');
+  target = e.target.id + '/' + e.srcElement.id + '/' + e.currentTarget.id;
+});
+leaf.dispatchEvent(new CustomEvent('probe', { bubbles: true, detail: 1 }));
+log('path ' + path + ' target ' + target);
+
+var count = 0;
+leaf.addEventListener('once', function () { count++; }, { once: true });
+leaf.dispatchEvent(new Event('once'));
+leaf.dispatchEvent(new Event('once'));
+log('once ' + count);
+
+var canceled = leaf.dispatchEvent(new Event('veto', { cancelable: true, bubbles: true }));
+outer.addEventListener('veto', function (e) { e.preventDefault(); });
+var canceled2 = leaf.dispatchEvent(new Event('veto', { cancelable: true, bubbles: true }));
+log('cancel ' + canceled + ' ' + canceled2);
+
+var detached = document.createElement('div');
+var child = detached.appendChild(document.createElement('b'));
+var got = [];
+detached.addEventListener('x', function (e) { got.push(e.eventPhase); });
+child.dispatchEvent(new Event('x', { bubbles: true }));
+log('detached ' + got.join(','));
+
+document.addEventListener('DOMContentLoaded', function (e) {
+  log('DOMContentLoaded ' + e.isTrusted + ' ' + e.bubbles + ' ' + e.eventPhase + ' ' + (e.target === document));
+});
+</script>
+
+
+</body></html>
