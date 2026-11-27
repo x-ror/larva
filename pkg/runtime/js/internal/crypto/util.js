@@ -4,7 +4,10 @@
 (function (require, module) {
   'use strict';
 
-  var Buffer = require('buffer').Buffer;
+  // node:buffer on the Node surface only: `.Web` instantiates no node/ module, and only
+  // node:crypto's string inputs (toU8) reach it. Captured at module-eval — this file is
+  // eager through internal/crypto/random — so the capture is pristine.
+  var Buffer = require('internal/web_errors').web ? null : require('buffer').Buffer;
 
   // Argument-validation helpers mirroring Node's internal validators, so bad
   // input fails with Node's error class + code instead of being silently

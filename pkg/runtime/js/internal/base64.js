@@ -8,7 +8,9 @@
  * runs, so the module-eval captures below are pristine (the loader also names it as a
  * root of its own).
  *
- * The codec is still Buffer's. A top-level `require('buffer')` would be a cycle
+ * On the Window surface the codec is the buffer natives (`natives`, aliased to
+ * node:buffer's bindings object by the loader): `.Web` instantiates no node/ module,
+ * so there is no Buffer to read. On the Node surface it is still Buffer's. A top-level `require('buffer')` would be a cycle
  * (node/buffer.js requires this file), so each call reads the constructor off the
  * loader's pristine table — `require.pristineBuffer.Buffer`, the very object node/buffer.js
  * binds as `Buffer`, attached before user code — and reads `.from` off it LIVE, as it did
@@ -18,7 +20,7 @@
  * @module lava/internal/base64
  */
 
-(function (require, module, _exports) {
+(function (require, module, _exports, natives) {
   'use strict';
 
   var P = require('internal/primordials');
@@ -32,6 +34,14 @@
   var toDOMString = webErrors.toDOMString;
   var typeError = webErrors.typeError;
   var pageError = webErrors.pageError;
+  // Window surface only (see the file header); captured at module-eval, so a page
+  // cannot steer them.
+  var base64DecodeNative = natives.base64Decode;
+  var base64EncodeNative = natives.base64Encode;
+  var latin1EncodeNative = natives.latin1Encode;
+  var latin1DecodeNative = natives.latin1Decode;
+  var StringFromCharCode = String.fromCharCode;
+  var StringPrototypeSlice = P.StringPrototypeSlice;
 
   // An InvalidCharacterError DOMException (legacy code 5) on both surfaces — node's and
   // Chrome's shape alike. `nodeMessage` is node's text, which tells the bad-character
@@ -136,6 +146,11 @@
     if ((nonWhitespace - equals) % 4 === 1)
       throw errInvalidCharacter('The string to be decoded is not correctly encoded.');
     if (equals && nonWhitespace % 4) throw errInvalidCharacter('Invalid character');
+    if (web) {
+      return latin1DecodeNative(
+        base64DecodeNative(canonicalBase64(input, nonWhitespace === input.length)),
+      );
+    }
     var Buffer = require.pristineBuffer.Buffer;
     return Buffer.from(input, 'base64').toString('latin1');
   }
@@ -154,8 +169,38 @@
     input = toInput(arguments, 'btoa');
     if (P.RegExpMatches(NON_LATIN1_RE, input))
       throw errInvalidCharacter('Invalid character', 'btoa');
+    if (web) {
+      return base64EncodeNative(latin1EncodeNative(input));
+    }
     var Buffer = require.pristineBuffer.Buffer;
     return Buffer.from(input, 'latin1').toString('base64');
+  }
+
+  // The padded, whitespace-free form base64Decode requires (buffer.odin: anything else
+  // decodes to nothing) of an input atob already validated: alphabet characters, then
+  // at most two '='. `noWhitespace` lets an input with nothing to strip skip the
+  // per-character pass; the '=' are dropped and the padding rebuilt either way, since
+  // forgiving-base64 accepts the unpadded form.
+  function canonicalBase64(input, noWhitespace) {
+    var out = '';
+    if (noWhitespace) {
+      out = input;
+      while (out.length > 0 && StringPrototypeCharCodeAt(out, out.length - 1) === 0x3d) {
+        out = StringPrototypeSlice(out, 0, out.length - 1);
+      }
+    } else {
+      for (var i = 0; i < input.length; i++) {
+        var c = StringPrototypeCharCodeAt(input, i);
+        if (c === 0x09 || c === 0x0a || c === 0x0c || c === 0x0d || c === 0x20 || c === 0x3d) {
+          continue;
+        }
+        out += StringFromCharCode(c);
+      }
+    }
+    while (out.length % 4 !== 0) {
+      out += '=';
+    }
+    return out;
   }
 
   // The globals a page sees: internal/native_shape's operations around these two
