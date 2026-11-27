@@ -126,8 +126,8 @@ jobs:
     needs: scope
     # The Window surface is the only one (S5 of the Node-profile removal): the node-vs-Lava
     # oracles, the property suite and the fetch smoke went with the Node profile. Left
-    # out: test-stdio (not yet a CI gate) and bench-gate (a node-vs-Lava ratio table over
-    # the Node surface; absolute numbers replace it).
+    # out: test-stdio (not yet a CI gate) and bench-gate (Lava new-vs-base, local only: the
+    # baseline would be a second build on this runner; bench/README.md).
     if: needs.scope.outputs.scope == 'code' || needs.scope.outputs.scope == 'full'
     runs-on: ubuntu-latest
     steps:

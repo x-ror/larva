@@ -1,55 +1,76 @@
 # Benchmarks
 
-Micro and macro benchmarks for the Lava runtime, measured **against Node as the oracle**
-— the same ground-truth model the correctness tests use. Both runtimes run the identical
-benchmark file on the same machine, so the reported **lava/node ratio** cancels the
-machine's absolute speed and is what we compare and gate on.
+Micro and macro benchmarks for the Lava runtime. Since the Node profile went (#130)
+`lava run` executes a page with the Window globals only, so the micro benches are page
+scripts and their yardstick is **Lava itself**: every number is absolute (ns per
+operation), measured on two binaries — a **baseline** and the one under test — on the
+same machine, interleaved launch by launch. The **new/base ratio** is what a change is
+judged on and what `make bench-gate` enforces.
 
 ## Run
 
 ```sh
-make bench         # node-vs-Lava ratio table, report-only (never fails)
-make bench-gate    # same, but fails if any ratio exceeds its cap in thresholds.json
+make bench         # new-vs-base ns/op table, report-only (never fails on timing)
+make bench-gate    # same, but fails if any new/base ratio exceeds its cap in thresholds.json
 ```
 
-Both build `bin/lava` first. Honor `NODE_BIN` / `LAVA_BIN` like the oracle runners:
+Both build `bin/lava` (the binary under test) first. The baseline:
 
 ```sh
-LAVA_BIN=/path/to/lava NODE_BIN=/path/to/node ./scripts/run-bench.sh [--gate]
+make bench                         # origin/master, built once in a temporary git worktree
+make bench BASE_REF=HEAD~1         # any ref; cached by sha under bin/bench-base/<sha>/lava
+make bench BASE=/path/to/lava      # an existing binary
+make bench BASE=bin/lava           # A/A: both sides the same binary, every ratio is noise
+make bench BASE=none               # absolute numbers only (bench-gate refuses this)
 ```
 
-If `lava` is not runnable, the runner prints the Node baseline only (no ratios, no gate),
-so the harness itself can be smoke-tested anywhere Node is present.
+`BENCH_LAUNCHES` (default 5) sets launches per binary; every number is their median.
+`BENCH_STARTUP_REPS` (default 10) sets spawns per launch for `startup`, best of. A default
+run takes about 1.5 minutes on 4 cores, plus ~15 s the first time a baseline is built.
 
 ## Layout
 
-- `lib/harness.js` — `bench(name, fn, opts)`: warms up, then times `iterations` calls of
-  `fn` over `reps` repetitions and reports the **best** (min) wall time as a
-  `##BENCH## {json}` line. Best-of-K suppresses GC/scheduler jitter. Runs under both Node
-  and Lava (CommonJS; uses `performance.now()`, which both expose).
-- `micro/` — `json`, `buffer`, `require` (cache-hit lookups); plus `noop.js`, the startup
-  target spawned repeatedly to measure process boot.
-- Fetch throughput is a planned macro addition (needs a local origin, like the fetch smoke
-  test); `macro/` held only an `fs` benchmark, deleted with node:fs.
-- `run.mjs` — the orchestrator (Node): runs every bench under both runtimes, measures
-  startup externally, prints the table, and applies the gate. All parsing/timing lives
-  here (portable; no shell JSON parsing). `scripts/run-bench.sh` is a thin wrapper.
-- `thresholds.json` — per-benchmark gate caps (max acceptable lava/node ratio).
+- `lib/harness.js` — `bench(name, fn, opts)` and `benchAsync(name, fn, opts)`: warm up,
+  time `iterations` calls over `reps` repetitions, report the **best** repetition as a
+  `##BENCH## {json}` line with `nsPerOp`, then `##BENCH-DONE##`. Not a module: a page has
+  no `require`, so `run.mjs` prepends it to each bench file and runs the concatenation as
+  one classic script. Async benches (Blob reads) await every call.
+- `micro/` — `encoding` (TextDecoder routes, TextEncoder, btoa/atob), `url`
+  (URL shapes, URLSearchParams), `json`, `blob`, `structured-clone`, `fetch` (Headers,
+  Request, Response construction), `events` (EventTarget dispatch, AbortController); plus
+  `noop.js`, the start-up target spawned repeatedly and timed from outside (no harness).
+  Each file runs under Window globals only — no `require`, `process` or `Buffer`.
+- `run.mjs` — the orchestrator (Node only drives the runs): resolves or builds the
+  baseline, runs every bench file under both binaries, alternating which goes first each
+  launch, measures start-up externally, prints the table and applies the gate.
+  `scripts/run-bench.sh` is a thin wrapper.
+- `thresholds.json` — the gate's caps: max acceptable new/base ratio per benchmark.
+
+There is no Chrome column. Chrome is the oracle for page-facing behaviour, and would be
+the natural yardstick for page-facing speed, but the headless runner the web oracle uses
+(`scripts/lib/web-oracle.mjs`) drives Chrome through `--dump-dom`, which reads the DOM at
+the load event — before an async benchmark settles — and under `--virtual-time-budget`
+the clock stands still inside a task, so a Blob read would time as zero. A Chrome column
+needs Chrome driven over DevTools instead; until then, absolute numbers against a
+baseline answer what a change needs: did it make Lava slower.
 
 ## The gate, and calibrating it
 
-CI runs `make bench-gate` on Linux (`ubuntu-latest`) and fails the build when any
-benchmark's median-of-3 `lava/node` ratio exceeds its cap in `thresholds.json`.
-`make bench` runs a single launch per side as a local report-only view (never fails).
+`make bench-gate` fails when, for any benchmark, the median-of-launches new/base ratio
+exceeds its cap, when a bench file fails or never reports `##BENCH-DONE##` under the
+binary under test, when either binary cannot run, or when no baseline is given. Every
+benchmark is gated: by its entry in `caps`, else by `default_cap`, unless it is listed in
+`report_only`, so a new bench cannot land unmonitored. A benchmark the baseline cannot run
+(new coverage, or an API the base lacks) has no ratio and is shown as `-`.
 
-When adding or tuning benchmarks:
+It is **local only**: CI does not run it, because a ratio between two builds is only
+meaningful with the baseline built on the same runner, which doubles the build. Run it
+for anything on a hot path, and for every `perf(...)` change.
 
-1. Run `make bench` / `make bench-gate` (or read a CI run's table) to observe Lava's real ratios.
-2. Adjust caps in `thresholds.json` with headroom for CI noise and document the
-   measurement method, commit, and hardware/CI context in the comment keys.
-
-A benchmark with no entry in `thresholds.json` (and not listed in `report_only`)
-fails `make bench-gate` so new benchmarks cannot land unmonitored.
+The caps were set from A/A runs (`BASE=bin/lava`, the same binary on both sides), which
+measure exactly the noise the gate must not fire on; `thresholds.json` records the
+observed spread beside them. A cap is a regression net sized above that noise, not a
+target — to tighten one, re-measure A/A on the box you care about first.
 
 ## Pages per thread (`make bench-pages`)
 

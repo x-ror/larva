@@ -83,8 +83,8 @@ help:
 	@printf '%s\n' '  make test-bench-pages-smoke  bench/pages builds, runs, and fails on a refused page'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Bench / report'
-	@printf '%s\n' '  make bench              node-vs-Lava ratio table (report-only)'
-	@printf '%s\n' '  make bench-gate         Fail if any ratio exceeds bench/thresholds.json'
+	@printf '%s\n' '  make bench              Lava new-vs-base ns/op table, BASE=<bin> (report-only)'
+	@printf '%s\n' '  make bench-gate         Fail if a new/base ratio exceeds bench/thresholds.json'
 	@printf '%s\n' '  make bench-pages        Pages per thread: start-up, RSS, pages/s (not in CI)'
 	@printf '%s\n' '  make bench-html         HTML serializer, pkg/html vs lexbor, ns per KB (not in CI)'
 	@printf '%s\n' ''
@@ -346,14 +346,17 @@ test-fetch-html-smoke: build
 test-bench-pages-smoke: native-deps
 	ODIN="$(ODIN)" ./scripts/run-bench-pages-smoke.sh
 
-# bench runs the micro/macro benchmarks node-vs-Lava and prints a ratio table; it never
-# fails on timing (report-only). bench-gate adds --gate, enforcing the per-benchmark
-# lava/node ratio caps in bench/thresholds.json (exit non-zero on a regression).
+# bench runs bench/micro under `lava run` (Window globals) on a BASELINE binary and on
+# bin/lava, interleaved, and prints ns/op for both and the new/base ratio; it never fails
+# on timing (report-only). BASE=<path> picks the baseline (BASE=none: absolute numbers
+# only); unset, BASE_REF (default origin/master) is built once in a temporary worktree
+# and cached under bin/bench-base/. bench-gate adds --gate, enforcing the new/base caps
+# in bench/thresholds.json. Local only: CI does not run either (ci.yml).
 bench: build
-	LAVA_BIN="$(LAVA)" ./scripts/run-bench.sh
+	LAVA_BIN="$(LAVA)" BASE="$(BASE)" BASE_REF="$(BASE_REF)" ./scripts/run-bench.sh
 
 bench-gate: build
-	LAVA_BIN="$(LAVA)" ./scripts/run-bench.sh --gate
+	LAVA_BIN="$(LAVA)" BASE="$(BASE)" BASE_REF="$(BASE_REF)" ./scripts/run-bench.sh --gate
 
 # Pages per thread (#4): N = 1/10/50/100 concurrent pages on one thread's page runner —
 # cold vs warm VM start-up, process RSS growth per live page and per VM, pages/s. Medians

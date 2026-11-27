@@ -25,7 +25,7 @@ the next reader from re-measuring. `vm_pool.odin`'s header is the house
 standard.
 
 ```sh
-make bench            # node-vs-Lava ratio table (report-only)
+make bench            # Lava new-vs-base ns/op table, BASE=<bin> (report-only)
 make bench-pages      # pages per thread: start-up, RSS growth, pages/s
 make bench-gate       # enforces bench/thresholds.json caps
 # VM costs (fresh vs warm pooled VM per page, RSS, fds); one scenario per process:
