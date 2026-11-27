@@ -669,6 +669,16 @@
     // Note it still reads the receiver's `constructor` / Symbol.species, per spec — the
     // method is pristine, not the species lookup. Node's own primordial does the same.
     ArrayBufferPrototypeSlice: caller2(ArrayBuffer.prototype.slice),
+    // The Streams spec's TransferArrayBuffer and IsDetachedBuffer, for readable byte
+    // streams (webstreams/readablestream.js): every enqueue and BYOB read moves the
+    // caller's buffer, and the page's old handle must read as detached, as in Chrome
+    // (tests/web/cases/streams-bytes). Both are writable/configurable on the prototype,
+    // so a byte stream reading them live would let a page skip the detach — and keep a
+    // second handle on memory the stream has handed to another reader.
+    ArrayBufferPrototypeTransfer: caller0(ArrayBuffer.prototype.transfer),
+    ArrayBufferPrototypeGetDetached: safeGetter(
+      Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'detached').get,
+    ),
     ArrayBufferPrototypeGetByteLength: safeGetter(
       Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'byteLength').get,
     ),
