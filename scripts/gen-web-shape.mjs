@@ -67,6 +67,7 @@ export const FAMILIES = {
     'PerformanceMeasure',
   ],
   console: ['console'],
+  storage: ['Storage', 'localStorage', 'sessionStorage'],
   xhr: ['XMLHttpRequestEventTarget', 'XMLHttpRequest', 'XMLHttpRequestUpload', 'ProgressEvent'],
 };
 

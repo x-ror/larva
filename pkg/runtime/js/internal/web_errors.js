@@ -21,6 +21,7 @@
   var ErrorP = P.Error;
   var TypeErrorP = P.TypeError;
   var StringP = P.String;
+  var NumberP = P.Number;
   var ObjectDefineProperty = P.ObjectDefineProperty;
   var ObjectHasOwn = P.ObjectHasOwn;
   var ObjectGetOwnPropertyDescriptor = P.ObjectGetOwnPropertyDescriptor;
@@ -44,6 +45,19 @@
   function context(iface, op) {
     if (op === undefined) return "Failed to construct '" + iface + "': ";
     return "Failed to execute '" + op + "' on '" + iface + "': ";
+  }
+
+  /**
+   * The context prefix of an error thrown by a named property setter
+   * (`localStorage.x = Symbol()`).
+   * @param {string} iface
+   * @param {string} name The property being set.
+   * @returns {string} `Failed to set a named property '<name>' on '<iface>': `.
+   * @node n/a — Chrome 158's wording, tests/web/cases/storage-errors.expected.
+   * @deviates none
+   */
+  function namedSetterContext(iface, name) {
+    return "Failed to set a named property '" + name + "' on '" + iface + "': ";
   }
 
   /**
@@ -296,11 +310,48 @@
    * @deviates none
    */
   function toDOMString(value, iface, op) {
+    if (typeof value === 'symbol') throw symbolToString(context(iface, op));
+    return StringP(value);
+  }
+
+  /**
+   * toDOMString under an explicit context prefix (namedSetterContext's).
+   * @param {*} value
+   * @param {string} prefix
+   * @returns {string}
+   * @throws {TypeError} `<prefix>Cannot convert a Symbol value to a string`.
+   * @deviates none
+   */
+  function toDOMStringIn(value, prefix) {
+    if (typeof value === 'symbol') throw symbolToString(prefix);
+    return StringP(value);
+  }
+
+  function symbolToString(prefix) {
+    return pageError(new TypeErrorP(prefix + 'Cannot convert a Symbol value to a string'));
+  }
+
+  /**
+   * WebIDL's ToNumber step for an integer argument: a Symbol or a BigInt throws.
+   * @param {*} value
+   * @param {string} iface
+   * @param {string} op
+   * @returns {number} The number, before the integer type's own clamping or wrapping.
+   * @throws {TypeError} `<context>Cannot convert a Symbol value to a number` (or
+   *   `a BigInt value`) — Chrome's text; Number(1n) would have answered 1.
+   * @node n/a — Chrome 158, tests/web/cases/storage-errors.expected (`key(1n)`).
+   * @deviates none
+   */
+  function toNumber(value, iface, op) {
     if (typeof value === 'symbol') {
-      throw typeError(iface, op, 'Cannot convert a Symbol value to a string');
+      throw typeError(iface, op, 'Cannot convert a Symbol value to a number');
     }
 
-    return StringP(value);
+    if (typeof value === 'bigint') {
+      throw typeError(iface, op, 'Cannot convert a BigInt value to a number');
+    }
+
+    return NumberP(value);
   }
 
   /**
@@ -319,6 +370,9 @@
     TypeError: TypeErrorP,
     RangeError: P.RangeError,
     context: context,
+    namedSetterContext: namedSetterContext,
+    toDOMStringIn: toDOMStringIn,
+    toNumber: toNumber,
     attributeContext: attributeContext,
     typeError: typeError,
     argumentsRequired: argumentsRequired,
