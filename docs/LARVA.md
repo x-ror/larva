@@ -94,7 +94,21 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
      per arm, -o:speed, Ryzen 7 7700X, load average ~2) retiring at 200 against
      never: trivial pages 448 vs 346 pages/s and 295620 vs 344484 KB end RSS growth,
      pages keeping 50k objects 330 vs 280 pages/s and 525708 vs 541096 KB — 20
-     retirements in each run. Faster, not slower; why was not profiled. Measured: a
+     retirements in each run. Faster, not slower; why was not profiled. A page can
+     also carry its own **heap limit** (`Page_Limits.heap_bytes`, 0 = off): over it
+     after a full collection, the page is killed alone (`Kill_Reason.Heap_Limit`,
+     through the CPU-budget kill's Result path, the reading in `Result.heap_bytes`)
+     and its VM retired whatever the pool's thresholds. The same reading is taken
+     between the page's steps — after its install, its top-level script, each
+     `page_eval` and element script and each tick, on the loop thread, never inside an
+     entry — on a schedule amortised against its cost: ~0.85 ms per MB of heap walked
+     (0.16-0.25 ms at 441 KB, 80 ms at 92 MB; a throwaway probe, medians of 9 reads,
+     two launches, 4-core Xeon @ 2.10GHz), so a page with a steady heap is read again
+     after 16 times the last read's CPU (≤ ~6% of its CPU), one heading for its limit
+     sooner, and a page growing steadily is killed by about 1.5x its limit (1.02-1.41x
+     of 8 MB in `runner_kills_a_page_over_its_heap_limit_alone`, thirty runs). One entry that
+     allocates without returning is not checked until it returns: the entry limit and
+     the CPU budget bound it (`page_heap_check`, `page.odin`). Measured: a
      warm VM
      stays flat over 500 pages (`bench/jsc-vm` scenario G), and 50 bare JSC VMs
      each holding one page add 4999 KB of RSS apiece (`bench/jsc-vm` scenario D,
@@ -320,10 +334,12 @@ Stage 1 so far, on the Window global surface (the only one since S5b):
   (`page_dispatcher.odin`, `Result.heap_bytes`; decision 2);
 - the Lava-only lifecycle tests in `cmd/lava/page_lifecycle_test.odin`: what a page
   sees of a predecessor that finished in the same VM, a mixed-fate churn under a
-  tracking allocator, and the VM's protect count across pages.
-
-Still open in stage 1: killing a page on its heap sample (a VM is retired on one,
-decision 2).
+  tracking allocator, and the VM's protect count across pages;
+- the per-page heap limit (`Page_Limits.heap_bytes`): a page over it after a full
+  collection is killed alone with `Kill_Reason.Heap_Limit` and its VM retired, the
+  check scheduled between ticks against its own measured cost (decision 2), pinned by
+  `cmd/lava/page_heap_limit_test.odin`. No CLI flag: the CLI has none for the CPU
+  limits either.
 
 Stage 4a, the first slice of stage 4 (#12): `lava page <file.html>` runs an HTML page
 end to end (`pkg/runtime/page_html.odin`) — the document parsed with its inline classic
