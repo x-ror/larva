@@ -8,6 +8,7 @@ import "core:strings"
 import "core:sync"
 import "core:time"
 import cookie "lava:pkg/http/cookie"
+import proxy "lava:pkg/http/proxy"
 import jsc "lava:pkg/jsc"
 import profile "lava:pkg/profile"
 import eventloop "lava:pkg/runtime/eventloop"
@@ -111,12 +112,16 @@ Runtime_State :: struct {
 	// Released by destroy_runtime_state through dom_release, while the context lives.
 	dom:               ^Dom_Page,
 	// The cookies fetch(), XMLHttpRequest and document.cookie read and write (cookie.odin):
-	// the session's jar. No session object exists yet, so it points at own_cookie_jar,
-	// the page's, made with the state's allocator and destroyed with the state; a session
-	// that outlives its pages will point it at its own jar instead (docs/LARVA.md
-	// decision 3). Touched only on the page's thread.
+	// the session's jar. By default it points at own_cookie_jar, the page's, made with
+	// the state's allocator and destroyed with the state; a crawl job of a `lava serve`
+	// session points it at the session's jar instead (page_crawl.odin, docs/LARVA.md
+	// decision 3), which the jar's mutex lets other threads share.
 	cookie_jar:        ^cookie.Jar,
 	own_cookie_jar:    cookie.Jar,
+	// The proxy the page's fetch() and XMLHttpRequest go through (fetch.odin); the zero
+	// value goes direct. Borrowed: a crawl job's (page_crawl.odin), whose strings outlive
+	// the page.
+	proxy:             proxy.Proxy,
 }
 
 // JS_Callback bridges a JS function into an event-loop Callback. The function

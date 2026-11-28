@@ -6,6 +6,8 @@ import "core:encoding/json"
 import "core:strings"
 import "core:time"
 import html "lava:pkg/html"
+import cookie "lava:pkg/http/cookie"
+import proxy "lava:pkg/http/proxy"
 import jsc "lava:pkg/jsc"
 import eventloop "lava:pkg/runtime/eventloop"
 
@@ -23,8 +25,9 @@ import eventloop "lava:pkg/runtime/eventloop"
 // `load` is the HTML loader's (page_html.odin): fired once the loop has idled after
 // DOMContentLoaded — there are no subresources to wait for — so a page whose loop never
 // idles before then (a setInterval started at parse time) never reaches it and ends at
-// its deadline. Network-idle, the actions DSL, the fixed body wait and capture of cookies
-// or network bodies are later work (#15).
+// its deadline. Network-idle, the actions DSL, the fixed body wait and capture of network
+// bodies are later work (#15). Cookies are the session's (Crawl_Job.cookie_jar): the
+// adapter captures them from the jar it lent the page.
 
 // Crawl_Outcome is how the driver ended a crawl job. `.None` means it did not: the
 // page's Result says why (a limit kill, a cancel, a failed install or parse).
@@ -64,6 +67,14 @@ Crawl_Job :: struct {
 	script_result: bool,
 	// When the job times out, on the monotonic clock.
 	deadline:      time.Tick,
+	// The session's cookie jar the page's fetch(), XMLHttpRequest and document.cookie use
+	// instead of the page's own (Runtime_State.cookie_jar), or nil for the page's own.
+	// Borrowed until on_done; read and written on the worker thread while the embedder's
+	// thread may use it too, which the jar's own mutex makes safe (pkg/http/cookie).
+	cookie_jar:    ^cookie.Jar,
+	// The proxy the page's own requests go through, the zero value for none. Its strings
+	// are borrowed until on_done.
+	proxy:         proxy.Proxy,
 	// Owns `body` and `message`. Used from the worker thread, so it must be thread-safe.
 	allocator:     runtime.Allocator,
 	// Outputs.
@@ -158,6 +169,12 @@ crawl_start :: proc(page: ^Page, data: rawptr) -> bool {
 		crawl_end(job, .Timeout, "the page timed out before it started")
 		return false
 	}
+
+	if job.cookie_jar != nil {
+		page.state.cookie_jar = job.cookie_jar
+	}
+
+	page.state.proxy = job.proxy
 
 	// No document path: a `src` is never read from the server's disk, so every external
 	// script fails its fetch (its `error` event), as page_script.odin does for "".

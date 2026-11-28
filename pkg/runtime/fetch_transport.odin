@@ -5,6 +5,7 @@ import "core:net"
 import "core:strings"
 import jsc "lava:pkg/jsc"
 import eventloop "lava:pkg/runtime/eventloop"
+import pico "lava:pkg/runtime/picohttpparser"
 
 // Shared fetch transport for the readiness-based backends (Linux epoll/io_uring,
 // Darwin kqueue, Windows select). The connect→[TLS handshake]→write→read state
@@ -23,6 +24,12 @@ Fetch_IO_Result :: enum {
 	Closed, // orderly peer close (recv returned 0)
 	Failed, // a real socket error
 }
+
+// What a page's fetch rejects with when its proxy fails (fetch_tunnel_*): not reachable,
+// a CONNECT answered with anything but 2xx.
+FETCH_PROXY_FAILED_MSG :: "fetch: the proxy refused or failed the tunnel"
+// The largest CONNECT answer head read before giving up on the proxy.
+FETCH_TUNNEL_HEAD_MAX :: 16 * 1024
 
 // fetch_transport_start begins a request. An IPv6/IPv4 literal connects
 // synchronously; a hostname is resolved on the bounded DNS pool and the connect is
@@ -145,6 +152,12 @@ fetch_watcher_cb :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 			return
 		}
 
+		if req.tunnel_bytes != nil {
+			req.phase = .Tunnel_Write
+			fetch_tunnel_write(loop, req)
+			return
+		}
+
 		if req.is_https {
 			// TLS is a platform-swappable backend: set up the session and run the first
 			// handshake step, settling on its own error if unsupported.
@@ -154,6 +167,12 @@ fetch_watcher_cb :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 
 		req.phase = .Writing
 		fetch_write(loop, req) // socket is writable now, try sending immediately
+
+	case .Tunnel_Write:
+		fetch_tunnel_write(loop, req)
+
+	case .Tunnel_Read:
+		fetch_tunnel_read(loop, req)
 
 	case .TLS_Handshake:
 		fetch_tls_handshake(loop, req)
@@ -166,6 +185,87 @@ fetch_watcher_cb :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 
 	case .Reading:
 		fetch_read(loop, req)
+	}
+}
+
+// fetch_tunnel_write sends the CONNECT request to the proxy (Fetch_Request.tunnel_bytes),
+// then waits for its answer.
+fetch_tunnel_write :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
+	for req.tunnel_offset < len(req.tunnel_bytes) {
+		n, res := fetch_raw_send(req, req.tunnel_bytes[req.tunnel_offset:])
+		switch res {
+		case .Ok:
+			if n <= 0 {
+				return
+			}
+
+			req.tunnel_offset += n
+		case .Would_Block:
+			if !fetch_set_watch_mode(loop, req, .Write) {
+				fetch_settle_error(req, "fetch: event loop watch failed")
+			}
+
+			return
+		case .Closed, .Failed:
+			fetch_settle_error(req, FETCH_PROXY_FAILED_MSG)
+			return
+		}
+	}
+
+	req.phase = .Tunnel_Read
+
+	if !fetch_set_watch_mode(loop, req, .Read) {
+		fetch_settle_error(req, "fetch: event loop watch failed")
+	}
+}
+
+// fetch_tunnel_read reads the proxy's answer to CONNECT into req.response: a 2xx head
+// opens the tunnel and TLS starts inside it; anything else, or bytes past the head (the
+// proxy has nothing to send before the TLS client hello), is the proxy's failure.
+fetch_tunnel_read :: proc(loop: ^eventloop.Loop, req: ^Fetch_Request) {
+	buf: [1024]byte
+	for {
+		n, res := fetch_raw_recv(req, buf[:])
+		switch res {
+		case .Ok:
+		case .Would_Block:
+			if !fetch_set_watch_mode(loop, req, .Read) {
+				fetch_settle_error(req, "fetch: event loop watch failed")
+			}
+
+			return
+		case .Closed, .Failed:
+			fetch_settle_error(req, FETCH_PROXY_FAILED_MSG)
+			return
+		}
+
+		append(&req.response, ..buf[:n])
+		raw: [pico.MAX_HEADERS]pico.Header
+		consumed, status, _, _, result := pico.parse_response(req.response[:], req.head_last_len, raw[:])
+		req.head_last_len = len(req.response)
+		switch result {
+		case .Partial:
+			if len(req.response) > FETCH_TUNNEL_HEAD_MAX {
+				fetch_settle_error(req, FETCH_PROXY_FAILED_MSG)
+				return
+			}
+
+			continue
+		case .Error:
+			fetch_settle_error(req, FETCH_PROXY_FAILED_MSG)
+			return
+		case .Complete:
+		}
+
+		if status < 200 || status > 299 || consumed != len(req.response) {
+			fetch_settle_error(req, FETCH_PROXY_FAILED_MSG)
+			return
+		}
+
+		clear(&req.response)
+		req.head_last_len = 0
+		fetch_tls_start_handshake(loop, req)
+		return
 	}
 }
 

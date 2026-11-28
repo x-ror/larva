@@ -8,7 +8,9 @@
 //   1. a request renders (the inline script's DOM write is in the body);
 //   2. SIGTERM while a request is in flight: that request is still answered 200, and the
 //      process exits 0 once it has been;
-//   3. SIGINT on an idle server exits 0 as well.
+//   3. SIGINT on an idle server exits 0 as well;
+//   4. a session carries a cookie set on one request to the next, and the captured
+//      cookies header lists it.
 //
 // Binds 127.0.0.1 ports, so it is not in `make test`. Needs bin/lava and node, not Chrome.
 
@@ -28,8 +30,18 @@ const PAGES = {
 
 let served = 0;
 const origin = createServer((req, res) => {
-  const body = PAGES[req.url];
   served++;
+  if (req.url === '/login') {
+    res.writeHead(200, { 'Content-Type': 'text/html', 'Set-Cookie': 'sid=s1; Path=/; HttpOnly' });
+    res.end('<!doctype html>');
+    return;
+  }
+  if (req.url === '/whoami') {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(`<!doctype html><p id="c">${req.headers.cookie ?? ''}</p>`);
+    return;
+  }
+  const body = PAGES[req.url];
   res.writeHead(body ? 200 : 404, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(body ?? '');
 });
@@ -56,6 +68,19 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
       page.status === 200 && page.body.includes('<p id="x">js ran</p>'),
       'a request renders the page after its script',
       `${page.status} ${page.headers['x-larva-error'] ?? ''} ${page.body}`,
+    );
+    const login = await render(lava.port, '/login', '&session=s');
+    check(
+      login.status === 200 &&
+        /"name":"sid".*"httpOnly":true/.test(login.headers['x-larva-cookies'] ?? ''),
+      'the captured cookies header lists the HttpOnly cookie a response set',
+      `${login.status} ${login.headers['x-larva-cookies'] ?? ''}`,
+    );
+    const whoami = await render(lava.port, '/whoami', '&session=s');
+    check(
+      whoami.body.includes('<p id="c">sid=s1</p>'),
+      "a session's next request sends the cookie",
+      `${whoami.status} ${whoami.body}`,
     );
     const before = served;
     const inflight = render(lava.port, '/slow');
@@ -107,10 +132,10 @@ function startLava() {
   });
 }
 
-function render(port, path) {
+function render(port, path, extra = '') {
   const url = encodeURIComponent(originUrl + path);
   return new Promise((resolve) => {
-    get(`http://127.0.0.1:${port}/render?url=${url}`, (res) => {
+    get(`http://127.0.0.1:${port}/render?url=${url}${extra}`, (res) => {
       const chunks = [];
       res.on('data', (d) => chunks.push(d));
       res.on('end', () =>

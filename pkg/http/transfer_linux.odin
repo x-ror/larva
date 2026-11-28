@@ -9,6 +9,7 @@ import "core:strings"
 import "core:sys/linux"
 import "core:time"
 import cookie "lava:pkg/http/cookie"
+import proxy "lava:pkg/http/proxy"
 import eventloop "lava:pkg/runtime/eventloop"
 import pico "lava:pkg/runtime/picohttpparser"
 import openssl "lava:pkg/tls"
@@ -65,6 +66,9 @@ State :: enum {
 	Starting,
 	Resolving,
 	Connecting,
+	// The CONNECT request to an https target's proxy, and its answer.
+	Tunnel_Writing,
+	Tunnel_Reading,
 	Handshake,
 	Writing,
 	Reading_Head,
@@ -101,6 +105,7 @@ Transfer :: struct {
 	body:        []byte,
 	max_body:    int,
 	jar:         ^cookie.Jar, // borrowed from the Request; nil for none
+	proxy:       proxy.Proxy, // owned; host "" for none
 	url_text:    string,
 	url:         Url,
 	state:       State,
@@ -147,6 +152,7 @@ transfer_start :: proc(
 		body = slice.clone(req.body),
 		max_body = req.max_body_bytes if req.max_body_bytes > 0 else DEFAULT_MAX_BODY_BYTES,
 		jar = req.cookie_jar,
+		proxy = proxy.clone(req.proxy, allocator),
 		url_text = strings.clone(req.url),
 		url = url,
 		fd = -1,
@@ -188,13 +194,14 @@ on_start :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 	begin(t)
 }
 
-// begin opens a connection to t.url: straight away for an IP literal, after a pool
-// lookup for a name.
+// begin opens a connection to t.url, or to the proxy when there is one: straight away
+// for an IP literal, after a pool lookup for a name.
 @(private = "file")
 begin :: proc(t: ^Transfer) {
 	t.addr_count, t.addr_index = 0, 0
+	host := t.proxy.host if proxied(t) else t.url.host
 
-	if ip := net.parse_address(t.url.host); ip != nil {
+	if ip := net.parse_address(host); ip != nil {
 		t.addrs[0], t.addr_count = ip, 1
 		connect_next(t)
 		return
@@ -202,9 +209,14 @@ begin :: proc(t: ^Transfer) {
 
 	t.state = .Resolving
 
-	if !dns_lookup(t.loop, t.url.host, on_resolved, t, &t.dns) {
-		finish(t, .DNS)
+	if !dns_lookup(t.loop, host, on_resolved, t, &t.dns) {
+		finish(t, .Proxy if proxied(t) else .DNS)
 	}
+}
+
+@(private = "file")
+proxied :: proc(t: ^Transfer) -> bool {
+	return t.proxy.host != ""
 }
 
 @(private = "file")
@@ -213,7 +225,7 @@ on_resolved :: proc(user_data: rawptr, addrs: [2]net.Address, count: int) {
 	t.dns = nil
 
 	if count == 0 {
-		finish(t, .DNS)
+		finish(t, .Proxy if proxied(t) else .DNS)
 		return
 	}
 
@@ -221,9 +233,11 @@ on_resolved :: proc(user_data: rawptr, addrs: [2]net.Address, count: int) {
 	connect_next(t)
 }
 
-// connect_next tries the next resolved address; out of addresses is a connect error.
+// connect_next tries the next resolved address; out of addresses is a connect error, or
+// the proxy's.
 @(private = "file")
 connect_next :: proc(t: ^Transfer) {
+	port := t.proxy.port if proxied(t) else t.url.port
 	for t.addr_index < t.addr_count {
 		a := t.addrs[t.addr_index]
 		t.addr_index += 1
@@ -239,14 +253,14 @@ connect_next :: proc(t: ^Transfer) {
 		case net.IP4_Address:
 			sa := linux.Sock_Addr_In {
 				sin_family = .INET,
-				sin_port   = u16be(t.url.port),
+				sin_port   = u16be(port),
 				sin_addr   = transmute([4]u8)ip,
 			}
 			conn_err = linux.connect(fd, &sa)
 		case net.IP6_Address:
 			sa := linux.Sock_Addr_In6 {
 				sin6_family = .INET6,
-				sin6_port   = u16be(t.url.port),
+				sin6_port   = u16be(port),
 				sin6_addr   = transmute([16]u8)ip,
 			}
 			conn_err = linux.connect(fd, &sa)
@@ -267,7 +281,7 @@ connect_next :: proc(t: ^Transfer) {
 		return
 	}
 
-	finish(t, .Connect)
+	finish(t, .Proxy if proxied(t) else .Connect)
 }
 
 @(private = "file")
@@ -307,16 +321,16 @@ on_io :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 			return
 		}
 
-		t.ssl = openssl.tls_new_client(uintptr(t.fd), t.url.host)
-
-		if t.ssl == nil {
-			openssl.ERR_clear_error()
-			finish(t, .TLS)
+		if proxied(t) {
+			start_tunnel(t)
 			return
 		}
 
-		t.state = .Handshake
-		handshake(t)
+		start_tls(t)
+	case .Tunnel_Writing:
+		write(t)
+	case .Tunnel_Reading:
+		tunnel_read(t)
 	case .Handshake:
 		handshake(t)
 	case .Writing:
@@ -324,6 +338,91 @@ on_io :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 	case .Reading_Head, .Reading_Body:
 		read(t)
 	}
+}
+
+// start_tunnel asks the proxy for a tunnel to t.url (write_connect); tunnel_read takes
+// the answer, and TLS starts inside the tunnel.
+@(private = "file")
+start_tunnel :: proc(t: ^Transfer) {
+	sb := strings.Builder {
+		buf = t.out,
+	}
+	clear(&sb.buf)
+	proxy.write_connect(&sb, t.url.host, t.url.port, t.proxy.authorization)
+	t.out = sb.buf
+	t.out_off = 0
+	t.state = .Tunnel_Writing
+	write(t)
+}
+
+// tunnel_read reads the proxy's answer to CONNECT: a 2xx head opens the tunnel, anything
+// else is the proxy's failure. The proxy has nothing to send past the head before the
+// TLS client hello, so bytes past it are a broken proxy too.
+@(private = "file")
+tunnel_read :: proc(t: ^Transfer) {
+	buf: [1024]byte = ---
+	for {
+		got, err := linux.recv(t.fd, buf[:], {})
+		#partial switch err {
+		case .NONE:
+		case .EAGAIN, .EINTR:
+			if !watch(t, .Read) {
+				finish(t, .Proxy)
+			}
+
+			return
+		case:
+			finish(t, .Proxy)
+			return
+		}
+
+		if got == 0 {
+			finish(t, .Proxy)
+			return
+		}
+
+		append(&t.head, ..buf[:got])
+		parsed: [pico.MAX_HEADERS]pico.Header = ---
+		consumed, status, _, _, result := pico.parse_response(t.head[:], t.head_parsed, parsed[:])
+		t.head_parsed = len(t.head)
+		switch result {
+		case .Partial:
+			if len(t.head) > MAX_HEAD_BYTES {
+				finish(t, .Proxy)
+				return
+			}
+
+			continue
+		case .Error:
+			finish(t, .Proxy)
+			return
+		case .Complete:
+		}
+
+		if status < 200 || status > 299 || consumed != len(t.head) {
+			finish(t, .Proxy)
+			return
+		}
+
+		clear(&t.head)
+		t.head_parsed = 0
+		start_tls(t)
+		return
+	}
+}
+
+@(private = "file")
+start_tls :: proc(t: ^Transfer) {
+	t.ssl = openssl.tls_new_client(uintptr(t.fd), t.url.host)
+
+	if t.ssl == nil {
+		openssl.ERR_clear_error()
+		finish(t, .TLS)
+		return
+	}
+
+	t.state = .Handshake
+	handshake(t)
 }
 
 @(private = "file")
@@ -361,7 +460,18 @@ start_write :: proc(t: ^Transfer) {
 		cookie.cookie_header(t.jar, cookie_source(t.url), .Http, .Same_Site, now, &cookies)
 	}
 
-	build_request(&t.out, t.method, t.url, t.headers[:], t.body, strings.to_string(cookies))
+	// An https target's proxy is a tunnel by now; an http one's takes the request itself.
+	absolute := proxied(t) && !t.url.https
+	build_request(
+		&t.out,
+		t.method,
+		t.url,
+		t.headers[:],
+		t.body,
+		strings.to_string(cookies),
+		absolute,
+		t.proxy.authorization,
+	)
 	strings.builder_destroy(&cookies)
 	t.out_off = 0
 	t.state = .Writing
@@ -388,9 +498,21 @@ write :: proc(t: ^Transfer) {
 
 			return
 		case .Closed, .Unclean_EOF, .Failed:
-			finish(t, .Write)
+			finish(t, .Proxy if t.state == .Tunnel_Writing else .Write)
 			return
 		}
+	}
+
+	if t.state == .Tunnel_Writing {
+		t.state = .Tunnel_Reading
+
+		if !watch(t, .Read) {
+			finish(t, .Proxy)
+			return
+		}
+
+		tunnel_read(t)
+		return
 	}
 
 	t.state = .Reading_Head
@@ -583,6 +705,12 @@ feed :: proc(t: ^Transfer, data: []byte) -> bool {
 // obs-fold lines, which have to be joined first.
 @(private = "file")
 on_head :: proc(t: ^Transfer, status: int, reason: string, headers: []pico.Header, tail: []byte) -> bool {
+	// An absolute-form request's 407 is the proxy's own answer, not the site's.
+	if status == 407 && proxied(t) && !t.url.https {
+		finish(t, .Proxy)
+		return false
+	}
+
 	folded := false
 	for &h in headers {
 		if h.name == "" {
@@ -827,17 +955,6 @@ store_cookies :: proc(t: ^Transfer, headers: []pico.Header) {
 	}
 }
 
-// cookie_source is the jar's view of a URL: its host, its path without the query, and
-// whether it is a secure context.
-@(private = "file")
-cookie_source :: proc(u: Url) -> cookie.Source {
-	return {
-		secure = cookie.is_potentially_trustworthy(u.https, u.host),
-		host = u.host,
-		path = strings.truncate_to_byte(u.target, '?'),
-	}
-}
-
 @(private = "file")
 is_redirect :: proc(status: int) -> bool {
 	switch status {
@@ -1062,6 +1179,7 @@ transfer_free :: proc(t: ^Transfer) {
 
 	delete(t.headers)
 	delete(t.body)
+	proxy.destroy(&t.proxy)
 	url_destroy(&t.url)
 	delete(t.out)
 	delete(t.head)

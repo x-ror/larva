@@ -333,6 +333,7 @@ test-html-odin: native-deps
 test-http-odin:
 	$(ODIN) test pkg/http -collection:lava=. -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true
 	$(ODIN) test pkg/http/cookie -collection:lava=. -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true
+	$(ODIN) test pkg/http/proxy -collection:lava=. -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true
 
 ifeq ($(OS),Windows_NT)
 test-sqlite-odin:

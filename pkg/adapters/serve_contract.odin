@@ -5,6 +5,7 @@ import "core:crypto"
 import "core:net"
 import "core:strconv"
 import "core:strings"
+import proxy "lava:pkg/http/proxy"
 
 // The HTTP crawling adapter's wire contract (#15; docs/LARVA.md decision 5: wire
 // protocols stay in adapters). #15 keeps the production caller's exact names in a
@@ -24,15 +25,38 @@ import "core:strings"
 //   timeout   the hard per-request kill timeout in ms, navigation included
 //             (Server_Config.default_timeout_ms when absent, at most max_timeout_ms).
 //   token     must equal Server_Config.token when one is configured.
+//   session   an id (1-128 printable ASCII bytes, no space) naming a session: every
+//             request with the same id shares one cookie jar — the document fetch and
+//             the page's own fetch/XMLHttpRequest/document.cookie alike — so a login or
+//             a pagination flow carries its cookies from one request to the next (#9).
+//             A session unused for Server_Config.session_ttl_ms is forgotten, and past
+//             max_sessions the least recently used goes. Without `session` the request
+//             has a jar of its own, empty at the start and gone at the end.
+//   cookies   seed cookies, stored in the request's jar before navigation as if the
+//             target URL had set them: `name=value; name2=value2`, or a JSON array of
+//             set-cookie-strings (`["a=1; Domain=example.com; HttpOnly"]`) when they
+//             need attributes. A cookie the jar refuses is a bad_request.
+//   proxy     `http://[user:password@]host[:port]`: the navigation and the page's own
+//             fetch/XMLHttpRequest go through this HTTP proxy — absolute-form for http
+//             targets, a CONNECT tunnel for https, Basic Proxy-Authorization from the
+//             credentials (pkg/http/proxy). A proxy that cannot be reached, refuses the
+//             tunnel or answers 407 fails the request with `proxy_failed`; a page's own
+//             request through a failing proxy rejects as a network error would.
 //
 // Any other parameter is refused with `unsupported` (501): a feature this stage does not
-// have (screenshot, actions, proxy, cookies…) must make the caller fall back to Chrome,
-// not quietly return a page without it (#15: "a distinct error code").
+// have (screenshot, actions…) must make the caller fall back to Chrome, not quietly
+// return a page without it (#15: "a distinct error code").
 //
-// A success is 200 with the body and HEADER_FINAL_URL, HEADER_STATUS and Server-Timing.
-// A failure is the status ERROR_STATUS gives, HEADER_ERROR naming the code, the same
-// metadata headers where they are known, and a one-line text/plain message.
+// A success is 200 with the body and HEADER_FINAL_URL, HEADER_STATUS, HEADER_COOKIES and
+// Server-Timing. A failure is the status ERROR_STATUS gives, HEADER_ERROR naming the
+// code, the same metadata headers where they are known, and a one-line text/plain
+// message.
+//
+// HEADER_COOKIES is every cookie in the request's jar once the request ended — the whole
+// session's for a session, HttpOnly ones included, since the capture API sees what the
+// HTTP stack sees (#9) — as cookie.write_json's JSON array (Puppeteer's cookie shape).
 
+HEADER_COOKIES :: "X-Larva-Cookies"
 HEADER_ERROR :: "X-Larva-Error"
 HEADER_FINAL_URL :: "X-Larva-Final-Url"
 HEADER_STATUS :: "X-Larva-Status"
@@ -59,6 +83,9 @@ Error_Code :: enum {
 	// The document could not be fetched: DNS, connect, TLS, a bad response, a body that
 	// does not decode, too many redirects.
 	Navigation_Failed,
+	// The proxy given with `proxy` failed the navigation: unreachable, a refused CONNECT,
+	// a 407.
+	Proxy_Failed,
 	// The request's timeout passed — during navigation or in the page.
 	Kill_Timeout,
 	// The custom script did not compile, threw, rejected, never settled, or resolved with
@@ -83,6 +110,7 @@ ERROR_NAME := [Error_Code]string {
 	.Over_Capacity      = "over_capacity",
 	.Engine_Unavailable = "engine_unavailable",
 	.Navigation_Failed  = "navigation_failed",
+	.Proxy_Failed       = "proxy_failed",
 	.Kill_Timeout       = "kill_timeout",
 	.Script_Error       = "script_error",
 	.Selector_Not_Found = "selector_not_found",
@@ -101,6 +129,7 @@ ERROR_STATUS := [Error_Code]int {
 	.Over_Capacity      = 503,
 	.Engine_Unavailable = 503,
 	.Navigation_Failed  = 502,
+	.Proxy_Failed       = 502,
 	.Kill_Timeout       = 504,
 	.Script_Error       = 500,
 	.Selector_Not_Found = 500,
@@ -116,6 +145,11 @@ DEFAULT_MAX_TIMEOUT_MS :: 300_000
 // (the deadline is checked between ticks). Below the default timeout on purpose.
 DEFAULT_CPU_BUDGET_MS :: 30_000
 DEFAULT_PAGES_PER_THREAD :: 8
+// A session is forgotten after 10 minutes unused, and at most this many are kept: each
+// holds a cookie jar (up to 3300 cookies, Chrome's cap), so the count bounds memory.
+DEFAULT_SESSION_TTL_MS :: 10 * 60 * 1000
+DEFAULT_MAX_SESSIONS :: 1024
+MAX_SESSION_ID_BYTES :: 128
 
 // Server_Config is what `lava serve` starts a server with. Zero fields take the
 // defaults above (server_init fills them).
@@ -133,6 +167,9 @@ Server_Config :: struct {
 	max_inflight:       int,
 	// When not "", every request must carry `token=<token>`.
 	token:              string,
+	// How long a session lives unused, and how many are kept (least recently used goes).
+	session_ttl_ms:     int,
+	max_sessions:       int,
 	// Owns everything the server allocates. Used from the dispatcher's worker threads
 	// and pkg/http's decode workers too, so it must be thread-safe; zero is the heap.
 	allocator:          runtime.Allocator,
@@ -145,6 +182,11 @@ Render_Request :: struct {
 	script:        string,
 	script_result: bool,
 	timeout_ms:    int,
+	// "" for none.
+	session:       string,
+	cookies:       string,
+	// The zero value for none.
+	proxy:         proxy.Proxy,
 	allocator:     runtime.Allocator,
 }
 
@@ -152,6 +194,9 @@ render_request_destroy :: proc(r: ^Render_Request) {
 	delete(r.url, r.allocator)
 	delete(r.selector, r.allocator)
 	delete(r.script, r.allocator)
+	delete(r.session, r.allocator)
+	delete(r.cookies, r.allocator)
+	proxy.destroy(&r.proxy, r.allocator)
 	r^ = {}
 }
 
@@ -207,7 +252,8 @@ parse_render_query :: proc(
 		if !known {
 			return req,
 				.Unsupported,
-				"unsupported parameter (this stage serves url, wait, selector, script, result, timeout)"
+				"unsupported parameter (this stage serves url, wait, selector, script, result, timeout, session, " +
+				"cookies, proxy)"
 		}
 
 		if param in seen {
@@ -236,6 +282,22 @@ parse_render_query :: proc(
 			req.timeout_ms = ms
 		case .Token:
 			token = value
+		case .Session:
+			if !session_id_valid(value) {
+				return req, .Bad_Request, "session must be 1-128 printable ASCII characters without spaces"
+			}
+
+			req.session = strings.clone(value, allocator)
+		case .Cookies:
+			req.cookies = strings.clone(value, allocator)
+		case .Proxy:
+			parsed, proxy_ok := proxy.parse(value, allocator)
+
+			if !proxy_ok {
+				return req, .Bad_Request, "proxy must be http://[user:password@]host[:port]"
+			}
+
+			req.proxy = parsed
 		}
 	}
 
@@ -280,6 +342,9 @@ Param :: enum {
 	Result,
 	Timeout,
 	Token,
+	Session,
+	Cookies,
+	Proxy,
 }
 
 @(private = "file")
@@ -299,9 +364,30 @@ param_from_name :: proc(name: string) -> (Param, bool) {
 		return .Timeout, true
 	case "token":
 		return .Token, true
+	case "session":
+		return .Session, true
+	case "cookies":
+		return .Cookies, true
+	case "proxy":
+		return .Proxy, true
 	}
 
 	return {}, false
+}
+
+@(private = "file")
+session_id_valid :: proc(id: string) -> bool {
+	if len(id) == 0 || len(id) > MAX_SESSION_ID_BYTES {
+		return false
+	}
+
+	for i in 0 ..< len(id) {
+		if id[i] <= 0x20 || id[i] >= 0x7f {
+			return false
+		}
+	}
+
+	return true
 }
 
 // query_decode is application/x-www-form-urlencoded's decode of one name or value: `+`

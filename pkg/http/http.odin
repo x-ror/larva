@@ -3,6 +3,7 @@ package larva_http
 import "base:runtime"
 import "core:strings"
 import cookie "lava:pkg/http/cookie"
+import proxy "lava:pkg/http/proxy"
 import profile "lava:pkg/profile"
 import eventloop "lava:pkg/runtime/eventloop"
 import pico "lava:pkg/runtime/picohttpparser"
@@ -41,6 +42,9 @@ Request :: struct {
 	// jar is borrowed: it must outlive on_done, and only the loop thread may touch it
 	// while the transfer runs.
 	cookie_jar:     ^cookie.Jar,
+	// The proxy every hop goes through (pkg/http/proxy), or the zero value for none.
+	// Copied by fetch.
+	proxy:          proxy.Proxy,
 }
 
 Error :: enum {
@@ -65,6 +69,9 @@ Error :: enum {
 	// Deviates: no Chrome counterpart (a torn-down engine shows no response at all), so
 	// this is the client's own report. Pinned by destroying_the_loop_cancels_a_fetch_in_flight.
 	Cancelled,
+	// The proxy failed: it could not be resolved or reached, refused the CONNECT tunnel
+	// (any non-2xx), or answered an absolute-form request with 407.
+	Proxy,
 }
 
 // Response owns every string and buffer in it, in the allocator the request ran with.
@@ -125,6 +132,36 @@ fetch :: proc(
 	}
 
 	return transfer_start(loop, req, url, on_done, user_data, allocator)
+}
+
+// set_cookie_for_url stores one set-cookie-string in `jar` as if `url`'s response had
+// sent it in a Set-Cookie header: the HTTP stack's access (HttpOnly allowed), same-site
+// with its own URL. What a caller seeds a session with before the first navigation.
+//
+// Returns:
+//   The jar's verdict, or the URL's parse error (the jar is then untouched).
+set_cookie_for_url :: proc(
+	jar: ^cookie.Jar,
+	url: string,
+	line: string,
+	now_ns: i64,
+) -> (
+	status: cookie.Status,
+	err: Error,
+) {
+	u := parse_url(url, context.temp_allocator) or_return
+	return cookie.set_cookie(jar, cookie_source(u), line, .Http, .Same_Site, now_ns), .None
+}
+
+// cookie_source is the jar's view of a URL: its host, its path without the query, and
+// whether it is a secure context.
+@(private)
+cookie_source :: proc(u: Url) -> cookie.Source {
+	return {
+		secure = cookie.is_potentially_trustworthy(u.https, u.host),
+		host = u.host,
+		path = strings.truncate_to_byte(u.target, '?'),
+	}
 }
 
 // header returns the first header named `name`. Header names compare ASCII
