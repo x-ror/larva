@@ -90,6 +90,21 @@ VM :: struct {
 	// vm_cpu_enter, which page_checkpoint compares against.
 	slice_ns:        i64,
 	tick_mark_ns:    i64,
+	// The holder's heap limit (vm_set_heap_limit), bytes; 0 = none. Per holder, like the
+	// CPU fields: vm_acquire and vm_release clear it.
+	heap_limit:      i64,
+	// Set by vm_heap_kill when a heap check (page_heap_check, page.odin) found the
+	// holder's heap over heap_limit after a full collection. Read by vm_retire_due, so it
+	// survives vm_release's clearing; vm_acquire clears it, though a VM that carries it is
+	// retired at that release and never acquired again.
+	heap_hit:        bool,
+	// The heap check's schedule, all on the holder's own CPU clock (cpu_used_ns): the
+	// next check is due once cpu_used_ns reaches heap_next_ns; heap_last_bytes and
+	// heap_last_ns are the previous check's reading and when it ended, from which the
+	// next interval estimates the heap's growth. Per holder; vm_acquire clears them.
+	heap_next_ns:    i64,
+	heap_last_bytes: i64,
+	heap_last_ns:    i64,
 	// The embedded runtime sources as JSScripts of this VM, by source name, made on a
 	// source's first evaluation here and evaluated again by every later page
 	// (vm_script). Survives vm_release; released with the VM, before its group
@@ -106,19 +121,29 @@ VM_Script :: struct {
 	source: string,
 }
 
-// Page_Limits are the CPU limits a page runs under. Seconds; 0 = no limit.
+// Page_Limits are the limits a page runs under; 0 = no limit.
 //
-// entry_limit  One synchronous entry into the VM (a script, a callback). Enforced by
-//              JSC's watchdog, which measures CPU time since the entry.
-// cpu_budget   Every entry summed over the page's life, measured on the thread's
-//              CPU clock (CLOCK_THREAD_CPUTIME_ID). Also clamps the watchdog to the
-//              remaining budget (re-armed once it shrinks by more than a tenth), so
-//              one long entry overruns it by at most about 10%. Enforced at JS
+// entry_limit  Seconds. One synchronous entry into the VM (a script, a callback).
+//              Enforced by JSC's watchdog, which measures CPU time since the entry.
+// cpu_budget   Seconds. Every entry summed over the page's life, measured on the
+//              thread's CPU clock (CLOCK_THREAD_CPUTIME_ID). Also clamps the watchdog
+//              to the remaining budget (re-armed once it shrinks by more than a tenth),
+//              so one long entry overruns it by at most about 10%. Enforced at JS
 //              traps and callback boundaries only: a native call (pbkdf2Sync with a
 //              huge iteration count) is not interrupted until it returns.
+// heap_bytes   Bytes of JS heap (jsc.heap_size_bytes: the VM's heap capacity) the page
+//              may hold after a full collection. Checked between the page's steps — after
+//              its install, its top-level script, each page_eval and element script, and
+//              each tick (a runner tick ends at its CPU quantum) — on a schedule
+//              amortised against the check's own cost (page_heap_check, page.odin,
+//              gives the policy and its numbers). A page over it is killed alone
+//              (Kill_Reason.Heap_Limit) and its VM retired. Not enforced inside one
+//              entry: a single script that allocates without returning is bounded by
+//              entry_limit and cpu_budget, not by this.
 Page_Limits :: struct {
 	entry_limit: f64,
 	cpu_budget:  f64,
+	heap_bytes:  i64,
 }
 
 // Kill_Reason says which limit ended a page, so a caller can tell a kill from an
@@ -127,6 +152,8 @@ Kill_Reason :: enum {
 	None,
 	Entry_Limit,
 	Cpu_Budget,
+	// The page's heap, after a full collection, was over Page_Limits.heap_bytes.
+	Heap_Limit,
 	// Not a limit: the page runner was destroyed while the page was still running.
 	Cancelled,
 	// Not a limit: the page runner refused the page without opening it, because its
@@ -269,6 +296,11 @@ vm_acquire :: proc(pool: ^VM_Pool) -> (^VM, VM_Pool_Error) {
 			vm.budget_hit = false
 			vm.stop_requested = false
 			vm.slice_ns = 0
+			vm.heap_limit = 0
+			vm.heap_hit = false
+			vm.heap_next_ns = 0
+			vm.heap_last_bytes = 0
+			vm.heap_last_ns = 0
 			vm.pages_hosted += 1
 			return vm, .None
 		}
@@ -332,6 +364,7 @@ vm_release :: proc(vm: ^VM) {
 	vm.cpu_budget_ns = 0
 	vm.cpu_used_ns = 0
 	vm.cpu_depth = 0
+	vm.heap_limit = 0
 	vm.in_use = false
 
 	if vm_retire_due(vm) {
@@ -450,6 +483,28 @@ vm_set_entry_limit :: proc(vm: ^VM, seconds: f64) {
 	vm_arm_watchdog(vm)
 }
 
+// vm_set_heap_limit gives the VM's current holder a heap limit of `bytes`
+// (Page_Limits.heap_bytes); 0 or less clears it. Only the limit: the check that enforces
+// it reads the heap through the holder's context, so it is the page's (page_heap_check).
+// A limit also turns on the CPU metering vm_cpu_enter/vm_cpu_exit do for a budget, since
+// the check's schedule runs on the holder's own CPU clock.
+vm_set_heap_limit :: proc(vm: ^VM, bytes: i64) {
+	vm.heap_limit = max(bytes, 0)
+}
+
+// vm_heap_kill ends the VM's current holder for its heap (Kill_Reason.Heap_Limit): the
+// kill latches like the budget's, with the watchdog at its floor so whatever JS the
+// holder still reaches is cut at once, and vm_release retires the VM (vm_retire_due)
+// instead of pooling a heap known to be over a limit.
+vm_heap_kill :: proc(vm: ^VM) {
+	if vm == nil {
+		return
+	}
+
+	vm.heap_hit = true
+	vm_arm_kill_floor(vm)
+}
+
 // vm_set_cpu_budget gives the VM's current holder `seconds` of CPU time in total,
 // counted by vm_cpu_enter/vm_cpu_exit. 0 clears it. Time already spent is kept, so
 // lowering the budget below it makes the page over budget at once.
@@ -463,7 +518,7 @@ vm_set_cpu_budget :: proc(vm: ^VM, seconds: f64) {
 // vm_cpu_exit. Without a budget it costs nothing but a branch: the clock is read
 // only when there is something to charge it to.
 vm_cpu_enter :: proc(vm: ^VM) {
-	if vm == nil || vm.cpu_budget_ns == 0 {
+	if !vm_metered(vm) {
 		return
 	}
 
@@ -481,7 +536,7 @@ vm_cpu_enter :: proc(vm: ^VM) {
 // vm_cpu_exit charges the time since the matching vm_cpu_enter to the VM and marks
 // the holder over budget once it is spent. vm_kill_reason reports the outcome.
 vm_cpu_exit :: proc(vm: ^VM) {
-	if vm == nil || vm.cpu_budget_ns == 0 || vm.cpu_depth == 0 {
+	if !vm_metered(vm) || vm.cpu_depth == 0 {
 		return
 	}
 
@@ -491,7 +546,7 @@ vm_cpu_exit :: proc(vm: ^VM) {
 		vm.cpu_used_ns += max(thread_cpu_ns() - vm.cpu_mark_ns, 0)
 	}
 
-	if vm.cpu_used_ns >= vm.cpu_budget_ns {
+	if vm.cpu_budget_ns > 0 && vm.cpu_used_ns >= vm.cpu_budget_ns {
 		vm.budget_hit = true
 	}
 }
@@ -502,7 +557,7 @@ vm_cpu_exit :: proc(vm: ^VM) {
 // any number of due timers or drain passes, each a fresh JSC entry with a fresh
 // watchdog window, so a per-tick check alone lets one tick run far past the budget.
 vm_cpu_checkpoint :: proc(vm: ^VM) {
-	if vm == nil || vm.cpu_budget_ns == 0 || vm.cpu_depth == 0 {
+	if !vm_metered(vm) || vm.cpu_depth == 0 {
 		return
 	}
 
@@ -510,7 +565,7 @@ vm_cpu_checkpoint :: proc(vm: ^VM) {
 	vm.cpu_used_ns += max(now - vm.cpu_mark_ns, 0)
 	vm.cpu_mark_ns = now
 
-	if vm.cpu_used_ns >= vm.cpu_budget_ns {
+	if vm.cpu_budget_ns > 0 && vm.cpu_used_ns >= vm.cpu_budget_ns {
 		vm.budget_hit = true
 	}
 
@@ -540,7 +595,19 @@ vm_kill_reason :: proc(vm: ^VM) -> Kill_Reason {
 		return .Entry_Limit
 	}
 
+	if vm.heap_hit {
+		return .Heap_Limit
+	}
+
 	return .None
+}
+
+// vm_metered reports whether the VM's holder has its CPU time summed into cpu_used_ns:
+// with a budget, or with a heap limit, whose check runs on that clock. Neither costs a
+// clock read otherwise.
+@(private = "file")
+vm_metered :: proc(vm: ^VM) -> bool {
+	return vm != nil && (vm.cpu_budget_ns > 0 || vm.heap_limit > 0)
 }
 
 // vm_arm_watchdog sets JSC's watchdog to the tighter of the entry limit and the budget
@@ -549,8 +616,9 @@ vm_kill_reason :: proc(vm: ^VM) -> Kill_Reason {
 // call.
 @(private = "file")
 vm_arm_watchdog :: proc(vm: ^VM) {
-	// A requested stop keeps its token limit until release.
-	if vm.stop_requested {
+	// A requested stop keeps its token limit until release, and a heap kill its floor:
+	// without a budget nothing below would arm one again.
+	if vm.stop_requested || vm.heap_hit {
 		return
 	}
 
@@ -606,7 +674,9 @@ vm_watchdog_terminate :: proc "c" (ctx: jsc.JSContextRef, user_data: rawptr) -> 
 		return true
 	}
 
-	if vm.stop_requested {
+	// A heap kill keeps its own reason: the floor it armed fires on whatever JS the
+	// holder still reaches, and must not relabel the page as a CPU kill.
+	if vm.stop_requested || vm.heap_hit {
 		return true
 	}
 
@@ -688,7 +758,11 @@ vm_pool_stats :: proc(pool: ^VM_Pool) -> (busy, created, retired: int) {
 }
 
 // vm_retire_due reports whether a VM being released has reached one of its pool's
-// retirement thresholds (VM_RETIRE_AFTER_PAGES says why they exist).
+// retirement thresholds (VM_RETIRE_AFTER_PAGES says why they exist), or hosted a page
+// its heap limit killed. That one is not a pool setting: such a heap was over a limit
+// after a full collection, so whatever the next page would inherit is large, and a
+// fresh VM is the only way to give it back. A heap kill retires whatever the pool's
+// thresholds say, 0 included (runner_kills_a_page_over_its_heap_limit_alone).
 //
 // The heap trigger reads the sample page_close already took, and takes no reading of
 // its own: the only exported read is jsc.heap_size_bytes, which walks the heap — 0.18-
@@ -699,6 +773,10 @@ vm_pool_stats :: proc(pool: ^VM_Pool) -> (busy, created, retired: int) {
 @(private = "file")
 vm_retire_due :: proc(vm: ^VM) -> bool {
 	pool := vm.pool
+
+	if vm.heap_hit {
+		return true
+	}
 
 	if pool.retire_after_pages > 0 && vm.pages_hosted >= pool.retire_after_pages {
 		return true
