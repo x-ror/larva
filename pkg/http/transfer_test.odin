@@ -10,6 +10,7 @@ import "core:sync"
 import "core:testing"
 import "core:thread"
 import "core:time"
+import cookie "lava:pkg/http/cookie"
 import eventloop "lava:pkg/runtime/eventloop"
 
 // fetch() end to end: a loopback server (serve_fixtures) sends the content-coding fixtures,
@@ -353,6 +354,60 @@ fetch_from_an_on_done_run_by_destroy_is_refused :: proc(t: ^testing.T) {
 	response_destroy(&r.first)
 }
 
+// A redirect's Set-Cookie reaches the jar before the redirect is followed, so the next
+// hop sends it, path-matched (x=1's path keeps it off /cookies/echo), HttpOnly included;
+// a folded head stores the joined line. Without a jar nothing is sent, and a caller's
+// own Cookie header wins over the jar's.
+@(test)
+a_redirect_sends_the_cookies_it_set :: proc(t: ^testing.T) {
+	server, ok := fixture_server_start(t)
+
+	if !ok {
+		return
+	}
+
+	defer fixture_server_stop(&server)
+
+	jar: cookie.Jar
+	cookie.jar_init(&jar)
+	defer cookie.jar_destroy(&jar)
+
+	cases := [?]struct {
+		path:    string,
+		jar:     ^cookie.Jar,
+		headers: []Header,
+		want:    string,
+	} {
+		{"/cookies/echo", nil, nil, "-"},
+		{"/cookies/set", &jar, nil, "a=1; h=1"},
+		{"/cookies/fold", &jar, nil, "a=1; h=1; f=1"},
+		{"/cookies/set", nil, nil, "-"},
+		{"/cookies/echo", &jar, {{"Cookie", "mine=1"}}, "mine=1"},
+	}
+
+	for c in cases {
+		resp: Response
+		loop := eventloop.init(real_time = true)
+		url := fmt.tprintf("http://127.0.0.1:%d%s", server.port, c.path)
+		err := fetch(&loop, {url = url, cookie_jar = c.jar, headers = c.headers}, keep_response, &resp)
+		testing.expectf(t, err == .None, "%s: fetch: %v", c.path, err)
+		eventloop.run(&loop)
+		eventloop.destroy(&loop)
+		testing.expectf(
+			t,
+			resp.error == .None && string(resp.body[:]) == c.want,
+			"%s: want %q, got %v %q",
+			c.path,
+			c.want,
+			resp.error,
+			string(resp.body[:]),
+		)
+		response_destroy(&resp)
+	}
+
+	testing.expect_value(t, len(jar.cookies), 4)
+}
+
 @(private = "file")
 keep_response :: proc(resp: Response, user_data: rawptr) {
 	(cast(^Response)user_data)^ = resp
@@ -434,6 +489,38 @@ serve_one :: proc(client: net.TCP_Socket) {
 				return
 			}
 		}
+	}
+
+	// /cookies/set and /cookies/fold answer 302 to /cookies/echo with Set-Cookie (the
+	// second with an obs-fold line, which takes the transfer's folded-head path);
+	// /cookies/echo answers the request's Cookie header, "-" without one.
+	if encoding == "cookies" {
+		response: string
+
+		switch name {
+		case "set":
+			response = "HTTP/1.1 302 Found\r\nSet-Cookie: a=1\r\nLocation: /cookies/echo\r\nSet-Cookie: h=1; HttpOnly; Path=/cookies\r\nSet-Cookie: x=1; Path=/elsewhere\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+		case "fold":
+			response = "HTTP/1.1 302 Found\r\nLocation: /cookies/echo\r\nSet-Cookie: f=1;\r\n Path=/cookies\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+		case:
+			cookie := "-"
+			lines := string(request[:n])
+			for l in strings.split_iterator(&lines, "\r\n") {
+				if strings.has_prefix(l, "Cookie: ") {
+					cookie = l[len("Cookie: "):]
+				}
+			}
+
+			response = fmt.bprintf(
+				head[:],
+				"HTTP/1.1 200 OK\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
+				len(cookie),
+				cookie,
+			)
+		}
+
+		net.send_tcp(client, transmute([]byte)response)
+		return
 	}
 
 	if encoding == "redirect" {

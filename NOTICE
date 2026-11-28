@@ -27,6 +27,29 @@ tests/dom/html5lib/*.dat
   tests/dom/html5lib/LICENSE. Test inputs only, not linked into bin/lava;
   tests/dom/cases/html5lib-*.html are generated from them.
 
+pkg/http/cookie/psl/public_suffix_list.dat
+  Mozilla's Public Suffix List (https://publicsuffix.org/list/), the publicsuffix/list
+  main branch as fetched on 2026-11-28, 10507 rules, pinned by content: SHA-256
+  1031f51ef0e253ed7fb74c5864232068a27c7456b52890df0a8c1ba837a812e4, the hash the
+  table built from it carries in its header. Licensed
+  under the Mozilla Public License 2.0, whose notice heads the file; its source is
+  available at the URL above. pkg/http/cookie/psl/psl.table is that list compiled by
+  scripts/gen-psl.mjs and is embedded in bin/lava, so it is a Covered Work under the
+  MPL as well.
+  Why it may be linked from both the AGPL core and the commercially licensed
+  extension modules (docs/LARVA.md decision 6): the MPL's copyleft is per file. It
+  binds the list and the table built from it, both distributed unmodified here with
+  their source, and nothing else in a Larger Work that combines them (MPL-2.0 §3.3).
+  The AGPL core is a "Secondary License" the MPL is compatible with (§1.12, §3.3: the
+  list carries no "Incompatible With Secondary Licenses" notice), and a commercial
+  binary may embed the table as long as the list stays available under the MPL.
+
+pkg/http/cookie/psl/test_psl.txt
+  The Public Suffix List's test vectors (tests/test_psl.txt of publicsuffix/list,
+  fetched with the list).
+  Dedicated to the public domain (CC0 1.0), as the file's header says. Test input
+  only, not linked into bin/lava.
+
 Libraries linked at build time, not distributed here
 ----------------------------------------------------
 

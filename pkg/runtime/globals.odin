@@ -7,6 +7,7 @@ import "core:os"
 import "core:strings"
 import "core:sync"
 import "core:time"
+import cookie "lava:pkg/http/cookie"
 import jsc "lava:pkg/jsc"
 import profile "lava:pkg/profile"
 import eventloop "lava:pkg/runtime/eventloop"
@@ -109,6 +110,13 @@ Runtime_State :: struct {
 	// The page's DOM (dom.odin), for an HTML page (page_html.odin); nil for a script page.
 	// Released by destroy_runtime_state through dom_release, while the context lives.
 	dom:               ^Dom_Page,
+	// The cookies fetch(), XMLHttpRequest and document.cookie read and write (cookie.odin):
+	// the session's jar. No session object exists yet, so it points at own_cookie_jar,
+	// the page's, made with the state's allocator and destroyed with the state; a session
+	// that outlives its pages will point it at its own jar instead (docs/LARVA.md
+	// decision 3). Touched only on the page's thread.
+	cookie_jar:        ^cookie.Jar,
+	own_cookie_jar:    cookie.Jar,
 }
 
 // JS_Callback bridges a JS function into an event-loop Callback. The function
@@ -149,6 +157,8 @@ new_runtime_state :: proc(loop: ^eventloop.Loop) -> ^Runtime_State {
 	state.active_fetches = make([dynamic]^Fetch_Request)
 	state.wasm_jobs = make([dynamic]Wasm_Job, state.allocator)
 	state.deferred_cleanups = make([dynamic]Deferred_Cleanup, state.allocator)
+	cookie.jar_init(&state.own_cookie_jar, state.allocator)
+	state.cookie_jar = &state.own_cookie_jar
 	return state
 }
 
@@ -179,6 +189,8 @@ destroy_runtime_state :: proc(ctx: jsc.JSContextRef, state: ^Runtime_State) {
 	unprotect_before_eval_exit(ctx, state.fr_wrap)
 	unprotect_before_eval_exit(ctx, state.fr_construct)
 	wasm_release_jobs(ctx, state)
+	state.cookie_jar = nil
+	cookie.jar_destroy(&state.own_cookie_jar)
 	// Clear the global's private slot BEFORE the free, so get_state_from_ctx can
 	// never hand out a dangling ^Runtime_State. The reachable path is the one the
 	// fail-closed dispatcher defines: host_dispatch_fail -> make_js_error ->
@@ -1401,6 +1413,7 @@ install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef)
 	set_named(ctx, natives, "internal/performance", cast(jsc.JSValueRef)make_performance_bindings(ctx))
 	set_named(ctx, natives, "internal/location", cast(jsc.JSValueRef)make_location_bindings(ctx, state.page_origin))
 	set_named(ctx, natives, "internal/navigator", cast(jsc.JSValueRef)make_navigator_bindings(ctx, profile.default_profile()))
+	set_named(ctx, natives, "internal/cookie", cast(jsc.JSValueRef)make_cookie_bindings(ctx, state.page_origin))
 	// Native, not a module: nothing of it is JS a page could see in a stack (wasm.odin).
 	install_wasm(ctx, state)
 
