@@ -40,6 +40,7 @@
   var mutationObserver = require('internal/mutation_observer');
   var reflect = require('internal/dom_reflect');
   var DOMException = require('internal/domexception').DOMException;
+  var cookieJar = require('internal/cookie');
   var ObjectDefineProperty = P.ObjectDefineProperty;
   var ObjectFreeze = P.ObjectFreeze;
   var ProxyP = P.Proxy;
@@ -642,11 +643,28 @@
   /**
    * Document (DOM Standard §4.5) with HTML's document members.
    * @node n/a — Chrome 158, tests/dom/cases/*.page.html.
-   * @deviates No URL, cookie or createElementNS yet (stage 4b).
+   * @deviates No URL or createElementNS yet (stage 4b).
    */
   class Document extends Node {
     get documentElement() {
       return firstElement(this, true);
+    }
+
+    /**
+     * The cookies of the document's URL that a script may see (no HttpOnly), and one
+     * set-cookie-string stored per assignment (internal/cookie).
+     * @node Chrome 158, tests/dom/cases/cookie-document-{basic,attributes,limits}.page.
+     * @deviates In memory, per page (no persistence); '' and a write ignored for an
+     *   opaque-origin document, where Chrome throws for a sandboxed or data: one.
+     */
+    get cookie() {
+      nNodeType(this);
+      return cookieJar.documentGet();
+    }
+
+    set cookie(value) {
+      nNodeType(this);
+      cookieJar.documentSet(toDOMString(value, 'Document', 'cookie'));
     }
 
     /**
@@ -1297,6 +1315,7 @@
   ]);
   var PublicDocument = define('Document', Document, PublicNode, [
     'documentElement',
+    'cookie',
     'readyState',
     'title',
     'body',

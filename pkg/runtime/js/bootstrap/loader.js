@@ -112,6 +112,9 @@
   // clone, so after structured_clone; Screen is an EventTarget.
   req('internal/location');
   req('internal/navigator');
+  // The page's side of the cookie jar, which fetch(), XMLHttpRequest and document.cookie
+  // reach lazily: it parses URLs, so after internal/url (and TextEncoder before it).
+  req('internal/cookie');
   // Storage and the localStorage/sessionStorage attributes; its quota error is a
   // QuotaExceededError, so after internal/domexception.
   req('internal/storage');

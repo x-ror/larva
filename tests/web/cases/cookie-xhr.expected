@@ -1,0 +1,12 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-28
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs cookie-xhr
+# ---
+fresh null
+set-cookie hidden null false
+stored "x=1; y=2"
+withCredentials "x=1; y=2; w=1"
+redirect "x=1; y=2; w=1; z=1"
+fetch sees xhr cookies "x=1; y=2; w=1; z=1"

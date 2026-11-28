@@ -67,7 +67,7 @@ help:
 	@printf '%s\n' '  make test-eventloop-odin Odin event-loop unit tests (serial)'
 	@printf '%s\n' '  make test-runtime-odin  Odin tests for pkg/runtime'
 	@printf '%s\n' '  make test-html-odin     Odin tests for pkg/html (lexbor + shim)'
-	@printf '%s\n' '  make test-http-odin     Odin tests for pkg/http (content decoding against recorded Chrome)'
+	@printf '%s\n' '  make test-http-odin     Odin tests for pkg/http and its cookie jar (against recorded Chrome)'
 	@printf '%s\n' '  make test-sqlite-odin   Odin tests for pkg/std/sqlite'
 	@printf '%s\n' '  make test-stdio         node:test over tests/stdio (needs bin/lava)'
 	@printf '%s\n' '  make test-web           Window-profile cases vs their Chrome recordings (tests/web)'
@@ -332,6 +332,7 @@ test-html-odin: native-deps
 # survived the leak report alone.
 test-http-odin:
 	$(ODIN) test pkg/http -collection:lava=. -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true
+	$(ODIN) test pkg/http/cookie -collection:lava=. -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true
 
 ifeq ($(OS),Windows_NT)
 test-sqlite-odin:

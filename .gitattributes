@@ -45,3 +45,8 @@ tests/dom/cases/*.expected -text
 tests/dom/known/*.lava     -text
 # The vendored html5lib-tests inputs the corpus cases are generated from.
 tests/dom/html5lib/*.dat   -text
+
+# The vendored Public Suffix List and the table built from it: gen-psl.mjs hashes the
+# .dat into the table's header, so neither may be rewritten on checkout.
+pkg/http/cookie/psl/*.dat  -text
+pkg/http/cookie/psl/psl.table binary

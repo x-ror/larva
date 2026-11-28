@@ -4,7 +4,8 @@
 // with Chrome's recording as the expectation.
 //
 // Each check serves the bytes of a tests/dom navigation case (navCharset) behind a
-// 302, compressed, with the case's own Content-Type, and requires `lava fetch`'s stdout
+// 302 that sets a cookie the page then requires (pkg/http/cookie: a hop sends what the
+// one before it set), compressed, with the case's own Content-Type, and requires `lava fetch`'s stdout
 // to equal the case's recorded `#serialize` view byte for byte: the same page Chrome
 // decoded and serialized when the case was recorded, reached over HTTP instead of from
 // a file. The redirect and the coding are pkg/http's; the charset is pkg/html's
@@ -50,7 +51,19 @@ const server = createServer((req, res) => {
   }
   const [, kind, name, coding] = m;
   if (kind === 'go') {
-    res.writeHead(302, { Location: `/page/${name}/${coding}`, 'Content-Length': '0' });
+    // The cookie jar across the redirect: the page answers only a request whose Cookie
+    // is exactly the one set here for /page (the second cookie's path keeps it off the
+    // next hop).
+    res.writeHead(302, [
+      ['Location', `/page/${name}/${coding}`],
+      ['Content-Length', '0'],
+      ['Set-Cookie', `larva_go=${name}; Path=/page; HttpOnly`],
+      ['Set-Cookie', `larva_hop=1; Path=/go`],
+    ]);
+    return res.end();
+  }
+  if (req.headers.cookie !== `larva_go=${name}`) {
+    res.writeHead(403, { 'Content-Length': '0' });
     return res.end();
   }
   const body = ENCODERS[coding](readFileSync(join(CASES_DIR, `${name}.html`)));

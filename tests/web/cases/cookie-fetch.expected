@@ -1,0 +1,23 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-28
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs cookie-fetch
+# ---
+fresh null
+stored "a=1"
+two in one response "a=1; b=2; c=3"
+httponly is sent "a=1; b=2; h=1; c=3"
+omit sends none null
+omit stores none "a=1; b=2; h=1; c=3"
+include "a=1; b=2; h=1; i=1; c=3"
+longer path first "p=1; a=1; b=2; h=1; i=1; c=3"
+path without a boundary "a=1; b=2; h=1; i=1; c=3"
+secure from 127.0.0.1 "p=1; a=1; b=2; h=1; i=1; s=1; c=3"
+samesite none insecure "p=1; a=1; b=2; h=1; i=1; s=1; c=3"
+samesite same-origin "p=1; a=1; b=2; h=1; i=1; s=1; st=1; lx=1; c=3"
+deleted "p=1; h=1; i=1; s=1; st=1; lx=1; c=3"
+domain "p=1; h=1; i=1; s=1; st=1; lx=1; d=1; c=3"
+page cookie header dropped "p=1; h=1; i=1; s=1; st=1; lx=1; d=1; c=3"
+redirect true "p=1; h=1; i=1; s=1; st=1; lx=1; d=1; r=1; c=3"
+redirect omit true null

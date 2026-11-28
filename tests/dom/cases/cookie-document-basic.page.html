@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head><title>document.cookie basics</title></head>
+<body>
+<pre id="log"></pre>
+<script>
+// document.cookie on a fresh profile: each step sets one cookie line and prints what the
+// getter answers after it, so order, overwrites and refusals all show.
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function step(label, line) {
+  var threw = '';
+  try {
+    document.cookie = line;
+  } catch (e) {
+    threw = ' threw ' + e.name;
+  }
+  log(label + threw + ' -> ' + JSON.stringify(document.cookie));
+}
+log('empty ' + JSON.stringify(document.cookie) + ' ' + typeof document.cookie);
+log('enabled ' + navigator.cookieEnabled);
+step('first', 'a=1');
+step('second', 'b=2');
+step('overwrite with a new value', 'a=3');
+step('overwrite with the same value', 'b=2');
+step('same value, new attributes', 'b=2; SameSite=Strict');
+step('trim', '  c  =  x y  ; Path=/raw ');
+step('quoted', 'q="v w"');
+step('nameless', 'lonely');
+step('empty name', '=eq');
+step('empty both', '=');
+step('blank', '');
+step('number', 42);
+step('null', null);
+step('undefined', undefined);
+step('object', { toString: function () { return 'o=k'; } });
+step('unknown attribute', 'u=1; Foo=bar; Priority=High');
+step('value with equals', 'e=a=b=c');
+step('ctl in value', 'ctl=a\u0001b');
+step('tab in value', 'tab=a\tb');
+step('newline in value', 'nl=a\nb');
+step('cr in value', 'cr=a\rb');
+step('nul in value', 'nul=a\u0000b');
+step('del in value', 'del=a\u007fb');
+step('ctl in attribute', 'ca=1; Path=/r\u0001aw');
+step('semicolon only', ';x=1');
+step('non-ascii', 'na=café');
+step('delete via max-age', 'b=; Max-Age=0');
+step('delete via expires', 'a=; Expires=Thu, 01 Jan 1970 00:00:00 GMT');
+step('negative max-age', 'c=gone; Path=/raw; Max-Age=-5');
+step('future expires', 'f=1; Expires=Fri, 01 Jan 2100 00:00:00 GMT');
+step('max-age wins over past expires', 'g=1; Max-Age=100; Expires=Thu, 01 Jan 1970 00:00:00 GMT');
+step('expires before max-age still loses', 'g2=1; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=100');
+step('bad max-age ignored', 'h=1; Max-Age=abc');
+step('max-age with plus ignored', 'i=1; Max-Age=+0');
+step('bad expires ignored', 'j=1; Expires=never');
+step('two-digit year 70', 'k=1; Expires=Thu, 01-Jan-70 00:00:01 GMT');
+step('two-digit year 69', 'k2=1; Expires=Thu, 01-Jan-69 00:00:01 GMT');
+step('expires lowercase month no weekday', 'l=1; expires=1 jan 1980 00:00:00');
+step('expires year 1600', 'm=1; Expires=Sat, 01 Jan 1600 00:00:00 GMT');
+step('delete nameless', 'lonely; Max-Age=0');
+step('delete empty name', '=eq; Max-Age=0');
+</script>
+</body>
+</html>
