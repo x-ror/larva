@@ -136,9 +136,14 @@
     return ArrayPrototypeIncludes(NORMALIZED_METHODS, upper) ? upper : method;
   }
 
+  // A request URL is parsed against the page's URL, as Fetch's "API base URL" is the
+  // document's (`fetch('/data')` on https://a.example/x asks https://a.example/data);
+  // without one (`lava run` with no --origin) a relative URL fails, as before.
   function parseURL(text) {
     try {
-      return new (require('internal/url').URL)(text);
+      var URLCtor = require('internal/url').URL;
+      var base = require('internal/blob').pageURL();
+      return base === '' ? new URLCtor(text) : new URLCtor(text, base);
     } catch {
       return null;
     }

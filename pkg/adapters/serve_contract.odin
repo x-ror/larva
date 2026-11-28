@@ -16,7 +16,18 @@ import "core:strings"
 // One endpoint, `GET /render?url=<target>[&…]`, query parameters percent-encoded:
 //
 //   url       required; http or https.
-//   wait      `load` (the default and the only value this stage has).
+//   wait      `load` (the default), `networkidle` (= `networkidle0`) or `networkidle2`.
+//             `load` captures once the page's loop has idled after DOMContentLoaded (a
+//             page whose timers never stop never gets there and ends in kill_timeout).
+//             The network-idle values (#13) fire `load` without waiting for the loop
+//             and then wait until no more than 0 (`networkidle0`) or 2 (`networkidle2`)
+//             network requests — fetch() and XMLHttpRequest — have been in flight for
+//             `idle_ms`, as Puppeteer's waitUntil of the same names; timers may keep
+//             running. A page that never goes quiet ends at `timeout` in kill_timeout,
+//             as every other wait does: the deadline is hard, and a half-settled SPA
+//             is not a page the caller should take for a complete one (#15).
+//   idle_ms   the quiet window a network-idle wait needs, in ms (default
+//             DEFAULT_IDLE_MS); only with a network-idle `wait`.
 //   selector  a CSS selector list to wait for after `load`.
 //   script    a custom script, run after the selector wait (Crawl_Job.script).
 //   result    `html` (the default: the serialized document) or `script` (the JSON
@@ -116,6 +127,8 @@ DEFAULT_MAX_TIMEOUT_MS :: 300_000
 // (the deadline is checked between ticks). Below the default timeout on purpose.
 DEFAULT_CPU_BUDGET_MS :: 30_000
 DEFAULT_PAGES_PER_THREAD :: 8
+// Puppeteer's networkidle0/networkidle2 window.
+DEFAULT_IDLE_MS :: 500
 
 // Server_Config is what `lava serve` starts a server with. Zero fields take the
 // defaults above (server_init fills them).
@@ -145,6 +158,10 @@ Render_Request :: struct {
 	script:        string,
 	script_result: bool,
 	timeout_ms:    int,
+	// A network-idle wait: idle_ms > 0, at most idle_inflight requests in flight.
+	network_idle:  bool,
+	idle_ms:       int,
+	idle_inflight: int,
 	allocator:     runtime.Allocator,
 }
 
@@ -179,6 +196,7 @@ parse_render_query :: proc(
 	token := ""
 	wait := "load"
 	result := "html"
+	idle_ms := DEFAULT_IDLE_MS
 	ok := false
 
 	defer if !ok {
@@ -207,7 +225,7 @@ parse_render_query :: proc(
 		if !known {
 			return req,
 				.Unsupported,
-				"unsupported parameter (this stage serves url, wait, selector, script, result, timeout)"
+				"unsupported parameter (this stage serves url, wait, idle_ms, selector, script, result, timeout)"
 		}
 
 		if param in seen {
@@ -236,6 +254,14 @@ parse_render_query :: proc(
 			req.timeout_ms = ms
 		case .Token:
 			token = value
+		case .Idle_Ms:
+			ms, parsed := strconv.parse_int(value, 10)
+
+			if !parsed || ms <= 0 || ms > cfg.max_timeout_ms {
+				return req, .Bad_Request, "idle_ms must be a whole number of milliseconds within the server's maximum"
+			}
+
+			idle_ms = ms
 		}
 	}
 
@@ -251,9 +277,21 @@ parse_render_query :: proc(
 		return req, .Bad_Request, "url must be an http or https URL"
 	}
 
-	if wait != "load" {
-		return req, .Unsupported, "unsupported wait (this stage waits for load only)"
+	switch wait {
+	case "load":
+		if .Idle_Ms in seen {
+			return req, .Bad_Request, "idle_ms needs a network-idle wait"
+		}
+	case "networkidle", "networkidle0":
+		req.network_idle = true
+	case "networkidle2":
+		req.network_idle = true
+		req.idle_inflight = 2
+	case:
+		return req, .Unsupported, "unsupported wait (this stage waits for load, networkidle0 or networkidle2)"
 	}
+
+	req.idle_ms = idle_ms
 
 	switch result {
 	case "html":
@@ -280,6 +318,7 @@ Param :: enum {
 	Result,
 	Timeout,
 	Token,
+	Idle_Ms,
 }
 
 @(private = "file")
@@ -299,6 +338,8 @@ param_from_name :: proc(name: string) -> (Param, bool) {
 		return .Timeout, true
 	case "token":
 		return .Token, true
+	case "idle_ms":
+		return .Idle_Ms, true
 	}
 
 	return {}, false

@@ -5,7 +5,8 @@
 // SIGTERM handler's self-pipe (pkg/adapters serve_stop_on_signals) and the exit code.
 //
 // Checks, against a node fixture origin on 127.0.0.1:
-//   1. a request renders (the inline script's DOM write is in the body);
+//   1. a request renders (the inline script's DOM write is in the body), and a
+//      `wait=networkidle` request has what an SPA fetched after load;
 //   2. SIGTERM while a request is in flight: that request is still answered 200, and the
 //      process exits 0 once it has been;
 //   3. SIGINT on an idle server exits 0 as well.
@@ -24,6 +25,12 @@ const PAGES = {
   // `load` waits 400 ms for its timer: long enough to be in flight when the signal lands.
   '/slow':
     '<!doctype html><body><script>setTimeout(() => { document.body.id = "slow-done"; }, 400)</script></body>',
+  // An SPA under a perpetual timer: only a network-idle wait captures what its fetch got.
+  '/spa':
+    '<!doctype html><body><p id="out">empty</p><script>setInterval(() => {}, 20);' +
+    'addEventListener("load", () => fetch("/data").then((r) => r.text()).then((t) => {' +
+    'document.getElementById("out").textContent = t; }));</script></body>',
+  '/data': 'fetched',
 };
 
 let served = 0;
@@ -31,7 +38,8 @@ const origin = createServer((req, res) => {
   const body = PAGES[req.url];
   served++;
   res.writeHead(body ? 200 : 404, { 'Content-Type': 'text/html; charset=utf-8' });
-  res.end(body ?? '');
+  // /data answers late, so the SPA's request is in flight across several of its ticks.
+  setTimeout(() => res.end(body ?? ''), req.url === '/data' ? 100 : 0);
 });
 await new Promise((r) => origin.listen(0, '127.0.0.1', r));
 const originUrl = `http://127.0.0.1:${origin.address().port}`;
@@ -56,6 +64,12 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
       page.status === 200 && page.body.includes('<p id="x">js ran</p>'),
       'a request renders the page after its script',
       `${page.status} ${page.headers['x-larva-error'] ?? ''} ${page.body}`,
+    );
+    const spa = await render(lava.port, '/spa', '&wait=networkidle&idle_ms=200');
+    check(
+      spa.status === 200 && spa.body.includes('<p id="out">fetched</p>'),
+      'wait=networkidle captures what the page fetched after load, timers running',
+      `${spa.status} ${spa.headers['x-larva-error'] ?? ''} ${spa.body}`,
     );
     const before = served;
     const inflight = render(lava.port, '/slow');
@@ -107,10 +121,10 @@ function startLava() {
   });
 }
 
-function render(port, path) {
+function render(port, path, extra = '') {
   const url = encodeURIComponent(originUrl + path);
   return new Promise((resolve) => {
-    get(`http://127.0.0.1:${port}/render?url=${url}`, (res) => {
+    get(`http://127.0.0.1:${port}/render?url=${url}${extra}`, (res) => {
       const chunks = [];
       res.on('data', (d) => chunks.push(d));
       res.on('end', () =>

@@ -409,12 +409,16 @@ carries the final URL, the origin's status and `Server-Timing`, or an `X-Larva-E
 `over_capacity`, `unsupported`, …). The wire names are this MVP's own, written down in
 `pkg/adapters/serve_contract.odin`, since #15 keeps production's private. SIGTERM drains:
 the listener closes, admitted requests are answered. Pinned by `cmd/lava/serve_test.odin`
-and `make test-serve`. Not there yet: network-idle across XHR and `fetch`, the actions DSL,
+and `make test-serve`. `wait=networkidle` (`networkidle0`) and `networkidle2` (#13) wait,
+after `load`, until at most 0 or 2 `fetch`/XHR requests have been in flight for `idle_ms`
+(default 500), timers running or not; a page that never goes quiet ends in
+`kill_timeout`. Not there yet: the actions DSL,
 the fixed body wait, cookie and network capture, proxies, identity and viewport
 parameters, gzip responses, keep-alive, a TLS listener, admission per host and capacity
 publishing, and CDP (stage 6). A served page's `src` scripts are not fetched (their
 `error` fires), and its `load` is the loader's — the loop idling after DOMContentLoaded —
-so a page whose loop never idles before then ends at its timeout.
+so a page whose loop never idles before then ends at its timeout under `wait=load` (a
+network-idle wait fires `load` without waiting for the loop).
 
 ## Risks
 

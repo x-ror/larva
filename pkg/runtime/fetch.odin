@@ -1211,6 +1211,7 @@ fetch_track_active :: proc(state: ^Runtime_State, req: ^Fetch_Request) {
 	}
 
 	append(&state.active_fetches, req)
+	page_net_begin(state)
 }
 
 fetch_untrack_active :: proc(state: ^Runtime_State, req: ^Fetch_Request) {
@@ -1223,6 +1224,7 @@ fetch_untrack_active :: proc(state: ^Runtime_State, req: ^Fetch_Request) {
 			// active_fetches is an unordered bag (membership only — used for teardown),
 			// so swap-remove the slot in O(1) rather than shifting the tail.
 			unordered_remove(&state.active_fetches, i)
+			page_net_end(state)
 			return
 		}
 	}

@@ -50,7 +50,28 @@ FIXTURES := [?]struct {
 	},
 	// `load` waits 300 ms for a timer: a request that is in flight for a while.
 	{"/slow", `<!doctype html><script>setTimeout(() => { document.body.id = 'slow-done'; }, 300)</script>`},
+	// An SPA: `load` starts a fetch, whose answer starts an XMLHttpRequest, each rendering
+	// what it got. A capture at load has neither; a network-idle wait has both.
+	{
+		"/spa",
+		`<!doctype html><body><p id="out">empty</p><script>` +
+		`addEventListener('load', () => fetch('/data').then((r) => r.text()).then((t) => {` +
+		`document.getElementById('out').textContent = t;` +
+		`const x = new XMLHttpRequest(); x.open('GET', '/more');` +
+		`x.onload = () => { const d = document.createElement('div'); d.id = 'more';` +
+		`d.textContent = x.responseText; document.body.appendChild(d); }; x.send(); }));` +
+		`</script></body>`,
+	},
+	// Answered after ORIGIN_SLOW_MS: a request that stays in flight for a while.
+	{"/data", "data-from-fetch"},
+	{"/more", "more-from-xhr"},
+	// Never network-idle: a request is always in flight.
+	{"/poll", `<!doctype html><script>setInterval(() => fetch('/data'), 40)</script>`},
 }
+
+// How long the fixture origin sits on /data before answering.
+@(private = "file")
+ORIGIN_SLOW_MS :: 150
 
 @(private = "file")
 Origin :: struct {
@@ -139,6 +160,10 @@ origin_serve :: proc(o: ^Origin) {
 				target[len("/go"):],
 			)
 		} else {
+			if target == "/data" {
+				time.sleep(ORIGIN_SLOW_MS * time.Millisecond)
+			}
+
 			status := "404 Not Found"
 			for f in FIXTURES {
 				if f.path == target {
@@ -492,6 +517,81 @@ serve_times_out_a_page_that_never_loads :: proc(t: ^testing.T) {
 	testing.expectf(t, r.elapsed < 3 * time.Second, "answered after %v, long past its 300 ms timeout", r.elapsed)
 }
 
+// A network-idle wait (#13) runs past `load` until no fetch or XMLHttpRequest has been in
+// flight for idle_ms: the SPA's chained requests render into the capture, which `load`
+// alone misses — and its window (100 ms) is shorter than the fetch (ORIGIN_SLOW_MS), so
+// only the in-flight count, not the quiet clock alone, holds it. Timers do not hold it — a setInterval page that never reaches `load`
+// finishes — and a page whose network never goes quiet ends at its timeout.
+@(test)
+serve_waits_for_network_idle :: proc(t: ^testing.T) {
+	origin, ok := origin_start(t)
+
+	if !ok {
+		return
+	}
+
+	defer origin_stop(origin)
+	s, started := serve_start(t, {threads = 1})
+
+	if !started {
+		return
+	}
+
+	defer serve_stop(s)
+	port := s.server.port
+
+	at_load := render(port, origin.port, "/spa")
+	defer reply_destroy(&at_load)
+	testing.expectf(t, at_load.status == 200, "wait=load: want 200: %s", describe(at_load))
+	testing.expectf(
+		t,
+		strings.contains(at_load.body, `<p id="out">empty</p>`) && !strings.contains(at_load.body, "more-from-xhr"),
+		"wait=load captured after the SPA's requests: %s",
+		at_load.body,
+	)
+
+	idle := render(port, origin.port, "/spa", "&wait=networkidle&idle_ms=100")
+	defer reply_destroy(&idle)
+	testing.expectf(t, idle.status == 200, "wait=networkidle: want 200: %s", describe(idle))
+	testing.expectf(
+		t,
+		strings.contains(idle.body, `<p id="out">data-from-fetch</p>`) &&
+		strings.contains(idle.body, `<div id="more">more-from-xhr</div>`),
+		"wait=networkidle: the fetch and XHR renders are missing: %s",
+		idle.body,
+	)
+	// Once the XHR's render ran the loop has nothing left that could start a request, so
+	// the wait ends then rather than sitting out the window.
+	testing.expectf(
+		t,
+		idle.elapsed >= ORIGIN_SLOW_MS * time.Millisecond && idle.elapsed < 2 * time.Second,
+		"answered after %v: not after the slow fetch, or long past it",
+		idle.elapsed,
+	)
+
+	interval := render(port, origin.port, "/interval", "&wait=networkidle2&idle_ms=100&timeout=5000")
+	defer reply_destroy(&interval)
+	testing.expectf(t, interval.status == 200, "a perpetual timer held the network-idle wait: %s", describe(interval))
+	// The timer keeps the loop alive, so the quiet window is sat out in full.
+	testing.expectf(
+		t,
+		interval.elapsed >= 100 * time.Millisecond && interval.elapsed < 3 * time.Second,
+		"answered after %v: not after its 100 ms quiet window, or long past it",
+		interval.elapsed,
+	)
+
+	busy := render(port, origin.port, "/poll", "&wait=networkidle&idle_ms=100&timeout=600")
+	defer reply_destroy(&busy)
+	testing.expectf(
+		t,
+		busy.status == 504 &&
+		reply_header(busy, adapters.HEADER_ERROR) == "kill_timeout" &&
+		strings.contains(busy.body, "network did not go idle"),
+		"want kill_timeout for a network that never idles: %s",
+		describe(busy),
+	)
+}
+
 // A page that spins in one entry is killed by its CPU budget and reported page_killed;
 // the worker it ran on goes on to serve the next request.
 @(test)
@@ -662,7 +762,9 @@ serve_refuses_what_it_does_not_serve :: proc(t: ^testing.T) {
 		status:               int,
 	} {
 		{"GET", fmt.tprintf("/render?url=%s&token=sesame&screenshot=1", url), "unsupported", 501},
-		{"GET", fmt.tprintf("/render?url=%s&token=sesame&wait=networkidle", url), "unsupported", 501},
+		{"GET", fmt.tprintf("/render?url=%s&token=sesame&wait=domcontentloaded", url), "unsupported", 501},
+		{"GET", fmt.tprintf("/render?url=%s&token=sesame&idle_ms=100", url), "bad_request", 400},
+		{"GET", fmt.tprintf("/render?url=%s&token=sesame&wait=networkidle&idle_ms=0", url), "bad_request", 400},
 		{"GET", "/render?token=sesame", "bad_request", 400},
 		{"GET", "/render?url=ftp%3A%2F%2Fx&token=sesame", "bad_request", 400},
 		{"GET", fmt.tprintf("/render?url=%s&token=sesame&timeout=0", url), "bad_request", 400},

@@ -170,6 +170,10 @@ Dom_Page :: struct {
 	page:      ^Page,
 	// The page's script elements: what has started, what waits to run (page_script.odin).
 	scripts:   Page_Scripts,
+	// The furthest readiness dom_advance has moved the document to, once it got as far as
+	// calling into internal/dom; nil before `interactive`. A crawl's network-idle wait
+	// (page_crawl.odin) fires `load` early only past DOMContentLoaded.
+	reached:   Maybe(Dom_Readiness),
 }
 
 // The wrapper classes, created once per process by dom_create_classes and never
@@ -389,6 +393,7 @@ dom_advance :: proc(ctx: jsc.JSContextRef, page: ^Page, stage: Dom_Readiness) ->
 		.Complete       = "complete",
 	}
 	names := NAMES
+	state.dom.reached = stage
 	args := [1]jsc.JSValueRef{js_string_value(ctx, names[stage])}
 	exception: jsc.JSValueRef
 	vm_cpu_enter(page.vm)
