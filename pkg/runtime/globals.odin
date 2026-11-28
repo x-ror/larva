@@ -117,6 +117,11 @@ Runtime_State :: struct {
 	// decision 3). Touched only on the page's thread.
 	cookie_jar:        ^cookie.Jar,
 	own_cookie_jar:    cookie.Jar,
+	// The page's network activity (page_net.odin): requests begun and not yet ended, and
+	// when one last began or ended — what a network-idle wait (page_crawl.odin) reads.
+	// Touched only on the page's thread.
+	net_inflight:      int,
+	net_last_activity: time.Tick,
 }
 
 // JS_Callback bridges a JS function into an event-loop Callback. The function

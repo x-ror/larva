@@ -4407,6 +4407,15 @@
       "expect_detail": "FAIL navigator-apis"
     },
     {
+      "name": "serve_waits_for_network_idle dies when fetch does not count its request as in flight",
+      "why": "A network-idle wait that never sees the page's requests ends after its quiet window while an SPA's fetch is still in flight, and the capture lacks what the fetch renders.",
+      "source": "pkg/runtime/fetch.odin",
+      "find": "\tpage_net_begin(state)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.serve_waits_for_network_idle",
+      "expect_detail": "the fetch and XHR renders are missing"
+    },
+    {
       "name": "serve_runs_the_custom_script dies when a throw in the script does not reject the job",
       "why": "An async function's throw is a rejected promise nobody holds unless the wrapper routes it to _reject; without that a throwing script never settles and the caller sees no error until the timeout.",
       "source": "pkg/runtime/page_crawl.odin",

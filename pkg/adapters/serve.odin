@@ -546,6 +546,9 @@ on_navigated :: proc(resp: http.Response, user_data: rawptr) {
 		selector      = c.req.selector,
 		script        = c.req.script,
 		script_result = c.req.script_result,
+		network_idle  = c.req.network_idle,
+		idle_ms       = c.req.idle_ms,
+		idle_inflight     = c.req.idle_inflight,
 		deadline      = time.tick_add(c.admitted, time.Duration(c.req.timeout_ms) * time.Millisecond),
 		allocator     = s.allocator,
 	}

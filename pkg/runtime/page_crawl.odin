@@ -19,12 +19,18 @@ import eventloop "lava:pkg/runtime/eventloop"
 // on_done.
 //
 // The wait order is #15's production order, cut to what this stage has:
-//   load → selector wait → custom script → capture.
-// `load` is the HTML loader's (page_html.odin): fired once the loop has idled after
-// DOMContentLoaded — there are no subresources to wait for — so a page whose loop never
-// idles before then (a setInterval started at parse time) never reaches it and ends at
-// its deadline. Network-idle, the actions DSL, the fixed body wait and capture of cookies
-// or network bodies are later work (#15).
+//   load → network idle (when asked) → selector wait → custom script → capture.
+// `load` is the HTML loader's (page_html.odin). Without a network-idle wait it fires once
+// the loop has idled after DOMContentLoaded, so a page whose loop never idles before then
+// (a setInterval started at parse time) never reaches it and ends at its deadline: kept
+// as it was, because callers of `wait=load` rely on timers and fetches the document
+// starts while parsing having run by the capture. With a network-idle wait (#13), load
+// fires at the first tick after DOMContentLoaded that finds nothing ready to run — timers
+// due later and requests still in flight do not hold it — and the wait after it is what
+// lets the page settle: it ends once no more than Crawl_Job.idle_inflight network
+// requests (page_net.odin: fetch and XMLHttpRequest) have been in flight for idle_ms,
+// whatever timers keep running. The actions DSL, the fixed body wait and capture of
+// cookies or network bodies are later work (#15).
 
 // Crawl_Outcome is how the driver ended a crawl job. `.None` means it did not: the
 // page's Result says why (a limit kill, a cancel, a failed install or parse).
@@ -62,6 +68,11 @@ Crawl_Job :: struct {
 	script:        string,
 	// Capture the value given to `_resolve`, JSON-serialized, instead of the document.
 	script_result: bool,
+	// Wait for network idle after `load`: no more than idle_inflight requests in
+	// flight for idle_ms (> 0) of wall time.
+	network_idle:  bool,
+	idle_ms:       int,
+	idle_inflight: int,
 	// When the job times out, on the monotonic clock.
 	deadline:      time.Tick,
 	// Owns `body` and `message`. Used from the worker thread, so it must be thread-safe.
@@ -74,11 +85,16 @@ Crawl_Job :: struct {
 	phase:         Crawl_Phase,
 	script_begun:  bool,
 	wake:          eventloop.Timer_ID,
+	// When the network-idle wait began: the quiet window counts from here at the
+	// earliest, so a page with no request yet still waits idle_ms for one to start.
+	idle_since:    time.Tick,
+	idle_wake:     eventloop.Timer_ID,
 }
 
 // Crawl_Phase is where the driver is in the wait order.
 Crawl_Phase :: enum {
 	Loading,
+	Network_Idle,
 	Waiting,
 	Script,
 }
@@ -171,7 +187,13 @@ crawl_tick :: proc(page: ^Page, data: rawptr) -> (alive: bool, did_work: bool) {
 	job := cast(^Crawl_Job)data
 
 	if crawl_expired(job) {
-		crawl_end(job, .Timeout, "the page did not finish before its timeout")
+		message := "the page did not finish before its timeout"
+
+		if job.phase == .Network_Idle {
+			message = "the page's network did not go idle before its timeout"
+		}
+
+		crawl_end(job, .Timeout, message)
 		return false, true
 	}
 
@@ -186,8 +208,11 @@ crawl_tick :: proc(page: ^Page, data: rawptr) -> (alive: bool, did_work: bool) {
 	for {
 		switch job.phase {
 		case .Loading:
-			// A tick that ran something may have left more for the next one.
-			if ticked {
+			// A tick that ran something may have left more for the next one. A
+			// network-idle wait does not need the loop idle, only nothing ready now and
+			// DOMContentLoaded behind it — a script still being fetched holds the
+			// parse, and so `load` (see the header).
+			if ticked && (did_work || !job.network_idle || !crawl_content_loaded(page)) {
 				return true, did_work
 			}
 
@@ -195,8 +220,15 @@ crawl_tick :: proc(page: ^Page, data: rawptr) -> (alive: bool, did_work: bool) {
 				return false, true
 			}
 
-			job.phase = .Waiting
+			job.phase = .Network_Idle if job.network_idle else .Waiting
+			job.idle_since = time.tick_now()
 			did_work = true
+		case .Network_Idle:
+			if !crawl_network_idle(job, page) {
+				return true, did_work
+			}
+
+			job.phase = .Waiting
 		case .Waiting:
 			if job.selector != "" {
 				found, valid := crawl_selector_matches(page, job.selector)
@@ -322,6 +354,55 @@ crawl_arm_wake :: proc(job: ^Crawl_Job, page: ^Page) {
 	left := time.duration_milliseconds(time.tick_diff(time.tick_now(), job.deadline))
 	job.wake = eventloop.set_timeout(loop, crawl_wake, u64(max(left, 0)) + 1)
 	eventloop.timer_unref(loop, job.wake)
+}
+
+@(private = "file")
+crawl_content_loaded :: proc(page: ^Page) -> bool {
+	if !page_dom_live(page) {
+		return false
+	}
+
+	reached, ok := page.state.dom.reached.?
+	return ok && reached >= .Content_Loaded
+}
+
+// crawl_network_idle reports whether the page's network has been quiet long enough: at
+// most idle_inflight requests in flight, none begun or ended for idle_ms. A loop with
+// nothing left to run can start no request, so it is idle at once. While the count is low
+// enough it keeps an unreffed timer due when the window closes, as crawl_arm_wake does for
+// the deadline, so a runner blocked on the page's descriptors wakes to see it.
+@(private = "file")
+crawl_network_idle :: proc(job: ^Crawl_Job, page: ^Page) -> bool {
+	state := page.state
+
+	if state == nil || !crawl_loop_busy(page) {
+		return true
+	}
+
+	if state.net_inflight > job.idle_inflight {
+		return false
+	}
+
+	last := job.idle_since
+
+	if time.tick_diff(last, state.net_last_activity) > 0 {
+		last = state.net_last_activity
+	}
+
+	left := time.Duration(job.idle_ms) * time.Millisecond - time.tick_since(last)
+
+	if left <= 0 {
+		return true
+	}
+
+	loop := page.loop
+
+	if !eventloop.timer_is_live(loop, job.idle_wake) {
+		job.idle_wake = eventloop.set_timeout(loop, crawl_wake, u64(time.duration_milliseconds(left)) + 1)
+		eventloop.timer_unref(loop, job.idle_wake)
+	}
+
+	return false
 }
 
 // crawl_wake does nothing: firing is what ends a runner wait past the deadline.
