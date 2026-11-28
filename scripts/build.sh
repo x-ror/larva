@@ -73,8 +73,8 @@ if [ "${LAVA_FORCE_BUILD:-0}" != "1" ] &&
 	fi
 fi
 
-# No extra linker flags are needed: Linux links system libssl/libcrypto from the
-# default path, and macOS needs no OpenSSL linker flags for fetch TLS (#143).
+# No extra linker flags are needed: Linux links BoringSSL's static archives from .deps/
+# (pkg/tls names them), and macOS needs no OpenSSL linker flags for fetch TLS (#143).
 # (Windows builds via scripts/build-windows.ps1.)
 # shellcheck disable=SC2086 # DEFINES is empty or one flag
 odin build cmd/lava -collection:lava=. -out:bin/lava -o:"$OPT" $DEFINES

@@ -17,10 +17,11 @@ check_pkg() {
 check_pkg javascriptcoregtk-6.0
 check_pkg sqlite3
 
-# OpenSSL (fetch HTTPS/TLS): only Linux needs it (exposed via pkg-config). macOS has
-# no OpenSSL dependency for fetch TLS (#143), so there is nothing to check there.
-if [ "$(uname -s)" != "Darwin" ]; then
-	check_pkg openssl
+# TLS is BoringSSL, built from a pinned commit into .deps/ by scripts/build-boringssl.sh
+# (#6): no system OpenSSL to check for. Building it needs cmake.
+if ! command -v cmake >/dev/null; then
+	printf 'missing: cmake (builds lexbor and BoringSSL)\n'
+	missing=1
 fi
 
 # pkg/http's content decoding links the system libraries on Linux: zlib through

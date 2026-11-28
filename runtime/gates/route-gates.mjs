@@ -138,7 +138,7 @@ const ROUTES = [
     targets: ['make test-fetch-smoke'],
   },
   {
-    // The OpenSSL client both HTTP stacks share (fetch and pkg/http).
+    // The BoringSSL client both HTTP stacks share (fetch and pkg/http).
     re: globToRe('pkg/tls/**'),
     targets: ['make test-fetch-smoke', 'make test-http-odin'],
   },

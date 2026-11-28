@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { REPO_ROOT, localToolchain, matchesPin, readPin, relation, run } from './lib/odin-pin.mjs';
 
-const LIBS = ['javascriptcoregtk-6.0', 'openssl', 'sqlite3', 'libzstd', 'libbrotlidec'];
+const LIBS = ['javascriptcoregtk-6.0', 'sqlite3', 'libzstd', 'libbrotlidec'];
 const short = (c) => (c ? c.slice(0, 9) : '?');
 
 /**

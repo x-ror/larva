@@ -54,7 +54,11 @@ Libraries linked at build time, not distributed here
 ----------------------------------------------------
 
 JavaScriptCore (WebKitGTK)   LGPL-2.1-or-later and BSD-2-Clause; linked dynamically
-OpenSSL 3                    Apache-2.0
+BoringSSL (pinned commit)    Apache-2.0 (libssl and libcrypto; the Go-licensed test
+                             code in its tree is not built); linked statically, built
+                             from source by scripts/build-boringssl.sh (pkg/tls). A
+                             binary distribution of bin/lava carries BoringSSL's
+                             LICENSE with it (Apache-2.0 section 4).
 SQLite                       public domain
 zlib                         zlib License; linked dynamically (pkg/http)
 Brotli (libbrotlidec)        MIT; linked dynamically (pkg/http)
