@@ -24,6 +24,7 @@
   var Uint8ArrayP = P.Uint8Array;
   var ArrayBufferP = P.ArrayBuffer;
   var ArrayBufferIsView = P.ArrayBufferIsView;
+  var ArrayBufferPrototypeGetByteLength = P.ArrayBufferPrototypeGetByteLength;
   var ArrayPrototypePush1 = P.ArrayPrototypePush1;
   var JSONParse = P.JSONParse;
   var ObjectDefineProperty = P.ObjectDefineProperty;
@@ -137,7 +138,10 @@
   }
 
   // Body storage stays byte-exact; request bodies and response bytes must not
-  // round-trip through latin1 text.
+  // round-trip through latin1 text. Only an absent body (null/undefined) is null: an
+  // empty one — '', an empty Blob, a zero-length buffer — is zero bytes, so its
+  // `body` is an empty stream, as the fetch standard's "extract a body" gives it and
+  // Chrome 158 shows (tests/web/cases/fetch-body-empty).
   function bodyToBytes(body) {
     if (body === null || body === undefined) return null;
     if (body instanceof Uint8ArrayP) return body;
@@ -151,16 +155,13 @@
     }
 
     // A Blob/File body: join its in-memory chunks synchronously. Lava's Blob keeps
-    // its bytes in memory, so no async read is needed; an empty Blob is an absent body.
-    // Branded by its private field (internal/blob), not `instanceof` the replaceable
-    // global. A Blob used as a *request* body instead takes Request's async
-    // streamBody path and never reaches here.
+    // its bytes in memory, so no async read is needed. Branded by its private field
+    // (internal/blob), not `instanceof` the replaceable global. A Blob used as a
+    // *request* body instead takes Request's async streamBody path and never reaches
+    // here.
     var blobBytes = require('internal/blob').blobBytes(body);
-    if (blobBytes !== null) return blobBytes.length === 0 ? null : blobBytes;
+    if (blobBytes !== null) return blobBytes;
     var text = typeof body === 'string' ? body : StringP(body);
-    // An empty string (passed directly or produced by String(body)) has no
-    // bytes — treat it as an absent body.
-    if (text === '') return null;
     var encoder = getEncoder();
     if (encoder) return encoder.encode(text);
     var bytes = new Uint8ArrayP(text.length);
@@ -304,39 +305,76 @@
     }
 
     state.bodyUsed = true;
-    if (state.bodyStream) return drain(state.bodyStream, finish);
+    if (state.bodyStream) {
+      var collected = streamInternal.collectTransportByteStream(state.bodyStream);
+      if (collected !== null) return drainOwned(collected, finish);
+      return drain(state.bodyStream, finish);
+    }
+
     try {
-      return PromiseResolve(finish(state.bodyBytes));
+      return PromiseResolve(finish(state.bodyBytes, false));
     } catch (e) {
       // Invalid JSON rejects (WHATWG fetch semantics).
       return PromiseReject(e);
     }
   }
 
+  // The fast path for a fetched body the page never touched: the transport's chunks,
+  // collected without a read() per chunk (webstreams collectTransportByteStream), are
+  // joined once and handed to `finish` as OWNED — no page code holds them, so
+  // arrayBuffer() and bytes() may return the joined buffer instead of a copy of it.
+  //
+  // What it buys, against 8ecd066 (the generic drain below, plus that copy): 0.90x and
+  // 0.92x for text(), 0.67x and 0.71x for arrayBuffer() over two runs; against the
+  // default-stream body before #145 (243a89a), 0.87x and 0.72x. Each ratio is the
+  // in-page time of 30 fetches of a 4 MiB body a local node server writes 64 KiB at a
+  // time, median of 7 launches per binary, alternating which runs first; an A/A run
+  // of this binary read 0.99x and 0.98x.
+  async function drainOwned(collected, finish) {
+    var chunks = await collected;
+    return finish(concatChunks(chunks), true);
+  }
+
+  // The generic path: any other stream, read through a reader. The reader is never
+  // released, as the fetch standard's "fully read" never releases its own: a consumed
+  // body stays locked (Chrome 158, tests/web/cases/fetch-body-consume "text").
   async function drain(stream, finish) {
     var reader = stream.getReader();
     var chunks = [];
-    try {
-      for (;;) {
-        var r = await reader.read();
-        if (r.done) break;
-        ArrayPrototypePush1(chunks, r.value);
-      }
-    } finally {
-      reader.releaseLock();
+    for (;;) {
+      var r = await reader.read();
+      if (r.done) break;
+      ArrayPrototypePush1(chunks, r.value);
     }
-    return finish(concatChunks(chunks));
+
+    return finish(concatChunks(chunks), false);
   }
 
-  function copyBytes(bytes) {
+  // The body as a Uint8Array the caller may hand to the page: `bytes` itself when it
+  // is `owned` (drainOwned's), a copy otherwise — an in-memory body is shared with
+  // its clones and its Blob, and a page stream's chunks are the page's.
+  function copyBytes(bytes, owned) {
     if (bytes === null || bytes === undefined) return new Uint8ArrayP(0);
+    if (owned) return bytes;
     var copy = new Uint8ArrayP(bytes.length);
     Uint8ArrayPrototypeSet(copy, bytes, 0);
     return copy;
   }
 
-  function toArrayBuffer(bytes) {
-    return TypedArrayPrototypeGetBuffer(copyBytes(bytes));
+  // An owned body that spans its whole buffer is returned as that buffer; the native
+  // transport allocates every chunk exactly sized, and concatChunks joins into an
+  // exactly sized buffer, so that is every owned body.
+  function toArrayBuffer(bytes, owned) {
+    var view = copyBytes(bytes, owned);
+    var buffer = TypedArrayPrototypeGetBuffer(view);
+    if (
+      TypedArrayPrototypeGetByteOffset(view) === 0 &&
+      TypedArrayPrototypeGetByteLength(view) === ArrayBufferPrototypeGetByteLength(buffer)
+    ) {
+      return buffer;
+    }
+
+    return TypedArrayPrototypeGetBuffer(copyBytes(view, false));
   }
 
   function toJSON(bytes) {
@@ -362,11 +400,10 @@
    * @node Chrome 158 (tests/web/cases/fetch-webidl): the rejections, their text and
    *   their order. (streams-body-bytes): `body` is a byte stream (a BYOB reader
    *   works) for an in-memory, cloned or fetched body; a page's own stream is
-   *   returned as given.
-   * @deviates textStream() is absent (shape-fetch's known gap). An empty body
-   *   (`new Response('')`) has a null `body`, where Chrome's is an empty byte stream
-   *   (seen recording streams-body-bytes; not yet pinned — bodyToBytes maps empty to
-   *   absent).
+   *   returned as given. (fetch-body-empty): an empty body ('', an empty Blob or
+   *   buffer) is an empty byte stream, not null. (fetch-body-consume): a fetched
+   *   body a reader consumed is locked and disturbed while it is read.
+   * @deviates textStream() is absent (shape-fetch's known gap).
    */
   function defineBody(proto, iface) {
     var members = {

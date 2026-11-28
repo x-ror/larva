@@ -644,6 +644,7 @@ make_dom_bindings :: proc(ctx: jsc.JSContextRef) -> jsc.JSObjectRef {
 		{"isNode", dom_is_node_cb},
 		{"document", dom_document_cb},
 		{"nodeType", dom_node_type_cb},
+		{"interface", dom_interface_cb},
 		{"nodeName", dom_node_name_cb},
 		{"parent", dom_parent_cb},
 		{"firstChild", dom_first_child_cb},
@@ -867,6 +868,28 @@ dom_node_type_cb :: proc "c" (
 	}
 
 	return jsc.JSValueMakeNumber(ctx, f64(html.node_type(call.node)))
+}
+
+// interface(node): the index, in the names install was given, of the interface the
+// node is wrapped as (dom_interface_of) — the brand internal/dom_reflect checks a
+// reflected attribute's receiver against, since a wrapper's [[Prototype]] is the page's
+// to change.
+dom_interface_cb :: proc "c" (
+	ctx: jsc.JSContextRef,
+	function: jsc.JSObjectRef,
+	this_object: jsc.JSObjectRef,
+	argc: c.size_t,
+	argv: [^]jsc.JSValueRef,
+	exception: ^jsc.JSValueRef,
+) -> jsc.JSValueRef {
+	context = runtime.default_context()
+	call, ok := dom_enter(ctx, argc, argv, exception)
+
+	if !ok {
+		return dom_undefined(ctx)
+	}
+
+	return jsc.JSValueMakeNumber(ctx, f64(dom_interface_of(call.node)))
 }
 
 dom_node_name_cb :: proc "c" (
