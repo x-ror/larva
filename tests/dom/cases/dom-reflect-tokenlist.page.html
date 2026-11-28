@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head><title>reflect tokenlist</title></head>
+<body>
+<div id="box" class="  a b  a ">box</div>
+<pre id="log"></pre>
+<script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function show(v) {
+  return typeof v === 'string' ? JSON.stringify(v) : String(v);
+}
+function attempt(label, f) {
+  try {
+    log(label + ' ' + show(f()));
+  } catch (e) {
+    log(label + ' threw ' + e.name + ': ' + e.message);
+  }
+}
+
+var box = document.getElementById('box');
+var cl = box.classList;
+log('read ' + [cl.length, cl.value, String(cl), cl[0], cl[1], cl[2], cl.item(0), cl.item(5), cl.item(-1), cl.contains('a'), cl.contains('A')].map(show).join(' '));
+log('same object ' + (box.classList === cl));
+log('own keys ' + JSON.stringify(Object.getOwnPropertyNames(cl)) + ' ' + Object.keys(cl).join(','));
+var d0 = Object.getOwnPropertyDescriptor(cl, '0');
+log('index descriptor ' + show(d0.value) + ' ' + d0.writable + d0.enumerable + d0.configurable + ' ' + ('1' in cl) + ('2' in cl));
+cl[0] = 'q';
+log('index write ignored ' + show(box.className));
+
+cl.add('c', 'a');
+log('add c a ' + show(box.className));
+cl.remove('a');
+log('remove a ' + show(box.className));
+log('toggle ' + [cl.toggle('z'), cl.toggle('z'), cl.toggle('y', true), cl.toggle('y', true), cl.toggle('b', false), cl.toggle('b', false), cl.toggle('w', 0)].join(' ') + ' ' + show(box.className));
+log('replace ' + cl.replace('c', 'C') + ' ' + cl.replace('nope', 'x') + ' ' + show(box.className));
+cl.value = 'p q p';
+log('value set ' + show(box.className) + ' ' + cl.length);
+box.classList = 'r  s';
+log('classList put-forwards ' + show(box.className) + ' ' + (box.classList === cl));
+log('iterate ' + Array.from(cl).join('|') + ' ' + Array.from(cl.entries()).join('|') + ' ' + Array.from(cl.keys()).join('|') + ' ' + Array.from(cl.values()).join('|'));
+var seen = [];
+cl.forEach(function (v, k, l) { seen.push(k + ':' + v + ':' + (l === cl) + ':' + (this === seen)); }, seen);
+log('forEach ' + seen.join(','));
+
+// The update steps write the serialized set — duplicates and spacing go.
+var x = document.createElement('div');
+x.setAttribute('class', 'b  a b');
+x.classList.remove('zz');
+log('remove absent reserializes ' + show(x.className));
+x.setAttribute('class', 'b  a b');
+x.classList.toggle('qq', false);
+log('toggle forced off absent leaves ' + show(x.className));
+x.setAttribute('class', 'b a');
+x.classList.add('a');
+log('add present reserializes ' + show(x.className));
+x.className = '  ';
+x.classList.add('c');
+log('add to blank ' + show(x.className));
+x.classList.replace('c', 'c');
+log('replace with itself ' + show(x.className));
+var y = document.createElement('div');
+y.classList.add('a', 'b', 'c');
+log('replace onto later existing ' + y.classList.replace('a', 'c') + ' ' + show(y.className));
+y.classList.add('d');
+log('replace onto earlier existing ' + y.classList.replace('d', 'b') + ' ' + show(y.className));
+
+// No attribute: remove/toggle write nothing for an empty set; add always writes.
+var e1 = document.createElement('div');
+e1.classList.remove('x');
+e1.classList.toggle('x', false);
+log('no attribute after remove ' + e1.hasAttribute('class') + ' ' + show(e1.classList.value) + ' ' + e1.classList.length);
+e1.classList.add();
+log('no attribute after add() ' + e1.hasAttribute('class') + ' ' + show(e1.className));
+
+// Errors, in argument order.
+attempt('add empty', function () { cl.add(''); });
+attempt('add space', function () { cl.add('ok', 'a b'); });
+attempt('add empty after space', function () { cl.add('a b', ''); });
+attempt('remove tab', function () { cl.remove('a\tb'); });
+attempt('toggle none', function () { cl.toggle(); });
+attempt('toggle empty', function () { cl.toggle(''); });
+attempt('replace one', function () { cl.replace('a'); });
+attempt('replace empty new', function () { cl.replace('a b', ''); });
+attempt('replace space', function () { cl.replace('a b', 'c'); });
+attempt('contains none', function () { cl.contains(); });
+attempt('item none', function () { cl.item(); });
+attempt('supports on classList', function () { cl.supports('a'); });
+attempt('supports none', function () { cl.supports(); });
+// Chrome's forEach is %Array.prototype.forEach%, whose message is V8's own: only the
+// error's type is compared.
+try {
+  cl.forEach(1);
+} catch (e) {
+  log('forEach not function threw ' + e.name);
+}
+attempt('symbol token', function () { cl.add(Symbol('s')); });
+log('after errors ' + show(box.className));
+attempt('converted tokens', function () { cl.add(1, null, undefined); return box.className; });
+
+// relList and its supported tokens; sizes.
+var link = document.createElement('link');
+link.rel = 'Stylesheet  preload';
+var linkTokens = ['alternate', 'canonical', 'dns-prefetch', 'icon', 'manifest', 'modulepreload', 'next', 'preconnect', 'prefetch', 'preload', 'prerender', 'stylesheet', 'STYLESHEET', 'apple-touch-icon', 'apple-touch-icon-precomposed', 'compression-dictionary', 'author', 'nofollow', 'noopener', 'expect', 'search', 'x'];
+log('link relList ' + link.relList.length + ' ' + linkTokens.filter(function (t) { return link.relList.supports(t); }).join(','));
+['a', 'form'].forEach(function (t) {
+  var e = document.createElement(t);
+  e.relList.add('noopener');
+  log(t + ' relList ' + show(e.rel) + ' ' + ['noopener', 'NoReferrer', 'opener', 'nofollow', 'stylesheet'].filter(function (k) { return e.relList.supports(k); }).join(','));
+});
+link.sizes = '16x16 32x32';
+log('sizes ' + link.sizes.length + ' ' + show(link.getAttribute('sizes')));
+attempt('sizes supports', function () { link.sizes.supports('16x16'); });
+
+// MutationObserver sees IDL writes as attribute writes.
+var target = document.createElement('div');
+var mo = new MutationObserver(function () {});
+mo.observe(target, { attributes: true, attributeOldValue: true });
+target.title = 't';
+target.title = 't';
+target.hidden = true;
+target.classList.add('a');
+target.classList.add('a');
+target.classList.remove('zz');
+target.classList.toggle('q', false);
+target.classList.replace('nope', 'x');
+target.tabIndex = 3;
+target.dir = 'rtl';
+target.draggable = true;
+target.spellcheck = false;
+target.translate = false;
+target.hidden = false;
+target.hidden = false;
+target.classList.value = 'v';
+target.classList = 'w';
+var img = document.createElement('img');
+mo.observe(img, { attributes: true, attributeOldValue: true, attributeFilter: ['src', 'crossorigin'] });
+img.src = 'a.png';
+img.width = 5;
+img.crossOrigin = 'anonymous';
+img.crossOrigin = null;
+img.crossOrigin = null;
+var anchor = document.createElement('a');
+anchor.href = 'https://example.com/';
+mo.observe(anchor, { attributes: true, attributeOldValue: true });
+anchor.hash = 'h';
+anchor.relList.add('noopener');
+mo.takeRecords().forEach(function (r) {
+  log('record ' + r.type + ' ' + r.target.nodeName + ' ' + r.attributeName + ' ' + show(r.oldValue));
+});
+</script>
+</body>
+</html>

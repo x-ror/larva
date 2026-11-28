@@ -38,6 +38,7 @@
   var nativeShape = require('internal/native_shape');
   var events = require('internal/event_target');
   var mutationObserver = require('internal/mutation_observer');
+  var reflect = require('internal/dom_reflect');
   var DOMException = require('internal/domexception').DOMException;
   var ObjectDefineProperty = P.ObjectDefineProperty;
   var ObjectFreeze = P.ObjectFreeze;
@@ -447,12 +448,15 @@
       }
 
       nSetAttribute(this, name, value);
+      reflect.attributeChanged(this, name);
     }
 
     removeAttribute(name) {
       nNodeType(this);
       needArgs(arguments.length, 1, 'Element', 'removeAttribute');
-      nRemoveAttribute(this, toDOMString(name, 'Element', 'removeAttribute'));
+      name = toDOMString(name, 'Element', 'removeAttribute');
+      reflect.attributeRemoving(this, name);
+      nRemoveAttribute(this, name);
     }
 
     hasAttribute(name) {
@@ -553,9 +557,10 @@
 
   /**
    * HTMLElement and every per-tag subclass Larva names (ELEMENT_INTERFACES).
-   * @node n/a — Chrome 158: the interface a tag maps to is the HTML standard's.
-   * @deviates The subclasses carry no members of their own yet (no reflected
-   *   attributes such as HTMLAnchorElement.href); stage 4b.
+   * @node n/a — Chrome 158: the interface a tag maps to is the HTML standard's; the
+   *   reflected members are internal/dom_reflect's (tests/dom/cases/dom-reflect-*.page).
+   * @deviates Only the reflected attributes internal/dom_reflect's table lists exist;
+   *   event handler attributes, layout and form state are absent (stage 4b).
    */
   class HTMLElement extends Element {}
 
@@ -731,7 +736,9 @@
         );
       }
 
-      return nCreateElement(this, name);
+      var el = nCreateElement(this, name);
+      if (nLocalName(el) === 'script') reflect.scriptCreated(el);
+      return el;
     }
 
     createTextNode(data) {
@@ -887,10 +894,24 @@
     return rec.arg === null ? rec.compute(rec.node) : rec.compute(rec.node, rec.arg);
   }
 
-  // The brand check of every NodeList and HTMLCollection member, and its items now.
-  function listItems(o) {
+  // A live list's record ({compute, node, arg}): the brand check of internal/dom_reflect's
+  // DOMTokenList, which shares this machinery and checks `compute` itself.
+  function listRecord(o) {
     var rec = WeakMapPrototypeGet(listState, o);
     if (rec === undefined) throw illegalInvocation();
+    return rec;
+  }
+
+  // Any list's items now: the proxy traps', for every kind of list.
+  function anyListItems(o) {
+    return itemsOfState(listRecord(o));
+  }
+
+  // The brand check of every NodeList and HTMLCollection member, and its items now. A
+  // DOMTokenList's record is refused: its items are strings, not nodes.
+  function listItems(o) {
+    var rec = listRecord(o);
+    if (rec.tokens) throw illegalInvocation();
     return itemsOfState(rec);
   }
 
@@ -920,7 +941,7 @@
     get: function (target, key, receiver) {
       var at = arrayIndex(key);
       if (at !== -1) {
-        var items = listItems(target);
+        var items = anyListItems(target);
         if (at < items.length) return items[at];
       }
 
@@ -928,13 +949,13 @@
     },
     has: function (target, key) {
       var at = arrayIndex(key);
-      if (at !== -1) return at < listItems(target).length;
+      if (at !== -1) return at < anyListItems(target).length;
       return ReflectHas(target, key);
     },
     getOwnPropertyDescriptor: function (target, key) {
       var at = arrayIndex(key);
       if (at !== -1) {
-        var items = listItems(target);
+        var items = anyListItems(target);
         if (at >= items.length) return undefined;
         return {
           __proto__: null,
@@ -948,7 +969,7 @@
       return ReflectGetOwnPropertyDescriptor(target, key);
     },
     ownKeys: function (target) {
-      var items = listItems(target);
+      var items = anyListItems(target);
       var keys = [];
       var n = 0;
       for (var i = 0; i < items.length; i++) keys[n++] = '' + i;
@@ -966,7 +987,7 @@
     },
     deleteProperty: function (target, key) {
       var at = arrayIndex(key);
-      if (at !== -1) return at >= listItems(target).length;
+      if (at !== -1) return at >= anyListItems(target).length;
       return ReflectDeleteProperty(target, key);
     },
   };
@@ -974,7 +995,14 @@
   // A live list of `Impl` over `node`: `compute(node[, arg])` answers its items.
   function liveList(Impl, compute, node, arg) {
     var target = new Impl(INTERNAL);
-    var rec = { __proto__: null, items: null, compute: compute, node: node, arg: arg };
+    var rec = {
+      __proto__: null,
+      items: null,
+      compute: compute,
+      node: node,
+      arg: arg,
+      tokens: Impl !== NodeList && Impl !== HTMLCollection,
+    };
     var proxy = new ProxyP(target, LIVE_HANDLER);
     WeakMapPrototypeSet(listState, target, rec);
     WeakMapPrototypeSet(listState, proxy, rec);
@@ -994,7 +1022,14 @@
   // A static NodeList of `items` (querySelectorAll's).
   function staticList(items) {
     var list = new NodeList(INTERNAL);
-    var rec = { __proto__: null, items: items, compute: null, node: null, arg: null };
+    var rec = {
+      __proto__: null,
+      items: items,
+      compute: null,
+      node: null,
+      arg: null,
+      tokens: false,
+    };
     WeakMapPrototypeSet(listState, list, rec);
     for (var i = 0; i < items.length; i++) {
       INDEX_DESC.value = items[i];
@@ -1210,30 +1245,40 @@
     NODE_TYPES,
     NODE_TYPE_NAMES,
   );
-  var PublicElement = define('Element', Element, PublicNode, [
-    'localName',
-    'tagName',
-    'id',
-    'className',
-    'innerHTML',
-    'outerHTML',
-    'children',
-    'firstElementChild',
-    'lastElementChild',
-    'childElementCount',
-    'previousElementSibling',
-    'nextElementSibling',
-    'getAttribute:1',
-    'getElementsByClassName:1',
-    'getElementsByTagName:1',
-    'hasAttribute:1',
-    'removeAttribute:1',
-    'setAttribute:2',
-    'querySelector:1',
-    'querySelectorAll:1',
-    'remove:0',
-  ]);
-  var PublicHTMLElement = define('HTMLElement', HTMLElement, PublicElement, []);
+  var PublicElement = define(
+    'Element',
+    Element,
+    PublicNode,
+    P.ArrayPrototypeConcat(
+      ['localName', 'tagName', 'id', 'className'],
+      reflect.members('Element', Element.prototype),
+      [
+        'innerHTML',
+        'outerHTML',
+        'children',
+        'firstElementChild',
+        'lastElementChild',
+        'childElementCount',
+        'previousElementSibling',
+        'nextElementSibling',
+        'getAttribute:1',
+        'getElementsByClassName:1',
+        'getElementsByTagName:1',
+        'hasAttribute:1',
+        'removeAttribute:1',
+        'setAttribute:2',
+        'querySelector:1',
+        'querySelectorAll:1',
+        'remove:0',
+      ],
+    ),
+  );
+  var PublicHTMLElement = define(
+    'HTMLElement',
+    HTMLElement,
+    PublicElement,
+    reflect.members('HTMLElement', HTMLElement.prototype),
+  );
   var PublicCharacterData = define('CharacterData', CharacterData, PublicNode, [
     'data',
     'length',
@@ -1289,7 +1334,7 @@
   for (var i = 0; i < ELEMENT_INTERFACES.length; i++) {
     var name = ELEMENT_INTERFACES[i];
     var impl = { [name]: class extends HTMLElement {} }[name];
-    define(name, impl, PublicHTMLElement, []);
+    define(name, impl, PublicHTMLElement, reflect.members(name, impl.prototype));
   }
 
   /**
@@ -1375,6 +1420,31 @@
       if (impl === undefined) throw new TypeErrorP('internal/dom: no interface ' + names[j]);
       protos[j] = impl.prototype;
     }
+
+    reflect.install(
+      {
+        __proto__: null,
+        interface: native.interface,
+        document: nDocument,
+        nodeType: nNodeType,
+        parent: nParent,
+        firstChild: nFirstChild,
+        nextSibling: nNextSibling,
+        data: nData,
+        localName: nLocalName,
+        textContent: nTextContent,
+        setTextContent: nSetTextContent,
+        getAttribute: nGetAttribute,
+        setAttribute: nSetAttribute,
+        removeAttribute: nRemoveAttribute,
+        query: nQuery,
+        liveList: liveList,
+        listRecord: listRecord,
+        listToken: INTERNAL,
+      },
+      names,
+      protos,
+    );
 
     return {
       __proto__: null,
