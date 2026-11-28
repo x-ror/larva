@@ -22,9 +22,10 @@ package jsc
 //
 // Cost: the call is not a counter read. It builds an object of per-type object
 // counts, which walks the whole heap (JSC::Heap::objectTypeCounts), and allocates
-// that object in the page's context. So it is opt-in and sampled (Page_Runner.
-// heap_sample_every); the measured cost is stated at its one caller, page_close
-// (pkg/runtime/page.odin).
+// that object in the page's context. So it is opt-in and sampled: page_close's
+// Result.heap_bytes (Page_Runner.heap_sample_every), and the heap limit's check
+// (Page_Limits.heap_bytes), scheduled against its cost. The measured cost is stated at
+// both callers (pkg/runtime/page.odin, page_close and page_heap_check).
 //
 // Why capacity and not the same object's `heapSize`: heapSize is the bytes MARKED live
 // by the last collection, so it is stale by everything allocated since and reads 0

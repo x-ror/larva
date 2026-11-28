@@ -151,6 +151,7 @@
   api._internal = {
     createBytesSourceStream: readable.createBytesSourceStream,
     createTransportByteStream: readable.createTransportByteStream,
+    collectTransportByteStream: readable.collectTransportByteStream,
     isReadableStream: function (value) {
       return value instanceof ReadableStream;
     },
