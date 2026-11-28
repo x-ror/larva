@@ -4154,7 +4154,7 @@
       "name": "tests/dom dom-window-events.page dies when a node's path stops at the document",
       "why": "Without the window on the path a window listener sees nothing of a node's event and composedPath() lacks it (the 4a known gap).",
       "source": "pkg/runtime/js/internal/event_target.js",
-      "find": "if (hostWindow !== null && state.type !== 'load' && hostIsDocument(top)) {",
+      "find": "if (state.type !== 'load' && hostIsDocument(top)) {",
       "replace": "if (false) {",
       "gate": "make:test-dom",
       "expect_detail": "dom-window-events.page"
@@ -4500,6 +4500,60 @@
       "replace": "true",
       "gate": "node-test:scripts/gen-psl.test.mjs",
       "expect_detail": "drift"
+    },
+    {
+      "name": "history-events dies when a fragment change queues no hashchange",
+      "why": "HTML queues hashchange whenever a navigation or traversal changes the fragment; without it a router listening for hashchange never runs.",
+      "source": "pkg/runtime/js/internal/location.js",
+      "find": "    if (fragmentOf(oldHref) === fragmentOf(newHref)) return;\n",
+      "replace": "    return;\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL history-events"
+    },
+    {
+      "name": "history-events dies when a fragment navigation fires no popstate",
+      "why": "Chrome fires popstate inside location.hash=/assign/replace/href for a fragment navigation, before the next statement; dropping it hides that navigation from popstate routers.",
+      "source": "pkg/runtime/js/internal/location.js",
+      "find": "    firePopState(null);\n",
+      "replace": "",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL history-events"
+    },
+    {
+      "name": "history-events dies when a traversal's popstate does not carry the entry's state",
+      "why": "popstate's state is the arrived-at entry's state (the one history.state returns); null loses what pushState stored.",
+      "source": "pkg/runtime/js/internal/location.js",
+      "find": "      firePopState(entries[target].state);\n",
+      "replace": "      firePopState(null);\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL history-events"
+    },
+    {
+      "name": "history-events dies when the global is not an EventTarget",
+      "why": "Chrome's window is an EventTarget with or without a document; under `lava run` addEventListener would be missing and no window event could be observed.",
+      "source": "pkg/runtime/js/internal/event_target.js",
+      "find": "    ObjectSetPrototypeOf(ObjectGetPrototypeOf(global), PublicEventTarget.prototype);\n",
+      "replace": "",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL history-events"
+    },
+    {
+      "name": "history-events dies when a non-callable event handler is invoked",
+      "why": "A [LegacyTreatNonObjectAsNull] handler holding a non-callable object is invoked as returning undefined; calling it throws an uncaught TypeError at every event.",
+      "source": "pkg/runtime/js/internal/event_target.js",
+      "find": "        if (typeof handler !== 'function') return;\n",
+      "replace": "        if (handler === null) return;\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL history-events"
+    },
+    {
+      "name": "window_env_event_listeners_share_one_microtask_checkpoint dies when a traversal fires no popstate",
+      "why": "The Lava-only pin of History's microtask @deviates must observe the traversal's popstate at all, or it pins nothing.",
+      "source": "pkg/runtime/js/internal/location.js",
+      "find": "      firePopState(entries[target].state);\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.window_env_event_listeners_share_one_microtask_checkpoint",
+      "expect_detail": "order: h1 h2 micro-h1"
     },
     {
       "name": "dom-reflect-shape.page dies when a reflected accessor stops checking its receiver's interface",

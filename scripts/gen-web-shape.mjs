@@ -67,7 +67,15 @@ export const FAMILIES = {
     'PerformanceMeasure',
   ],
   console: ['console'],
-  location: ['location', 'Location', 'history', 'History', 'DOMStringList'],
+  location: [
+    'location',
+    'Location',
+    'history',
+    'History',
+    'DOMStringList',
+    'PopStateEvent',
+    'HashChangeEvent',
+  ],
   navigator: ['navigator', 'Navigator', 'screen', 'Screen'],
   viewport: [
     'innerWidth',
@@ -99,8 +107,6 @@ export const MISSING = [
   'CryptoKey',
   'reportError',
   'ScreenOrientation',
-  'PopStateEvent',
-  'HashChangeEvent',
 ];
 
 // The printer every case shares. Page code, so plain JS; it reads through captured

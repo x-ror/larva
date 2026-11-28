@@ -7,6 +7,7 @@ import "core:testing"
 import http "lava:pkg/http"
 import profile "lava:pkg/profile"
 import lava "lava:pkg/runtime"
+import eventloop "lava:pkg/runtime/eventloop"
 
 // Pins what no Chrome recording can show about location/history/navigator
 // (internal/location.js, internal/navigator.js): the page URL without a usable
@@ -26,9 +27,21 @@ run_window_script :: proc(t: ^testing.T, name: string, source: string, origin :=
 	}
 
 	defer os.remove(path)
-	result := lava.run_file(path, origin = origin)
+	// A loop, or no timer would run: without one run_file returns after the top-level
+	// script, and a check from a timer (a traversal's, an event's) would pass unseen.
+	// run_file consumes (destroys) the loop on every path.
+	loop := eventloop.init()
+	result := lava.run_file(path, &loop, origin = origin)
 	defer lava.result_destroy(&result)
-	testing.expectf(t, result.status == .Ok, "%s: status=%v message=%q", name, result.status, result.message)
+	testing.expectf(
+		t,
+		result.status == .Ok && result.exit_code == 0,
+		"%s: status=%v exit=%d message=%q",
+		name,
+		result.status,
+		result.exit_code,
+		result.message,
+	)
 }
 
 // The embedder's value is the page URL; an origin is its root, and no value or one that
@@ -65,6 +78,9 @@ if (history.length !== 1 || history.state !== null) throw new Error('history ' +
 @(test)
 window_env_cross_document_navigation_not_performed :: proc(t: ^testing.T) {
 	SOURCE :: `const start = location.href;
+// Nothing is navigated, so nothing fires (the fragment ones would, history-events).
+addEventListener('popstate', () => { throw new Error('cross-document: popstate fired'); });
+addEventListener('hashchange', () => { throw new Error('cross-document: hashchange fired'); });
 const expect = (what) => {
   if (location.href !== start || history.length !== 1) throw new Error(what + ': ' + location.href + ' ' + history.length);
 };
@@ -85,6 +101,33 @@ setTimeout(() => expect('traversal'), 20);
 
 
 	run_window_script(t, "cross-document", SOURCE, "http://a.test/page")
+}
+
+// History's @deviates: hashchange's listeners, and a traversal's popstate's, run in one
+// call, so a microtask the first queues runs after the second (Chrome runs it between
+// them). A fragment navigation's popstate fires inside the navigating call in both.
+@(test)
+window_env_event_listeners_share_one_microtask_checkpoint :: proc(t: ^testing.T) {
+	SOURCE :: `const log = [];
+addEventListener('hashchange', () => { log.push('h1'); Promise.resolve().then(() => log.push('micro-h1')); });
+addEventListener('hashchange', () => log.push('h2'));
+addEventListener('popstate', () => { log.push('p1'); Promise.resolve().then(() => log.push('micro-p1')); });
+addEventListener('popstate', () => log.push('p2'));
+const expect = (want) => {
+  if (log.join(' ') !== want) throw new Error('order: ' + log.join(' '));
+  log.length = 0;
+};
+setTimeout(() => {
+  history.pushState(1, '', '#q');
+  location.hash = 'z';
+  log.push('sync');
+}, 10);
+setTimeout(() => { expect('p1 p2 sync micro-p1 h1 h2 micro-h1'); history.back(); }, 30);
+setTimeout(() => expect('p1 p2 micro-p1 h1 h2 micro-h1'), 60);
+`
+
+
+	run_window_script(t, "microtasks", SOURCE, "http://a.test/page")
 }
 
 // navigator, screen and the window geometry are the profile's on every host, and the
