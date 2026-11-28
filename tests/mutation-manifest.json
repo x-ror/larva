@@ -4164,6 +4164,15 @@
       "expect_detail": "FAIL storage-errors"
     },
     {
+      "name": "tests/dom xpath-result.page dies when an XPath name test matches HTML elements case-sensitively",
+      "why": "Chrome matches an unprefixed name test against an HTML element ignoring ASCII case, so `//P` and `//Div` find `<p>` and `<div>`; a case-sensitive compare finds nothing and every locator written in upper case silently misses.",
+      "source": "pkg/runtime/js/internal/xpath.js",
+      "find": "if (ns === NS_HTML) return nLocalName(el) === s.lower;",
+      "replace": "if (ns === NS_HTML) return nLocalName(el) === s.local;",
+      "gate": "make:test-dom",
+      "expect_detail": "xpath-result.page"
+    },
+    {
       "name": "tests/dom dom-window-events.page dies when a node's path stops at the document",
       "why": "Without the window on the path a window listener sees nothing of a node's event and composedPath() lacks it (the 4a known gap).",
       "source": "pkg/runtime/js/internal/event_target.js",

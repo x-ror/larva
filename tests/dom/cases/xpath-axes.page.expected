@@ -1,0 +1,468 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-28
+# runs: 3 identical
+# command: node scripts/record-dom.mjs xpath-axes.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "xpath axes"
+|   "
+"
+|   <body>
+|     "
+"
+|     <div>
+|       id="t"
+|       <section>
+|         id="a"
+|         class="x"
+|         title="A"
+|         <p>
+|           id="p1"
+|           "one"
+|           <b>
+|             id="b1"
+|             "bold"
+|           "two"
+|         <!-- c1 -->
+|         <p>
+|           id="p2"
+|           lang="en-US"
+|           <i>
+|             id="i1"
+|             "it"
+|       <section>
+|         id="s2"
+|         <ul>
+|           id="u"
+|           <li>
+|             id="l1"
+|             "1"
+|           <li>
+|             id="l2"
+|             "2"
+|           <li>
+|             id="l3"
+|             "3"
+|           <li>
+|             id="l4"
+|             "4"
+|     "
+"
+|     <pre>
+|       id="log"
+|       "child::* => [section#a section#s2]
+"
+|       "child::node() => [text"one" b#b1 text"two"]
+"
+|       "descendant::p => [p#p1 p#p2]
+"
+|       "descendant::text() => [text"one" text"bold" text"two" text"it"]
+"
+|       "descendant-or-self::section => [section#a section#s2]
+"
+|       ".//li => [li#l1 li#l2 li#l3 li#l4]
+"
+|       "parent::* => [p#p1]
+"
+|       ".. => [p#p1]
+"
+|       "ancestor::* => [html body div#t section#a p#p1]
+"
+|       "ancestor-or-self::* => [html body div#t section#a p#p1 b#b1]
+"
+|       "ancestor::node() => [document html body div#t section#a p#p1]
+"
+|       "following-sibling::* => [li#l4]
+"
+|       "following-sibling::node() => [comment:c1 p#p2]
+"
+|       "preceding-sibling::* => [li#l1 li#l2]
+"
+|       "preceding-sibling::li[1] => [li#l2]
+"
+|       "following::* => [section#s2 ul#u li#l1 li#l2 li#l3 li#l4 pre#log script]
+"
+|       "following::text() => [text"1" text"2" text"3" text"4" text"\n" text"child::* => [section#a section#s2]\n" text"child::node() => [text\"one\" b#b1 text\"two\"]\n" text"descendant::p => [p#p1 p#p2]\n" text"descendant::text() => [text\"one\" text\"bold\" text\"two\" text\"it\"]\n" text"descendant-or-self::section => [section#a section#s2]\n" text".//li => [li#l1 li#l2 li#l3 li#l4]\n" text"parent::* => [p#p1]\n" text".. => [p#p1]\n" text"ancestor::* => [html body div#t section#a p#p1]\n" text"ancestor-or-self::* => [html body div#t section#a p#p1 b#b1]\n" text"ancestor::node() => [document html body div#t section#a p#p1]\n" text"following-sibling::* => [li#l4]\n" text"following-sibling::node() => [comment:c1 p#p2]\n" text"preceding-sibling::* => [li#l1 li#l2]\n" text"preceding-sibling::li[1] => [li#l2]\n" text"following::* => [section#s2 ul#u li#l1 li#l2 li#l3 li#l4 pre#log script]\n" text"\n" text"\nfunction log(s) {\n  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\\n'));\n}\nfunction d(n) {\n  if (n === null) return 'null';\n  if (n === undefined) return 'undefined';\n  switch (n.nodeType) {\n    case 1: return n.nodeName.toLowerCase() + (n.id ? '#' + n.id : '');\n    case 2: return '@' + n.name + '=' + JSON.stringify(n.value);\n    case 3: return 'text' + JSON.stringify(n.data);\n    case 7: return 'pi:' + n.target;\n    case 8: return 'comment:' + n.data;\n    case 9: return 'document';\n    case 10: return 'doctype';\n  }\n  return '?' + n.nodeType;\n}\nfunction snap(expr, ctx) {\n  try {\n    var r = document.evaluate(expr, ctx || document, null, 7, null);\n    var o = [];\n    for (var i = 0; i < r.snapshotLength; i++) o.push(d(r.snapshotItem(i)));\n    log(expr + ' => [' + o.join(' ') + ']');\n  } catch (e) {\n    log(expr + ' THREW ' + e.name + ': ' + e.message);\n  }\n}\nvar t = document.getElementById('t');\nvar b1 = document.getElementById('b1');\nvar p2 = document.getElementById('p2');\nvar l3 = document.getElementById('l3');\nsnap('child::*', t);\nsnap('child::node()', document.getElementById('p1'));\nsnap('descendant::p', t);\nsnap('descendant::text()', document.getElementById('a'));\nsnap('descendant-or-self::section', t);\nsnap('.//li', t);\nsnap('parent::*', b1);\nsnap('..', b1);\nsnap('ancestor::*', b1);\nsnap('ancestor-or-self::*', b1);\nsnap('ancestor::node()', b1);\nsnap('following-sibling::*', l3);\nsnap('following-sibling::node()', document.getElementById('p1'));\nsnap('preceding-sibling::*', l3);\nsnap('preceding-sibling::li[1]', l3);\nsnap('following::*', p2);\nsnap('following::text()', p2);\nsnap('preceding::*', l3);\nsnap('preceding::node()', p2);\nsnap('preceding::li[1]', l3);\nsnap('ancestor::*[1]', b1);\nsnap('ancestor::*[last()]', b1);\nsnap('attribute::*', document.getElementById('a'));\nsnap('@id', document.getElementById('a'));\nsnap('@*[2]', document.getElementById('a'));\nsnap('self::section', document.getElementById('a'));\nsnap('self::div', document.getElementById('a'));\nsnap('self::node()', b1);\nsnap('.', l3);\nsnap('namespace::*', t);\nsnap('/', t);\nsnap('/html/body/div', b1);\nsnap('//section[2]//li', b1);\nsnap('//li[2]', t);\nsnap('(//li)[2]', t);\nsnap('//li[position() > 2]', t);\nsnap('//li[position() = last()]', t);\nsnap('//li[last() - 1]', t);\nsnap('(//li | //p)[3]', t);\nsnap('//p | //b | //p', t);\nsnap('//li[@id=\"l2\"]/following-sibling::li[1]', t);\nsnap('//*[@title]', t);\nsnap('//*[@class=\"x\"]/@title', t);\nsnap('//section/@*', t);\nsnap('//p/node()', t);\nsnap('//comment()', t);\nsnap('//processing-instruction()', t);\nsnap('//text()[. = \"two\"]', t);\nsnap('//p[b]', t);\nsnap('//p[not(b)]', t);\nsnap('//section[p][2]', t);\nsnap('//section[.//li[3]]', t);\nsnap('//li[. = \"3\" or . = \"1\"]', t);\nsnap('//li[3]/preceding-sibling::*[2]', t);\nsnap('//*[@id=\"b1\"]/ancestor::*/@id', t);\nsnap('id(\"l2 p1  b1\")', t);\nsnap('id(\"nope\")', t);\nsnap('//p/..', t);\nsnap('//ul/li[1]/following::*', t);\nsnap('ancestor::section/@*', b1);\nsnap('//section[1]/descendant::*[2]', t);\nsnap('//section[1]//*[2]', t);\nsnap('descendant::*[position() mod 2 = 0]', t);\nsnap('//li[1]/@nope', t);\nsnap('child::*/child::*/child::*', t);\nsnap('//li[(position() + 1) div 2 = 1]', t);\n"]
+"
+|       "preceding::* => [head title section#a p#p1 b#b1 p#p2 i#i1 li#l1 li#l2]
+"
+|       "preceding::node() => [doctype head title text"xpath axes" text"\n" text"\n" p#p1 text"one" b#b1 text"bold" text"two" comment:c1]
+"
+|       "preceding::li[1] => [li#l2]
+"
+|       "ancestor::*[1] => [p#p1]
+"
+|       "ancestor::*[last()] => [html]
+"
+|       "attribute::* => [@id="a" @class="x" @title="A"]
+"
+|       "@id => [@id="a"]
+"
+|       "@*[2] => [@class="x"]
+"
+|       "self::section => [section#a]
+"
+|       "self::div => []
+"
+|       "self::node() => [b#b1]
+"
+|       ". => [li#l3]
+"
+|       "namespace::* => []
+"
+|       "/ => [document]
+"
+|       "/html/body/div => [div#t]
+"
+|       "//section[2]//li => [li#l1 li#l2 li#l3 li#l4]
+"
+|       "//li[2] => [li#l2]
+"
+|       "(//li)[2] => [li#l2]
+"
+|       "//li[position() > 2] => [li#l3 li#l4]
+"
+|       "//li[position() = last()] => [li#l4]
+"
+|       "//li[last() - 1] => [li#l3]
+"
+|       "(//li | //p)[3] => [li#l1]
+"
+|       "//p | //b | //p => [p#p1 b#b1 p#p2]
+"
+|       "//li[@id="l2"]/following-sibling::li[1] => [li#l3]
+"
+|       "//*[@title] => [section#a]
+"
+|       "//*[@class="x"]/@title => [@title="A"]
+"
+|       "//section/@* => [@id="a" @class="x" @title="A" @id="s2"]
+"
+|       "//p/node() => [text"one" b#b1 text"two" i#i1]
+"
+|       "//comment() => [comment:c1]
+"
+|       "//processing-instruction() => []
+"
+|       "//text()[. = "two"] => [text"two"]
+"
+|       "//p[b] => [p#p1]
+"
+|       "//p[not(b)] => [p#p2]
+"
+|       "//section[p][2] => []
+"
+|       "//section[.//li[3]] => [section#s2]
+"
+|       "//li[. = "3" or . = "1"] => [li#l1 li#l3]
+"
+|       "//li[3]/preceding-sibling::*[2] => [li#l1]
+"
+|       "//*[@id="b1"]/ancestor::*/@id => [@id="t" @id="a" @id="p1"]
+"
+|       "id("l2 p1  b1") => [p#p1 b#b1 li#l2]
+"
+|       "id("nope") => []
+"
+|       "//p/.. => [section#a]
+"
+|       "//ul/li[1]/following::* => [li#l2 li#l3 li#l4 pre#log script]
+"
+|       "ancestor::section/@* => [@id="a" @class="x" @title="A"]
+"
+|       "//section[1]/descendant::*[2] => [b#b1]
+"
+|       "//section[1]//*[2] => [p#p2]
+"
+|       "descendant::*[position() mod 2 = 0] => [p#p1 p#p2 section#s2 li#l1 li#l3]
+"
+|       "//li[1]/@nope => []
+"
+|       "child::*/child::*/child::* => [b#b1 i#i1 li#l1 li#l2 li#l3 li#l4]
+"
+|       "//li[(position() + 1) div 2 = 1] => [li#l1]
+"
+|     "
+"
+|     <script>
+|       "
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function d(n) {
+  if (n === null) return 'null';
+  if (n === undefined) return 'undefined';
+  switch (n.nodeType) {
+    case 1: return n.nodeName.toLowerCase() + (n.id ? '#' + n.id : '');
+    case 2: return '@' + n.name + '=' + JSON.stringify(n.value);
+    case 3: return 'text' + JSON.stringify(n.data);
+    case 7: return 'pi:' + n.target;
+    case 8: return 'comment:' + n.data;
+    case 9: return 'document';
+    case 10: return 'doctype';
+  }
+  return '?' + n.nodeType;
+}
+function snap(expr, ctx) {
+  try {
+    var r = document.evaluate(expr, ctx || document, null, 7, null);
+    var o = [];
+    for (var i = 0; i < r.snapshotLength; i++) o.push(d(r.snapshotItem(i)));
+    log(expr + ' => [' + o.join(' ') + ']');
+  } catch (e) {
+    log(expr + ' THREW ' + e.name + ': ' + e.message);
+  }
+}
+var t = document.getElementById('t');
+var b1 = document.getElementById('b1');
+var p2 = document.getElementById('p2');
+var l3 = document.getElementById('l3');
+snap('child::*', t);
+snap('child::node()', document.getElementById('p1'));
+snap('descendant::p', t);
+snap('descendant::text()', document.getElementById('a'));
+snap('descendant-or-self::section', t);
+snap('.//li', t);
+snap('parent::*', b1);
+snap('..', b1);
+snap('ancestor::*', b1);
+snap('ancestor-or-self::*', b1);
+snap('ancestor::node()', b1);
+snap('following-sibling::*', l3);
+snap('following-sibling::node()', document.getElementById('p1'));
+snap('preceding-sibling::*', l3);
+snap('preceding-sibling::li[1]', l3);
+snap('following::*', p2);
+snap('following::text()', p2);
+snap('preceding::*', l3);
+snap('preceding::node()', p2);
+snap('preceding::li[1]', l3);
+snap('ancestor::*[1]', b1);
+snap('ancestor::*[last()]', b1);
+snap('attribute::*', document.getElementById('a'));
+snap('@id', document.getElementById('a'));
+snap('@*[2]', document.getElementById('a'));
+snap('self::section', document.getElementById('a'));
+snap('self::div', document.getElementById('a'));
+snap('self::node()', b1);
+snap('.', l3);
+snap('namespace::*', t);
+snap('/', t);
+snap('/html/body/div', b1);
+snap('//section[2]//li', b1);
+snap('//li[2]', t);
+snap('(//li)[2]', t);
+snap('//li[position() > 2]', t);
+snap('//li[position() = last()]', t);
+snap('//li[last() - 1]', t);
+snap('(//li | //p)[3]', t);
+snap('//p | //b | //p', t);
+snap('//li[@id="l2"]/following-sibling::li[1]', t);
+snap('//*[@title]', t);
+snap('//*[@class="x"]/@title', t);
+snap('//section/@*', t);
+snap('//p/node()', t);
+snap('//comment()', t);
+snap('//processing-instruction()', t);
+snap('//text()[. = "two"]', t);
+snap('//p[b]', t);
+snap('//p[not(b)]', t);
+snap('//section[p][2]', t);
+snap('//section[.//li[3]]', t);
+snap('//li[. = "3" or . = "1"]', t);
+snap('//li[3]/preceding-sibling::*[2]', t);
+snap('//*[@id="b1"]/ancestor::*/@id', t);
+snap('id("l2 p1  b1")', t);
+snap('id("nope")', t);
+snap('//p/..', t);
+snap('//ul/li[1]/following::*', t);
+snap('ancestor::section/@*', b1);
+snap('//section[1]/descendant::*[2]', t);
+snap('//section[1]//*[2]', t);
+snap('descendant::*[position() mod 2 = 0]', t);
+snap('//li[1]/@nope', t);
+snap('child::*/child::*/child::*', t);
+snap('//li[(position() + 1) div 2 = 1]', t);
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head><title>xpath axes</title></head>
+<body>
+<div id="t"><section id="a" class="x" title="A"><p id="p1">one<b id="b1">bold</b>two</p><!--c1--><p id="p2" lang="en-US"><i id="i1">it</i></p></section><section id="s2"><ul id="u"><li id="l1">1</li><li id="l2">2</li><li id="l3">3</li><li id="l4">4</li></ul></section></div>
+<pre id="log">child::* =&gt; [section#a section#s2]
+child::node() =&gt; [text"one" b#b1 text"two"]
+descendant::p =&gt; [p#p1 p#p2]
+descendant::text() =&gt; [text"one" text"bold" text"two" text"it"]
+descendant-or-self::section =&gt; [section#a section#s2]
+.//li =&gt; [li#l1 li#l2 li#l3 li#l4]
+parent::* =&gt; [p#p1]
+.. =&gt; [p#p1]
+ancestor::* =&gt; [html body div#t section#a p#p1]
+ancestor-or-self::* =&gt; [html body div#t section#a p#p1 b#b1]
+ancestor::node() =&gt; [document html body div#t section#a p#p1]
+following-sibling::* =&gt; [li#l4]
+following-sibling::node() =&gt; [comment:c1 p#p2]
+preceding-sibling::* =&gt; [li#l1 li#l2]
+preceding-sibling::li[1] =&gt; [li#l2]
+following::* =&gt; [section#s2 ul#u li#l1 li#l2 li#l3 li#l4 pre#log script]
+following::text() =&gt; [text"1" text"2" text"3" text"4" text"\n" text"child::* =&gt; [section#a section#s2]\n" text"child::node() =&gt; [text\"one\" b#b1 text\"two\"]\n" text"descendant::p =&gt; [p#p1 p#p2]\n" text"descendant::text() =&gt; [text\"one\" text\"bold\" text\"two\" text\"it\"]\n" text"descendant-or-self::section =&gt; [section#a section#s2]\n" text".//li =&gt; [li#l1 li#l2 li#l3 li#l4]\n" text"parent::* =&gt; [p#p1]\n" text".. =&gt; [p#p1]\n" text"ancestor::* =&gt; [html body div#t section#a p#p1]\n" text"ancestor-or-self::* =&gt; [html body div#t section#a p#p1 b#b1]\n" text"ancestor::node() =&gt; [document html body div#t section#a p#p1]\n" text"following-sibling::* =&gt; [li#l4]\n" text"following-sibling::node() =&gt; [comment:c1 p#p2]\n" text"preceding-sibling::* =&gt; [li#l1 li#l2]\n" text"preceding-sibling::li[1] =&gt; [li#l2]\n" text"following::* =&gt; [section#s2 ul#u li#l1 li#l2 li#l3 li#l4 pre#log script]\n" text"\n" text"\nfunction log(s) {\n  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\\n'));\n}\nfunction d(n) {\n  if (n === null) return 'null';\n  if (n === undefined) return 'undefined';\n  switch (n.nodeType) {\n    case 1: return n.nodeName.toLowerCase() + (n.id ? '#' + n.id : '');\n    case 2: return '@' + n.name + '=' + JSON.stringify(n.value);\n    case 3: return 'text' + JSON.stringify(n.data);\n    case 7: return 'pi:' + n.target;\n    case 8: return 'comment:' + n.data;\n    case 9: return 'document';\n    case 10: return 'doctype';\n  }\n  return '?' + n.nodeType;\n}\nfunction snap(expr, ctx) {\n  try {\n    var r = document.evaluate(expr, ctx || document, null, 7, null);\n    var o = [];\n    for (var i = 0; i &lt; r.snapshotLength; i++) o.push(d(r.snapshotItem(i)));\n    log(expr + ' =&gt; [' + o.join(' ') + ']');\n  } catch (e) {\n    log(expr + ' THREW ' + e.name + ': ' + e.message);\n  }\n}\nvar t = document.getElementById('t');\nvar b1 = document.getElementById('b1');\nvar p2 = document.getElementById('p2');\nvar l3 = document.getElementById('l3');\nsnap('child::*', t);\nsnap('child::node()', document.getElementById('p1'));\nsnap('descendant::p', t);\nsnap('descendant::text()', document.getElementById('a'));\nsnap('descendant-or-self::section', t);\nsnap('.//li', t);\nsnap('parent::*', b1);\nsnap('..', b1);\nsnap('ancestor::*', b1);\nsnap('ancestor-or-self::*', b1);\nsnap('ancestor::node()', b1);\nsnap('following-sibling::*', l3);\nsnap('following-sibling::node()', document.getElementById('p1'));\nsnap('preceding-sibling::*', l3);\nsnap('preceding-sibling::li[1]', l3);\nsnap('following::*', p2);\nsnap('following::text()', p2);\nsnap('preceding::*', l3);\nsnap('preceding::node()', p2);\nsnap('preceding::li[1]', l3);\nsnap('ancestor::*[1]', b1);\nsnap('ancestor::*[last()]', b1);\nsnap('attribute::*', document.getElementById('a'));\nsnap('@id', document.getElementById('a'));\nsnap('@*[2]', document.getElementById('a'));\nsnap('self::section', document.getElementById('a'));\nsnap('self::div', document.getElementById('a'));\nsnap('self::node()', b1);\nsnap('.', l3);\nsnap('namespace::*', t);\nsnap('/', t);\nsnap('/html/body/div', b1);\nsnap('//section[2]//li', b1);\nsnap('//li[2]', t);\nsnap('(//li)[2]', t);\nsnap('//li[position() &gt; 2]', t);\nsnap('//li[position() = last()]', t);\nsnap('//li[last() - 1]', t);\nsnap('(//li | //p)[3]', t);\nsnap('//p | //b | //p', t);\nsnap('//li[@id=\"l2\"]/following-sibling::li[1]', t);\nsnap('//*[@title]', t);\nsnap('//*[@class=\"x\"]/@title', t);\nsnap('//section/@*', t);\nsnap('//p/node()', t);\nsnap('//comment()', t);\nsnap('//processing-instruction()', t);\nsnap('//text()[. = \"two\"]', t);\nsnap('//p[b]', t);\nsnap('//p[not(b)]', t);\nsnap('//section[p][2]', t);\nsnap('//section[.//li[3]]', t);\nsnap('//li[. = \"3\" or . = \"1\"]', t);\nsnap('//li[3]/preceding-sibling::*[2]', t);\nsnap('//*[@id=\"b1\"]/ancestor::*/@id', t);\nsnap('id(\"l2 p1  b1\")', t);\nsnap('id(\"nope\")', t);\nsnap('//p/..', t);\nsnap('//ul/li[1]/following::*', t);\nsnap('ancestor::section/@*', b1);\nsnap('//section[1]/descendant::*[2]', t);\nsnap('//section[1]//*[2]', t);\nsnap('descendant::*[position() mod 2 = 0]', t);\nsnap('//li[1]/@nope', t);\nsnap('child::*/child::*/child::*', t);\nsnap('//li[(position() + 1) div 2 = 1]', t);\n"]
+preceding::* =&gt; [head title section#a p#p1 b#b1 p#p2 i#i1 li#l1 li#l2]
+preceding::node() =&gt; [doctype head title text"xpath axes" text"\n" text"\n" p#p1 text"one" b#b1 text"bold" text"two" comment:c1]
+preceding::li[1] =&gt; [li#l2]
+ancestor::*[1] =&gt; [p#p1]
+ancestor::*[last()] =&gt; [html]
+attribute::* =&gt; [@id="a" @class="x" @title="A"]
+@id =&gt; [@id="a"]
+@*[2] =&gt; [@class="x"]
+self::section =&gt; [section#a]
+self::div =&gt; []
+self::node() =&gt; [b#b1]
+. =&gt; [li#l3]
+namespace::* =&gt; []
+/ =&gt; [document]
+/html/body/div =&gt; [div#t]
+//section[2]//li =&gt; [li#l1 li#l2 li#l3 li#l4]
+//li[2] =&gt; [li#l2]
+(//li)[2] =&gt; [li#l2]
+//li[position() &gt; 2] =&gt; [li#l3 li#l4]
+//li[position() = last()] =&gt; [li#l4]
+//li[last() - 1] =&gt; [li#l3]
+(//li | //p)[3] =&gt; [li#l1]
+//p | //b | //p =&gt; [p#p1 b#b1 p#p2]
+//li[@id="l2"]/following-sibling::li[1] =&gt; [li#l3]
+//*[@title] =&gt; [section#a]
+//*[@class="x"]/@title =&gt; [@title="A"]
+//section/@* =&gt; [@id="a" @class="x" @title="A" @id="s2"]
+//p/node() =&gt; [text"one" b#b1 text"two" i#i1]
+//comment() =&gt; [comment:c1]
+//processing-instruction() =&gt; []
+//text()[. = "two"] =&gt; [text"two"]
+//p[b] =&gt; [p#p1]
+//p[not(b)] =&gt; [p#p2]
+//section[p][2] =&gt; []
+//section[.//li[3]] =&gt; [section#s2]
+//li[. = "3" or . = "1"] =&gt; [li#l1 li#l3]
+//li[3]/preceding-sibling::*[2] =&gt; [li#l1]
+//*[@id="b1"]/ancestor::*/@id =&gt; [@id="t" @id="a" @id="p1"]
+id("l2 p1  b1") =&gt; [p#p1 b#b1 li#l2]
+id("nope") =&gt; []
+//p/.. =&gt; [section#a]
+//ul/li[1]/following::* =&gt; [li#l2 li#l3 li#l4 pre#log script]
+ancestor::section/@* =&gt; [@id="a" @class="x" @title="A"]
+//section[1]/descendant::*[2] =&gt; [b#b1]
+//section[1]//*[2] =&gt; [p#p2]
+descendant::*[position() mod 2 = 0] =&gt; [p#p1 p#p2 section#s2 li#l1 li#l3]
+//li[1]/@nope =&gt; []
+child::*/child::*/child::* =&gt; [b#b1 i#i1 li#l1 li#l2 li#l3 li#l4]
+//li[(position() + 1) div 2 = 1] =&gt; [li#l1]
+</pre>
+<script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function d(n) {
+  if (n === null) return 'null';
+  if (n === undefined) return 'undefined';
+  switch (n.nodeType) {
+    case 1: return n.nodeName.toLowerCase() + (n.id ? '#' + n.id : '');
+    case 2: return '@' + n.name + '=' + JSON.stringify(n.value);
+    case 3: return 'text' + JSON.stringify(n.data);
+    case 7: return 'pi:' + n.target;
+    case 8: return 'comment:' + n.data;
+    case 9: return 'document';
+    case 10: return 'doctype';
+  }
+  return '?' + n.nodeType;
+}
+function snap(expr, ctx) {
+  try {
+    var r = document.evaluate(expr, ctx || document, null, 7, null);
+    var o = [];
+    for (var i = 0; i < r.snapshotLength; i++) o.push(d(r.snapshotItem(i)));
+    log(expr + ' => [' + o.join(' ') + ']');
+  } catch (e) {
+    log(expr + ' THREW ' + e.name + ': ' + e.message);
+  }
+}
+var t = document.getElementById('t');
+var b1 = document.getElementById('b1');
+var p2 = document.getElementById('p2');
+var l3 = document.getElementById('l3');
+snap('child::*', t);
+snap('child::node()', document.getElementById('p1'));
+snap('descendant::p', t);
+snap('descendant::text()', document.getElementById('a'));
+snap('descendant-or-self::section', t);
+snap('.//li', t);
+snap('parent::*', b1);
+snap('..', b1);
+snap('ancestor::*', b1);
+snap('ancestor-or-self::*', b1);
+snap('ancestor::node()', b1);
+snap('following-sibling::*', l3);
+snap('following-sibling::node()', document.getElementById('p1'));
+snap('preceding-sibling::*', l3);
+snap('preceding-sibling::li[1]', l3);
+snap('following::*', p2);
+snap('following::text()', p2);
+snap('preceding::*', l3);
+snap('preceding::node()', p2);
+snap('preceding::li[1]', l3);
+snap('ancestor::*[1]', b1);
+snap('ancestor::*[last()]', b1);
+snap('attribute::*', document.getElementById('a'));
+snap('@id', document.getElementById('a'));
+snap('@*[2]', document.getElementById('a'));
+snap('self::section', document.getElementById('a'));
+snap('self::div', document.getElementById('a'));
+snap('self::node()', b1);
+snap('.', l3);
+snap('namespace::*', t);
+snap('/', t);
+snap('/html/body/div', b1);
+snap('//section[2]//li', b1);
+snap('//li[2]', t);
+snap('(//li)[2]', t);
+snap('//li[position() > 2]', t);
+snap('//li[position() = last()]', t);
+snap('//li[last() - 1]', t);
+snap('(//li | //p)[3]', t);
+snap('//p | //b | //p', t);
+snap('//li[@id="l2"]/following-sibling::li[1]', t);
+snap('//*[@title]', t);
+snap('//*[@class="x"]/@title', t);
+snap('//section/@*', t);
+snap('//p/node()', t);
+snap('//comment()', t);
+snap('//processing-instruction()', t);
+snap('//text()[. = "two"]', t);
+snap('//p[b]', t);
+snap('//p[not(b)]', t);
+snap('//section[p][2]', t);
+snap('//section[.//li[3]]', t);
+snap('//li[. = "3" or . = "1"]', t);
+snap('//li[3]/preceding-sibling::*[2]', t);
+snap('//*[@id="b1"]/ancestor::*/@id', t);
+snap('id("l2 p1  b1")', t);
+snap('id("nope")', t);
+snap('//p/..', t);
+snap('//ul/li[1]/following::*', t);
+snap('ancestor::section/@*', b1);
+snap('//section[1]/descendant::*[2]', t);
+snap('//section[1]//*[2]', t);
+snap('descendant::*[position() mod 2 = 0]', t);
+snap('//li[1]/@nope', t);
+snap('child::*/child::*/child::*', t);
+snap('//li[(position() + 1) div 2 = 1]', t);
+</script>
+
+
+</body></html>

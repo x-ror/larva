@@ -1,0 +1,625 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-28
+# runs: 3 identical
+# command: node scripts/record-dom.mjs xpath-functions.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "xpath functions"
+|   "
+"
+|   <body>
+|     "
+"
+|     <div>
+|       id="t"
+|       lang="en-GB"
+|       <span>
+|         id="s1"
+|         class="n"
+|         "10"
+|       <span>
+|         id="s2"
+|         class="n"
+|         " 2.5 "
+|       <span>
+|         id="s3"
+|         class="n"
+|         "x"
+|       <p>
+|         id="p"
+|         lang="fr"
+|         "  some   spaced
+ text "
+|       <em>
+|         id="e"
+|         lang="EN"
+|         "en"
+|     "
+"
+|     <pre>
+|       id="log"
+|       "count(span) => 1 3
+"
+|       "count(//span[@class="n"]) => 1 3
+"
+|       "last() => 1 1
+"
+|       "position() => 1 1
+"
+|       "local-name() => 2 "div"
+"
+|       "local-name(span) => 2 "span"
+"
+|       "local-name(/) => 2 ""
+"
+|       "local-name(@lang) => 2 "lang"
+"
+|       "name() => 2 "div"
+"
+|       "name(@lang) => 2 "lang"
+"
+|       "namespace-uri() => 2 "http://www.w3.org/1999/xhtml"
+"
+|       "namespace-uri(@lang) => 2 ""
+"
+|       "namespace-uri(/nothing) => 2 ""
+"
+|       "string() => 2 "10 2.5 x  some   spaced\n text en"
+"
+|       "string(span) => 2 "10"
+"
+|       "string(1 div 0) => 2 "Infinity"
+"
+|       "string(-1 div 0) => 2 "-Infinity"
+"
+|       "string(0 div 0) => 2 "NaN"
+"
+|       "string(-0) => 2 "0"
+"
+|       "string(1.50) => 2 "1.5"
+"
+|       "string(0.1 + 0.2) => 2 "0.3"
+"
+|       "string(123456789012345678901) => 2 "1.23457e+20"
+"
+|       "string(0.0000001) => 2 "1.00000e-7"
+"
+|       "string(1e3) THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string 'string(1e3)' is not a valid XPath expression.
+"
+|       "string(true()) => 2 "true"
+"
+|       "string(false()) => 2 "false"
+"
+|       "string(//nothing) => 2 ""
+"
+|       "concat("a", "b", 1, true()) => 2 "ab1true"
+"
+|       "concat(span[1], "-", span[2]) => 2 "10- 2.5 "
+"
+|       "starts-with("hello", "he") => 3 true
+"
+|       "starts-with("hello", "") => 3 true
+"
+|       "contains("hello", "ll") => 3 true
+"
+|       "contains("hello", "") => 3 true
+"
+|       "substring-before("1999/04/01", "/") => 2 "1999"
+"
+|       "substring-before("abc", "x") => 2 ""
+"
+|       "substring-after("1999/04/01", "/") => 2 "04/01"
+"
+|       "substring-after("abc", "") => 2 "abc"
+"
+|       "substring("12345", 2, 3) => 2 "234"
+"
+|       "substring("12345", 2) => 2 "2345"
+"
+|       "substring("12345", 1.5, 2.6) => 2 "234"
+"
+|       "substring("12345", 0, 3) => 2 "12"
+"
+|       "substring("12345", 0 div 0, 3) => 2 ""
+"
+|       "substring("12345", 1, 0 div 0) => 2 ""
+"
+|       "substring("12345", -42, 1 div 0) => 2 "12345"
+"
+|       "substring("12345", -1 div 0, 1 div 0) => 2 ""
+"
+|       "string-length("abc") => 1 3
+"
+|       "string-length() => 1 32
+"
+|       "string-length(p) => 1 22
+"
+|       "normalize-space(p) => 2 "some spaced text"
+"
+|       "normalize-space("  a  b ") => 2 "a b"
+"
+|       "normalize-space() => 2 "10 2.5 x some spaced text en"
+"
+|       "translate("bar", "abc", "ABC") => 2 "BAr"
+"
+|       "translate("--aaa--", "abc-", "ABC") => 2 "AAA"
+"
+|       "translate("abc", "aa", "xy") => 2 "xbc"
+"
+|       "boolean(0) => 3 false
+"
+|       "boolean(0 div 0) => 3 false
+"
+|       "boolean("") => 3 false
+"
+|       "boolean(" ") => 3 true
+"
+|       "boolean(span) => 3 true
+"
+|       "boolean(nothing) => 3 false
+"
+|       "not(1) => 3 false
+"
+|       "true() => 3 true
+"
+|       "false() => 3 false
+"
+|       "lang("en") => 3 false
+"
+|       "lang("EN-gb") => 3 false
+"
+|       "lang("fr") => 3 false
+"
+|       "p/lang("fr") THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string 'p/lang("fr")' is not a valid XPath expression.
+"
+|       "boolean(p[lang("fr")]) => 3 false
+"
+|       "boolean(em[lang("en")]) => 3 false
+"
+|       "number("  12.5 ") => 1 12.5
+"
+|       "number("1e3") => 1 NaN
+"
+|       "number("-") => 1 NaN
+"
+|       "number("") => 1 NaN
+"
+|       "number(".5") => 1 0.5
+"
+|       "number("5.") => 1 5
+"
+|       "number(true()) => 1 1
+"
+|       "number(span[1]) => 1 10
+"
+|       "number(span[3]) => 1 NaN
+"
+|       "number() => 1 NaN
+"
+|       "sum(span[position() < 3]) => 1 12.5
+"
+|       "sum(span) => 1 NaN
+"
+|       "sum(nothing) => 1 0
+"
+|       "floor(2.5) => 1 2
+"
+|       "floor(-2.5) => 1 -3
+"
+|       "ceiling(2.1) => 1 3
+"
+|       "ceiling(-0.5) => 1 -0
+"
+|       "round(2.5) => 1 3
+"
+|       "round(-2.5) => 1 -2
+"
+|       "round(-0.4) => 1 -0
+"
+|       "round(0 div 0) => 1 NaN
+"
+|       "round(1 div 0) => 1 Infinity
+"
+|       "1 + 2 * 3 => 1 7
+"
+|       "7 mod 3 => 1 1
+"
+|       "-7 mod 3 => 1 -1
+"
+|       "7 mod -3 => 1 1
+"
+|       "5.5 mod 2 => 1 1.5
+"
+|       "1 div 0 => 1 Infinity
+"
+|       "-1 div 0 => 1 -Infinity
+"
+|       "0 div 0 => 1 NaN
+"
+|       "- - 3 => 1 3
+"
+|       "-span[1] => 1 -10
+"
+|       "10 - 2 - 3 => 1 5
+"
+|       "8 div 2 div 2 => 1 2
+"
+|       "1 = 1 => 3 true
+"
+|       "1 != 1 => 3 false
+"
+|       ""1" = 1 => 3 true
+"
+|       "true() = 1 => 3 true
+"
+|       "span = "10" => 3 true
+"
+|       "span != "10" => 3 true
+"
+|       "span = 10 => 3 true
+"
+|       "span > 5 => 3 true
+"
+|       "span < 3 => 3 true
+"
+|       "span = true() => 3 true
+"
+|       "nothing = false() => 3 true
+"
+|       "nothing != nothing => 3 false
+"
+|       "span = span => 3 true
+"
+|       "span[1] = span[2] => 3 false
+"
+|       ""a" < "b" => 3 false
+"
+|       "2 >= 2 => 3 true
+"
+|       "1 <= 0 => 3 false
+"
+|       "1 < 2 < 3 => 3 true
+"
+|       "3 > 2 > 1 => 3 false
+"
+|       "1 = 1 and 2 = 3 => 3 false
+"
+|       "1 = 1 or nonexistent() THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string '1 = 1 or nonexistent()' is not a valid XPath expression.
+"
+|       "false() and nonexistent() THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string 'false() and nonexistent()' is not a valid XPath expression.
+"
+|       "count(//span | //em) => 1 4
+"
+|       "(1 + 2) * 3 => 1 9
+"
+|       ""x" or 0 => 3 true
+"
+|       "string(@lang) => 2 "en-GB"
+"
+|       "string(span/@class) => 2 "n"
+"
+|       "count(@*) => 1 2
+"
+|       "count(/descendant::*) => 1 12
+"
+|       "id("s2") => 4 nodes 4
+"
+|       "string(id("s2")) => 2 " 2.5 "
+"
+|       "name(id("s1 s3")[2]) => 2 "span"
+"
+|       "nonexistent() THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string 'nonexistent()' is not a valid XPath expression.
+"
+|       "count() THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string 'count()' is not a valid XPath expression.
+"
+|       "count(1) THREW SyntaxError: Failed to execute 'evaluate' on 'Document': Type conversion failed while evaluating the expression.
+"
+|       "substring("a") THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string 'substring("a")' is not a valid XPath expression.
+"
+|       "1 + THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string '1 +' is not a valid XPath expression.
+"
+|       "//[ THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string '//[' is not a valid XPath expression.
+"
+|       "span[ THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string 'span[' is not a valid XPath expression.
+"
+|       "@ THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string '@' is not a valid XPath expression.
+"
+|       ""unterminated THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string '"unterminated' is not a valid XPath expression.
+"
+|       "1 2 THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string '1 2' is not a valid XPath expression.
+"
+|       "concat("a") THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string 'concat("a")' is not a valid XPath expression.
+"
+|       "string(1, 2) THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string 'string(1, 2)' is not a valid XPath expression.
+"
+|       "foo:bar THREW NamespaceError: Failed to execute 'evaluate' on 'Document': The string 'foo:bar' contains unresolvable namespaces.
+"
+|       "child::foo:bar THREW NamespaceError: Failed to execute 'evaluate' on 'Document': The string 'child::foo:bar' contains unresolvable namespaces.
+"
+|       "bogus::x THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string 'bogus::x' is not a valid XPath expression.
+"
+|       "$var => 2 ""
+"
+|       " THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string '' is not a valid XPath expression.
+"
+|       "    THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string '   ' is not a valid XPath expression.
+"
+|       ". | 1 THREW SyntaxError: Failed to execute 'evaluate' on 'Document': Type conversion failed while evaluating the expression.
+"
+|     "
+"
+|     <script>
+|       "
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function num(v) {
+  return Object.is(v, -0) ? '-0' : String(v);
+}
+function val(expr, ctx) {
+  try {
+    var r = document.evaluate(expr, ctx || document.getElementById('t'), null, 0, null);
+    var t = r.resultType;
+    var v = t === 1 ? num(r.numberValue) : t === 2 ? JSON.stringify(r.stringValue) : t === 3 ? String(r.booleanValue) : 'nodes ' + r.resultType;
+    log(expr + ' => ' + t + ' ' + v);
+  } catch (e) {
+    log(expr + ' THREW ' + e.name + ': ' + e.message);
+  }
+}
+var exprs = [
+  'count(span)', 'count(//span[@class="n"])', 'last()', 'position()',
+  'local-name()', 'local-name(span)', 'local-name(/)', 'local-name(@lang)', 'name()', 'name(@lang)',
+  'namespace-uri()', 'namespace-uri(@lang)', 'namespace-uri(/nothing)',
+  'string()', 'string(span)', 'string(1 div 0)', 'string(-1 div 0)', 'string(0 div 0)', 'string(-0)',
+  'string(1.50)', 'string(0.1 + 0.2)', 'string(123456789012345678901)', 'string(0.0000001)', 'string(1e3)',
+  'string(true())', 'string(false())', 'string(//nothing)',
+  'concat("a", "b", 1, true())', 'concat(span[1], "-", span[2])',
+  'starts-with("hello", "he")', 'starts-with("hello", "")', 'contains("hello", "ll")', 'contains("hello", "")',
+  'substring-before("1999/04/01", "/")', 'substring-before("abc", "x")', 'substring-after("1999/04/01", "/")', 'substring-after("abc", "")',
+  'substring("12345", 2, 3)', 'substring("12345", 2)', 'substring("12345", 1.5, 2.6)', 'substring("12345", 0, 3)',
+  'substring("12345", 0 div 0, 3)', 'substring("12345", 1, 0 div 0)', 'substring("12345", -42, 1 div 0)',
+  'substring("12345", -1 div 0, 1 div 0)',
+  'string-length("abc")', 'string-length()', 'string-length(p)',
+  'normalize-space(p)', 'normalize-space("  a  b ")', 'normalize-space()',
+  'translate("bar", "abc", "ABC")', 'translate("--aaa--", "abc-", "ABC")', 'translate("abc", "aa", "xy")',
+  'boolean(0)', 'boolean(0 div 0)', 'boolean("")', 'boolean(" ")', 'boolean(span)', 'boolean(nothing)',
+  'not(1)', 'true()', 'false()',
+  'lang("en")', 'lang("EN-gb")', 'lang("fr")', 'p/lang("fr")', 'boolean(p[lang("fr")])', 'boolean(em[lang("en")])',
+  'number("  12.5 ")', 'number("1e3")', 'number("-")', 'number("")', 'number(".5")', 'number("5.")', 'number(true())', 'number(span[1])', 'number(span[3])',
+  'number()', 'sum(span[position() < 3])', 'sum(span)', 'sum(nothing)',
+  'floor(2.5)', 'floor(-2.5)', 'ceiling(2.1)', 'ceiling(-0.5)', 'round(2.5)', 'round(-2.5)', 'round(-0.4)', 'round(0 div 0)', 'round(1 div 0)',
+  '1 + 2 * 3', '7 mod 3', '-7 mod 3', '7 mod -3', '5.5 mod 2', '1 div 0', '-1 div 0', '0 div 0', '- - 3', '-span[1]', '10 - 2 - 3', '8 div 2 div 2',
+  '1 = 1', '1 != 1', '"1" = 1', 'true() = 1', 'span = "10"', 'span != "10"', 'span = 10', 'span > 5', 'span < 3', 'span = true()', 'nothing = false()', 'nothing != nothing',
+  'span = span', 'span[1] = span[2]', '"a" < "b"', '2 >= 2', '1 <= 0', '1 < 2 < 3', '3 > 2 > 1',
+  '1 = 1 and 2 = 3', '1 = 1 or nonexistent()', 'false() and nonexistent()',
+  'count(//span | //em)', '(1 + 2) * 3', '"x" or 0',
+  'string(@lang)', 'string(span/@class)', 'count(@*)', 'count(/descendant::*)',
+  'id("s2")', 'string(id("s2"))', 'name(id("s1 s3")[2])',
+  'nonexistent()', 'count()', 'count(1)', 'substring("a")', '1 +', '//[', 'span[', '@', '"unterminated', '1 2', 'concat("a")', 'string(1, 2)', 'foo:bar', 'child::foo:bar', 'bogus::x', '$var',
+  '', '   ', '. | 1',
+];
+for (var i = 0; i < exprs.length; i++) val(exprs[i]);
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head><title>xpath functions</title></head>
+<body>
+<div id="t" lang="en-GB"><span id="s1" class="n">10</span><span id="s2" class="n"> 2.5 </span><span id="s3" class="n">x</span><p id="p" lang="fr">  some   spaced
+ text </p><em id="e" lang="EN">en</em></div>
+<pre id="log">count(span) =&gt; 1 3
+count(//span[@class="n"]) =&gt; 1 3
+last() =&gt; 1 1
+position() =&gt; 1 1
+local-name() =&gt; 2 "div"
+local-name(span) =&gt; 2 "span"
+local-name(/) =&gt; 2 ""
+local-name(@lang) =&gt; 2 "lang"
+name() =&gt; 2 "div"
+name(@lang) =&gt; 2 "lang"
+namespace-uri() =&gt; 2 "http://www.w3.org/1999/xhtml"
+namespace-uri(@lang) =&gt; 2 ""
+namespace-uri(/nothing) =&gt; 2 ""
+string() =&gt; 2 "10 2.5 x  some   spaced\n text en"
+string(span) =&gt; 2 "10"
+string(1 div 0) =&gt; 2 "Infinity"
+string(-1 div 0) =&gt; 2 "-Infinity"
+string(0 div 0) =&gt; 2 "NaN"
+string(-0) =&gt; 2 "0"
+string(1.50) =&gt; 2 "1.5"
+string(0.1 + 0.2) =&gt; 2 "0.3"
+string(123456789012345678901) =&gt; 2 "1.23457e+20"
+string(0.0000001) =&gt; 2 "1.00000e-7"
+string(1e3) THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string 'string(1e3)' is not a valid XPath expression.
+string(true()) =&gt; 2 "true"
+string(false()) =&gt; 2 "false"
+string(//nothing) =&gt; 2 ""
+concat("a", "b", 1, true()) =&gt; 2 "ab1true"
+concat(span[1], "-", span[2]) =&gt; 2 "10- 2.5 "
+starts-with("hello", "he") =&gt; 3 true
+starts-with("hello", "") =&gt; 3 true
+contains("hello", "ll") =&gt; 3 true
+contains("hello", "") =&gt; 3 true
+substring-before("1999/04/01", "/") =&gt; 2 "1999"
+substring-before("abc", "x") =&gt; 2 ""
+substring-after("1999/04/01", "/") =&gt; 2 "04/01"
+substring-after("abc", "") =&gt; 2 "abc"
+substring("12345", 2, 3) =&gt; 2 "234"
+substring("12345", 2) =&gt; 2 "2345"
+substring("12345", 1.5, 2.6) =&gt; 2 "234"
+substring("12345", 0, 3) =&gt; 2 "12"
+substring("12345", 0 div 0, 3) =&gt; 2 ""
+substring("12345", 1, 0 div 0) =&gt; 2 ""
+substring("12345", -42, 1 div 0) =&gt; 2 "12345"
+substring("12345", -1 div 0, 1 div 0) =&gt; 2 ""
+string-length("abc") =&gt; 1 3
+string-length() =&gt; 1 32
+string-length(p) =&gt; 1 22
+normalize-space(p) =&gt; 2 "some spaced text"
+normalize-space("  a  b ") =&gt; 2 "a b"
+normalize-space() =&gt; 2 "10 2.5 x some spaced text en"
+translate("bar", "abc", "ABC") =&gt; 2 "BAr"
+translate("--aaa--", "abc-", "ABC") =&gt; 2 "AAA"
+translate("abc", "aa", "xy") =&gt; 2 "xbc"
+boolean(0) =&gt; 3 false
+boolean(0 div 0) =&gt; 3 false
+boolean("") =&gt; 3 false
+boolean(" ") =&gt; 3 true
+boolean(span) =&gt; 3 true
+boolean(nothing) =&gt; 3 false
+not(1) =&gt; 3 false
+true() =&gt; 3 true
+false() =&gt; 3 false
+lang("en") =&gt; 3 false
+lang("EN-gb") =&gt; 3 false
+lang("fr") =&gt; 3 false
+p/lang("fr") THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string 'p/lang("fr")' is not a valid XPath expression.
+boolean(p[lang("fr")]) =&gt; 3 false
+boolean(em[lang("en")]) =&gt; 3 false
+number("  12.5 ") =&gt; 1 12.5
+number("1e3") =&gt; 1 NaN
+number("-") =&gt; 1 NaN
+number("") =&gt; 1 NaN
+number(".5") =&gt; 1 0.5
+number("5.") =&gt; 1 5
+number(true()) =&gt; 1 1
+number(span[1]) =&gt; 1 10
+number(span[3]) =&gt; 1 NaN
+number() =&gt; 1 NaN
+sum(span[position() &lt; 3]) =&gt; 1 12.5
+sum(span) =&gt; 1 NaN
+sum(nothing) =&gt; 1 0
+floor(2.5) =&gt; 1 2
+floor(-2.5) =&gt; 1 -3
+ceiling(2.1) =&gt; 1 3
+ceiling(-0.5) =&gt; 1 -0
+round(2.5) =&gt; 1 3
+round(-2.5) =&gt; 1 -2
+round(-0.4) =&gt; 1 -0
+round(0 div 0) =&gt; 1 NaN
+round(1 div 0) =&gt; 1 Infinity
+1 + 2 * 3 =&gt; 1 7
+7 mod 3 =&gt; 1 1
+-7 mod 3 =&gt; 1 -1
+7 mod -3 =&gt; 1 1
+5.5 mod 2 =&gt; 1 1.5
+1 div 0 =&gt; 1 Infinity
+-1 div 0 =&gt; 1 -Infinity
+0 div 0 =&gt; 1 NaN
+- - 3 =&gt; 1 3
+-span[1] =&gt; 1 -10
+10 - 2 - 3 =&gt; 1 5
+8 div 2 div 2 =&gt; 1 2
+1 = 1 =&gt; 3 true
+1 != 1 =&gt; 3 false
+"1" = 1 =&gt; 3 true
+true() = 1 =&gt; 3 true
+span = "10" =&gt; 3 true
+span != "10" =&gt; 3 true
+span = 10 =&gt; 3 true
+span &gt; 5 =&gt; 3 true
+span &lt; 3 =&gt; 3 true
+span = true() =&gt; 3 true
+nothing = false() =&gt; 3 true
+nothing != nothing =&gt; 3 false
+span = span =&gt; 3 true
+span[1] = span[2] =&gt; 3 false
+"a" &lt; "b" =&gt; 3 false
+2 &gt;= 2 =&gt; 3 true
+1 &lt;= 0 =&gt; 3 false
+1 &lt; 2 &lt; 3 =&gt; 3 true
+3 &gt; 2 &gt; 1 =&gt; 3 false
+1 = 1 and 2 = 3 =&gt; 3 false
+1 = 1 or nonexistent() THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string '1 = 1 or nonexistent()' is not a valid XPath expression.
+false() and nonexistent() THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string 'false() and nonexistent()' is not a valid XPath expression.
+count(//span | //em) =&gt; 1 4
+(1 + 2) * 3 =&gt; 1 9
+"x" or 0 =&gt; 3 true
+string(@lang) =&gt; 2 "en-GB"
+string(span/@class) =&gt; 2 "n"
+count(@*) =&gt; 1 2
+count(/descendant::*) =&gt; 1 12
+id("s2") =&gt; 4 nodes 4
+string(id("s2")) =&gt; 2 " 2.5 "
+name(id("s1 s3")[2]) =&gt; 2 "span"
+nonexistent() THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string 'nonexistent()' is not a valid XPath expression.
+count() THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string 'count()' is not a valid XPath expression.
+count(1) THREW SyntaxError: Failed to execute 'evaluate' on 'Document': Type conversion failed while evaluating the expression.
+substring("a") THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string 'substring("a")' is not a valid XPath expression.
+1 + THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string '1 +' is not a valid XPath expression.
+//[ THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string '//[' is not a valid XPath expression.
+span[ THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string 'span[' is not a valid XPath expression.
+@ THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string '@' is not a valid XPath expression.
+"unterminated THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string '"unterminated' is not a valid XPath expression.
+1 2 THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string '1 2' is not a valid XPath expression.
+concat("a") THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string 'concat("a")' is not a valid XPath expression.
+string(1, 2) THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string 'string(1, 2)' is not a valid XPath expression.
+foo:bar THREW NamespaceError: Failed to execute 'evaluate' on 'Document': The string 'foo:bar' contains unresolvable namespaces.
+child::foo:bar THREW NamespaceError: Failed to execute 'evaluate' on 'Document': The string 'child::foo:bar' contains unresolvable namespaces.
+bogus::x THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string 'bogus::x' is not a valid XPath expression.
+$var =&gt; 2 ""
+ THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string '' is not a valid XPath expression.
+    THREW SyntaxError: Failed to execute 'evaluate' on 'Document': The string '   ' is not a valid XPath expression.
+. | 1 THREW SyntaxError: Failed to execute 'evaluate' on 'Document': Type conversion failed while evaluating the expression.
+</pre>
+<script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function num(v) {
+  return Object.is(v, -0) ? '-0' : String(v);
+}
+function val(expr, ctx) {
+  try {
+    var r = document.evaluate(expr, ctx || document.getElementById('t'), null, 0, null);
+    var t = r.resultType;
+    var v = t === 1 ? num(r.numberValue) : t === 2 ? JSON.stringify(r.stringValue) : t === 3 ? String(r.booleanValue) : 'nodes ' + r.resultType;
+    log(expr + ' => ' + t + ' ' + v);
+  } catch (e) {
+    log(expr + ' THREW ' + e.name + ': ' + e.message);
+  }
+}
+var exprs = [
+  'count(span)', 'count(//span[@class="n"])', 'last()', 'position()',
+  'local-name()', 'local-name(span)', 'local-name(/)', 'local-name(@lang)', 'name()', 'name(@lang)',
+  'namespace-uri()', 'namespace-uri(@lang)', 'namespace-uri(/nothing)',
+  'string()', 'string(span)', 'string(1 div 0)', 'string(-1 div 0)', 'string(0 div 0)', 'string(-0)',
+  'string(1.50)', 'string(0.1 + 0.2)', 'string(123456789012345678901)', 'string(0.0000001)', 'string(1e3)',
+  'string(true())', 'string(false())', 'string(//nothing)',
+  'concat("a", "b", 1, true())', 'concat(span[1], "-", span[2])',
+  'starts-with("hello", "he")', 'starts-with("hello", "")', 'contains("hello", "ll")', 'contains("hello", "")',
+  'substring-before("1999/04/01", "/")', 'substring-before("abc", "x")', 'substring-after("1999/04/01", "/")', 'substring-after("abc", "")',
+  'substring("12345", 2, 3)', 'substring("12345", 2)', 'substring("12345", 1.5, 2.6)', 'substring("12345", 0, 3)',
+  'substring("12345", 0 div 0, 3)', 'substring("12345", 1, 0 div 0)', 'substring("12345", -42, 1 div 0)',
+  'substring("12345", -1 div 0, 1 div 0)',
+  'string-length("abc")', 'string-length()', 'string-length(p)',
+  'normalize-space(p)', 'normalize-space("  a  b ")', 'normalize-space()',
+  'translate("bar", "abc", "ABC")', 'translate("--aaa--", "abc-", "ABC")', 'translate("abc", "aa", "xy")',
+  'boolean(0)', 'boolean(0 div 0)', 'boolean("")', 'boolean(" ")', 'boolean(span)', 'boolean(nothing)',
+  'not(1)', 'true()', 'false()',
+  'lang("en")', 'lang("EN-gb")', 'lang("fr")', 'p/lang("fr")', 'boolean(p[lang("fr")])', 'boolean(em[lang("en")])',
+  'number("  12.5 ")', 'number("1e3")', 'number("-")', 'number("")', 'number(".5")', 'number("5.")', 'number(true())', 'number(span[1])', 'number(span[3])',
+  'number()', 'sum(span[position() < 3])', 'sum(span)', 'sum(nothing)',
+  'floor(2.5)', 'floor(-2.5)', 'ceiling(2.1)', 'ceiling(-0.5)', 'round(2.5)', 'round(-2.5)', 'round(-0.4)', 'round(0 div 0)', 'round(1 div 0)',
+  '1 + 2 * 3', '7 mod 3', '-7 mod 3', '7 mod -3', '5.5 mod 2', '1 div 0', '-1 div 0', '0 div 0', '- - 3', '-span[1]', '10 - 2 - 3', '8 div 2 div 2',
+  '1 = 1', '1 != 1', '"1" = 1', 'true() = 1', 'span = "10"', 'span != "10"', 'span = 10', 'span > 5', 'span < 3', 'span = true()', 'nothing = false()', 'nothing != nothing',
+  'span = span', 'span[1] = span[2]', '"a" < "b"', '2 >= 2', '1 <= 0', '1 < 2 < 3', '3 > 2 > 1',
+  '1 = 1 and 2 = 3', '1 = 1 or nonexistent()', 'false() and nonexistent()',
+  'count(//span | //em)', '(1 + 2) * 3', '"x" or 0',
+  'string(@lang)', 'string(span/@class)', 'count(@*)', 'count(/descendant::*)',
+  'id("s2")', 'string(id("s2"))', 'name(id("s1 s3")[2])',
+  'nonexistent()', 'count()', 'count(1)', 'substring("a")', '1 +', '//[', 'span[', '@', '"unterminated', '1 2', 'concat("a")', 'string(1, 2)', 'foo:bar', 'child::foo:bar', 'bogus::x', '$var',
+  '', '   ', '. | 1',
+];
+for (var i = 0; i < exprs.length; i++) val(exprs[i]);
+</script>
+
+
+</body></html>
