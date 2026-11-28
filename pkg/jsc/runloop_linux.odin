@@ -152,6 +152,8 @@ Runloop_Thread :: struct {
 	// GLib's next fd-less deadline from the last sync; zero means none.
 	deadline:     time.Tick,
 	has_deadline: bool,
+	// When runloop_sync last ran (runloop_sync_stale).
+	synced:       time.Tick,
 }
 
 // Thread-local by design: a GMainContext and the RunLoop bound to it are the thread's.
@@ -343,6 +345,7 @@ runloop_sync :: proc() -> (timeout_ms: int, ok: bool) {
 		timeout = 0
 	}
 
+	rl.synced = time.tick_now()
 	rl.has_deadline = timeout >= 0
 
 	if rl.has_deadline {
@@ -350,6 +353,23 @@ runloop_sync :: proc() -> (timeout_ms: int, ok: bool) {
 	}
 
 	return int(timeout), true
+}
+
+// runloop_sync_stale runs runloop_sync when the last one is at least `max_age` old, for a
+// driver that may go any number of rounds without blocking. runloop_due knows only what
+// the last sync told it: GLib's fd-less deadlines (a RunLoop timer such as the one JSC's
+// DeferredWorkTimer arms for a FinalizationRegistry cleanup) and descriptors that
+// appeared since are invisible until the next one. A driver that syncs only before it
+// blocks therefore never dispatches while it stays busy
+// (runner_dispatches_the_runloop_while_every_round_is_busy).
+runloop_sync_stale :: proc(max_age: time.Duration) {
+	rl := &g_runloop
+
+	if rl.drive != .Adopted || time.tick_diff(rl.synced, time.tick_now()) < max_age {
+		return
+	}
+
+	runloop_sync()
 }
 
 // runloop_due reports whether the RunLoop has work: a GLib descriptor is ready or the

@@ -124,78 +124,189 @@ collect_before_the_loop :: proc(user_data: rawptr) -> bool {
 	return true
 }
 
+// EVAL_FR_PAGE counts its ticks instead of timing them: a 0 ms timer chain that a cleanup
+// ends, and that fails the page after 100 links without one. The cleanup the pre-run
+// collection queues runs in the page's second tick — the chain's second link sees it —
+// because the RunLoop work JSC posts for it is due at once and page_tick services the
+// RunLoop before every tick: 2 links in 36 of 36 runs beside 22 CPU burners on 4 cores
+// (20 alone, 8 as eight copies at once, 8 inside four whole suites run side by side),
+// while the wall time to it ranged 2-85 ms. 100 is 50x that, and costs ~0.4 s (the
+// nesting clamp's 4 ms a link from the sixth on) when no cleanup comes.
+@(private = "file")
+EVAL_FR_PAGE :: `
+let cleaned = false;
+globalThis.keepEval = new FinalizationRegistry(() => { cleaned = true; });
+(function () { for (let i = 0; i < 16; i++) keepEval.register({}, i); })();
+let links = 0;
+(function link() {
+	if (cleaned) return;
+	if (++links > 100) throw new Error('no FinalizationRegistry cleanup in 100 ticks');
+	setTimeout(link, 0);
+})();
+`
+
 // The same on eval's path (also `lava run`): the page's loop is the
 // thread's driver, and page_tick services the RunLoop before each tick. The collection
 // runs in eval's pre-run hook, between the top-level script and the first tick.
+//
+// Counted, not timed (EVAL_FR_PAGE). It used to run FR_PAGE and require the whole eval
+// to take under 2 s, which timed the fresh thread's first VM, the runtime install and
+// the forced collection as much as the cleanup — all before the first tick, and all of
+// it what a loaded machine stretches (#156 saw it fail beside 14 CPU burners on 4
+// cores). FR_PAGE's 3 s timer is wall time from the top-level script, so the same
+// stretch could fire it ahead of a cleanup that was on time.
 @(test)
 eval_runs_a_finalization_cleanup :: proc(t: ^testing.T) {
 	on_fresh_thread(t, proc(t: ^testing.T) {
 		loop := eventloop.init(real_time = true)
-		start := time.tick_now()
-		result := lava.eval(FR_PAGE, "<fr-eval>", &loop, false, collect_before_the_loop, t)
+		result := lava.eval(EVAL_FR_PAGE, "<fr-eval>", &loop, false, collect_before_the_loop, t)
 		defer lava.result_destroy(&result)
-		elapsed := time.duration_seconds(time.tick_since(start))
 		testing.expectf(
 			t,
 			result.status == .Ok && result.exit_code == 0,
-			"eval: %v exit %d %q",
+			"eval: %v exit %d %q: no cleanup ran in the page's ticks",
 			result.status,
 			result.exit_code,
 			result.message,
 		)
-		testing.expectf(t, elapsed < 2, "eval took %.2f s: the cleanup did not cancel the 3 s timer", elapsed)
 	})
 }
 
-// A cleanup's CPU is its page's (CLAUDE.md §4's budget, docs/LARVA.md decision 2): page A
-// registers one fresh target per 10 ms tick, the test collects between rounds, and each
-// cleanup spins 2e7 iterations — 40 of them are well past A's 0.5 s budget, while A's own
-// ticks are cheap. So A must die of its budget, and only A: B, its sibling on the same
-// thread under the same budget, runs a light timer chain through the whole of it and
-// ends .Ok. A cleanup run at the thread-level dispatch instead of in A's tick would be
-// charged to nobody — the RunLoop runs outside every page's window — and A would finish.
+// BUSY_FR_PAGE is never idle: each step sets the next 0 ms timer and only then spins 6 ms
+// of wall time, past the 4 ms the nesting clamp (#116) gives a timer from the sixth level
+// on, so the next timer is due before the step returns and every runner round ticks a
+// timer. Load cannot change that — a descheduled spin only ends later, with the timer
+// further overdue. A cleanup ends the chain; 100 steps without one fail the page.
+@(private = "file")
+BUSY_FR_PAGE :: `
+let cleaned = false;
+const fr = new FinalizationRegistry(() => { cleaned = true; });
+globalThis.keepFr = fr;
+(function () { for (let i = 0; i < 4; i++) fr.register({}, i); })();
+let steps = 0;
+(function step() {
+	if (cleaned) return;
+	if (++steps > 100) throw new Error('no FinalizationRegistry cleanup in 100 busy rounds');
+	setTimeout(step, 0);
+	const s = Date.now(); while (Date.now() - s < 6) {}
+})();
+`
+
+// A runner whose every round makes progress still dispatches the RunLoop. The runner
+// learns GLib's fd set and fd-less deadline only from runloop_sync, which it used to call
+// only before blocking; a round that progressed never blocked, so a runner kept busy —
+// by one page with a due timer every round — never synced, runloop_due stayed false and
+// a cleanup JSC had queued never ran. Under load that was every runner: rounds slow
+// enough that some page's timer is always due. It is how
+// runner_charges_a_cleanup_to_its_own_page failed (0 of 200 cleanups run, A ending .Ok).
 @(test)
-runner_charges_a_cleanup_to_its_own_page :: proc(t: ^testing.T) {
+runner_dispatches_the_runloop_while_every_round_is_busy :: proc(t: ^testing.T) {
 	on_fresh_thread(t, proc(t: ^testing.T) {
 		runner: lava.Page_Runner
 
-		if !lava.page_runner_init(&runner, 2, record_page_outcome, context.allocator) {
+		if !lava.page_runner_init(&runner, 1, record_page_outcome, context.allocator) {
 			testing.expect(t, false, "page_runner_init failed")
 			return
 		}
 
 		defer lava.page_runner_destroy(&runner)
-		a, b: Page_Outcome
+		o: Page_Outcome
+		lava.page_runner_open(&runner, BUSY_FR_PAGE, "<busy-fr>", DRIVE_LIMITS, &o)
+		testing.expect(t, runner_drive_until(t, &runner, 20), "the page never finished")
+		testing.expectf(
+			t,
+			o.done && o.status == .Ok && o.exit == 0,
+			"the busy runner never ran the cleanup: %s",
+			describe_outcome(o),
+		)
+	})
+}
+
+// A cleanup's CPU is its page's (CLAUDE.md §4's budget, docs/LARVA.md decision 2): page A
+// registers one fresh target per 10 ms tick for 40 ticks, the test collects between
+// rounds, and each cleanup burns 1e8 loop iterations — ~50 ms of CPU (2e8 measured
+// 104-117 ms wall in a function under `lava run`, six runs, load 9 on 4 cores), so
+// about ten of them spend A's 0.5 s budget, while A's own ticks are cheap: A died at
+// round 5-15 in eight runs at load 4-18. Forty ticks, not more, because under the
+// recorded mutation every cleanup runs uncharged and the run must still end inside the
+// 20 s guard (60 ticks of 2e8 did not, single-threaded). So A must
+// die of its budget, and only A: B, its sibling on the same thread under the same
+// budget, runs a light 100-tick chain through the whole of it, ends .Ok, and is reported
+// after A. A cleanup run at the thread-level dispatch instead of in A's tick would be
+// charged to nobody — the RunLoop runs outside every page's window — and A would finish.
+//
+// Both sides are counted, not timed: the cleanups' cost is loop iterations, which a
+// loaded machine does not shrink in CPU time (a Date.now() spin would: descheduled, it
+// burns less CPU per wall millisecond), and B outliving A is runner rounds — B needs
+// one per tick. Only A's VM is collected, and only while A lives: the forced full
+// collections are what a loaded machine slows — two a round took ~90 ms of wall at load
+// 18 against ~4 ms unloaded, and in a full parallel suite at load ~25 a 100-round run of
+// them overran the 20 s hang guard. B's targets are nobody's, and none of A's matter
+// once A is gone.
+@(test)
+runner_charges_a_cleanup_to_its_own_page :: proc(t: ^testing.T) {
+	on_fresh_thread(t, proc(t: ^testing.T) {
+		runner: lava.Page_Runner
+
+		if !lava.page_runner_init(&runner, 2, record_finished, context.allocator) {
+			testing.expect(t, false, "page_runner_init failed")
+			return
+		}
+
+		defer lava.page_runner_destroy(&runner)
+		reported := 0
+		a := Finished {
+			reported = &reported,
+		}
+		b := Finished {
+			reported = &reported,
+		}
 		lava.page_runner_open(
 			&runner,
 			`globalThis.keep = new FinalizationRegistry(() => {
-				let x = 0; for (let i = 0; i < 2e7; i++) x += i; globalThis.sink = x;
+				let x = 0; for (let i = 0; i < 1e8; i++) x += i; globalThis.sink = x;
 			});
 			let n = 0;
-			(function tick() { if (++n > 200) return; keep.register({}, n); setTimeout(tick, 10); })();`,
+			(function tick() { if (++n > 40) return; keep.register({}, n); setTimeout(tick, 10); })();`,
 			"<heavy-cleanups>",
 			{cpu_budget = 0.5},
 			&a,
 		)
+		a_vm := runner.pool.vms[0]
 		lava.page_runner_open(
 			&runner,
-			`let n = 0; (function tick() { if (++n < 150) setTimeout(tick, 10); })();`,
+			`let n = 0; (function tick() { if (++n < 100) setTimeout(tick, 10); })();`,
 			"<light-sibling>",
 			{cpu_budget = 0.5},
 			&b,
 		)
-		testing.expect(t, runner_drive_until(t, &runner, 20), "the pages never finished")
+		deadline := time.tick_add(time.tick_now(), 20 * time.Second)
+		for lava.page_runner_live(&runner) > 0 && time.tick_diff(time.tick_now(), deadline) > 0 {
+			if !a.outcome.done {
+				vm_collect(t, a_vm)
+			}
+
+			lava.page_runner_step(&runner)
+		}
+		testing.expect(t, lava.page_runner_live(&runner) == 0, "the pages never finished")
 		testing.expectf(
 			t,
-			a.done && a.kill == .Cpu_Budget,
+			a.outcome.done && a.outcome.kill == .Cpu_Budget,
 			"A's cleanups were not charged to A: %s",
-			describe_outcome(a),
+			describe_outcome(a.outcome),
 		)
 		testing.expectf(
 			t,
-			b.done && b.status == .Ok && b.kill == .None,
+			b.outcome.done && b.outcome.status == .Ok && b.outcome.kill == .None,
 			"B paid for A's cleanups: %s",
-			describe_outcome(b),
+			describe_outcome(b.outcome),
+		)
+		testing.expectf(
+			t,
+			a.at == 1 && b.at == 2,
+			"B (reported %d) did not outlive A (reported %d): it was not ticking beside A's cleanups",
+			b.at,
+			a.at,
 		)
 	})
 }
