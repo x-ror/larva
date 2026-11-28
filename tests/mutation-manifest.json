@@ -4750,6 +4750,15 @@
       "replace": "",
       "gate": "make:test-dom",
       "expect_detail": "FAIL dom-reflect-elements.page"
+    },
+    {
+      "name": "module_graph_evaluates_once_with_live_bindings_and_dynamic_import dies when the module map is bypassed",
+      "why": "A module imported from two places must be fetched and evaluated once (HTML's module map keyed by URL); re-instantiating it on every import runs its side effects twice and splits its bindings between copies.",
+      "source": "pkg/runtime/js/internal/module_loader.js",
+      "find": "    var rec = registry[url];\n    if (rec !== undefined) {",
+      "replace": "    var rec = registry[url];\n    if (false) {",
+      "gate": "odin:cmd/lava:main.module_graph_evaluates_once_with_live_bindings_and_dynamic_import",
+      "expect_detail": "module graph"
     }
   ]
 }

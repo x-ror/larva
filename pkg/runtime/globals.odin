@@ -1414,6 +1414,7 @@ install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef)
 	set_named(ctx, natives, "internal/location", cast(jsc.JSValueRef)make_location_bindings(ctx, state.page_origin))
 	set_named(ctx, natives, "internal/navigator", cast(jsc.JSValueRef)make_navigator_bindings(ctx, profile.default_profile()))
 	set_named(ctx, natives, "internal/cookie", cast(jsc.JSValueRef)make_cookie_bindings(ctx, state.page_origin))
+	set_named(ctx, natives, "internal/module_loader", cast(jsc.JSValueRef)make_module_bindings(ctx))
 	// Native, not a module: nothing of it is JS a page could see in a stack (wasm.odin).
 	install_wasm(ctx, state)
 

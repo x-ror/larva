@@ -490,6 +490,11 @@
     // %GeneratorPrototype%.next, for a builtin that steps its own generator: a page can
     // reach and replace the prototype's `next` through any generator of its own.
     GeneratorPrototypeNext: Object.getPrototypeOf(function* () {}).prototype.next,
+    // The same for an async generator (internal/module_loader steps a module body with
+    // top-level await as one), and Promise.prototype.then, which a page can replace.
+    AsyncGeneratorPrototypeNext: Object.getPrototypeOf(async function* () {}).prototype.next,
+    PromisePrototypeThen: Promise.prototype.then,
+    SyntaxError: SyntaxError,
     JSONStringify: JSON.stringify,
     JSONParse: JSON.parse,
     MathTrunc: Math.trunc,
