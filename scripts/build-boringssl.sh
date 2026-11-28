@@ -53,6 +53,10 @@ git -C "$work" checkout -q FETCH_HEAD
 	echo "build-boringssl: fetched tree is not BoringSSL $BORINGSSL_COMMIT" >&2
 	exit 1
 }
+# BoringSSL builds with -Werror, which turns every warning a newer compiler adds into a
+# failed build of a pinned, already-reviewed tree (CI's ubuntu-latest compiler is not
+# ours). Drop it from the checked-out copy only; the commit id was verified above.
+sed -i 's/ -Werror / /' "$work/CMakeLists.txt"
 generator=
 if command -v ninja >/dev/null; then
 	generator=-GNinja
@@ -60,7 +64,11 @@ fi
 # shellcheck disable=SC2086
 cmake -S "$work" -B "$work/build" $generator -DCMAKE_BUILD_TYPE=Release \
 	-DCMAKE_POSITION_INDEPENDENT_CODE=ON -DBUILD_TESTING=OFF >/dev/null
-cmake --build "$work/build" --target ssl crypto -j "$(nproc 2>/dev/null || echo 4)" >/dev/null
+cmake --build "$work/build" --target ssl crypto -j "$(nproc 2>/dev/null || echo 4)" >"$work/build.log" 2>&1 || {
+	tail -n 60 "$work/build.log" >&2
+	echo "build-boringssl: build failed" >&2
+	exit 1
+}
 cp "$work/build/libssl.a" "$work/build/libcrypto.a" "$OUT/lib/"
 # BoringSSL compiles with -ggdb whatever the build type; its debug info would add ~26 MB
 # to bin/lava (Odin links with debug info kept), so drop it from the archives.
