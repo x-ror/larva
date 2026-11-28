@@ -532,7 +532,7 @@
     },
     {
       "name": "runner_busy_page_is_not_held_up_by_a_waiting_sibling dies when a page loop may block in its own poll",
-      "why": "A page loop that blocks on its own timer stalls every other page on the thread, so ten 300 ms pages run one after another.",
+      "why": "A page loop that blocks in its own poll sleeps through the round until its timer, so a sibling 1 s from its only timer is reported before a busy page that needs 30 rounds of ~4 ms.",
       "source": "pkg/runtime/page_runner.odin",
       "find": "\trp.loop.never_block = true\n",
       "replace": "\trp.loop.never_block = false\n",

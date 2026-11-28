@@ -106,23 +106,6 @@ runner_slicing_keeps_event_loop_order :: proc(t: ^testing.T) {
 	}
 }
 
-// Finished is one page's outcome plus its place in the order the runner reported the
-// test's pages in; `reported` is shared by them.
-@(private = "file")
-Finished :: struct {
-	outcome:  Page_Outcome,
-	at:       int,
-	reported: ^int,
-}
-
-@(private = "file")
-record_finished :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Result) {
-	f := cast(^Finished)user_data
-	f.reported^ += 1
-	f.at = f.reported^
-	record_page_outcome(runner, &f.outcome, result)
-}
-
 // HOG_PAGE has 30000 timers due in one turn. The timer registered first spins until
 // every other one is due, so the next turn finds them all due at once; unsliced, that
 // turn fires them all in one page_tick.
