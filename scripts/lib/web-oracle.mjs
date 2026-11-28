@@ -452,6 +452,8 @@ export async function recordRuns(chrome, url, runs, args = []) {
 // fixture is same-origin there; Lava gets its address as ORIGIN. Cases print paths
 // relative to ORIGIN, never the port.
 
+const LARGE_SIZE = 256 * 1024;
+
 const FIXTURES = {
   '/fx/text': (req, res) => send(res, 200, 'text/plain; charset=utf-8', 'hello from the fixture'),
   '/fx/utf8': (req, res) => send(res, 200, 'text/plain; charset=utf-8', 'héllo café ☕ 日本語'),
@@ -549,6 +551,22 @@ const FIXTURES = {
       ...q.getAll('c').map((c) => ['Set-Cookie', c]),
     ]);
     res.end();
+  },
+  // A 256 KiB text body ('a'..'z' repeating) written 16 KiB at a time, a turn apart,
+  // so it reaches the page as many chunks and outgrows a 64 KiB stream queue while
+  // nobody reads it (tests/web/cases/fetch-body-consume).
+  '/fx/large': (req, res) => {
+    const body = Buffer.alloc(LARGE_SIZE);
+    for (let i = 0; i < LARGE_SIZE; i++) body[i] = 0x61 + (i % 26);
+    res.writeHead(200, { 'Content-Type': 'text/plain', 'Content-Length': String(LARGE_SIZE) });
+    let at = 0;
+    const next = () => {
+      if (at >= LARGE_SIZE || res.destroyed) return void res.end();
+      res.write(body.subarray(at, at + 16384));
+      at += 16384;
+      setImmediate(next);
+    };
+    next();
   },
   // A response that starts after 3 s: for a timeout or an abort while the request
   // is in flight.

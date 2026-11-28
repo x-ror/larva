@@ -117,7 +117,7 @@
 
   // The document's URL: location's, which pushState may have moved within the origin.
   function documentURL() {
-    return parts(require('internal/location').href());
+    return parts(require('internal/location').documentURL());
   }
 
   /**

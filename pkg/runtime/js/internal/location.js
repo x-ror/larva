@@ -615,11 +615,15 @@
     return historyObject;
   });
 
-  module.exports = {
-    // The document's URL now, for document.cookie (internal/cookie): pushState and a
-    // fragment navigation move it within the origin.
-    href: function () {
-      return read(urlHref, current);
-    },
-  };
+  /**
+   * The document's URL, serialized: what a reflected URL attribute resolves against
+   * when the document has no `<base href>` (internal/dom_reflect), and what a form's
+   * `action` answers when it has none. The active entry's, so it follows pushState.
+   * @returns {string}
+   */
+  function documentURL() {
+    return read(urlHref, current);
+  }
+
+  module.exports = P.ObjectFreeze({ __proto__: null, documentURL: documentURL });
 });
