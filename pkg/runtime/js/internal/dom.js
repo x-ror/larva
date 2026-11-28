@@ -41,6 +41,7 @@
   var reflect = require('internal/dom_reflect');
   var DOMException = require('internal/domexception').DOMException;
   var cookieJar = require('internal/cookie');
+  var xpath = require('internal/xpath');
   var ObjectDefineProperty = P.ObjectDefineProperty;
   var ObjectFreeze = P.ObjectFreeze;
   var ProxyP = P.Proxy;
@@ -148,6 +149,18 @@
   var nCreateFragment = null;
   var nCurrentScript = null;
   var nWrite = null;
+
+  // XPath's document operations (internal/xpath), and the count of tree mutations its
+  // iterator results check: every mutation native below bumps it.
+  var xp = null;
+  var treeVersion = 0;
+
+  function versioned(fn) {
+    return function (a, b, c) {
+      treeVersion++;
+      return fn(a, b, c);
+    };
+  }
 
   // What a mutation native answered (pkg/html Mutation_Error) as the DOMException a
   // page sees. The messages are Chrome's for the common case of each name.
@@ -695,6 +708,21 @@
      */
     get currentScript() {
       return nCurrentScript(this);
+    }
+
+    createExpression(expression) {
+      nNodeType(this);
+      return xp.createExpression('Document', arguments);
+    }
+
+    createNSResolver(nodeResolver) {
+      nNodeType(this);
+      return xp.createNSResolver('Document', arguments);
+    }
+
+    evaluate(expression, contextNode) {
+      nNodeType(this);
+      return xp.evaluate('Document', arguments);
     }
 
     get body() {
@@ -1336,6 +1364,9 @@
     'querySelectorAll:1',
     'write:0',
     'writeln:0',
+    'createExpression:1',
+    'createNSResolver:1',
+    'evaluate:2',
   ]);
   define('HTMLDocument', HTMLDocument, PublicDocument, []);
   define('NodeList', NodeList, null, [
@@ -1420,6 +1451,43 @@
     nSetInnerHTML = observed.setInnerHTML;
     nSetAttribute = observed.setAttribute;
     nRemoveAttribute = observed.removeAttribute;
+    nInsertBefore = versioned(nInsertBefore);
+    nRemoveChild = versioned(nRemoveChild);
+    nReplaceChild = versioned(nReplaceChild);
+    nRemove = versioned(nRemove);
+    nSetTextContent = versioned(nSetTextContent);
+    nSetData = versioned(nSetData);
+    nSetInnerHTML = versioned(nSetInnerHTML);
+    nSetAttribute = versioned(nSetAttribute);
+    nRemoveAttribute = versioned(nRemoveAttribute);
+    nWrite = versioned(nWrite);
+    xp = xpath.install({
+      __proto__: null,
+      Node: PublicNode,
+      isNode: nIsNode,
+      document: nDocument,
+      nodeType: nNodeType,
+      nodeName: nNodeName,
+      localName: nLocalName,
+      namespace: native.namespace,
+      attributes: native.attributes,
+      parent: nParent,
+      firstChild: nFirstChild,
+      lastChild: nLastChild,
+      nextSibling: nNextSibling,
+      previousSibling: nPreviousSibling,
+      data: nData,
+      textContent: nTextContent,
+      getAttribute: nGetAttribute,
+      setAttribute: function (el, name, value) {
+        nSetAttribute(el, name, value);
+        reflect.attributeChanged(el, name);
+      },
+      byId: nById,
+      version: function () {
+        return treeVersion;
+      },
+    });
 
     var global = globalThis;
     events.setHostTargets(nIsNode, nParent, isDocument);

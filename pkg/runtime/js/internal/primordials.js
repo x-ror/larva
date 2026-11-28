@@ -567,6 +567,10 @@
     StringPrototypeSubstr: caller2(StringProto.substr),
     StringPrototypePadStart: caller2(StringProto.padStart),
 
+    // internal/xpath's number-to-string: Blink formats an XPath number to 6 significant
+    // digits (WTF::String::Number), which is ToPrecision(6).
+    NumberPrototypeToPrecision: caller1(Number.prototype.toPrecision),
+
     Uint8ArrayPrototypeSet: caller2(Uint8Array.prototype.set),
     // %TypedArray%.prototype.subarray — shared by every view type, so reading it
     // off Uint8Array captures the same function Uint16Array uses. Zero-copy, which

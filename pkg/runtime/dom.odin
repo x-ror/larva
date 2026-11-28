@@ -663,6 +663,8 @@ make_dom_bindings :: proc(ctx: jsc.JSContextRef) -> jsc.JSObjectRef {
 		{"contains", dom_contains_cb},
 		{"clone", dom_clone_cb},
 		{"localName", dom_local_name_cb},
+		{"namespace", dom_namespace_cb},
+		{"attributes", dom_attributes_cb},
 		{"getAttribute", dom_get_attribute_cb},
 		{"setAttribute", dom_set_attribute_cb},
 		{"removeAttribute", dom_remove_attribute_cb},
@@ -1346,6 +1348,61 @@ dom_local_name_cb :: proc "c" (
 	}
 
 	return js_string_value(ctx, html.local_name(call.node))
+}
+
+// namespace(node): an element's namespace as html.Namespace's ordinal (internal/xpath
+// maps it to the URI); 0 (.None) for any other node. XPath's name tests and
+// namespace-uri() need it, and the tree has no other way to tell a parsed `<svg>`
+// from an HTML element.
+dom_namespace_cb :: proc "c" (
+	ctx: jsc.JSContextRef,
+	function: jsc.JSObjectRef,
+	this_object: jsc.JSObjectRef,
+	argc: c.size_t,
+	argv: [^]jsc.JSValueRef,
+	exception: ^jsc.JSValueRef,
+) -> jsc.JSValueRef {
+	context = runtime.default_context()
+	call, ok := dom_enter(ctx, argc, argv, exception)
+
+	if !ok {
+		return dom_undefined(ctx)
+	}
+
+	return jsc.JSValueMakeNumber(ctx, f64(html.namespace_of(call.node)))
+}
+
+// attributes(node): an element's attributes in their order, flattened four values a
+// piece — namespace ordinal, qualified name, local name, value — so XPath's attribute
+// axis reads them in one crossing; an empty array for any other node.
+dom_attributes_cb :: proc "c" (
+	ctx: jsc.JSContextRef,
+	function: jsc.JSObjectRef,
+	this_object: jsc.JSObjectRef,
+	argc: c.size_t,
+	argv: [^]jsc.JSValueRef,
+	exception: ^jsc.JSValueRef,
+) -> jsc.JSValueRef {
+	context = runtime.default_context()
+	call, ok := dom_enter(ctx, argc, argv, exception)
+
+	if !ok {
+		return dom_undefined(ctx)
+	}
+
+	array := jsc.JSObjectMakeArray(ctx, 0, nil, nil)
+	i: c.uint
+
+	for a := html.first_attr(call.node); a != nil; a = html.next_attr(a) {
+		ns := jsc.JSValueMakeNumber(ctx, f64(html.attr_namespace(a)))
+		jsc.JSObjectSetPropertyAtIndex(ctx, array, i, ns, nil)
+		jsc.JSObjectSetPropertyAtIndex(ctx, array, i + 1, js_string_value(ctx, html.attr_qualified_name(a)), nil)
+		jsc.JSObjectSetPropertyAtIndex(ctx, array, i + 2, js_string_value(ctx, html.attr_local_name(a)), nil)
+		jsc.JSObjectSetPropertyAtIndex(ctx, array, i + 3, js_string_value(ctx, html.attr_value(a)), nil)
+		i += 4
+	}
+
+	return cast(jsc.JSValueRef)array
 }
 
 // getAttribute(name): the value, or null when the element has no such attribute.

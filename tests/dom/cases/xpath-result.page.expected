@@ -1,0 +1,644 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-28
+# runs: 3 identical
+# command: node scripts/record-dom.mjs xpath-result.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "xpath result"
+|   "
+"
+|   <body>
+|     "
+"
+|     <div>
+|       id="t"
+|       <p>
+|         id="a"
+|         data-y="1"
+|         "AA"
+|       <p>
+|         id="b"
+|         data-x="1"
+|         "B"
+|       <div>
+|         id="c"
+|         <svg svg>
+|           id="g"
+|           <svg circle>
+|             id="k"
+|             viewBox="0 0 1 1"
+|           <svg foreignObject>
+|             id="fo"
+|             <p>
+|               id="d"
+|               "D"
+|       <span>
+|       <span>
+|     "
+"
+|     <pre>
+|       id="log"
+|       "constants 0/0 1/1 2/2 3/3 4/4 5/5 6/6 7/7 8/8 9/9
+"
+|       "types function function function
+"
+|       "proto resultType,numberValue,stringValue,booleanValue,singleNodeValue,invalidIteratorState,snapshotLength,ANY_TYPE,NUMBER_TYPE,STRING_TYPE,BOOLEAN_TYPE,UNORDERED_NODE_ITERATOR_TYPE,ORDERED_NODE_ITERATOR_TYPE,UNORDERED_NODE_SNAPSHOT_TYPE,ORDERED_NODE_SNAPSHOT_TYPE,ANY_UNORDERED_NODE_TYPE,FIRST_ORDERED_NODE_TYPE,iterateNext,snapshotItem,constructor
+"
+|       "proto evaluate,constructor
+"
+|       "proto createExpression,createNSResolver,evaluate,constructor
+"
+|       "lengths 2 1 1 1
+"
+|       "new XPathResult THREW TypeError TypeError: Failed to construct 'XPathResult': Illegal constructor
+"
+|       "new XPathExpression THREW TypeError TypeError: Failed to construct 'XPathExpression': Illegal constructor
+"
+|       "call XPathEvaluator THREW TypeError TypeError: Failed to construct 'XPathEvaluator': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+"
+|       "any-number type=1 numberValue=3 stringValue!TypeError booleanValue!TypeError singleNodeValue!TypeError snapshotLength!TypeError invalidIteratorState=false
+"
+|       "any-string type=2 numberValue!TypeError stringValue=A booleanValue!TypeError singleNodeValue!TypeError snapshotLength!TypeError invalidIteratorState=false
+"
+|       "any-boolean type=3 numberValue!TypeError stringValue!TypeError booleanValue=true singleNodeValue!TypeError snapshotLength!TypeError invalidIteratorState=false
+"
+|       "any-nodes type=4 numberValue!TypeError stringValue!TypeError booleanValue!TypeError singleNodeValue!TypeError snapshotLength!TypeError invalidIteratorState=false
+"
+|       "number type=1 numberValue=NaN stringValue!TypeError booleanValue!TypeError singleNodeValue!TypeError snapshotLength!TypeError invalidIteratorState=false
+"
+|       "string type=2 numberValue!TypeError stringValue=A booleanValue!TypeError singleNodeValue!TypeError snapshotLength!TypeError invalidIteratorState=false
+"
+|       "boolean type=3 numberValue!TypeError stringValue!TypeError booleanValue=true singleNodeValue!TypeError snapshotLength!TypeError invalidIteratorState=false
+"
+|       "unordered-iter type=4 numberValue!TypeError stringValue!TypeError booleanValue!TypeError singleNodeValue!TypeError snapshotLength!TypeError invalidIteratorState=false
+"
+|       "ordered-iter type=5 numberValue!TypeError stringValue!TypeError booleanValue!TypeError singleNodeValue!TypeError snapshotLength!TypeError invalidIteratorState=false
+"
+|       "unordered-snap type=6 numberValue!TypeError stringValue!TypeError booleanValue!TypeError singleNodeValue!TypeError snapshotLength=2 invalidIteratorState=false
+"
+|       "ordered-snap type=7 numberValue!TypeError stringValue!TypeError booleanValue!TypeError singleNodeValue!TypeError snapshotLength=2 invalidIteratorState=false
+"
+|       "any-unordered type=8 numberValue!TypeError stringValue!TypeError booleanValue!TypeError singleNodeValue=p#a snapshotLength!TypeError invalidIteratorState=false
+"
+|       "first-ordered type=9 numberValue!TypeError stringValue!TypeError booleanValue!TypeError singleNodeValue=p#a snapshotLength!TypeError invalidIteratorState=false
+"
+|       "first-none type=9 numberValue!TypeError stringValue!TypeError booleanValue!TypeError singleNodeValue=null snapshotLength!TypeError invalidIteratorState=false
+"
+|       "number-as-iter THREW TypeError TypeError: Failed to execute 'evaluate' on 'Document': The result is not a node set, and therefore cannot be converted to the desired type.
+"
+|       "string-as-snap THREW TypeError TypeError: Failed to execute 'evaluate' on 'Document': The result is not a node set, and therefore cannot be converted to the desired type.
+"
+|       "bool-as-first THREW TypeError TypeError: Failed to execute 'evaluate' on 'Document': The result is not a node set, and therefore cannot be converted to the desired type.
+"
+|       "bad-type THREW TypeError TypeError: Failed to read the 'singleNodeValue' property from 'XPathResult': The result type is not a single node.
+"
+|       "neg-type 4
+"
+|       "string-type 2
+"
+|       "iterate p#a p#b p#d then null invalid=false
+"
+|       "snapshot 3 p#a null null
+"
+|       "snapshotItem-noargs THREW TypeError TypeError: Failed to execute 'snapshotItem' on 'XPathResult': 1 argument required, but only 0 present.
+"
+|       "iterate-on-snapshot THREW TypeError TypeError: Failed to execute 'iterateNext' on 'XPathResult': The result type is not an iterator.
+"
+|       "snapshotItem-on-iter THREW TypeError TypeError: Failed to execute 'snapshotItem' on 'XPathResult': The result type is not a snapshot.
+"
+|       "mutated p#a invalid=true THREW InvalidStateError DOMException: Failed to execute 'iterateNext' on 'XPathResult': The document has mutated since the result was returned.
+"
+|       "attr-mutated invalid=true THREW InvalidStateError DOMException: Failed to execute 'iterateNext' on 'XPathResult': The document has mutated since the result was returned.
+"
+|       "data-mutated invalid=true THREW InvalidStateError DOMException: Failed to execute 'iterateNext' on 'XPathResult': The document has mutated since the result was returned.
+"
+|       "snapshot-after-mutation 3 p#a
+"
+|       "reuse false 1
+"
+|       "evaluator [object XPathEvaluator] 3
+"
+|       "expression [object XPathExpression] p#a p#d
+"
+|       "expression-default 4
+"
+|       "evaluator-expression 5
+"
+|       "resolver true true
+"
+|       "resolver-bad THREW TypeError TypeError: Failed to execute 'createNSResolver' on 'Document': parameter 1 is not of type 'Node'.
+"
+|       "defaults 5
+"
+|       "no-args THREW TypeError TypeError: Failed to execute 'evaluate' on 'Document': 2 arguments required, but only 0 present.
+"
+|       "one-arg THREW TypeError TypeError: Failed to execute 'evaluate' on 'Document': 2 arguments required, but only 1 present.
+"
+|       "bad-context THREW TypeError TypeError: Failed to execute 'evaluate' on 'Document': parameter 2 is not of type 'Node'.
+"
+|       "null-context THREW TypeError TypeError: Failed to execute 'evaluate' on 'Document': parameter 2 is not of type 'Node'.
+"
+|       "bad-resolver THREW TypeError TypeError: Failed to execute 'evaluate' on 'Document': parameter 3 is not of type 'Object'.
+"
+|       "bad-result 1
+"
+|       "syntax THREW SyntaxError DOMException: Failed to execute 'evaluate' on 'Document': The string '//[' is not a valid XPath expression.
+"
+|       "syntax-create THREW SyntaxError DOMException: Failed to execute 'createExpression' on 'Document': The string '1 +' is not a valid XPath expression.
+"
+|       "syntax-evaluator THREW SyntaxError DOMException: Failed to execute 'evaluate' on 'XPathEvaluator': The string '))' is not a valid XPath expression.
+"
+|       "prefix-no-resolver THREW NamespaceError DOMException: Failed to execute 'evaluate' on 'Document': The string '//x:p' contains unresolvable namespaces.
+"
+|       "prefix-resolver-fn 3
+"
+|       "prefix-resolver-obj 3
+"
+|       "prefix-resolver-null THREW NamespaceError DOMException: Failed to execute 'evaluate' on 'Document': The string '//x:p' contains unresolvable namespaces.
+"
+|       "expr-coerce 2
+"
+|       "expr-bad-receiver THREW TypeError TypeError: Illegal invocation
+"
+|       "result-bad-receiver THREW TypeError TypeError: Illegal invocation
+"
+|       "expr-bad-context THREW TypeError TypeError: Failed to execute 'evaluate' on 'XPathExpression': parameter 1 is not of type 'Node'.
+"
+|       "text-context AA
+"
+|       "detached-context 3 div
+"
+|       "//P => [p#a p#b p#d]
+"
+|       "//p => [p#a p#b p#d]
+"
+|       "//Div => [div#t div#c]
+"
+|       "//svg => []
+"
+|       "//circle => []
+"
+|       "//foreignObject => []
+"
+|       "//*[local-name()="svg"] => [svg#g]
+"
+|       "//*[local-name()="foreignObject"]/* => [p#d]
+"
+|       "//*[name()="P"] => []
+"
+|       "//*[name()="p"] => [p#a p#b p#d]
+"
+|       "//@Data-X => [@data-x="1"]
+"
+|       "//@data-x => [@data-x="1"]
+"
+|       "//*[@DATA-X] => [p#b]
+"
+|       "//@viewBox => [@viewBox="0 0 1 1"]
+"
+|       "//@viewbox => []
+"
+|       "//*[namespace-uri()="http://www.w3.org/2000/svg"] => [svg#g circle#k foreignobject#fo]
+"
+|       "//*[namespace-uri()="http://www.w3.org/1999/xhtml" and @id="b"] => [p#b]
+"
+|       "attr [object Attr] 2 data-x data-x 1 p#b data-x 1 1 null true
+"
+|       "attr-context B 4
+"
+|     "
+"
+|     <script>
+|       "
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function d(n) {
+  if (n === null) return 'null';
+  if (n === undefined) return 'undefined';
+  switch (n.nodeType) {
+    case 1: return n.nodeName.toLowerCase() + (n.id ? '#' + n.id : '');
+    case 2: return '@' + n.name + '=' + JSON.stringify(n.value);
+    case 3: return 'text' + JSON.stringify(n.data);
+    case 9: return 'document';
+  }
+  return '?' + n.nodeType;
+}
+function attempt(label, f) {
+  try {
+    log(label + ' ' + f());
+  } catch (e) {
+    log(label + ' THREW ' + e.name + ' ' + e.constructor.name + ': ' + e.message);
+  }
+}
+var t = document.getElementById('t');
+var props = ['numberValue', 'stringValue', 'booleanValue', 'singleNodeValue', 'snapshotLength', 'invalidIteratorState'];
+function dump(label, r) {
+  var out = [label, 'type=' + r.resultType];
+  for (var i = 0; i < props.length; i++) {
+    try {
+      var v = r[props[i]];
+      out.push(props[i] + '=' + (props[i] === 'singleNodeValue' ? d(v) : String(v)));
+    } catch (e) {
+      out.push(props[i] + '!' + e.name);
+    }
+  }
+  log(out.join(' '));
+}
+
+// Constants and shape.
+var names = ['ANY_TYPE', 'NUMBER_TYPE', 'STRING_TYPE', 'BOOLEAN_TYPE', 'UNORDERED_NODE_ITERATOR_TYPE', 'ORDERED_NODE_ITERATOR_TYPE', 'UNORDERED_NODE_SNAPSHOT_TYPE', 'ORDERED_NODE_SNAPSHOT_TYPE', 'ANY_UNORDERED_NODE_TYPE', 'FIRST_ORDERED_NODE_TYPE'];
+log('constants ' + names.map(function (n) { return XPathResult[n] + '/' + XPathResult.prototype[n]; }).join(' '));
+log('types ' + typeof XPathResult + ' ' + typeof XPathEvaluator + ' ' + typeof XPathExpression);
+log('proto ' + Object.getOwnPropertyNames(XPathResult.prototype).join(','));
+log('proto ' + Object.getOwnPropertyNames(XPathExpression.prototype).join(','));
+log('proto ' + Object.getOwnPropertyNames(XPathEvaluator.prototype).join(','));
+log('lengths ' + document.evaluate.length + ' ' + document.createExpression.length + ' ' + document.createNSResolver.length + ' ' + XPathExpression.prototype.evaluate.length);
+attempt('new XPathResult', function () { return new XPathResult(); });
+attempt('new XPathExpression', function () { return new XPathExpression(); });
+attempt('call XPathEvaluator', function () { return XPathEvaluator(); });
+
+// Each result type.
+dump('any-number', document.evaluate('count(//p)', t, null, 0, null));
+dump('any-string', document.evaluate('string(p)', t, null, XPathResult.ANY_TYPE, null));
+dump('any-boolean', document.evaluate('1 = 1', t, null, 0, null));
+dump('any-nodes', document.evaluate('p', t, null, 0, null));
+dump('number', document.evaluate('p', t, null, 1, null));
+dump('string', document.evaluate('p', t, null, 2, null));
+dump('boolean', document.evaluate('p', t, null, 3, null));
+dump('unordered-iter', document.evaluate('p', t, null, 4, null));
+dump('ordered-iter', document.evaluate('p', t, null, 5, null));
+dump('unordered-snap', document.evaluate('p', t, null, 6, null));
+dump('ordered-snap', document.evaluate('p', t, null, 7, null));
+dump('any-unordered', document.evaluate('p', t, null, 8, null));
+dump('first-ordered', document.evaluate('p', t, null, 9, null));
+dump('first-none', document.evaluate('nothing', t, null, 9, null));
+attempt('number-as-iter', function () { return document.evaluate('1', t, null, 4, null); });
+attempt('string-as-snap', function () { return document.evaluate('"x"', t, null, 7, null); });
+attempt('bool-as-first', function () { return document.evaluate('true()', t, null, 9, null); });
+attempt('bad-type', function () { return d(document.evaluate('p', t, null, 42, null).singleNodeValue); });
+attempt('neg-type', function () { return document.evaluate('p', t, null, -1, null).resultType; });
+attempt('string-type', function () { return document.evaluate('p', t, null, '7', null).snapshotLength; });
+
+// Iteration.
+var it = document.evaluate('//p', document, null, 5, null);
+var seen = [];
+for (var n = it.iterateNext(); n; n = it.iterateNext()) seen.push(d(n));
+log('iterate ' + seen.join(' ') + ' then ' + it.iterateNext() + ' invalid=' + it.invalidIteratorState);
+var snapR = document.evaluate('//p', document, null, 7, null);
+log('snapshot ' + snapR.snapshotLength + ' ' + d(snapR.snapshotItem(0)) + ' ' + d(snapR.snapshotItem(9)) + ' ' + d(snapR.snapshotItem(-1)));
+attempt('snapshotItem-noargs', function () { return snapR.snapshotItem(); });
+attempt('iterate-on-snapshot', function () { return snapR.iterateNext(); });
+attempt('snapshotItem-on-iter', function () { return it.snapshotItem(0); });
+
+// Mutation during iteration.
+var it2 = document.evaluate('//p', document, null, 4, null);
+var first = d(it2.iterateNext());
+t.appendChild(document.createElement('span'));
+var inv = it2.invalidIteratorState;
+attempt('mutated ' + first + ' invalid=' + inv, function () { return it2.iterateNext(); });
+var it3 = document.evaluate('//p', document, null, 4, null);
+document.getElementById('a').setAttribute('data-y', '1');
+var inv3 = it3.invalidIteratorState;
+attempt('attr-mutated invalid=' + inv3, function () { return d(it3.iterateNext()); });
+var it4 = document.evaluate('//p', document, null, 4, null);
+document.getElementById('a').firstChild.data = 'AA';
+var inv4 = it4.invalidIteratorState;
+attempt('data-mutated invalid=' + inv4, function () { return d(it4.iterateNext()); });
+var snap5 = document.evaluate('//p', document, null, 7, null);
+t.appendChild(document.createElement('span'));
+log('snapshot-after-mutation ' + snap5.snapshotLength + ' ' + d(snap5.snapshotItem(0)));
+
+// Result reuse, evaluator objects, resolver.
+var reuse = document.evaluate('p', t, null, 7, null);
+var again = document.evaluate('count(p)', t, null, 0, reuse);
+log('reuse ' + (again === reuse) + ' ' + again.resultType);
+var ev = new XPathEvaluator();
+log('evaluator ' + Object.prototype.toString.call(ev) + ' ' + ev.evaluate('count(//p)', document, null, 1, null).numberValue);
+var expr = document.createExpression('p[1]');
+log('expression ' + Object.prototype.toString.call(expr) + ' ' + d(expr.evaluate(t, 9, null).singleNodeValue) + ' ' + d(expr.evaluate(document.getElementById('c').firstChild.lastChild, 9).singleNodeValue));
+log('expression-default ' + expr.evaluate(t).resultType);
+var expr2 = ev.createExpression('count(*)', null);
+log('evaluator-expression ' + expr2.evaluate(t).numberValue);
+log('resolver ' + (document.createNSResolver(t) === t) + ' ' + (ev.createNSResolver(document) === document));
+attempt('resolver-bad', function () { return document.createNSResolver(5); });
+log('defaults ' + document.evaluate('count(*)', t).numberValue);
+attempt('no-args', function () { return document.evaluate(); });
+attempt('one-arg', function () { return document.evaluate('1'); });
+attempt('bad-context', function () { return document.evaluate('1', {}, null, 0, null); });
+attempt('null-context', function () { return document.evaluate('1', null, null, 0, null); });
+attempt('bad-resolver', function () { return document.evaluate('1', t, 5, 0, null); });
+attempt('bad-result', function () { return document.evaluate('1', t, null, 0, {}).numberValue; });
+attempt('syntax', function () { return document.evaluate('//[', t, null, 0, null); });
+attempt('syntax-create', function () { return document.createExpression('1 +'); });
+attempt('syntax-evaluator', function () { return ev.evaluate('))', t, null, 0, null); });
+attempt('prefix-no-resolver', function () { return document.evaluate('//x:p', t, null, 0, null); });
+attempt('prefix-resolver-fn', function () { return document.evaluate('//x:p', t, function () { return 'http://www.w3.org/1999/xhtml'; }, 7, null).snapshotLength; });
+attempt('prefix-resolver-obj', function () { return document.evaluate('//x:p', t, { lookupNamespaceURI: function (p) { return p === 'x' ? 'http://www.w3.org/1999/xhtml' : null; } }, 7, null).snapshotLength; });
+attempt('prefix-resolver-null', function () { return document.evaluate('//x:p', t, function () { return null; }, 7, null).snapshotLength; });
+attempt('expr-coerce', function () { return document.evaluate({ toString: function () { return 'count(p)'; } }, t, null, 0, null).numberValue; });
+attempt('expr-bad-receiver', function () { return XPathExpression.prototype.evaluate.call({}, t); });
+attempt('result-bad-receiver', function () { return Object.getOwnPropertyDescriptor(XPathResult.prototype, 'resultType').get.call({}); });
+attempt('expr-bad-context', function () { return expr.evaluate(5); });
+attempt('text-context', function () { return document.evaluate('string(.)', document.getElementById('a').firstChild, null, 2, null).stringValue; });
+attempt('detached-context', function () { var x = document.createElement('div'); x.innerHTML = '<b>q</b><b>r</b>'; return document.evaluate('count(b) + count(/)', x, null, 1, null).numberValue + ' ' + d(document.evaluate('/', x, null, 9, null).singleNodeValue); });
+
+// HTML names.
+function snap(expr) {
+  try {
+    var r = document.evaluate(expr, t, null, 7, null);
+    var o = [];
+    for (var i = 0; i < r.snapshotLength; i++) o.push(d(r.snapshotItem(i)));
+    log(expr + ' => [' + o.join(' ') + ']');
+  } catch (e) {
+    log(expr + ' THREW ' + e.name + ': ' + e.message);
+  }
+}
+snap('//P');
+snap('//p');
+snap('//Div');
+snap('//svg');
+snap('//circle');
+snap('//foreignObject');
+snap('//*[local-name()="svg"]');
+snap('//*[local-name()="foreignObject"]/*');
+snap('//*[name()="P"]');
+snap('//*[name()="p"]');
+snap('//@Data-X');
+snap('//@data-x');
+snap('//*[@DATA-X]');
+snap('//@viewBox');
+snap('//@viewbox');
+snap('//*[namespace-uri()="http://www.w3.org/2000/svg"]');
+snap('//*[namespace-uri()="http://www.w3.org/1999/xhtml" and @id="b"]');
+var attr = document.evaluate('//@data-x', t, null, 9, null).singleNodeValue;
+log('attr ' + Object.prototype.toString.call(attr) + ' ' + attr.nodeType + ' ' + attr.name + ' ' + attr.localName + ' ' + attr.value + ' ' + d(attr.ownerElement) + ' ' + attr.nodeName + ' ' + attr.nodeValue + ' ' + attr.textContent + ' ' + attr.parentNode + ' ' + (attr === document.evaluate('//@data-x', t, null, 9, null).singleNodeValue));
+log('attr-context ' + document.evaluate('string(..)', attr, null, 2, null).stringValue + ' ' + document.evaluate('count(ancestor::*)', attr, null, 1, null).numberValue);
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head><title>xpath result</title></head>
+<body>
+<div id="t"><p id="a" data-y="1">AA</p><p id="b" data-x="1">B</p><div id="c"><svg id="g"><circle id="k" viewBox="0 0 1 1"></circle><foreignObject id="fo"><p id="d">D</p></foreignObject></svg></div><span></span><span></span></div>
+<pre id="log">constants 0/0 1/1 2/2 3/3 4/4 5/5 6/6 7/7 8/8 9/9
+types function function function
+proto resultType,numberValue,stringValue,booleanValue,singleNodeValue,invalidIteratorState,snapshotLength,ANY_TYPE,NUMBER_TYPE,STRING_TYPE,BOOLEAN_TYPE,UNORDERED_NODE_ITERATOR_TYPE,ORDERED_NODE_ITERATOR_TYPE,UNORDERED_NODE_SNAPSHOT_TYPE,ORDERED_NODE_SNAPSHOT_TYPE,ANY_UNORDERED_NODE_TYPE,FIRST_ORDERED_NODE_TYPE,iterateNext,snapshotItem,constructor
+proto evaluate,constructor
+proto createExpression,createNSResolver,evaluate,constructor
+lengths 2 1 1 1
+new XPathResult THREW TypeError TypeError: Failed to construct 'XPathResult': Illegal constructor
+new XPathExpression THREW TypeError TypeError: Failed to construct 'XPathExpression': Illegal constructor
+call XPathEvaluator THREW TypeError TypeError: Failed to construct 'XPathEvaluator': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+any-number type=1 numberValue=3 stringValue!TypeError booleanValue!TypeError singleNodeValue!TypeError snapshotLength!TypeError invalidIteratorState=false
+any-string type=2 numberValue!TypeError stringValue=A booleanValue!TypeError singleNodeValue!TypeError snapshotLength!TypeError invalidIteratorState=false
+any-boolean type=3 numberValue!TypeError stringValue!TypeError booleanValue=true singleNodeValue!TypeError snapshotLength!TypeError invalidIteratorState=false
+any-nodes type=4 numberValue!TypeError stringValue!TypeError booleanValue!TypeError singleNodeValue!TypeError snapshotLength!TypeError invalidIteratorState=false
+number type=1 numberValue=NaN stringValue!TypeError booleanValue!TypeError singleNodeValue!TypeError snapshotLength!TypeError invalidIteratorState=false
+string type=2 numberValue!TypeError stringValue=A booleanValue!TypeError singleNodeValue!TypeError snapshotLength!TypeError invalidIteratorState=false
+boolean type=3 numberValue!TypeError stringValue!TypeError booleanValue=true singleNodeValue!TypeError snapshotLength!TypeError invalidIteratorState=false
+unordered-iter type=4 numberValue!TypeError stringValue!TypeError booleanValue!TypeError singleNodeValue!TypeError snapshotLength!TypeError invalidIteratorState=false
+ordered-iter type=5 numberValue!TypeError stringValue!TypeError booleanValue!TypeError singleNodeValue!TypeError snapshotLength!TypeError invalidIteratorState=false
+unordered-snap type=6 numberValue!TypeError stringValue!TypeError booleanValue!TypeError singleNodeValue!TypeError snapshotLength=2 invalidIteratorState=false
+ordered-snap type=7 numberValue!TypeError stringValue!TypeError booleanValue!TypeError singleNodeValue!TypeError snapshotLength=2 invalidIteratorState=false
+any-unordered type=8 numberValue!TypeError stringValue!TypeError booleanValue!TypeError singleNodeValue=p#a snapshotLength!TypeError invalidIteratorState=false
+first-ordered type=9 numberValue!TypeError stringValue!TypeError booleanValue!TypeError singleNodeValue=p#a snapshotLength!TypeError invalidIteratorState=false
+first-none type=9 numberValue!TypeError stringValue!TypeError booleanValue!TypeError singleNodeValue=null snapshotLength!TypeError invalidIteratorState=false
+number-as-iter THREW TypeError TypeError: Failed to execute 'evaluate' on 'Document': The result is not a node set, and therefore cannot be converted to the desired type.
+string-as-snap THREW TypeError TypeError: Failed to execute 'evaluate' on 'Document': The result is not a node set, and therefore cannot be converted to the desired type.
+bool-as-first THREW TypeError TypeError: Failed to execute 'evaluate' on 'Document': The result is not a node set, and therefore cannot be converted to the desired type.
+bad-type THREW TypeError TypeError: Failed to read the 'singleNodeValue' property from 'XPathResult': The result type is not a single node.
+neg-type 4
+string-type 2
+iterate p#a p#b p#d then null invalid=false
+snapshot 3 p#a null null
+snapshotItem-noargs THREW TypeError TypeError: Failed to execute 'snapshotItem' on 'XPathResult': 1 argument required, but only 0 present.
+iterate-on-snapshot THREW TypeError TypeError: Failed to execute 'iterateNext' on 'XPathResult': The result type is not an iterator.
+snapshotItem-on-iter THREW TypeError TypeError: Failed to execute 'snapshotItem' on 'XPathResult': The result type is not a snapshot.
+mutated p#a invalid=true THREW InvalidStateError DOMException: Failed to execute 'iterateNext' on 'XPathResult': The document has mutated since the result was returned.
+attr-mutated invalid=true THREW InvalidStateError DOMException: Failed to execute 'iterateNext' on 'XPathResult': The document has mutated since the result was returned.
+data-mutated invalid=true THREW InvalidStateError DOMException: Failed to execute 'iterateNext' on 'XPathResult': The document has mutated since the result was returned.
+snapshot-after-mutation 3 p#a
+reuse false 1
+evaluator [object XPathEvaluator] 3
+expression [object XPathExpression] p#a p#d
+expression-default 4
+evaluator-expression 5
+resolver true true
+resolver-bad THREW TypeError TypeError: Failed to execute 'createNSResolver' on 'Document': parameter 1 is not of type 'Node'.
+defaults 5
+no-args THREW TypeError TypeError: Failed to execute 'evaluate' on 'Document': 2 arguments required, but only 0 present.
+one-arg THREW TypeError TypeError: Failed to execute 'evaluate' on 'Document': 2 arguments required, but only 1 present.
+bad-context THREW TypeError TypeError: Failed to execute 'evaluate' on 'Document': parameter 2 is not of type 'Node'.
+null-context THREW TypeError TypeError: Failed to execute 'evaluate' on 'Document': parameter 2 is not of type 'Node'.
+bad-resolver THREW TypeError TypeError: Failed to execute 'evaluate' on 'Document': parameter 3 is not of type 'Object'.
+bad-result 1
+syntax THREW SyntaxError DOMException: Failed to execute 'evaluate' on 'Document': The string '//[' is not a valid XPath expression.
+syntax-create THREW SyntaxError DOMException: Failed to execute 'createExpression' on 'Document': The string '1 +' is not a valid XPath expression.
+syntax-evaluator THREW SyntaxError DOMException: Failed to execute 'evaluate' on 'XPathEvaluator': The string '))' is not a valid XPath expression.
+prefix-no-resolver THREW NamespaceError DOMException: Failed to execute 'evaluate' on 'Document': The string '//x:p' contains unresolvable namespaces.
+prefix-resolver-fn 3
+prefix-resolver-obj 3
+prefix-resolver-null THREW NamespaceError DOMException: Failed to execute 'evaluate' on 'Document': The string '//x:p' contains unresolvable namespaces.
+expr-coerce 2
+expr-bad-receiver THREW TypeError TypeError: Illegal invocation
+result-bad-receiver THREW TypeError TypeError: Illegal invocation
+expr-bad-context THREW TypeError TypeError: Failed to execute 'evaluate' on 'XPathExpression': parameter 1 is not of type 'Node'.
+text-context AA
+detached-context 3 div
+//P =&gt; [p#a p#b p#d]
+//p =&gt; [p#a p#b p#d]
+//Div =&gt; [div#t div#c]
+//svg =&gt; []
+//circle =&gt; []
+//foreignObject =&gt; []
+//*[local-name()="svg"] =&gt; [svg#g]
+//*[local-name()="foreignObject"]/* =&gt; [p#d]
+//*[name()="P"] =&gt; []
+//*[name()="p"] =&gt; [p#a p#b p#d]
+//@Data-X =&gt; [@data-x="1"]
+//@data-x =&gt; [@data-x="1"]
+//*[@DATA-X] =&gt; [p#b]
+//@viewBox =&gt; [@viewBox="0 0 1 1"]
+//@viewbox =&gt; []
+//*[namespace-uri()="http://www.w3.org/2000/svg"] =&gt; [svg#g circle#k foreignobject#fo]
+//*[namespace-uri()="http://www.w3.org/1999/xhtml" and @id="b"] =&gt; [p#b]
+attr [object Attr] 2 data-x data-x 1 p#b data-x 1 1 null true
+attr-context B 4
+</pre>
+<script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function d(n) {
+  if (n === null) return 'null';
+  if (n === undefined) return 'undefined';
+  switch (n.nodeType) {
+    case 1: return n.nodeName.toLowerCase() + (n.id ? '#' + n.id : '');
+    case 2: return '@' + n.name + '=' + JSON.stringify(n.value);
+    case 3: return 'text' + JSON.stringify(n.data);
+    case 9: return 'document';
+  }
+  return '?' + n.nodeType;
+}
+function attempt(label, f) {
+  try {
+    log(label + ' ' + f());
+  } catch (e) {
+    log(label + ' THREW ' + e.name + ' ' + e.constructor.name + ': ' + e.message);
+  }
+}
+var t = document.getElementById('t');
+var props = ['numberValue', 'stringValue', 'booleanValue', 'singleNodeValue', 'snapshotLength', 'invalidIteratorState'];
+function dump(label, r) {
+  var out = [label, 'type=' + r.resultType];
+  for (var i = 0; i < props.length; i++) {
+    try {
+      var v = r[props[i]];
+      out.push(props[i] + '=' + (props[i] === 'singleNodeValue' ? d(v) : String(v)));
+    } catch (e) {
+      out.push(props[i] + '!' + e.name);
+    }
+  }
+  log(out.join(' '));
+}
+
+// Constants and shape.
+var names = ['ANY_TYPE', 'NUMBER_TYPE', 'STRING_TYPE', 'BOOLEAN_TYPE', 'UNORDERED_NODE_ITERATOR_TYPE', 'ORDERED_NODE_ITERATOR_TYPE', 'UNORDERED_NODE_SNAPSHOT_TYPE', 'ORDERED_NODE_SNAPSHOT_TYPE', 'ANY_UNORDERED_NODE_TYPE', 'FIRST_ORDERED_NODE_TYPE'];
+log('constants ' + names.map(function (n) { return XPathResult[n] + '/' + XPathResult.prototype[n]; }).join(' '));
+log('types ' + typeof XPathResult + ' ' + typeof XPathEvaluator + ' ' + typeof XPathExpression);
+log('proto ' + Object.getOwnPropertyNames(XPathResult.prototype).join(','));
+log('proto ' + Object.getOwnPropertyNames(XPathExpression.prototype).join(','));
+log('proto ' + Object.getOwnPropertyNames(XPathEvaluator.prototype).join(','));
+log('lengths ' + document.evaluate.length + ' ' + document.createExpression.length + ' ' + document.createNSResolver.length + ' ' + XPathExpression.prototype.evaluate.length);
+attempt('new XPathResult', function () { return new XPathResult(); });
+attempt('new XPathExpression', function () { return new XPathExpression(); });
+attempt('call XPathEvaluator', function () { return XPathEvaluator(); });
+
+// Each result type.
+dump('any-number', document.evaluate('count(//p)', t, null, 0, null));
+dump('any-string', document.evaluate('string(p)', t, null, XPathResult.ANY_TYPE, null));
+dump('any-boolean', document.evaluate('1 = 1', t, null, 0, null));
+dump('any-nodes', document.evaluate('p', t, null, 0, null));
+dump('number', document.evaluate('p', t, null, 1, null));
+dump('string', document.evaluate('p', t, null, 2, null));
+dump('boolean', document.evaluate('p', t, null, 3, null));
+dump('unordered-iter', document.evaluate('p', t, null, 4, null));
+dump('ordered-iter', document.evaluate('p', t, null, 5, null));
+dump('unordered-snap', document.evaluate('p', t, null, 6, null));
+dump('ordered-snap', document.evaluate('p', t, null, 7, null));
+dump('any-unordered', document.evaluate('p', t, null, 8, null));
+dump('first-ordered', document.evaluate('p', t, null, 9, null));
+dump('first-none', document.evaluate('nothing', t, null, 9, null));
+attempt('number-as-iter', function () { return document.evaluate('1', t, null, 4, null); });
+attempt('string-as-snap', function () { return document.evaluate('"x"', t, null, 7, null); });
+attempt('bool-as-first', function () { return document.evaluate('true()', t, null, 9, null); });
+attempt('bad-type', function () { return d(document.evaluate('p', t, null, 42, null).singleNodeValue); });
+attempt('neg-type', function () { return document.evaluate('p', t, null, -1, null).resultType; });
+attempt('string-type', function () { return document.evaluate('p', t, null, '7', null).snapshotLength; });
+
+// Iteration.
+var it = document.evaluate('//p', document, null, 5, null);
+var seen = [];
+for (var n = it.iterateNext(); n; n = it.iterateNext()) seen.push(d(n));
+log('iterate ' + seen.join(' ') + ' then ' + it.iterateNext() + ' invalid=' + it.invalidIteratorState);
+var snapR = document.evaluate('//p', document, null, 7, null);
+log('snapshot ' + snapR.snapshotLength + ' ' + d(snapR.snapshotItem(0)) + ' ' + d(snapR.snapshotItem(9)) + ' ' + d(snapR.snapshotItem(-1)));
+attempt('snapshotItem-noargs', function () { return snapR.snapshotItem(); });
+attempt('iterate-on-snapshot', function () { return snapR.iterateNext(); });
+attempt('snapshotItem-on-iter', function () { return it.snapshotItem(0); });
+
+// Mutation during iteration.
+var it2 = document.evaluate('//p', document, null, 4, null);
+var first = d(it2.iterateNext());
+t.appendChild(document.createElement('span'));
+var inv = it2.invalidIteratorState;
+attempt('mutated ' + first + ' invalid=' + inv, function () { return it2.iterateNext(); });
+var it3 = document.evaluate('//p', document, null, 4, null);
+document.getElementById('a').setAttribute('data-y', '1');
+var inv3 = it3.invalidIteratorState;
+attempt('attr-mutated invalid=' + inv3, function () { return d(it3.iterateNext()); });
+var it4 = document.evaluate('//p', document, null, 4, null);
+document.getElementById('a').firstChild.data = 'AA';
+var inv4 = it4.invalidIteratorState;
+attempt('data-mutated invalid=' + inv4, function () { return d(it4.iterateNext()); });
+var snap5 = document.evaluate('//p', document, null, 7, null);
+t.appendChild(document.createElement('span'));
+log('snapshot-after-mutation ' + snap5.snapshotLength + ' ' + d(snap5.snapshotItem(0)));
+
+// Result reuse, evaluator objects, resolver.
+var reuse = document.evaluate('p', t, null, 7, null);
+var again = document.evaluate('count(p)', t, null, 0, reuse);
+log('reuse ' + (again === reuse) + ' ' + again.resultType);
+var ev = new XPathEvaluator();
+log('evaluator ' + Object.prototype.toString.call(ev) + ' ' + ev.evaluate('count(//p)', document, null, 1, null).numberValue);
+var expr = document.createExpression('p[1]');
+log('expression ' + Object.prototype.toString.call(expr) + ' ' + d(expr.evaluate(t, 9, null).singleNodeValue) + ' ' + d(expr.evaluate(document.getElementById('c').firstChild.lastChild, 9).singleNodeValue));
+log('expression-default ' + expr.evaluate(t).resultType);
+var expr2 = ev.createExpression('count(*)', null);
+log('evaluator-expression ' + expr2.evaluate(t).numberValue);
+log('resolver ' + (document.createNSResolver(t) === t) + ' ' + (ev.createNSResolver(document) === document));
+attempt('resolver-bad', function () { return document.createNSResolver(5); });
+log('defaults ' + document.evaluate('count(*)', t).numberValue);
+attempt('no-args', function () { return document.evaluate(); });
+attempt('one-arg', function () { return document.evaluate('1'); });
+attempt('bad-context', function () { return document.evaluate('1', {}, null, 0, null); });
+attempt('null-context', function () { return document.evaluate('1', null, null, 0, null); });
+attempt('bad-resolver', function () { return document.evaluate('1', t, 5, 0, null); });
+attempt('bad-result', function () { return document.evaluate('1', t, null, 0, {}).numberValue; });
+attempt('syntax', function () { return document.evaluate('//[', t, null, 0, null); });
+attempt('syntax-create', function () { return document.createExpression('1 +'); });
+attempt('syntax-evaluator', function () { return ev.evaluate('))', t, null, 0, null); });
+attempt('prefix-no-resolver', function () { return document.evaluate('//x:p', t, null, 0, null); });
+attempt('prefix-resolver-fn', function () { return document.evaluate('//x:p', t, function () { return 'http://www.w3.org/1999/xhtml'; }, 7, null).snapshotLength; });
+attempt('prefix-resolver-obj', function () { return document.evaluate('//x:p', t, { lookupNamespaceURI: function (p) { return p === 'x' ? 'http://www.w3.org/1999/xhtml' : null; } }, 7, null).snapshotLength; });
+attempt('prefix-resolver-null', function () { return document.evaluate('//x:p', t, function () { return null; }, 7, null).snapshotLength; });
+attempt('expr-coerce', function () { return document.evaluate({ toString: function () { return 'count(p)'; } }, t, null, 0, null).numberValue; });
+attempt('expr-bad-receiver', function () { return XPathExpression.prototype.evaluate.call({}, t); });
+attempt('result-bad-receiver', function () { return Object.getOwnPropertyDescriptor(XPathResult.prototype, 'resultType').get.call({}); });
+attempt('expr-bad-context', function () { return expr.evaluate(5); });
+attempt('text-context', function () { return document.evaluate('string(.)', document.getElementById('a').firstChild, null, 2, null).stringValue; });
+attempt('detached-context', function () { var x = document.createElement('div'); x.innerHTML = '<b>q</b><b>r</b>'; return document.evaluate('count(b) + count(/)', x, null, 1, null).numberValue + ' ' + d(document.evaluate('/', x, null, 9, null).singleNodeValue); });
+
+// HTML names.
+function snap(expr) {
+  try {
+    var r = document.evaluate(expr, t, null, 7, null);
+    var o = [];
+    for (var i = 0; i < r.snapshotLength; i++) o.push(d(r.snapshotItem(i)));
+    log(expr + ' => [' + o.join(' ') + ']');
+  } catch (e) {
+    log(expr + ' THREW ' + e.name + ': ' + e.message);
+  }
+}
+snap('//P');
+snap('//p');
+snap('//Div');
+snap('//svg');
+snap('//circle');
+snap('//foreignObject');
+snap('//*[local-name()="svg"]');
+snap('//*[local-name()="foreignObject"]/*');
+snap('//*[name()="P"]');
+snap('//*[name()="p"]');
+snap('//@Data-X');
+snap('//@data-x');
+snap('//*[@DATA-X]');
+snap('//@viewBox');
+snap('//@viewbox');
+snap('//*[namespace-uri()="http://www.w3.org/2000/svg"]');
+snap('//*[namespace-uri()="http://www.w3.org/1999/xhtml" and @id="b"]');
+var attr = document.evaluate('//@data-x', t, null, 9, null).singleNodeValue;
+log('attr ' + Object.prototype.toString.call(attr) + ' ' + attr.nodeType + ' ' + attr.name + ' ' + attr.localName + ' ' + attr.value + ' ' + d(attr.ownerElement) + ' ' + attr.nodeName + ' ' + attr.nodeValue + ' ' + attr.textContent + ' ' + attr.parentNode + ' ' + (attr === document.evaluate('//@data-x', t, null, 9, null).singleNodeValue));
+log('attr-context ' + document.evaluate('string(..)', attr, null, 2, null).stringValue + ' ' + document.evaluate('count(ancestor::*)', attr, null, 1, null).numberValue);
+</script>
+
+
+</body></html>

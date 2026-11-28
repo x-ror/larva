@@ -1,0 +1,398 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-28
+# runs: 3 identical
+# command: node scripts/record-dom.mjs xpath-misc.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "xpath misc"
+|   "
+"
+|   <body>
+|     "
+"
+|     <div>
+|       id="t"
+|       <?php run >
+|       <a>
+|         id="a1"
+|         href="/again"
+|         rel="next"
+|         "one"
+|       <!-- note -->
+|       <a>
+|         id="a2"
+|         href="/y"
+|         "two"
+|       <b>
+|         id="b"
+|         "x"
+|         <i>
+|           id="i"
+|           "y"
+|         "z"
+|     "
+"
+|     <pre>
+|       id="log"
+|       "processing-instruction() => [pi:php="run "]
+"
+|       "processing-instruction("php") => [pi:php="run "]
+"
+|       "processing-instruction("asp") => []
+"
+|       "node() => [pi:php="run " a#a1 comment:note a#a2 b#b]
+"
+|       "name(processing-instruction()) => "php"
+"
+|       "local-name(processing-instruction()) => "php"
+"
+|       "string(processing-instruction()) => "run "
+"
+|       "string(comment()) => "note"
+"
+|       "name(comment()) => ""
+"
+|       "a/@* => [@id="a1" @href="/x" @rel="next" @id="a2" @href="/y"]
+"
+|       "a/@href | a => [a#a1 @href="/x" a#a2 @href="/y"]
+"
+|       "(a/@href)[last()] => [@href="/y"]
+"
+|       "following::* => [a#a2 b#b i#i pre#log script]
+"
+|       "preceding::node() => [?10 head title text"xpath misc" text"\n" text"\n" pi:php="run "]
+"
+|       "preceding-sibling::node() | following-sibling::node() => []
+"
+|       "self::node() => [@href="/x"]
+"
+|       "self::* => []
+"
+|       "child::node() => []
+"
+|       ". => "/x"
+"
+|       "name(.) => "href"
+"
+|       "/descendant::a => []
+"
+|       "setter /changed /changed
+"
+|       "live /again true
+"
+|       "a[@href = "/again"] => [a#a1]
+"
+|       "a[starts-with(@href, "/")][last()] => [a#a2]
+"
+|       "a[contains(., "tw")] => [a#a2]
+"
+|       "a[normalize-space(text()) = "one"] => [a#a1]
+"
+|       "//*[text() = "z"] => [b#b]
+"
+|       "b/text() => [text"x" text"z"]
+"
+|       "b//text()[2] => [text"z"]
+"
+|       "b/node()[last()] => [text"z"]
+"
+|       "*[2]/following-sibling::*[1] => [b#b]
+"
+|       "a[2]/preceding::comment() => [comment:note]
+"
+|       "stringValue TypeError: Failed to read the 'stringValue' property from 'XPathResult': The result type is not a string.
+"
+|       "booleanValue TypeError: Failed to read the 'booleanValue' property from 'XPathResult': The result type is not a boolean.
+"
+|       "singleNodeValue TypeError: Failed to read the 'singleNodeValue' property from 'XPathResult': The result type is not a single node.
+"
+|       "snapshotLength TypeError: Failed to read the 'snapshotLength' property from 'XPathResult': The result type is not a snapshot.
+"
+|       "numberValue TypeError: Failed to read the 'numberValue' property from 'XPathResult': The result type is not a number.
+"
+|       "li[2] => [li#d2]
+"
+|       "id("d1 a2") => [a#a2]
+"
+|       "/ => [ul]
+"
+|       "//li => [li#d1 li#d2]
+"
+|       "/ THREW NotSupportedError: Failed to execute 'evaluate' on 'Document': The node provided is '#document-fragment', which is not a valid context node type.
+"
+|       ".//p THREW NotSupportedError: Failed to execute 'evaluate' on 'Document': The node provided is '#document-fragment', which is not a valid context node type.
+"
+|       "/html/body => []
+"
+|       "string(/) THREW NotSupportedError: Failed to execute 'evaluate' on 'Document': The node provided is '#document-fragment', which is not a valid context node type.
+"
+|       "string-length(normalize-space(/)) => "5716"
+"
+|       "xmlish 4
+"
+|     "
+"
+|     <script>
+|       "
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function d(n) {
+  if (n === null) return 'null';
+  switch (n.nodeType) {
+    case 1: return n.nodeName.toLowerCase() + (n.id ? '#' + n.id : '');
+    case 2: return '@' + n.name + '=' + JSON.stringify(n.value);
+    case 3: return 'text' + JSON.stringify(n.data);
+    case 7: return 'pi:' + n.target + '=' + JSON.stringify(n.data);
+    case 8: return 'comment:' + n.data;
+    case 9: return 'document';
+  }
+  return '?' + n.nodeType;
+}
+function snap(expr, ctx) {
+  try {
+    var r = document.evaluate(expr, ctx || t, null, 7, null);
+    var o = [];
+    for (var i = 0; i < r.snapshotLength; i++) o.push(d(r.snapshotItem(i)));
+    log(expr + ' => [' + o.join(' ') + ']');
+  } catch (e) {
+    log(expr + ' THREW ' + e.name + ': ' + e.message);
+  }
+}
+function str(expr, ctx) {
+  try {
+    log(expr + ' => ' + JSON.stringify(document.evaluate(expr, ctx || t, null, 2, null).stringValue));
+  } catch (e) {
+    log(expr + ' THREW ' + e.name + ': ' + e.message);
+  }
+}
+var t = document.getElementById('t');
+snap('processing-instruction()');
+snap('processing-instruction("php")');
+snap('processing-instruction("asp")');
+snap('node()');
+str('name(processing-instruction())');
+str('local-name(processing-instruction())');
+str('string(processing-instruction())');
+str('string(comment())');
+str('name(comment())');
+snap('a/@*');
+snap('a/@href | a');
+snap('(a/@href)[last()]');
+var href = document.evaluate('a[1]/@href', t, null, 9, null).singleNodeValue;
+snap('following::*', href);
+snap('preceding::node()', href);
+snap('preceding-sibling::node() | following-sibling::node()', href);
+snap('self::node()', href);
+snap('self::*', href);
+snap('child::node()', href);
+str('.', href);
+str('name(.)', href);
+snap('/descendant::a', href);
+href.value = '/changed';
+log('setter ' + document.getElementById('a1').getAttribute('href') + ' ' + href.value);
+document.getElementById('a1').setAttribute('href', '/again');
+log('live ' + href.value + ' ' + (href === document.evaluate('a[1]/@href', t, null, 9, null).singleNodeValue));
+snap('a[@href = "/again"]');
+snap('a[starts-with(@href, "/")][last()]');
+snap('a[contains(., "tw")]');
+snap('a[normalize-space(text()) = "one"]');
+snap('//*[text() = "z"]');
+snap('b/text()');
+snap('b//text()[2]');
+snap('b/node()[last()]');
+snap('*[2]/following-sibling::*[1]');
+snap('a[2]/preceding::comment()');
+var r = document.evaluate('count(a)', t, null, 1, null);
+var msgs = ['stringValue', 'booleanValue', 'singleNodeValue', 'snapshotLength'];
+for (var i = 0; i < msgs.length; i++) {
+  try {
+    r[msgs[i]];
+  } catch (e) {
+    log(msgs[i] + ' ' + e.constructor.name + ': ' + e.message);
+  }
+}
+try {
+  document.evaluate('a', t, null, 7, null).numberValue;
+} catch (e) {
+  log('numberValue ' + e.constructor.name + ': ' + e.message);
+}
+var detached = document.createElement('ul');
+detached.innerHTML = '<li id="d1">1</li><li id="d2">2</li>';
+snap('li[2]', detached);
+snap('id("d1 a2")', detached);
+snap('/', detached);
+snap('//li', detached);
+var frag = document.createDocumentFragment();
+frag.appendChild(document.createElement('p'));
+snap('/', frag);
+snap('.//p', frag);
+snap('/html/body', frag.firstChild);
+str('string(/)', frag);
+str('string-length(normalize-space(/))', document);
+log('xmlish ' + document.evaluate('count(//A) + count(//a[@HREF])', document, null, 1, null).numberValue);
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head><title>xpath misc</title></head>
+<body>
+<div id="t"><?php run ?><a id="a1" href="/again" rel="next">one</a><!--note--><a id="a2" href="/y">two</a><b id="b">x<i id="i">y</i>z</b></div>
+<pre id="log">processing-instruction() =&gt; [pi:php="run "]
+processing-instruction("php") =&gt; [pi:php="run "]
+processing-instruction("asp") =&gt; []
+node() =&gt; [pi:php="run " a#a1 comment:note a#a2 b#b]
+name(processing-instruction()) =&gt; "php"
+local-name(processing-instruction()) =&gt; "php"
+string(processing-instruction()) =&gt; "run "
+string(comment()) =&gt; "note"
+name(comment()) =&gt; ""
+a/@* =&gt; [@id="a1" @href="/x" @rel="next" @id="a2" @href="/y"]
+a/@href | a =&gt; [a#a1 @href="/x" a#a2 @href="/y"]
+(a/@href)[last()] =&gt; [@href="/y"]
+following::* =&gt; [a#a2 b#b i#i pre#log script]
+preceding::node() =&gt; [?10 head title text"xpath misc" text"\n" text"\n" pi:php="run "]
+preceding-sibling::node() | following-sibling::node() =&gt; []
+self::node() =&gt; [@href="/x"]
+self::* =&gt; []
+child::node() =&gt; []
+. =&gt; "/x"
+name(.) =&gt; "href"
+/descendant::a =&gt; []
+setter /changed /changed
+live /again true
+a[@href = "/again"] =&gt; [a#a1]
+a[starts-with(@href, "/")][last()] =&gt; [a#a2]
+a[contains(., "tw")] =&gt; [a#a2]
+a[normalize-space(text()) = "one"] =&gt; [a#a1]
+//*[text() = "z"] =&gt; [b#b]
+b/text() =&gt; [text"x" text"z"]
+b//text()[2] =&gt; [text"z"]
+b/node()[last()] =&gt; [text"z"]
+*[2]/following-sibling::*[1] =&gt; [b#b]
+a[2]/preceding::comment() =&gt; [comment:note]
+stringValue TypeError: Failed to read the 'stringValue' property from 'XPathResult': The result type is not a string.
+booleanValue TypeError: Failed to read the 'booleanValue' property from 'XPathResult': The result type is not a boolean.
+singleNodeValue TypeError: Failed to read the 'singleNodeValue' property from 'XPathResult': The result type is not a single node.
+snapshotLength TypeError: Failed to read the 'snapshotLength' property from 'XPathResult': The result type is not a snapshot.
+numberValue TypeError: Failed to read the 'numberValue' property from 'XPathResult': The result type is not a number.
+li[2] =&gt; [li#d2]
+id("d1 a2") =&gt; [a#a2]
+/ =&gt; [ul]
+//li =&gt; [li#d1 li#d2]
+/ THREW NotSupportedError: Failed to execute 'evaluate' on 'Document': The node provided is '#document-fragment', which is not a valid context node type.
+.//p THREW NotSupportedError: Failed to execute 'evaluate' on 'Document': The node provided is '#document-fragment', which is not a valid context node type.
+/html/body =&gt; []
+string(/) THREW NotSupportedError: Failed to execute 'evaluate' on 'Document': The node provided is '#document-fragment', which is not a valid context node type.
+string-length(normalize-space(/)) =&gt; "5716"
+xmlish 4
+</pre>
+<script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function d(n) {
+  if (n === null) return 'null';
+  switch (n.nodeType) {
+    case 1: return n.nodeName.toLowerCase() + (n.id ? '#' + n.id : '');
+    case 2: return '@' + n.name + '=' + JSON.stringify(n.value);
+    case 3: return 'text' + JSON.stringify(n.data);
+    case 7: return 'pi:' + n.target + '=' + JSON.stringify(n.data);
+    case 8: return 'comment:' + n.data;
+    case 9: return 'document';
+  }
+  return '?' + n.nodeType;
+}
+function snap(expr, ctx) {
+  try {
+    var r = document.evaluate(expr, ctx || t, null, 7, null);
+    var o = [];
+    for (var i = 0; i < r.snapshotLength; i++) o.push(d(r.snapshotItem(i)));
+    log(expr + ' => [' + o.join(' ') + ']');
+  } catch (e) {
+    log(expr + ' THREW ' + e.name + ': ' + e.message);
+  }
+}
+function str(expr, ctx) {
+  try {
+    log(expr + ' => ' + JSON.stringify(document.evaluate(expr, ctx || t, null, 2, null).stringValue));
+  } catch (e) {
+    log(expr + ' THREW ' + e.name + ': ' + e.message);
+  }
+}
+var t = document.getElementById('t');
+snap('processing-instruction()');
+snap('processing-instruction("php")');
+snap('processing-instruction("asp")');
+snap('node()');
+str('name(processing-instruction())');
+str('local-name(processing-instruction())');
+str('string(processing-instruction())');
+str('string(comment())');
+str('name(comment())');
+snap('a/@*');
+snap('a/@href | a');
+snap('(a/@href)[last()]');
+var href = document.evaluate('a[1]/@href', t, null, 9, null).singleNodeValue;
+snap('following::*', href);
+snap('preceding::node()', href);
+snap('preceding-sibling::node() | following-sibling::node()', href);
+snap('self::node()', href);
+snap('self::*', href);
+snap('child::node()', href);
+str('.', href);
+str('name(.)', href);
+snap('/descendant::a', href);
+href.value = '/changed';
+log('setter ' + document.getElementById('a1').getAttribute('href') + ' ' + href.value);
+document.getElementById('a1').setAttribute('href', '/again');
+log('live ' + href.value + ' ' + (href === document.evaluate('a[1]/@href', t, null, 9, null).singleNodeValue));
+snap('a[@href = "/again"]');
+snap('a[starts-with(@href, "/")][last()]');
+snap('a[contains(., "tw")]');
+snap('a[normalize-space(text()) = "one"]');
+snap('//*[text() = "z"]');
+snap('b/text()');
+snap('b//text()[2]');
+snap('b/node()[last()]');
+snap('*[2]/following-sibling::*[1]');
+snap('a[2]/preceding::comment()');
+var r = document.evaluate('count(a)', t, null, 1, null);
+var msgs = ['stringValue', 'booleanValue', 'singleNodeValue', 'snapshotLength'];
+for (var i = 0; i < msgs.length; i++) {
+  try {
+    r[msgs[i]];
+  } catch (e) {
+    log(msgs[i] + ' ' + e.constructor.name + ': ' + e.message);
+  }
+}
+try {
+  document.evaluate('a', t, null, 7, null).numberValue;
+} catch (e) {
+  log('numberValue ' + e.constructor.name + ': ' + e.message);
+}
+var detached = document.createElement('ul');
+detached.innerHTML = '<li id="d1">1</li><li id="d2">2</li>';
+snap('li[2]', detached);
+snap('id("d1 a2")', detached);
+snap('/', detached);
+snap('//li', detached);
+var frag = document.createDocumentFragment();
+frag.appendChild(document.createElement('p'));
+snap('/', frag);
+snap('.//p', frag);
+snap('/html/body', frag.firstChild);
+str('string(/)', frag);
+str('string-length(normalize-space(/))', document);
+log('xmlish ' + document.evaluate('count(//A) + count(//a[@HREF])', document, null, 1, null).numberValue);
+</script>
+
+
+</body></html>

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head><title>xpath functions</title></head>
+<body>
+<div id="t" lang="en-GB"><span id="s1" class="n">10</span><span id="s2" class="n"> 2.5 </span><span id="s3" class="n">x</span><p id="p" lang="fr">  some   spaced
+ text </p><em id="e" lang="EN">en</em></div>
+<pre id="log"></pre>
+<script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function num(v) {
+  return Object.is(v, -0) ? '-0' : String(v);
+}
+function val(expr, ctx) {
+  try {
+    var r = document.evaluate(expr, ctx || document.getElementById('t'), null, 0, null);
+    var t = r.resultType;
+    var v = t === 1 ? num(r.numberValue) : t === 2 ? JSON.stringify(r.stringValue) : t === 3 ? String(r.booleanValue) : 'nodes ' + r.resultType;
+    log(expr + ' => ' + t + ' ' + v);
+  } catch (e) {
+    log(expr + ' THREW ' + e.name + ': ' + e.message);
+  }
+}
+var exprs = [
+  'count(span)', 'count(//span[@class="n"])', 'last()', 'position()',
+  'local-name()', 'local-name(span)', 'local-name(/)', 'local-name(@lang)', 'name()', 'name(@lang)',
+  'namespace-uri()', 'namespace-uri(@lang)', 'namespace-uri(/nothing)',
+  'string()', 'string(span)', 'string(1 div 0)', 'string(-1 div 0)', 'string(0 div 0)', 'string(-0)',
+  'string(1.50)', 'string(0.1 + 0.2)', 'string(123456789012345678901)', 'string(0.0000001)', 'string(1e3)',
+  'string(true())', 'string(false())', 'string(//nothing)',
+  'concat("a", "b", 1, true())', 'concat(span[1], "-", span[2])',
+  'starts-with("hello", "he")', 'starts-with("hello", "")', 'contains("hello", "ll")', 'contains("hello", "")',
+  'substring-before("1999/04/01", "/")', 'substring-before("abc", "x")', 'substring-after("1999/04/01", "/")', 'substring-after("abc", "")',
+  'substring("12345", 2, 3)', 'substring("12345", 2)', 'substring("12345", 1.5, 2.6)', 'substring("12345", 0, 3)',
+  'substring("12345", 0 div 0, 3)', 'substring("12345", 1, 0 div 0)', 'substring("12345", -42, 1 div 0)',
+  'substring("12345", -1 div 0, 1 div 0)',
+  'string-length("abc")', 'string-length()', 'string-length(p)',
+  'normalize-space(p)', 'normalize-space("  a  b ")', 'normalize-space()',
+  'translate("bar", "abc", "ABC")', 'translate("--aaa--", "abc-", "ABC")', 'translate("abc", "aa", "xy")',
+  'boolean(0)', 'boolean(0 div 0)', 'boolean("")', 'boolean(" ")', 'boolean(span)', 'boolean(nothing)',
+  'not(1)', 'true()', 'false()',
+  'lang("en")', 'lang("EN-gb")', 'lang("fr")', 'p/lang("fr")', 'boolean(p[lang("fr")])', 'boolean(em[lang("en")])',
+  'number("  12.5 ")', 'number("1e3")', 'number("-")', 'number("")', 'number(".5")', 'number("5.")', 'number(true())', 'number(span[1])', 'number(span[3])',
+  'number()', 'sum(span[position() < 3])', 'sum(span)', 'sum(nothing)',
+  'floor(2.5)', 'floor(-2.5)', 'ceiling(2.1)', 'ceiling(-0.5)', 'round(2.5)', 'round(-2.5)', 'round(-0.4)', 'round(0 div 0)', 'round(1 div 0)',
+  '1 + 2 * 3', '7 mod 3', '-7 mod 3', '7 mod -3', '5.5 mod 2', '1 div 0', '-1 div 0', '0 div 0', '- - 3', '-span[1]', '10 - 2 - 3', '8 div 2 div 2',
+  '1 = 1', '1 != 1', '"1" = 1', 'true() = 1', 'span = "10"', 'span != "10"', 'span = 10', 'span > 5', 'span < 3', 'span = true()', 'nothing = false()', 'nothing != nothing',
+  'span = span', 'span[1] = span[2]', '"a" < "b"', '2 >= 2', '1 <= 0', '1 < 2 < 3', '3 > 2 > 1',
+  '1 = 1 and 2 = 3', '1 = 1 or nonexistent()', 'false() and nonexistent()',
+  'count(//span | //em)', '(1 + 2) * 3', '"x" or 0',
+  'string(@lang)', 'string(span/@class)', 'count(@*)', 'count(/descendant::*)',
+  'id("s2")', 'string(id("s2"))', 'name(id("s1 s3")[2])',
+  'nonexistent()', 'count()', 'count(1)', 'substring("a")', '1 +', '//[', 'span[', '@', '"unterminated', '1 2', 'concat("a")', 'string(1, 2)', 'foo:bar', 'child::foo:bar', 'bogus::x', '$var',
+  '', '   ', '. | 1',
+];
+for (var i = 0; i < exprs.length; i++) val(exprs[i]);
+</script>
+</body>
+</html>
