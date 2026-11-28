@@ -305,7 +305,7 @@ const FLOOR = JSON.parse(readFileSync(join(ROOT, 'runtime/gates/case-counts.json
 
 // A throwaway suite of `count` cases whose recording is 'x\n', and a stand-in lava
 // that prints exactly that: every case passes, so only suite-level rules can fail.
-function runSuite(count, extra) {
+function runSuite(count, extra, lava = "#!/bin/sh\nprintf 'x\\n'\n") {
   const dir = mkdtempSync(join(tmpdir(), 'web-oracle-suite-'));
   try {
     const cases = join(dir, 'cases');
@@ -319,7 +319,7 @@ function runSuite(count, extra) {
     }
     if (extra) extra(dir);
     const fake = join(dir, 'lava');
-    writeFileSync(fake, "#!/bin/sh\nprintf 'x\\n'\n");
+    writeFileSync(fake, lava);
     chmodSync(fake, 0o755);
     return spawnSync(process.execPath, [join(ROOT, 'scripts/run-web-oracle.mjs')], {
       cwd: ROOT,
@@ -336,6 +336,19 @@ test('a clean throwaway suite at the floor passes', () => {
   const r = runSuite(FLOOR);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, new RegExp(`${FLOOR} pass, 0 known, 0 fail`));
+});
+
+// The mutation gate reads the report through a pipe; process.exit() used to drop the
+// part still queued on it (see the same test in run-dom-oracle.test.mjs).
+test('a long failing run reaches a pipe whole: every FAIL line and the summary', () => {
+  // Each run prints 4 KiB of stderr, which lands in its failure's detail.
+  const noisy = "#!/bin/sh\nhead -c 4096 /dev/zero | tr '\\0' x >&2\nprintf 'y\\n'\n";
+  const r = runSuite(FLOOR, null, noisy);
+  assert.equal(r.status, 1, r.stderr);
+  for (let i = 0; i < FLOOR; i++) {
+    assert.match(r.stdout, new RegExp(`^FAIL t-${i}$`, 'm'));
+  }
+  assert.match(r.stdout, new RegExp(`web oracle: 0 pass, 0 known, ${FLOOR} fail\\n$`));
 });
 
 test('an orphaned pin fails the run even when every case passes', () => {
