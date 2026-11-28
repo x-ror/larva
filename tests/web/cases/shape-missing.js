@@ -9,6 +9,5 @@ for (const name of [
   'SubtleCrypto',
   'CryptoKey',
   'reportError',
-  'ScreenOrientation',
 ])
   print(name + ' ' + typeof globalThis[name]);

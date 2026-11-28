@@ -1,0 +1,579 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-28
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs shape-navigator-apis
+# ---
+== Scheduling
+global Scheduling data -cw fn name="Scheduling" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Scheduling() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object Scheduling]
+prototype [[Prototype]] Object.prototype
+proto isInputPending data ecw fn name="isInputPending" length=0 own=[length,name] prototype=false ctor=false src="function isInputPending() { [native code] }"
+proto constructor data -cw fn name="Scheduling" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Scheduling() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "Scheduling"
+== UserActivation
+global UserActivation data -cw fn name="UserActivation" length=0 own=[length,name,prototype] prototype=true ctor=true src="function UserActivation() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object UserActivation]
+prototype [[Prototype]] Object.prototype
+proto hasBeenActive accessor ec
+  get name="get hasBeenActive" length=0 own=[length,name] prototype=false ctor=false src="function get hasBeenActive() { [native code] }"
+  set undefined
+proto isActive accessor ec
+  get name="get isActive" length=0 own=[length,name] prototype=false ctor=false src="function get isActive() { [native code] }"
+  set undefined
+proto constructor data -cw fn name="UserActivation" length=0 own=[length,name,prototype] prototype=true ctor=true src="function UserActivation() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "UserActivation"
+== Geolocation
+global Geolocation data -cw fn name="Geolocation" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Geolocation() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object Geolocation]
+prototype [[Prototype]] Object.prototype
+proto clearWatch data ecw fn name="clearWatch" length=1 own=[length,name] prototype=false ctor=false src="function clearWatch() { [native code] }"
+proto getCurrentPosition data ecw fn name="getCurrentPosition" length=1 own=[length,name] prototype=false ctor=false src="function getCurrentPosition() { [native code] }"
+proto watchPosition data ecw fn name="watchPosition" length=1 own=[length,name] prototype=false ctor=false src="function watchPosition() { [native code] }"
+proto constructor data -cw fn name="Geolocation" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Geolocation() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "Geolocation"
+== Ink
+global Ink data -cw fn name="Ink" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Ink() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object Ink]
+prototype [[Prototype]] Object.prototype
+proto requestPresenter data ecw fn name="requestPresenter" length=0 own=[length,name] prototype=false ctor=false src="function requestPresenter() { [native code] }"
+proto constructor data -cw fn name="Ink" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Ink() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "Ink"
+== MediaCapabilities
+global MediaCapabilities data -cw fn name="MediaCapabilities" length=0 own=[length,name,prototype] prototype=true ctor=true src="function MediaCapabilities() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object MediaCapabilities]
+prototype [[Prototype]] Object.prototype
+proto decodingInfo data ecw fn name="decodingInfo" length=1 own=[length,name] prototype=false ctor=false src="function decodingInfo() { [native code] }"
+proto encodingInfo data ecw fn name="encodingInfo" length=1 own=[length,name] prototype=false ctor=false src="function encodingInfo() { [native code] }"
+proto constructor data -cw fn name="MediaCapabilities" length=0 own=[length,name,prototype] prototype=true ctor=true src="function MediaCapabilities() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "MediaCapabilities"
+== Permissions
+global Permissions data -cw fn name="Permissions" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Permissions() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object Permissions]
+prototype [[Prototype]] Object.prototype
+proto query data ecw fn name="query" length=1 own=[length,name] prototype=false ctor=false src="function query() { [native code] }"
+proto constructor data -cw fn name="Permissions" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Permissions() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "Permissions"
+== PermissionStatus
+global PermissionStatus data -cw fn name="PermissionStatus" length=0 own=[length,name,prototype] prototype=true ctor=true src="function PermissionStatus() { [native code] }"
+[[Prototype]] function EventTarget
+call: TypeError: Illegal constructor
+static prototype data --- object [object PermissionStatus]
+prototype [[Prototype]] EventTarget.prototype
+proto name accessor ec
+  get name="get name" length=0 own=[length,name] prototype=false ctor=false src="function get name() { [native code] }"
+  set undefined
+proto state accessor ec
+  get name="get state" length=0 own=[length,name] prototype=false ctor=false src="function get state() { [native code] }"
+  set undefined
+proto onchange accessor ec
+  get name="get onchange" length=0 own=[length,name] prototype=false ctor=false src="function get onchange() { [native code] }"
+  set name="set onchange" length=1 own=[length,name] prototype=false ctor=false src="function set onchange() { [native code] }"
+proto constructor data -cw fn name="PermissionStatus" length=0 own=[length,name,prototype] prototype=true ctor=true src="function PermissionStatus() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "PermissionStatus"
+== WindowControlsOverlay
+global WindowControlsOverlay data -cw fn name="WindowControlsOverlay" length=0 own=[length,name,prototype] prototype=true ctor=true src="function WindowControlsOverlay() { [native code] }"
+[[Prototype]] function EventTarget
+call: TypeError: Illegal constructor
+static prototype data --- object [object WindowControlsOverlay]
+prototype [[Prototype]] EventTarget.prototype
+proto visible accessor ec
+  get name="get visible" length=0 own=[length,name] prototype=false ctor=false src="function get visible() { [native code] }"
+  set undefined
+proto ongeometrychange accessor ec
+  get name="get ongeometrychange" length=0 own=[length,name] prototype=false ctor=false src="function get ongeometrychange() { [native code] }"
+  set name="set ongeometrychange" length=1 own=[length,name] prototype=false ctor=false src="function set ongeometrychange() { [native code] }"
+proto getTitlebarAreaRect data ecw fn name="getTitlebarAreaRect" length=0 own=[length,name] prototype=false ctor=false src="function getTitlebarAreaRect() { [native code] }"
+proto constructor data -cw fn name="WindowControlsOverlay" length=0 own=[length,name,prototype] prototype=true ctor=true src="function WindowControlsOverlay() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "WindowControlsOverlay"
+== PluginArray
+global PluginArray data -cw fn name="PluginArray" length=0 own=[length,name,prototype] prototype=true ctor=true src="function PluginArray() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object PluginArray]
+prototype [[Prototype]] Object.prototype
+proto length accessor ec
+  get name="get length" length=0 own=[length,name] prototype=false ctor=false src="function get length() { [native code] }"
+  set undefined
+proto item data ecw fn name="item" length=1 own=[length,name] prototype=false ctor=false src="function item() { [native code] }"
+proto namedItem data ecw fn name="namedItem" length=1 own=[length,name] prototype=false ctor=false src="function namedItem() { [native code] }"
+proto refresh data ecw fn name="refresh" length=0 own=[length,name] prototype=false ctor=false src="function refresh() { [native code] }"
+proto constructor data -cw fn name="PluginArray" length=0 own=[length,name,prototype] prototype=true ctor=true src="function PluginArray() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "PluginArray"
+proto [Symbol(Symbol.iterator)] data -cw fn name="values" length=0 own=[length,name] prototype=false ctor=false src="function values() { [native code] }"
+== Plugin
+global Plugin data -cw fn name="Plugin" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Plugin() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object Plugin]
+prototype [[Prototype]] Object.prototype
+proto name accessor ec
+  get name="get name" length=0 own=[length,name] prototype=false ctor=false src="function get name() { [native code] }"
+  set undefined
+proto filename accessor ec
+  get name="get filename" length=0 own=[length,name] prototype=false ctor=false src="function get filename() { [native code] }"
+  set undefined
+proto description accessor ec
+  get name="get description" length=0 own=[length,name] prototype=false ctor=false src="function get description() { [native code] }"
+  set undefined
+proto length accessor ec
+  get name="get length" length=0 own=[length,name] prototype=false ctor=false src="function get length() { [native code] }"
+  set undefined
+proto item data ecw fn name="item" length=1 own=[length,name] prototype=false ctor=false src="function item() { [native code] }"
+proto namedItem data ecw fn name="namedItem" length=1 own=[length,name] prototype=false ctor=false src="function namedItem() { [native code] }"
+proto constructor data -cw fn name="Plugin" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Plugin() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "Plugin"
+proto [Symbol(Symbol.iterator)] data -cw fn name="values" length=0 own=[length,name] prototype=false ctor=false src="function values() { [native code] }"
+== MimeTypeArray
+global MimeTypeArray data -cw fn name="MimeTypeArray" length=0 own=[length,name,prototype] prototype=true ctor=true src="function MimeTypeArray() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object MimeTypeArray]
+prototype [[Prototype]] Object.prototype
+proto length accessor ec
+  get name="get length" length=0 own=[length,name] prototype=false ctor=false src="function get length() { [native code] }"
+  set undefined
+proto item data ecw fn name="item" length=1 own=[length,name] prototype=false ctor=false src="function item() { [native code] }"
+proto namedItem data ecw fn name="namedItem" length=1 own=[length,name] prototype=false ctor=false src="function namedItem() { [native code] }"
+proto constructor data -cw fn name="MimeTypeArray" length=0 own=[length,name,prototype] prototype=true ctor=true src="function MimeTypeArray() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "MimeTypeArray"
+proto [Symbol(Symbol.iterator)] data -cw fn name="values" length=0 own=[length,name] prototype=false ctor=false src="function values() { [native code] }"
+== MimeType
+global MimeType data -cw fn name="MimeType" length=0 own=[length,name,prototype] prototype=true ctor=true src="function MimeType() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object MimeType]
+prototype [[Prototype]] Object.prototype
+proto type accessor ec
+  get name="get type" length=0 own=[length,name] prototype=false ctor=false src="function get type() { [native code] }"
+  set undefined
+proto suffixes accessor ec
+  get name="get suffixes" length=0 own=[length,name] prototype=false ctor=false src="function get suffixes() { [native code] }"
+  set undefined
+proto description accessor ec
+  get name="get description" length=0 own=[length,name] prototype=false ctor=false src="function get description() { [native code] }"
+  set undefined
+proto enabledPlugin accessor ec
+  get name="get enabledPlugin" length=0 own=[length,name] prototype=false ctor=false src="function get enabledPlugin() { [native code] }"
+  set undefined
+proto constructor data -cw fn name="MimeType" length=0 own=[length,name,prototype] prototype=true ctor=true src="function MimeType() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "MimeType"
+== NetworkInformation
+global NetworkInformation data -cw fn name="NetworkInformation" length=0 own=[length,name,prototype] prototype=true ctor=true src="function NetworkInformation() { [native code] }"
+[[Prototype]] function EventTarget
+call: TypeError: Illegal constructor
+static prototype data --- object [object NetworkInformation]
+prototype [[Prototype]] EventTarget.prototype
+proto onchange accessor ec
+  get name="get onchange" length=0 own=[length,name] prototype=false ctor=false src="function get onchange() { [native code] }"
+  set name="set onchange" length=1 own=[length,name] prototype=false ctor=false src="function set onchange() { [native code] }"
+proto effectiveType accessor ec
+  get name="get effectiveType" length=0 own=[length,name] prototype=false ctor=false src="function get effectiveType() { [native code] }"
+  set undefined
+proto rtt accessor ec
+  get name="get rtt" length=0 own=[length,name] prototype=false ctor=false src="function get rtt() { [native code] }"
+  set undefined
+proto downlink accessor ec
+  get name="get downlink" length=0 own=[length,name] prototype=false ctor=false src="function get downlink() { [native code] }"
+  set undefined
+proto saveData accessor ec
+  get name="get saveData" length=0 own=[length,name] prototype=false ctor=false src="function get saveData() { [native code] }"
+  set undefined
+proto constructor data -cw fn name="NetworkInformation" length=0 own=[length,name,prototype] prototype=true ctor=true src="function NetworkInformation() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "NetworkInformation"
+== MediaSession
+global MediaSession data -cw fn name="MediaSession" length=0 own=[length,name,prototype] prototype=true ctor=true src="function MediaSession() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object MediaSession]
+prototype [[Prototype]] Object.prototype
+proto metadata accessor ec
+  get name="get metadata" length=0 own=[length,name] prototype=false ctor=false src="function get metadata() { [native code] }"
+  set name="set metadata" length=1 own=[length,name] prototype=false ctor=false src="function set metadata() { [native code] }"
+proto playbackState accessor ec
+  get name="get playbackState" length=0 own=[length,name] prototype=false ctor=false src="function get playbackState() { [native code] }"
+  set name="set playbackState" length=1 own=[length,name] prototype=false ctor=false src="function set playbackState() { [native code] }"
+proto setActionHandler data ecw fn name="setActionHandler" length=2 own=[length,name] prototype=false ctor=false src="function setActionHandler() { [native code] }"
+proto setCameraActive data ecw fn name="setCameraActive" length=1 own=[length,name] prototype=false ctor=false src="function setCameraActive() { [native code] }"
+proto setMicrophoneActive data ecw fn name="setMicrophoneActive" length=1 own=[length,name] prototype=false ctor=false src="function setMicrophoneActive() { [native code] }"
+proto setPositionState data ecw fn name="setPositionState" length=0 own=[length,name] prototype=false ctor=false src="function setPositionState() { [native code] }"
+proto constructor data -cw fn name="MediaSession" length=0 own=[length,name,prototype] prototype=true ctor=true src="function MediaSession() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "MediaSession"
+== Clipboard
+global Clipboard data -cw fn name="Clipboard" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Clipboard() { [native code] }"
+[[Prototype]] function EventTarget
+call: TypeError: Illegal constructor
+static prototype data --- object [object Clipboard]
+prototype [[Prototype]] EventTarget.prototype
+proto onclipboardchange accessor ec
+  get name="get onclipboardchange" length=0 own=[length,name] prototype=false ctor=false src="function get onclipboardchange() { [native code] }"
+  set name="set onclipboardchange" length=1 own=[length,name] prototype=false ctor=false src="function set onclipboardchange() { [native code] }"
+proto read data ecw fn name="read" length=0 own=[length,name] prototype=false ctor=false src="function read() { [native code] }"
+proto readText data ecw fn name="readText" length=0 own=[length,name] prototype=false ctor=false src="function readText() { [native code] }"
+proto write data ecw fn name="write" length=1 own=[length,name] prototype=false ctor=false src="function write() { [native code] }"
+proto writeText data ecw fn name="writeText" length=1 own=[length,name] prototype=false ctor=false src="function writeText() { [native code] }"
+proto constructor data -cw fn name="Clipboard" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Clipboard() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "Clipboard"
+== CredentialsContainer
+global CredentialsContainer data -cw fn name="CredentialsContainer" length=0 own=[length,name,prototype] prototype=true ctor=true src="function CredentialsContainer() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object CredentialsContainer]
+prototype [[Prototype]] Object.prototype
+proto create data ecw fn name="create" length=0 own=[length,name] prototype=false ctor=false src="function create() { [native code] }"
+proto get data ecw fn name="get" length=0 own=[length,name] prototype=false ctor=false src="function get() { [native code] }"
+proto preventSilentAccess data ecw fn name="preventSilentAccess" length=0 own=[length,name] prototype=false ctor=false src="function preventSilentAccess() { [native code] }"
+proto store data ecw fn name="store" length=1 own=[length,name] prototype=false ctor=false src="function store() { [native code] }"
+proto constructor data -cw fn name="CredentialsContainer" length=0 own=[length,name,prototype] prototype=true ctor=true src="function CredentialsContainer() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "CredentialsContainer"
+== Keyboard
+global Keyboard data -cw fn name="Keyboard" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Keyboard() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object Keyboard]
+prototype [[Prototype]] Object.prototype
+proto getLayoutMap data ecw fn name="getLayoutMap" length=0 own=[length,name] prototype=false ctor=false src="function getLayoutMap() { [native code] }"
+proto lock data ecw fn name="lock" length=0 own=[length,name] prototype=false ctor=false src="function lock() { [native code] }"
+proto unlock data ecw fn name="unlock" length=0 own=[length,name] prototype=false ctor=false src="function unlock() { [native code] }"
+proto constructor data -cw fn name="Keyboard" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Keyboard() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "Keyboard"
+== NavigatorManagedData
+global NavigatorManagedData data -cw fn name="NavigatorManagedData" length=0 own=[length,name,prototype] prototype=true ctor=true src="function NavigatorManagedData() { [native code] }"
+[[Prototype]] function EventTarget
+call: TypeError: Illegal constructor
+static prototype data --- object [object NavigatorManagedData]
+prototype [[Prototype]] EventTarget.prototype
+proto onmanagedconfigurationchange accessor ec
+  get name="get onmanagedconfigurationchange" length=0 own=[length,name] prototype=false ctor=false src="function get onmanagedconfigurationchange() { [native code] }"
+  set name="set onmanagedconfigurationchange" length=1 own=[length,name] prototype=false ctor=false src="function set onmanagedconfigurationchange() { [native code] }"
+proto getManagedConfiguration data ecw fn name="getManagedConfiguration" length=1 own=[length,name] prototype=false ctor=false src="function getManagedConfiguration() { [native code] }"
+proto constructor data -cw fn name="NavigatorManagedData" length=0 own=[length,name,prototype] prototype=true ctor=true src="function NavigatorManagedData() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "NavigatorManagedData"
+== MediaDevices
+global MediaDevices data -cw fn name="MediaDevices" length=0 own=[length,name,prototype] prototype=true ctor=true src="function MediaDevices() { [native code] }"
+[[Prototype]] function EventTarget
+call: TypeError: Illegal constructor
+static prototype data --- object [object MediaDevices]
+prototype [[Prototype]] EventTarget.prototype
+proto ondevicechange accessor ec
+  get name="get ondevicechange" length=0 own=[length,name] prototype=false ctor=false src="function get ondevicechange() { [native code] }"
+  set name="set ondevicechange" length=1 own=[length,name] prototype=false ctor=false src="function set ondevicechange() { [native code] }"
+proto enumerateDevices data ecw fn name="enumerateDevices" length=0 own=[length,name] prototype=false ctor=false src="function enumerateDevices() { [native code] }"
+proto getSupportedConstraints data ecw fn name="getSupportedConstraints" length=0 own=[length,name] prototype=false ctor=false src="function getSupportedConstraints() { [native code] }"
+proto getUserMedia data ecw fn name="getUserMedia" length=0 own=[length,name] prototype=false ctor=false src="function getUserMedia() { [native code] }"
+proto getDisplayMedia data ecw fn name="getDisplayMedia" length=0 own=[length,name] prototype=false ctor=false src="function getDisplayMedia() { [native code] }"
+proto setCaptureHandleConfig data ecw fn name="setCaptureHandleConfig" length=0 own=[length,name] prototype=false ctor=false src="function setCaptureHandleConfig() { [native code] }"
+proto constructor data -cw fn name="MediaDevices" length=0 own=[length,name,prototype] prototype=true ctor=true src="function MediaDevices() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "MediaDevices"
+== ServiceWorkerContainer
+global ServiceWorkerContainer data -cw fn name="ServiceWorkerContainer" length=0 own=[length,name,prototype] prototype=true ctor=true src="function ServiceWorkerContainer() { [native code] }"
+[[Prototype]] function EventTarget
+call: TypeError: Illegal constructor
+static prototype data --- object [object ServiceWorkerContainer]
+prototype [[Prototype]] EventTarget.prototype
+proto controller accessor ec
+  get name="get controller" length=0 own=[length,name] prototype=false ctor=false src="function get controller() { [native code] }"
+  set undefined
+proto ready accessor ec
+  get name="get ready" length=0 own=[length,name] prototype=false ctor=false src="function get ready() { [native code] }"
+  set undefined
+proto oncontrollerchange accessor ec
+  get name="get oncontrollerchange" length=0 own=[length,name] prototype=false ctor=false src="function get oncontrollerchange() { [native code] }"
+  set name="set oncontrollerchange" length=1 own=[length,name] prototype=false ctor=false src="function set oncontrollerchange() { [native code] }"
+proto onmessage accessor ec
+  get name="get onmessage" length=0 own=[length,name] prototype=false ctor=false src="function get onmessage() { [native code] }"
+  set name="set onmessage" length=1 own=[length,name] prototype=false ctor=false src="function set onmessage() { [native code] }"
+proto onmessageerror accessor ec
+  get name="get onmessageerror" length=0 own=[length,name] prototype=false ctor=false src="function get onmessageerror() { [native code] }"
+  set name="set onmessageerror" length=1 own=[length,name] prototype=false ctor=false src="function set onmessageerror() { [native code] }"
+proto getRegistration data ecw fn name="getRegistration" length=0 own=[length,name] prototype=false ctor=false src="function getRegistration() { [native code] }"
+proto getRegistrations data ecw fn name="getRegistrations" length=0 own=[length,name] prototype=false ctor=false src="function getRegistrations() { [native code] }"
+proto register data ecw fn name="register" length=1 own=[length,name] prototype=false ctor=false src="function register() { [native code] }"
+proto startMessages data ecw fn name="startMessages" length=0 own=[length,name] prototype=false ctor=false src="function startMessages() { [native code] }"
+proto constructor data -cw fn name="ServiceWorkerContainer" length=0 own=[length,name,prototype] prototype=true ctor=true src="function ServiceWorkerContainer() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "ServiceWorkerContainer"
+== VirtualKeyboard
+global VirtualKeyboard data -cw fn name="VirtualKeyboard" length=0 own=[length,name,prototype] prototype=true ctor=true src="function VirtualKeyboard() { [native code] }"
+[[Prototype]] function EventTarget
+call: TypeError: Illegal constructor
+static prototype data --- object [object VirtualKeyboard]
+prototype [[Prototype]] EventTarget.prototype
+proto boundingRect accessor ec
+  get name="get boundingRect" length=0 own=[length,name] prototype=false ctor=false src="function get boundingRect() { [native code] }"
+  set undefined
+proto overlaysContent accessor ec
+  get name="get overlaysContent" length=0 own=[length,name] prototype=false ctor=false src="function get overlaysContent() { [native code] }"
+  set name="set overlaysContent" length=1 own=[length,name] prototype=false ctor=false src="function set overlaysContent() { [native code] }"
+proto ongeometrychange accessor ec
+  get name="get ongeometrychange" length=0 own=[length,name] prototype=false ctor=false src="function get ongeometrychange() { [native code] }"
+  set name="set ongeometrychange" length=1 own=[length,name] prototype=false ctor=false src="function set ongeometrychange() { [native code] }"
+proto hide data ecw fn name="hide" length=0 own=[length,name] prototype=false ctor=false src="function hide() { [native code] }"
+proto show data ecw fn name="show" length=0 own=[length,name] prototype=false ctor=false src="function show() { [native code] }"
+proto constructor data -cw fn name="VirtualKeyboard" length=0 own=[length,name,prototype] prototype=true ctor=true src="function VirtualKeyboard() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "VirtualKeyboard"
+== WakeLock
+global WakeLock data -cw fn name="WakeLock" length=0 own=[length,name,prototype] prototype=true ctor=true src="function WakeLock() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object WakeLock]
+prototype [[Prototype]] Object.prototype
+proto request data ecw fn name="request" length=0 own=[length,name] prototype=false ctor=false src="function request() { [native code] }"
+proto constructor data -cw fn name="WakeLock" length=0 own=[length,name,prototype] prototype=true ctor=true src="function WakeLock() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "WakeLock"
+== NavigatorUAData
+global NavigatorUAData data -cw fn name="NavigatorUAData" length=0 own=[length,name,prototype] prototype=true ctor=true src="function NavigatorUAData() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object NavigatorUAData]
+prototype [[Prototype]] Object.prototype
+proto brands accessor ec
+  get name="get brands" length=0 own=[length,name] prototype=false ctor=false src="function get brands() { [native code] }"
+  set undefined
+proto mobile accessor ec
+  get name="get mobile" length=0 own=[length,name] prototype=false ctor=false src="function get mobile() { [native code] }"
+  set undefined
+proto platform accessor ec
+  get name="get platform" length=0 own=[length,name] prototype=false ctor=false src="function get platform() { [native code] }"
+  set undefined
+proto getHighEntropyValues data ecw fn name="getHighEntropyValues" length=1 own=[length,name] prototype=false ctor=false src="function getHighEntropyValues() { [native code] }"
+proto toJSON data ecw fn name="toJSON" length=0 own=[length,name] prototype=false ctor=false src="function toJSON() { [native code] }"
+proto constructor data -cw fn name="NavigatorUAData" length=0 own=[length,name,prototype] prototype=true ctor=true src="function NavigatorUAData() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "NavigatorUAData"
+== LockManager
+global LockManager data -cw fn name="LockManager" length=0 own=[length,name,prototype] prototype=true ctor=true src="function LockManager() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object LockManager]
+prototype [[Prototype]] Object.prototype
+proto query data ecw fn name="query" length=0 own=[length,name] prototype=false ctor=false src="function query() { [native code] }"
+proto request data ecw fn name="request" length=2 own=[length,name] prototype=false ctor=false src="function request() { [native code] }"
+proto constructor data -cw fn name="LockManager" length=0 own=[length,name,prototype] prototype=true ctor=true src="function LockManager() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "LockManager"
+== Lock
+global Lock data -cw fn name="Lock" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Lock() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object Lock]
+prototype [[Prototype]] Object.prototype
+proto name accessor ec
+  get name="get name" length=0 own=[length,name] prototype=false ctor=false src="function get name() { [native code] }"
+  set undefined
+proto mode accessor ec
+  get name="get mode" length=0 own=[length,name] prototype=false ctor=false src="function get mode() { [native code] }"
+  set undefined
+proto constructor data -cw fn name="Lock" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Lock() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "Lock"
+== StorageManager
+global StorageManager data -cw fn name="StorageManager" length=0 own=[length,name,prototype] prototype=true ctor=true src="function StorageManager() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object StorageManager]
+prototype [[Prototype]] Object.prototype
+proto estimate data ecw fn name="estimate" length=0 own=[length,name] prototype=false ctor=false src="function estimate() { [native code] }"
+proto persisted data ecw fn name="persisted" length=0 own=[length,name] prototype=false ctor=false src="function persisted() { [native code] }"
+proto constructor data -cw fn name="StorageManager" length=0 own=[length,name,prototype] prototype=true ctor=true src="function StorageManager() { [native code] }"
+proto getDirectory data ecw fn name="getDirectory" length=0 own=[length,name] prototype=false ctor=false src="function getDirectory() { [native code] }"
+proto persist data ecw fn name="persist" length=0 own=[length,name] prototype=false ctor=false src="function persist() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "StorageManager"
+== GPU
+global GPU data -cw fn name="GPU" length=0 own=[length,name,prototype] prototype=true ctor=true src="function GPU() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object GPU]
+prototype [[Prototype]] Object.prototype
+proto wgslLanguageFeatures accessor ec
+  get name="get wgslLanguageFeatures" length=0 own=[length,name] prototype=false ctor=false src="function get wgslLanguageFeatures() { [native code] }"
+  set undefined
+proto getPreferredCanvasFormat data ecw fn name="getPreferredCanvasFormat" length=0 own=[length,name] prototype=false ctor=false src="function getPreferredCanvasFormat() { [native code] }"
+proto requestAdapter data ecw fn name="requestAdapter" length=0 own=[length,name] prototype=false ctor=false src="function requestAdapter() { [native code] }"
+proto constructor data -cw fn name="GPU" length=0 own=[length,name,prototype] prototype=true ctor=true src="function GPU() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "GPU"
+== WGSLLanguageFeatures
+global WGSLLanguageFeatures data -cw fn name="WGSLLanguageFeatures" length=0 own=[length,name,prototype] prototype=true ctor=true src="function WGSLLanguageFeatures() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object WGSLLanguageFeatures]
+prototype [[Prototype]] Object.prototype
+proto size accessor ec
+  get name="get size" length=0 own=[length,name] prototype=false ctor=false src="function get size() { [native code] }"
+  set undefined
+proto entries data ecw fn name="entries" length=0 own=[length,name] prototype=false ctor=false src="function entries() { [native code] }"
+proto forEach data ecw fn name="forEach" length=1 own=[length,name] prototype=false ctor=false src="function forEach() { [native code] }"
+proto has data ecw fn name="has" length=1 own=[length,name] prototype=false ctor=false src="function has() { [native code] }"
+proto keys data ecw fn name="keys" length=0 own=[length,name] prototype=false ctor=false src="function keys() { [native code] }"
+proto values data ecw fn name="values" length=0 own=[length,name] prototype=false ctor=false src="function values() { [native code] }"
+proto constructor data -cw fn name="WGSLLanguageFeatures" length=0 own=[length,name,prototype] prototype=true ctor=true src="function WGSLLanguageFeatures() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "WGSLLanguageFeatures"
+proto [Symbol(Symbol.iterator)] data -cw fn name="values" length=0 own=[length,name] prototype=false ctor=false src="function values() { [native code] }"
+== NavigatorLogin
+global NavigatorLogin data -cw fn name="NavigatorLogin" length=0 own=[length,name,prototype] prototype=true ctor=true src="function NavigatorLogin() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object NavigatorLogin]
+prototype [[Prototype]] Object.prototype
+proto setStatus data ecw fn name="setStatus" length=1 own=[length,name] prototype=false ctor=false src="function setStatus() { [native code] }"
+proto constructor data -cw fn name="NavigatorLogin" length=0 own=[length,name,prototype] prototype=true ctor=true src="function NavigatorLogin() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "NavigatorLogin"
+== DevicePosture
+global DevicePosture data -cw fn name="DevicePosture" length=0 own=[length,name,prototype] prototype=true ctor=true src="function DevicePosture() { [native code] }"
+[[Prototype]] function EventTarget
+call: TypeError: Illegal constructor
+static prototype data --- object [object DevicePosture]
+prototype [[Prototype]] EventTarget.prototype
+proto type accessor ec
+  get name="get type" length=0 own=[length,name] prototype=false ctor=false src="function get type() { [native code] }"
+  set undefined
+proto onchange accessor ec
+  get name="get onchange" length=0 own=[length,name] prototype=false ctor=false src="function get onchange() { [native code] }"
+  set name="set onchange" length=1 own=[length,name] prototype=false ctor=false src="function set onchange() { [native code] }"
+proto constructor data -cw fn name="DevicePosture" length=0 own=[length,name,prototype] prototype=true ctor=true src="function DevicePosture() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "DevicePosture"
+== HID
+global HID data -cw fn name="HID" length=0 own=[length,name,prototype] prototype=true ctor=true src="function HID() { [native code] }"
+[[Prototype]] function EventTarget
+call: TypeError: Illegal constructor
+static prototype data --- object [object HID]
+prototype [[Prototype]] EventTarget.prototype
+proto onconnect accessor ec
+  get name="get onconnect" length=0 own=[length,name] prototype=false ctor=false src="function get onconnect() { [native code] }"
+  set name="set onconnect" length=1 own=[length,name] prototype=false ctor=false src="function set onconnect() { [native code] }"
+proto ondisconnect accessor ec
+  get name="get ondisconnect" length=0 own=[length,name] prototype=false ctor=false src="function get ondisconnect() { [native code] }"
+  set name="set ondisconnect" length=1 own=[length,name] prototype=false ctor=false src="function set ondisconnect() { [native code] }"
+proto getDevices data ecw fn name="getDevices" length=0 own=[length,name] prototype=false ctor=false src="function getDevices() { [native code] }"
+proto constructor data -cw fn name="HID" length=0 own=[length,name,prototype] prototype=true ctor=true src="function HID() { [native code] }"
+proto requestDevice data ecw fn name="requestDevice" length=1 own=[length,name] prototype=false ctor=false src="function requestDevice() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "HID"
+== Presentation
+global Presentation data -cw fn name="Presentation" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Presentation() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object Presentation]
+prototype [[Prototype]] Object.prototype
+proto defaultRequest accessor ec
+  get name="get defaultRequest" length=0 own=[length,name] prototype=false ctor=false src="function get defaultRequest() { [native code] }"
+  set name="set defaultRequest" length=1 own=[length,name] prototype=false ctor=false src="function set defaultRequest() { [native code] }"
+proto receiver accessor ec
+  get name="get receiver" length=0 own=[length,name] prototype=false ctor=false src="function get receiver() { [native code] }"
+  set undefined
+proto constructor data -cw fn name="Presentation" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Presentation() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "Presentation"
+== Serial
+global Serial data -cw fn name="Serial" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Serial() { [native code] }"
+[[Prototype]] function EventTarget
+call: TypeError: Illegal constructor
+static prototype data --- object [object Serial]
+prototype [[Prototype]] EventTarget.prototype
+proto onconnect accessor ec
+  get name="get onconnect" length=0 own=[length,name] prototype=false ctor=false src="function get onconnect() { [native code] }"
+  set name="set onconnect" length=1 own=[length,name] prototype=false ctor=false src="function set onconnect() { [native code] }"
+proto ondisconnect accessor ec
+  get name="get ondisconnect" length=0 own=[length,name] prototype=false ctor=false src="function get ondisconnect() { [native code] }"
+  set name="set ondisconnect" length=1 own=[length,name] prototype=false ctor=false src="function set ondisconnect() { [native code] }"
+proto getPorts data ecw fn name="getPorts" length=0 own=[length,name] prototype=false ctor=false src="function getPorts() { [native code] }"
+proto constructor data -cw fn name="Serial" length=0 own=[length,name,prototype] prototype=true ctor=true src="function Serial() { [native code] }"
+proto requestPort data ecw fn name="requestPort" length=0 own=[length,name] prototype=false ctor=false src="function requestPort() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "Serial"
+== USB
+global USB data -cw fn name="USB" length=0 own=[length,name,prototype] prototype=true ctor=true src="function USB() { [native code] }"
+[[Prototype]] function EventTarget
+call: TypeError: Illegal constructor
+static prototype data --- object [object USB]
+prototype [[Prototype]] EventTarget.prototype
+proto onconnect accessor ec
+  get name="get onconnect" length=0 own=[length,name] prototype=false ctor=false src="function get onconnect() { [native code] }"
+  set name="set onconnect" length=1 own=[length,name] prototype=false ctor=false src="function set onconnect() { [native code] }"
+proto ondisconnect accessor ec
+  get name="get ondisconnect" length=0 own=[length,name] prototype=false ctor=false src="function get ondisconnect() { [native code] }"
+  set name="set ondisconnect" length=1 own=[length,name] prototype=false ctor=false src="function set ondisconnect() { [native code] }"
+proto getDevices data ecw fn name="getDevices" length=0 own=[length,name] prototype=false ctor=false src="function getDevices() { [native code] }"
+proto constructor data -cw fn name="USB" length=0 own=[length,name,prototype] prototype=true ctor=true src="function USB() { [native code] }"
+proto requestDevice data ecw fn name="requestDevice" length=1 own=[length,name] prototype=false ctor=false src="function requestDevice() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "USB"
+== XRSystem
+global XRSystem data -cw fn name="XRSystem" length=0 own=[length,name,prototype] prototype=true ctor=true src="function XRSystem() { [native code] }"
+[[Prototype]] function EventTarget
+call: TypeError: Illegal constructor
+static prototype data --- object [object XRSystem]
+prototype [[Prototype]] EventTarget.prototype
+proto ondevicechange accessor ec
+  get name="get ondevicechange" length=0 own=[length,name] prototype=false ctor=false src="function get ondevicechange() { [native code] }"
+  set name="set ondevicechange" length=1 own=[length,name] prototype=false ctor=false src="function set ondevicechange() { [native code] }"
+proto isSessionSupported data ecw fn name="isSessionSupported" length=1 own=[length,name] prototype=false ctor=false src="function isSessionSupported() { [native code] }"
+proto requestSession data ecw fn name="requestSession" length=1 own=[length,name] prototype=false ctor=false src="function requestSession() { [native code] }"
+proto constructor data -cw fn name="XRSystem" length=0 own=[length,name,prototype] prototype=true ctor=true src="function XRSystem() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "XRSystem"
+== StorageBucketManager
+global StorageBucketManager data -cw fn name="StorageBucketManager" length=0 own=[length,name,prototype] prototype=true ctor=true src="function StorageBucketManager() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object StorageBucketManager]
+prototype [[Prototype]] Object.prototype
+proto delete data ecw fn name="delete" length=1 own=[length,name] prototype=false ctor=false src="function delete() { [native code] }"
+proto keys data ecw fn name="keys" length=0 own=[length,name] prototype=false ctor=false src="function keys() { [native code] }"
+proto open data ecw fn name="open" length=1 own=[length,name] prototype=false ctor=false src="function open() { [native code] }"
+proto constructor data -cw fn name="StorageBucketManager" length=0 own=[length,name,prototype] prototype=true ctor=true src="function StorageBucketManager() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "StorageBucketManager"
+== BatteryManager
+global BatteryManager data -cw fn name="BatteryManager" length=0 own=[length,name,prototype] prototype=true ctor=true src="function BatteryManager() { [native code] }"
+[[Prototype]] function EventTarget
+call: TypeError: Illegal constructor
+static prototype data --- object [object BatteryManager]
+prototype [[Prototype]] EventTarget.prototype
+proto charging accessor ec
+  get name="get charging" length=0 own=[length,name] prototype=false ctor=false src="function get charging() { [native code] }"
+  set undefined
+proto chargingTime accessor ec
+  get name="get chargingTime" length=0 own=[length,name] prototype=false ctor=false src="function get chargingTime() { [native code] }"
+  set undefined
+proto dischargingTime accessor ec
+  get name="get dischargingTime" length=0 own=[length,name] prototype=false ctor=false src="function get dischargingTime() { [native code] }"
+  set undefined
+proto level accessor ec
+  get name="get level" length=0 own=[length,name] prototype=false ctor=false src="function get level() { [native code] }"
+  set undefined
+proto onchargingchange accessor ec
+  get name="get onchargingchange" length=0 own=[length,name] prototype=false ctor=false src="function get onchargingchange() { [native code] }"
+  set name="set onchargingchange" length=1 own=[length,name] prototype=false ctor=false src="function set onchargingchange() { [native code] }"
+proto onchargingtimechange accessor ec
+  get name="get onchargingtimechange" length=0 own=[length,name] prototype=false ctor=false src="function get onchargingtimechange() { [native code] }"
+  set name="set onchargingtimechange" length=1 own=[length,name] prototype=false ctor=false src="function set onchargingtimechange() { [native code] }"
+proto ondischargingtimechange accessor ec
+  get name="get ondischargingtimechange" length=0 own=[length,name] prototype=false ctor=false src="function get ondischargingtimechange() { [native code] }"
+  set name="set ondischargingtimechange" length=1 own=[length,name] prototype=false ctor=false src="function set ondischargingtimechange() { [native code] }"
+proto onlevelchange accessor ec
+  get name="get onlevelchange" length=0 own=[length,name] prototype=false ctor=false src="function get onlevelchange() { [native code] }"
+  set name="set onlevelchange" length=1 own=[length,name] prototype=false ctor=false src="function set onlevelchange() { [native code] }"
+proto constructor data -cw fn name="BatteryManager" length=0 own=[length,name,prototype] prototype=true ctor=true src="function BatteryManager() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "BatteryManager"
+== ScreenOrientation
+global ScreenOrientation data -cw fn name="ScreenOrientation" length=0 own=[length,name,prototype] prototype=true ctor=true src="function ScreenOrientation() { [native code] }"
+[[Prototype]] function EventTarget
+call: TypeError: Illegal constructor
+static prototype data --- object [object ScreenOrientation]
+prototype [[Prototype]] EventTarget.prototype
+proto angle accessor ec
+  get name="get angle" length=0 own=[length,name] prototype=false ctor=false src="function get angle() { [native code] }"
+  set undefined
+proto type accessor ec
+  get name="get type" length=0 own=[length,name] prototype=false ctor=false src="function get type() { [native code] }"
+  set undefined
+proto onchange accessor ec
+  get name="get onchange" length=0 own=[length,name] prototype=false ctor=false src="function get onchange() { [native code] }"
+  set name="set onchange" length=1 own=[length,name] prototype=false ctor=false src="function set onchange() { [native code] }"
+proto lock data ecw fn name="lock" length=1 own=[length,name] prototype=false ctor=false src="function lock() { [native code] }"
+proto unlock data ecw fn name="unlock" length=0 own=[length,name] prototype=false ctor=false src="function unlock() { [native code] }"
+proto constructor data -cw fn name="ScreenOrientation" length=0 own=[length,name,prototype] prototype=true ctor=true src="function ScreenOrientation() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "ScreenOrientation"

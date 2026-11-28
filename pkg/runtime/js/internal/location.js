@@ -831,5 +831,14 @@
     return read(urlHref, current);
   }
 
-  module.exports = P.ObjectFreeze({ __proto__: null, documentURL: documentURL });
+  module.exports = P.ObjectFreeze({
+    __proto__: null,
+    documentURL: documentURL,
+    // For internal/navigator_apis' sendBeacon: `text` parsed against the document's
+    // current URL, serialized; null when it does not parse.
+    resolveHref: function (text) {
+      var url = parse(text, current);
+      return url === null ? null : read(urlHref, url);
+    },
+  });
 });
