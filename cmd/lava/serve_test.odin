@@ -101,9 +101,10 @@ origin_stop :: proc(o: ^Origin) {
 	free(o, runtime.heap_allocator())
 }
 
-// origin_serve answers one request per connection: /go/<path> redirects to <path>, any
-// other path is a FIXTURES entry or a 404. It allocates nothing: its thread runs in the
-// default context, outside the tests' tracking.
+// origin_serve answers one request per connection: /go/<path> redirects to <path>,
+// /login sets cookies, /whoami echoes the Cookie header it got, any other path is a
+// FIXTURES entry or a 404. It allocates nothing: its thread runs in the default context,
+// outside the tests' tracking.
 @(private = "file")
 origin_serve :: proc(o: ^Origin) {
 	for {
@@ -128,11 +129,36 @@ origin_serve :: proc(o: ^Origin) {
 		line := strings.truncate_to_byte(string(request[:n]), '\r')
 		_, _, after_method := strings.partition(line, " ")
 		target, _, _ := strings.partition(after_method, " ")
+		_, has_cookie, cookie_rest := strings.partition(string(request[:n]), "\r\nCookie: ")
+		sent_cookie := strings.truncate_to_byte(cookie_rest, '\r') if has_cookie != "" else ""
 		head: [512]byte
+		echo: [1024]byte
 		body := ""
 		response: string
 
-		if strings.has_prefix(target, "/go/") {
+		if target == "/login" {
+			// An HttpOnly cookie the page cannot see, one it can, and one the page's own
+			// script sets: all three must reach the session's next request.
+			body = `<!doctype html><script>document.cookie = 'pg=p1; path=/'</script>`
+			response = fmt.bprintf(
+				head[:],
+				"HTTP/1.1 200 OK\r\nSet-Cookie: sid=s1; Path=/; HttpOnly\r\nSet-Cookie: vis=v1; Path=/\r\n" +
+				"Content-Type: text/html\r\nContent-Length: %d\r\nConnection: close\r\n\r\n",
+				len(body),
+			)
+		} else if target == "/whoami" {
+			body = fmt.bprintf(
+				echo[:],
+				`<!doctype html><body><p id="hdr">%s</p><p id="js"></p><script>` +
+				`document.getElementById('js').textContent = 'js:' + document.cookie</script></body>`,
+				sent_cookie,
+			)
+			response = fmt.bprintf(
+				head[:],
+				"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: %d\r\nConnection: close\r\n\r\n",
+				len(body),
+			)
+		} else if strings.has_prefix(target, "/go/") {
 			response = fmt.bprintf(
 				head[:],
 				"HTTP/1.1 302 Found\r\nLocation: %s\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
@@ -731,6 +757,11 @@ serve_allocations_pair_through_its_allocator :: proc(t: ^testing.T) {
 		{"/a", "&selector=%23never", 500},
 		{"/a", "&selector=%5B%5B", 400},
 		{"/a", "&nope=1", 501},
+		// A session's jar outlives its request (freed by server_destroy); a request's own
+		// goes with it.
+		{"/login", "&session=x&cookies=a%3D1", 200},
+		{"/login", "&cookies=a%3D1", 200},
+		{"/a", "&cookies=__Host-x%3D1", 400},
 	}
 	for e in ends {
 		r := render(port, origin.port, e.path, e.extra)
@@ -813,5 +844,157 @@ serve_stops_gracefully_and_releases_everything :: proc(t: ^testing.T) {
 	} else {
 		after := fd_census()
 		testing.expectf(t, after == before, "the server left %d descriptors open", after - before)
+	}
+}
+
+// element_text returns what the serialized document holds between `<p id="<id>">` and
+// the next `</p>`, or "<missing>".
+@(private = "file")
+element_text :: proc(body, id: string) -> string {
+	open := fmt.tprintf(`<p id="%s">`, id)
+	at := strings.index(body, open)
+
+	if at < 0 {
+		return "<missing>"
+	}
+
+	rest := body[at + len(open):]
+	return rest[:max(strings.index(rest, "</p>"), 0)]
+}
+
+// Requests naming one session share its cookie jar: what request 1's response set —
+// HttpOnly or not — and what its page's script set through document.cookie are sent with
+// request 2's navigation, and the non-HttpOnly ones are what request 2's page reads off
+// document.cookie. Another session, or no session, sees none of it. Seed cookies are in
+// the jar before navigation, and the captured-cookies header lists the whole jar,
+// HttpOnly included.
+@(test)
+serve_sessions_share_cookies_across_requests :: proc(t: ^testing.T) {
+	origin, ok := origin_start(t)
+
+	if !ok {
+		return
+	}
+
+	defer origin_stop(origin)
+	s, started := serve_start(t, {threads = 2})
+
+	if !started {
+		return
+	}
+
+	defer serve_stop(s)
+	port := s.server.port
+
+	login := render(port, origin.port, "/login", "&session=alice")
+	defer reply_destroy(&login)
+	testing.expectf(t, login.status == 200, "login: %s", describe(login))
+	captured := reply_header(login, adapters.HEADER_COOKIES)
+	testing.expectf(
+		t,
+		strings.contains(
+			captured,
+			`{"name":"sid","value":"s1","domain":"127.0.0.1","path":"/","expires":-1,"httpOnly":true,"secure":false,"session":true}`,
+		) &&
+		strings.contains(captured, `"name":"vis"`) &&
+		strings.contains(captured, `"name":"pg"`),
+		"captured cookies %q",
+		captured,
+	)
+
+	again := render(port, origin.port, "/whoami", "&session=alice")
+	defer reply_destroy(&again)
+	testing.expectf(t, again.status == 200, "whoami: %s", describe(again))
+	testing.expect_value(t, element_text(again.body, "hdr"), "sid=s1; vis=v1; pg=p1")
+	testing.expect_value(t, element_text(again.body, "js"), "js:vis=v1; pg=p1")
+
+	for extra in ([]string{"", "&session=bob"}) {
+		other := render(port, origin.port, "/whoami", extra)
+		defer reply_destroy(&other)
+		testing.expectf(t, other.status == 200, "whoami%s: %s", extra, describe(other))
+		testing.expectf(
+			t,
+			element_text(other.body, "hdr") == "",
+			"whoami%s got the session's cookies: %s",
+			extra,
+			other.body,
+		)
+		testing.expect_value(t, reply_header(other, adapters.HEADER_COOKIES), "[]")
+	}
+
+	seeded := render(port, origin.port, "/whoami", "&cookies=a%3D1%3B%20b%3D2")
+	defer reply_destroy(&seeded)
+	testing.expect_value(t, element_text(seeded.body, "hdr"), "a=1; b=2")
+	testing.expect_value(t, element_text(seeded.body, "js"), "js:a=1; b=2")
+
+	json_seed := render(port, origin.port, "/whoami", "&cookies=%5B%22h%3D3%3B%20HttpOnly%22%5D")
+	defer reply_destroy(&json_seed)
+	testing.expect_value(t, element_text(json_seed.body, "hdr"), "h=3")
+	testing.expect_value(t, element_text(json_seed.body, "js"), "js:")
+
+	// __Host- without Secure is refused by the jar: the caller's error, not a page
+	// without the cookie. So are a session id with a space and a JSON array of numbers.
+	for extra in ([]string{"&cookies=__Host-x%3D1", "&session=a%20b", "&cookies=%5B1%5D"}) {
+		bad := render(port, origin.port, "/whoami", extra)
+		defer reply_destroy(&bad)
+		testing.expectf(
+			t,
+			bad.status == 400 && reply_header(bad, adapters.HEADER_ERROR) == "bad_request",
+			"%s: want 400 bad_request: %s",
+			extra,
+			describe(bad),
+		)
+	}
+}
+
+// A session past its TTL, or the least recently used one past max_sessions, is
+// forgotten: its next request starts with an empty jar.
+@(test)
+serve_sessions_expire_and_evict :: proc(t: ^testing.T) {
+	origin, ok := origin_start(t)
+
+	if !ok {
+		return
+	}
+
+	defer origin_stop(origin)
+
+	{
+		s, started := serve_start(t, {threads = 1, max_sessions = 1})
+
+		if !started {
+			return
+		}
+
+		defer serve_stop(s)
+		port := s.server.port
+		a := render(port, origin.port, "/whoami", "&session=a&cookies=k%3Da")
+		reply_destroy(&a)
+		b := render(port, origin.port, "/whoami", "&session=b&cookies=k%3Db")
+		reply_destroy(&b)
+		kept := render(port, origin.port, "/whoami", "&session=b")
+		defer reply_destroy(&kept)
+		testing.expectf(t, element_text(kept.body, "hdr") == "k=b", "b lost its jar: %s", describe(kept))
+		evicted := render(port, origin.port, "/whoami", "&session=a")
+		defer reply_destroy(&evicted)
+		testing.expectf(t, element_text(evicted.body, "hdr") == "", "a survived its eviction: %s", describe(evicted))
+	}
+
+	{
+		s, started := serve_start(t, {threads = 1, session_ttl_ms = 1})
+
+		if !started {
+			return
+		}
+
+		defer serve_stop(s)
+		port := s.server.port
+		a := render(port, origin.port, "/whoami", "&session=a&cookies=k%3Da")
+		testing.expect_value(t, element_text(a.body, "hdr"), "k=a")
+		reply_destroy(&a)
+		time.sleep(5 * time.Millisecond)
+		expired := render(port, origin.port, "/whoami", "&session=a")
+		defer reply_destroy(&expired)
+		testing.expectf(t, element_text(expired.body, "hdr") == "", "a outlived its TTL: %s", describe(expired))
 	}
 }

@@ -827,17 +827,6 @@ store_cookies :: proc(t: ^Transfer, headers: []pico.Header) {
 	}
 }
 
-// cookie_source is the jar's view of a URL: its host, its path without the query, and
-// whether it is a secure context.
-@(private = "file")
-cookie_source :: proc(u: Url) -> cookie.Source {
-	return {
-		secure = cookie.is_potentially_trustworthy(u.https, u.host),
-		host = u.host,
-		path = strings.truncate_to_byte(u.target, '?'),
-	}
-}
-
 @(private = "file")
 is_redirect :: proc(status: int) -> bool {
 	switch status {

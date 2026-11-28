@@ -4750,6 +4750,15 @@
       "replace": "",
       "gate": "make:test-dom",
       "expect_detail": "FAIL dom-reflect-elements.page"
+    },
+    {
+      "name": "serve_sessions_share_cookies_across_requests dies when the page keeps its own jar",
+      "why": "Without the session's jar on the crawl job, the page's fetch, XHR and document.cookie use a jar of their own: a cookie the page sets is lost to the session's next request, and seed and navigation cookies are invisible to document.cookie.",
+      "source": "pkg/adapters/serve.odin",
+      "find": "\t\tcookie_jar    = &c.session.jar,\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.serve_sessions_share_cookies_across_requests",
+      "expect_detail": "pg=p1"
     }
   ]
 }

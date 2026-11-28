@@ -1,14 +1,19 @@
 // The cookie jar both HTTP stacks share: pkg/http's transfers (`lava fetch`) and the
 // runtime's fetch(), XMLHttpRequest and document.cookie (pkg/runtime/cookie.odin). It
 // parses Set-Cookie as Chrome 158 implements RFC 6265bis, stores what it accepts, and
-// answers the Cookie header for a request. No I/O, no JS, no event loop: a jar is plain
-// data, touched only by the thread that owns it (a page's loop thread).
+// answers the Cookie header for a request. No I/O, no JS, no event loop.
 //
-// Scope. docs/LARVA.md decision 3 gives the jar to a *session*; there is no session
-// object yet, so the runtime gives each page its own (Runtime_State.cookie_jar, one page
-// being the default session) and `lava fetch` one per run. Nothing here knows who owns a
-// jar: a session that outlives its pages will hand the same ^Jar to each, and only the
-// owner's choice of lifetime changes.
+// Scope. docs/LARVA.md decision 3 gives the jar to a *session*. The runtime gives each
+// page its own by default (Runtime_State.cookie_jar, one page being the default session)
+// and `lava fetch` one per run; `lava serve` (pkg/adapters) gives one jar to a whole
+// session and hands the same ^Jar to its document fetches, on the server thread, and to
+// its pages, on dispatcher workers. So every public entry that reads or writes the
+// cookies (set_cookie, cookie_header, jar_clear, write_json) takes the jar's mutex: an
+// uncontended lock per Set-Cookie or Cookie header, against a header build that already
+// allocates, and the simplest form that stays correct for two requests of one session
+// running at once (a snapshot handed to each page and merged back would have to settle
+// which deletion or overwrite wins; the lock leaves that to arrival order, as one
+// browser profile's cookie store does).
 //
 // Chrome's behaviour is the oracle, recorded in tests/dom/cases/cookie-document-*.page
 // (document.cookie) and tests/web/cases/cookie-{fetch,xhr} (Set-Cookie and Cookie over
@@ -17,8 +22,10 @@
 package larva_cookie
 
 import "base:runtime"
+import "core:encoding/json"
 import "core:net"
 import "core:strings"
+import "core:sync"
 import dt "core:time/datetime"
 
 // Chrome's limits (net/cookies/cookie_constants.h, cookie_monster.h). The name+value and
@@ -109,9 +116,12 @@ Cookie :: struct {
 
 // Jar owns every string of every cookie in it, through the allocator it captured at
 // jar_init (CLAUDE.md §4: the runtime sets cookies from `proc "c"` natives, whose
-// ambient allocator is not the page's).
+// ambient allocator is not the page's). A jar shared across threads needs that allocator
+// to be thread-safe too. `mutex` guards `cookies` and `next_id` (see the file comment);
+// a jar must not move while another thread may use it.
 Jar :: struct {
 	allocator: runtime.Allocator,
+	mutex:     sync.Mutex,
 	cookies:   [dynamic]Cookie,
 	next_id:   i64,
 }
@@ -155,6 +165,7 @@ jar_destroy :: proc(jar: ^Jar) {
 
 // jar_clear empties the jar and keeps its backing, for a session that starts over.
 jar_clear :: proc(jar: ^Jar) {
+	sync.guard(&jar.mutex)
 	for &c in jar.cookies {
 		cookie_free(jar, &c)
 	}
@@ -192,6 +203,7 @@ jar_clear :: proc(jar: ^Jar) {
 //   maps it (domain_to_ascii). Pinned by pkg/http/cookie/cookie_test.odin and
 //   psl_test.odin.
 set_cookie :: proc(jar: ^Jar, url: Source, line: string, access: Access, site: Site_Context, now_ns: i64) -> Status {
+	sync.guard(&jar.mutex)
 	parsed, status := parse(line)
 
 	if status != .Stored {
@@ -333,6 +345,7 @@ cookie_header :: proc(
 	now_ns: i64,
 	sb: ^strings.Builder,
 ) -> bool {
+	sync.guard(&jar.mutex)
 	host := strip_brackets(url.host)
 	path := url.path if url.path != "" else "/"
 	now_s := now_ns / NS_PER_SECOND
@@ -403,6 +416,60 @@ cookie_header :: proc(
 	}
 
 	return len(list) > 0
+}
+
+// write_json writes every unexpired cookie in the jar, HttpOnly ones included, as a JSON
+// array in the jar's order (oldest store first): the capture API sees what the HTTP
+// stack sees, not what a script would (#9). Each object has the field names and shapes
+// of Puppeteer's (and the DevTools protocol's) Network.Cookie, the format a crawler's
+// caller already handles for Chrome: `domain` carries a leading dot for a domain cookie,
+// `expires` is Unix seconds or -1 for a session cookie, `sameSite` is left out when the
+// cookie set none.
+write_json :: proc(jar: ^Jar, now_ns: i64, sb: ^strings.Builder) {
+	Exported :: struct {
+		name:     string,
+		value:    string,
+		domain:   string,
+		path:     string,
+		expires:  i64,
+		httpOnly: bool,
+		secure:   bool,
+		session:  bool,
+		sameSite: string `json:",omitempty"`,
+	}
+
+	sync.guard(&jar.mutex)
+	now_s := now_ns / NS_PER_SECOND
+	list := make([dynamic]Exported, 0, len(jar.cookies), context.temp_allocator)
+	for &c in jar.cookies {
+		if c.persistent && c.expires <= now_s {
+			continue
+		}
+
+		e := Exported {
+			name     = c.name,
+			value    = c.value,
+			domain   = c.domain if c.host_only else strings.concatenate({".", c.domain}, context.temp_allocator),
+			path     = c.path,
+			expires  = c.expires if c.persistent else -1,
+			httpOnly = c.http_only,
+			secure   = c.secure,
+			session  = !c.persistent,
+		}
+		switch c.same_site {
+		case .Unspecified:
+		case .None:
+			e.sameSite = "None"
+		case .Lax:
+			e.sameSite = "Lax"
+		case .Strict:
+			e.sameSite = "Strict"
+		}
+		append(&list, e)
+	}
+
+	// Cannot fail: strings, integers and booleans only.
+	_ = json.marshal_to_builder(sb, list[:], {})
 }
 
 // is_potentially_trustworthy says whether a URL with this scheme and host may set and

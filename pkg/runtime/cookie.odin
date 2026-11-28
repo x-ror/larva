@@ -9,11 +9,11 @@ import jsc "lava:pkg/jsc"
 
 // The page's half of the cookie jar (pkg/http/cookie): the natives internal/cookie.js
 // calls for fetch(), XMLHttpRequest and document.cookie. The jar is the page's session's
-// (Runtime_State.cookie_jar); until a session object exists the page is its own session,
-// and its jar is born and dies with the Runtime_State (new_runtime_state,
-// destroy_runtime_state), so a page reusing a pooled VM starts with none of the previous
-// page's cookies. A session that outlives its pages will point cookie_jar at its own jar
-// and leave own_cookie_jar empty.
+// (Runtime_State.cookie_jar). By default the page is its own session, and its jar is born
+// and dies with the Runtime_State (new_runtime_state, destroy_runtime_state), so a page
+// reusing a pooled VM starts with none of the previous page's cookies. A `lava serve`
+// session that outlives its pages points cookie_jar at its own jar (page_crawl.odin) and
+// leaves own_cookie_jar empty.
 //
 // The URL is parsed in JS, by the page's own URL parser, and arrives as its parts:
 // https, host and path. Cold natives (one call per request, or per document.cookie

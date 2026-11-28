@@ -127,6 +127,36 @@ fetch :: proc(
 	return transfer_start(loop, req, url, on_done, user_data, allocator)
 }
 
+// set_cookie_for_url stores one set-cookie-string in `jar` as if `url`'s response had
+// sent it in a Set-Cookie header: the HTTP stack's access (HttpOnly allowed), same-site
+// with its own URL. What a caller seeds a session with before the first navigation.
+//
+// Returns:
+//   The jar's verdict, or the URL's parse error (the jar is then untouched).
+set_cookie_for_url :: proc(
+	jar: ^cookie.Jar,
+	url: string,
+	line: string,
+	now_ns: i64,
+) -> (
+	status: cookie.Status,
+	err: Error,
+) {
+	u := parse_url(url, context.temp_allocator) or_return
+	return cookie.set_cookie(jar, cookie_source(u), line, .Http, .Same_Site, now_ns), .None
+}
+
+// cookie_source is the jar's view of a URL: its host, its path without the query, and
+// whether it is a secure context.
+@(private)
+cookie_source :: proc(u: Url) -> cookie.Source {
+	return {
+		secure = cookie.is_potentially_trustworthy(u.https, u.host),
+		host = u.host,
+		path = strings.truncate_to_byte(u.target, '?'),
+	}
+}
+
 // header returns the first header named `name`. Header names compare ASCII
 // case-insensitively; core:strings.equal_fold folds Unicode too, so a server's
 // `Tranſfer-Encoding` would pass for Transfer-Encoding.

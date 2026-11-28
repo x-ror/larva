@@ -2,6 +2,7 @@
 package larva_adapters
 
 import "base:runtime"
+import "core:encoding/json"
 import "core:fmt"
 import "core:net"
 import "core:os"
@@ -12,6 +13,7 @@ import "core:sys/posix"
 import "core:time"
 import html "lava:pkg/html"
 import http "lava:pkg/http"
+import cookie "lava:pkg/http/cookie"
 import lava "lava:pkg/runtime"
 import eventloop "lava:pkg/runtime/eventloop"
 import pico "lava:pkg/runtime/picohttpparser"
@@ -32,6 +34,16 @@ import pico "lava:pkg/runtime/picohttpparser"
 // The server thread never touches JSC: everything JS lives on the workers, and the job
 // crosses back as bytes and a copied Result (CLAUDE.md §4: threads touch only their own
 // payload; completions come back through post_async).
+//
+// The one thing both threads touch is the request's cookie jar (a Session's): the
+// navigation stores and sends cookies on this thread, the page's fetch, XMLHttpRequest
+// and document.cookie on the worker, and two requests of one session may run at once.
+// The jar guards itself with a mutex (pkg/http/cookie), the simpler of the two correct
+// shapes: a snapshot copied into each page and merged back on completion would have to
+// decide whose deletion or overwrite wins when two pages of a session overlap. Only the
+// jar's contents are shared; the Session itself — its table entry, refcount and clock —
+// is the server thread's alone, and a Conn's reference keeps it alive for as long as
+// its page can run (the connection waits for the page, Conn.job).
 //
 // One request per connection: the response carries `Connection: close` and the server
 // closes after writing it (keep-alive is a follow-up). TLS on the listening side is a
@@ -65,6 +77,8 @@ Server :: struct {
 	// not JSC; this thread's own (an engine is per thread).
 	selectors:  html.Selectors,
 	conns:      [dynamic]^Conn,
+	// Named sessions by id (the key aliases Session.id). Server thread only.
+	sessions:   map[string]^Session,
 	// Requests admitted and not yet answered: what max_inflight bounds.
 	inflight:   int,
 	draining:   bool,
@@ -106,6 +120,22 @@ Conn :: struct {
 	job:       ^Render_Job,
 	// Counted in Server.inflight.
 	counted:   bool,
+	// The request's cookie jar's owner, from admission to conn_close: a named session's
+	// or the request's own. Holds one reference.
+	session:   ^Session,
+}
+
+// Session owns the cookie jar its requests share. `id` is "" for a request's own (one
+// without `session`), which is never in Server.sessions and goes with its last
+// reference. A named one leaves the table when idle past its TTL or evicted as least
+// recently used, and is freed once nothing references it any more.
+@(private = "file")
+Session :: struct {
+	id:        string,
+	jar:       cookie.Jar,
+	refs:      int,
+	last_used: time.Tick,
+	in_table:  bool,
 }
 
 // Render_Job crosses to a worker and back: the crawl job, plus what the worker copies
@@ -156,6 +186,14 @@ server_init :: proc(s: ^Server, cfg: Server_Config) -> (err: string) {
 
 	if s.cfg.default_timeout_ms <= 0 {
 		s.cfg.default_timeout_ms = min(DEFAULT_TIMEOUT_MS, s.cfg.max_timeout_ms)
+	}
+
+	if s.cfg.session_ttl_ms <= 0 {
+		s.cfg.session_ttl_ms = DEFAULT_SESSION_TTL_MS
+	}
+
+	if s.cfg.max_sessions <= 0 {
+		s.cfg.max_sessions = DEFAULT_MAX_SESSIONS
 	}
 
 	if s.cfg.max_inflight <= 0 {
@@ -209,6 +247,7 @@ server_init :: proc(s: ^Server, cfg: Server_Config) -> (err: string) {
 	}
 
 	s.conns = make([dynamic]^Conn, s.allocator)
+	s.sessions = make(map[string]^Session, s.allocator)
 	s.listener = {
 		fd        = uintptr(s.listen_fd),
 		mode      = .Read,
@@ -304,6 +343,14 @@ server_release :: proc(s: ^Server) {
 
 	delete(s.conns)
 	s.conns = nil
+
+	// Every connection is gone, so no session is referenced any more.
+	for _, session in s.sessions {
+		session_free(s, session)
+	}
+
+	delete(s.sessions)
+	s.sessions = nil
 }
 
 // The loop's shutdown hook (eventloop.request_shutdown): stop accepting and close what
@@ -473,13 +520,22 @@ conn_request :: proc(c: ^Conn, method, target: string) {
 	s.inflight += 1
 	c.counted = true
 	c.admitted = time.tick_now()
+	c.session = session_acquire(s, c.req.session, c.admitted)
+
+	if c.req.cookies != "" {
+		if message := seed_cookies(&c.session.jar, c.req.url, c.req.cookies); message != "" {
+			conn_fail(c, .Bad_Request, message)
+			return
+		}
+	}
+
 	// From here the request's own timeout bounds it; the head timer is done.
 	conn_clear_timer(c)
 	eventloop.unwatch_fd(s.loop, &c.watcher)
 	c.state = .Navigating
 	nav_err := http.fetch(
 		s.loop,
-		{url = c.req.url, timeout_ms = c.req.timeout_ms},
+		{url = c.req.url, timeout_ms = c.req.timeout_ms, cookie_jar = &c.session.jar},
 		on_navigated,
 		c,
 		allocator = s.allocator,
@@ -547,6 +603,7 @@ on_navigated :: proc(resp: http.Response, user_data: rawptr) {
 		script        = c.req.script,
 		script_result = c.req.script_result,
 		deadline      = time.tick_add(c.admitted, time.Duration(c.req.timeout_ms) * time.Millisecond),
+		cookie_jar    = &c.session.jar,
 		allocator     = s.allocator,
 	}
 	c.job = job
@@ -674,6 +731,17 @@ conn_respond :: proc(c: ^Conn, code: Error_Code, content_type, body: string, ren
 		fmt.sbprintf(&b, "%s: %d\r\n", HEADER_STATUS, c.status)
 	}
 
+	// write_json takes the jar's lock: a page of the same session still running stores
+	// its cookies before or after this snapshot, never in the middle of it.
+	if c.session != nil {
+		jar_json := strings.builder_make(context.temp_allocator)
+		cookie.write_json(&c.session.jar, time.to_unix_nanoseconds(time.now()), &jar_json)
+
+		if header_safe(strings.to_string(jar_json)) {
+			fmt.sbprintf(&b, "%s: %s\r\n", HEADER_COOKIES, strings.to_string(jar_json))
+		}
+	}
+
 	if c.counted {
 		now := time.tick_now()
 		total := time.duration_milliseconds(time.tick_diff(c.admitted, now))
@@ -771,11 +839,157 @@ conn_close :: proc(c: ^Conn) {
 		}
 	}
 
+	if c.session != nil {
+		session_release(s, c.session)
+		c.session = nil
+	}
+
 	render_request_destroy(&c.req)
 	delete(c.head)
 	delete(c.out)
 	delete(c.final_url)
 	free(c)
+}
+
+// session_acquire returns the session named `id` with a reference taken, made on first
+// use, or a fresh unnamed one for id "". Idle sessions past their TTL are swept first,
+// and a new named one evicts the least recently used when the table is full: both are
+// O(sessions), on a table max_sessions bounds, once per admitted request.
+@(private = "file")
+session_acquire :: proc(s: ^Server, id: string, now: time.Tick) -> ^Session {
+	context.allocator = s.allocator
+	ttl := time.Duration(s.cfg.session_ttl_ms) * time.Millisecond
+	stale := make([dynamic]^Session, 0, 0, context.temp_allocator)
+	for _, session in s.sessions {
+		if session.refs == 0 && time.tick_diff(session.last_used, now) > ttl {
+			append(&stale, session)
+		}
+	}
+
+	for session in stale {
+		session_drop(s, session)
+	}
+
+	session: ^Session
+
+	if id != "" {
+		session = s.sessions[id]
+	}
+
+	if session == nil {
+		if id != "" && len(s.sessions) >= s.cfg.max_sessions {
+			oldest: ^Session
+			for _, x in s.sessions {
+				if oldest == nil || time.tick_diff(x.last_used, oldest.last_used) > 0 {
+					oldest = x
+				}
+			}
+
+			session_drop(s, oldest)
+		}
+
+		session = new(Session)
+		cookie.jar_init(&session.jar, s.allocator)
+
+		if id != "" {
+			session.id = strings.clone(id)
+			session.in_table = true
+			s.sessions[session.id] = session
+		}
+	}
+
+	session.refs += 1
+	session.last_used = now
+	return session
+}
+
+@(private = "file")
+session_release :: proc(s: ^Server, session: ^Session) {
+	session.refs -= 1
+	session.last_used = time.tick_now()
+
+	if session.refs == 0 && !session.in_table {
+		session_free(s, session)
+	}
+}
+
+// session_drop takes a session out of the table; it is freed now when unreferenced, or
+// by its last session_release.
+@(private = "file")
+session_drop :: proc(s: ^Server, session: ^Session) {
+	delete_key(&s.sessions, session.id)
+	session.in_table = false
+
+	if session.refs == 0 {
+		session_free(s, session)
+	}
+}
+
+@(private = "file")
+session_free :: proc(s: ^Server, session: ^Session) {
+	context.allocator = s.allocator
+	cookie.jar_destroy(&session.jar)
+	delete(session.id)
+	free(session)
+}
+
+// seed_cookies stores a request's `cookies` parameter in `jar` as if `url` had set
+// them (serve_contract.odin): a JSON array of set-cookie-strings, or `name=value` pairs
+// joined by `;`. Returns "" or the message of the bad_request it is.
+@(private = "file")
+seed_cookies :: proc(jar: ^cookie.Jar, url, cookies: string) -> string {
+	now := time.to_unix_nanoseconds(time.now())
+	text := strings.trim_space(cookies)
+
+	if strings.has_prefix(text, "[") {
+		lines: []string
+
+		if json.unmarshal_string(text, &lines, allocator = context.temp_allocator) != nil {
+			return "cookies must be a JSON array of strings or name=value pairs"
+		}
+
+		for line in lines {
+			if message := seed_one(jar, url, line, now); message != "" {
+				return message
+			}
+		}
+
+		return ""
+	}
+
+	rest := text
+	for pair in strings.split_iterator(&rest, ";") {
+		pair := strings.trim_space(pair)
+
+		if pair == "" {
+			continue
+		}
+
+		if !strings.contains_rune(pair, '=') {
+			return "cookies must be a JSON array of strings or name=value pairs"
+		}
+
+		if message := seed_one(jar, url, pair, now); message != "" {
+			return message
+		}
+	}
+
+	return ""
+}
+
+@(private = "file")
+seed_one :: proc(jar: ^cookie.Jar, url, line: string, now: i64) -> string {
+	status, err := http.set_cookie_for_url(jar, url, line, now)
+
+	if err != .None {
+		return "url is not a URL the cookies can be scoped to"
+	}
+
+	if status != .Stored {
+		return fmt.tprintf("a seed cookie was refused (%v): %q", status, line)
+	}
+
+	return ""
 }
 
 @(private = "file")
