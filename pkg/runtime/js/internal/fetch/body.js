@@ -18,7 +18,6 @@
   // (enqueue/close/error + desiredSize backpressure) without re-implementing the
   // controller plumbing here.
   var webStreams = require('internal/webstreams/index');
-  var ReadableStream = webStreams.ReadableStream;
   var streamInternal = webStreams._internal;
   var P = require('internal/primordials');
   var StringP = P.String;
@@ -40,7 +39,6 @@
   var WeakMapPrototypeGet = P.WeakMapPrototypeGet;
   var WeakMapPrototypeSet = P.WeakMapPrototypeSet;
   var SymbolAsyncIterator = P.Symbol.asyncIterator;
-  var UnderlyingSourceStart = 'start';
 
   var webErrors = require('internal/web_errors');
   var typeError = webErrors.typeError;
@@ -249,67 +247,32 @@
 
   // BODY_HWM is the response-body high-water mark in bytes. When more than this
   // many undelivered bytes are queued in the response ReadableStream, its
-  // controller.desiredSize goes non-positive and the native transport pauses the
-  // socket read until the consumer drains below it (backpressure).
+  // desiredSize goes non-positive and the native transport pauses the socket read
+  // until the consumer drains below it (backpressure). A byte stream sizes its queue
+  // in bytes by definition, so no size algorithm is needed.
   var BODY_HWM = 64 * 1024;
 
-  // byteSizeAlgorithm sizes a queued response chunk by its byte length, so the
-  // response-body high-water mark (BODY_HWM) is measured in bytes — the unit the
-  // native transport pauses/resumes on.
-  function byteSizeAlgorithm(chunk) {
-    return chunk && chunk.byteLength ? chunk.byteLength : 0;
-  }
-
-  // makeTransportStream builds a response-body ReadableStream fed by the native
-  // transport. It returns the public stream plus push handles the transport's
-  // sink uses: enqueue(bytes) returns whether to keep reading (desiredSize > 0),
-  // close() / error(err) settle the stream. enqueue/close are guarded because a
-  // late chunk can arrive after the consumer cancelled (stream no longer
-  // readable); the guard turns that into a harmless no-op rather than a throw.
+  // makeTransportStream builds a response-body byte stream fed by the native
+  // transport (Chrome's network bodies are byte streams: tests/web/cases/
+  // streams-body-bytes "fetch byob"). It returns the public stream plus push handles
+  // the transport's sink uses: enqueue(bytes) returns whether to keep reading
+  // (desiredSize > 0), close() / error(err) settle the stream. enqueue/close are
+  // no-ops once the consumer cancelled, so a late chunk is harmless. A chunk's buffer
+  // is transferred into the stream, which is sound because fetch_deliver_chunk
+  // allocates a fresh one per chunk.
   function makeTransportStream(hooks) {
-    var captured = streamInternal.createReadableStreamWithController(
-      {
-        // pull resumes a paused socket read; a no-op when not paused, so it is
-        // safe for the controller to call it on every drained read.
-        pull: hooks.pull,
-        cancel: hooks.cancel,
-      },
-      BODY_HWM,
-      byteSizeAlgorithm,
-    );
-    var controller = captured.controller;
-    return {
-      stream: captured.stream,
-      enqueue: function (bytes) {
-        try {
-          controller.enqueue(bytes);
-        } catch {
-          return false;
-        }
-        return controller.desiredSize > 0;
-      },
-      close: function () {
-        try {
-          controller.close();
-        } catch {}
-      },
-      error: function (err) {
-        controller.error(err);
-      },
-    };
+    return streamInternal.createTransportByteStream(hooks, BODY_HWM);
   }
 
-  // streamFromBytes wraps an in-memory body in a one-shot ReadableStream so .body
-  // is a real ReadableStream (Node parity). Enqueuing happens inside start(),
-  // which does not mark the stream disturbed, so merely reading `.body` does not
-  // flip bodyUsed.
+  // streamFromBytes wraps an in-memory body in a byte stream so .body is a real
+  // ReadableStream a BYOB reader can read, as in Chrome. The bytes are copied out per
+  // read, never enqueued themselves: enqueue would detach them, and a clone or the
+  // Blob the body came from may share them. Nothing runs before the first read, so
+  // merely reading `.body` does not flip bodyUsed. One chunk carries the whole body,
+  // as Chrome's in-memory bodies do (streams-body-bytes "resp str default").
   function streamFromBytes(bytes) {
-    var source = { __proto__: null };
-    source[UnderlyingSourceStart] = function (controller) {
-      if (bytes !== null && bytes !== undefined && bytes.length > 0) controller.enqueue(bytes);
-      controller.close();
-    };
-    return new ReadableStream(source);
+    var size = TypedArrayPrototypeGetByteLength(bytes);
+    return streamInternal.createBytesSourceStream([bytes], size, size);
   }
 
   // The body stream a page sees (`body`), made on first read for an in-memory body.
@@ -397,8 +360,13 @@
    *   for a receiver that is not an `iface`; `… body stream already read` /
    *   `… body stream is locked` for an unusable body.
    * @node Chrome 158 (tests/web/cases/fetch-webidl): the rejections, their text and
-   *   their order.
-   * @deviates textStream() is absent (shape-fetch's known gap).
+   *   their order. (streams-body-bytes): `body` is a byte stream (a BYOB reader
+   *   works) for an in-memory, cloned or fetched body; a page's own stream is
+   *   returned as given.
+   * @deviates textStream() is absent (shape-fetch's known gap). An empty body
+   *   (`new Response('')`) has a null `body`, where Chrome's is an empty byte stream
+   *   (seen recording streams-body-bytes; not yet pinned — bodyToBytes maps empty to
+   *   absent).
    */
   function defineBody(proto, iface) {
     var members = {

@@ -4110,6 +4110,15 @@
       "expect_detail": "FAIL streams-byob-errors"
     },
     {
+      "name": "streams-body-bytes dies when a platform byte source enqueues its own bytes instead of a copy",
+      "why": "A Blob.stream() or Response.body chunk that is a view of the source's own part lets the page rewrite the Blob (or a clone's body) by writing into the chunk; under the spec's enqueue it would detach the part instead.",
+      "source": "pkg/runtime/js/internal/webstreams/readablestream.js",
+      "find": "copyOut(chunk, TypedArrayPrototypeGetLength(chunk));",
+      "replace": "chunk = parts[index++]; remaining -= TypedArrayPrototypeGetLength(chunk);",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL streams-body-bytes"
+    },
+    {
       "name": "dom-mutation-observer.page dies when MutationObserver delivers synchronously instead of in a microtask",
       "why": "DOM's 'queue a mutation observer microtask' batches every record of a task into one callback after the script; a synchronous call reports each mutation alone and before the script's later lines and promise jobs.",
       "source": "pkg/runtime/js/internal/mutation_observer.js",

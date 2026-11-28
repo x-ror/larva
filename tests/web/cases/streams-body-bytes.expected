@@ -1,0 +1,43 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs streams-body-bytes
+# ---
+blob reader ReadableStream ReadableStreamBYOBReader
+blob intact Uint8Array(off 0 len 4 buf 4)[9,9,9,9] {"done":true} / Uint8Array(off 0 len 3 buf 3)[1,2,3] | Uint8Array(off 0 len 1 buf 3)[4] | done Uint8Array(off 0 len 0 buf 3)[] / Uint8Array:4/4@0 / 1,2,3,4 4
+blob parts intact Uint8Array:4/4@0 / "ab\u0001c" 4
+blob parts default Uint8Array:6/6@0
+blob byob 4 Uint8Array(off 0 len 4 buf 4)[97,98,99,100] | Uint8Array(off 0 len 4 buf 4)[101,102,103,104] | Uint8Array(off 0 len 2 buf 4)[105,106] | done Uint8Array(off 0 len 0 buf 4)[]
+blob empty byob done Uint8Array(off 0 len 0 buf 4)[]
+blob empty default (none)
+blob slice byob Uint8Array(off 0 len 3 buf 3)[50,51,52] | Uint8Array(off 0 len 2 buf 3)[53,54] | done Uint8Array(off 0 len 0 buf 3)[]
+blob textStream "hé"
+blob byob min Uint8Array(off 0 len 8 buf 8)[97,98,99,100,101,102,103,104]
+  first Uint16Array(off 0 len 6 buf 8)[97,98,99,100,101,102]
+blob byob u16 odd tail THREW TypeError Cannot close while responding
+blob cancel {"done":true}
+blob release mid byob Uint8Array(off 0 len 2 buf 2)[97,98] then Uint8Array:4/4@0
+blob pipeThrough Uint8Array:3/3@0
+blob async iterator Uint8Array(off 0 len 4 buf 4)[97,98,99,100]
+response string default Uint8Array:5/5@0
+response big default Uint8Array:200000/200000@0
+response string byob Uint8Array(off 0 len 2 buf 2)[104,101] | Uint8Array(off 0 len 2 buf 2)[108,108] | Uint8Array(off 0 len 1 buf 2)[111] | done Uint8Array(off 0 len 0 buf 2)[]
+response blob byob Uint8Array(off 0 len 3 buf 3)[97,98,99] | Uint8Array(off 0 len 2 buf 3)[100,101] | done Uint8Array(off 0 len 0 buf 3)[]
+response arraybuffer byob Uint8Array(off 0 len 3 buf 8)[1,2,3] | done Uint8Array(off 0 len 0 buf 8)[]
+response params byob Uint8Array(off 0 len 3 buf 64)[97,61,98] | done Uint8Array(off 0 len 0 buf 64)[]
+response formdata byob 4
+response null body null
+response page stream THREW TypeError Failed to execute 'getReader' on 'ReadableStream': Cannot use a BYOB reader with a non-byte stream
+response intact Uint8Array(off 0 len 2 buf 2)[5,6] | Uint8Array(off 0 len 1 buf 2)[7] | done Uint8Array(off 0 len 0 buf 2)[] / 5,6,7 3
+response clone intact Uint8Array(off 0 len 3 buf 3)[48,48,48] / abc
+response bodyUsed after byob true Failed to execute 'text' on 'Response': body stream already read
+response clone byob Uint8Array(off 0 len 4 buf 4)[97,98,99,100] | Uint8Array(off 0 len 2 buf 4)[101,102] | done Uint8Array(off 0 len 0 buf 4)[] / Uint8Array(off 0 len 4 buf 4)[97,98,99,100] | Uint8Array(off 0 len 2 buf 4)[101,102] | done Uint8Array(off 0 len 0 buf 4)[]
+response tee Uint8Array(off 0 len 4 buf 4)[97,98,99,100] | Uint8Array(off 0 len 2 buf 4)[101,102] | done Uint8Array(off 0 len 0 buf 4)[] / Uint8Array:4/4@0 Uint8Array:2/2@0
+request byob Uint8Array(off 0 len 3 buf 3)[104,101,108] | Uint8Array(off 0 len 2 buf 3)[108,111] | done Uint8Array(off 0 len 0 buf 3)[]
+request blob byob Uint8Array(off 0 len 2 buf 3)[104,105] | done Uint8Array(off 0 len 0 buf 3)[]
+request clone byob Uint8Array(off 0 len 3 buf 3)[104,101,108] | Uint8Array(off 0 len 2 buf 3)[108,111] | done Uint8Array(off 0 len 0 buf 3)[]
+fetch byob Uint8Array(off 0 len 3 buf 3)[0,1,2] | Uint8Array(off 0 len 2 buf 3)[254,255] | done Uint8Array(off 0 len 0 buf 3)[]
+fetch default Uint8Array:22/22@0
+fetch tee Uint8Array(off 0 len 8 buf 8)[104,101,108,108,111,32,102,114] | Uint8Array(off 0 len 8 buf 8)[111,109,32,116,104,101,32,102] | Uint8Array(off 0 len 6 buf 8)[105,120,116,117,114,101] | done Uint8Array(off 0 len 0 buf 8)[] / Uint8Array(off 0 len 22 buf 100)[104,101,108,108,111,32,102,114] | done Uint8Array(off 0 len 0 buf 100)[]
+fetch clone Uint8Array(off 0 len 8 buf 8)[104,101,108,108,111,32,102,114] | Uint8Array(off 0 len 8 buf 8)[111,109,32,116,104,101,32,102] | Uint8Array(off 0 len 6 buf 8)[105,120,116,117,114,101] | done Uint8Array(off 0 len 0 buf 8)[] / hello from the fixture
