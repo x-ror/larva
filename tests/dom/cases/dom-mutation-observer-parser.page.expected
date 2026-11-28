@@ -1,0 +1,204 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-dom.mjs dom-mutation-observer-parser.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "mutation observer parser"
+|   "
+"
+|   <body>
+|     "
+"
+|     <pre>
+|       id="log"
+|       "observing
+"
+|       "parsed 9
+"
+|       "  childList DIV#host +[P#p1] -0 prev=SCRIPT next=null
+"
+|       "  childList P#p1 +[#text(one)] -0 prev=null next=null
+"
+|       "  childList DIV#host +[#comment(note)] -0 prev=P#p1 next=null
+"
+|       "  childList DIV#host +[SPAN] -0 prev=#comment(note) next=null
+"
+|       "  childList SPAN +[#text(two)] -0 prev=null next=null
+"
+|       "  childList SPAN +[B] -0 prev=#text(two) next=null
+"
+|       "  childList B +[#text(three)] -0 prev=null next=null
+"
+|       "  childList DIV#host +[SCRIPT] -0 prev=SPAN next=null
+"
+|       "  childList SCRIPT +[#text(
+log('second script');
+host.appendChild(document.createElement('em'));
+)] -0 prev=null next=null
+"
+|       "second script
+"
+|       "parsed 1
+"
+|       "  childList DIV#host +[EM] -0 prev=SCRIPT next=null
+"
+|       "parsed 2
+"
+|       "  childList DIV#host +[I#tail] -0 prev=EM next=null
+"
+|       "  childList I#tail +[#text(tail)] -0 prev=null next=null
+"
+|       "third script 0
+"
+|       "observing late
+"
+|       "DOMContentLoaded 0
+"
+|     "
+"
+|     <div>
+|       id="host"
+|       <script>
+|         "
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function nm(n) {
+  if (n === null) return 'null';
+  if (n.nodeType === 3) return '#text(' + n.data + ')';
+  if (n.nodeType === 8) return '#comment(' + n.data + ')';
+  return n.nodeName + (n.id ? '#' + n.id : '');
+}
+function logAll(tag, recs) {
+  log(tag + ' ' + recs.length);
+  for (var i = 0; i < recs.length; i++) {
+    var r = recs[i];
+    var added = [];
+    for (var j = 0; j < r.addedNodes.length; j++) added.push(nm(r.addedNodes[j]));
+    log('  ' + r.type + ' ' + nm(r.target) + ' +[' + added.join(',') + '] -' + r.removedNodes.length + ' prev=' + nm(r.previousSibling) + ' next=' + nm(r.nextSibling));
+  }
+}
+var host = document.getElementById('host');
+var mo = new MutationObserver(function (recs) { logAll('parsed', recs); });
+mo.observe(host, { childList: true, subtree: true, attributes: true, characterData: true });
+log('observing');
+"
+|       <p>
+|         id="p1"
+|         title="t"
+|         "one"
+|       <!-- note -->
+|       <span>
+|         "two"
+|         <b>
+|           "three"
+|       <script>
+|         "
+log('second script');
+host.appendChild(document.createElement('em'));
+"
+|       <em>
+|       <i>
+|         id="tail"
+|         "tail"
+|     <div>
+|       id="after"
+|       "after"
+|     "
+"
+|     <script>
+|       "
+log('third script ' + mo.takeRecords().length);
+document.addEventListener('DOMContentLoaded', function () {
+  log('DOMContentLoaded ' + mo.takeRecords().length);
+});
+"
+|     "
+"
+|     <div>
+|       id="late"
+|     "
+"
+|     <script>
+|       "
+mo.observe(document.getElementById('late'), { childList: true });
+log('observing late');
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head><title>mutation observer parser</title></head>
+<body>
+<pre id="log">observing
+parsed 9
+  childList DIV#host +[P#p1] -0 prev=SCRIPT next=null
+  childList P#p1 +[#text(one)] -0 prev=null next=null
+  childList DIV#host +[#comment(note)] -0 prev=P#p1 next=null
+  childList DIV#host +[SPAN] -0 prev=#comment(note) next=null
+  childList SPAN +[#text(two)] -0 prev=null next=null
+  childList SPAN +[B] -0 prev=#text(two) next=null
+  childList B +[#text(three)] -0 prev=null next=null
+  childList DIV#host +[SCRIPT] -0 prev=SPAN next=null
+  childList SCRIPT +[#text(
+log('second script');
+host.appendChild(document.createElement('em'));
+)] -0 prev=null next=null
+second script
+parsed 1
+  childList DIV#host +[EM] -0 prev=SCRIPT next=null
+parsed 2
+  childList DIV#host +[I#tail] -0 prev=EM next=null
+  childList I#tail +[#text(tail)] -0 prev=null next=null
+third script 0
+observing late
+DOMContentLoaded 0
+</pre>
+<div id="host"><script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function nm(n) {
+  if (n === null) return 'null';
+  if (n.nodeType === 3) return '#text(' + n.data + ')';
+  if (n.nodeType === 8) return '#comment(' + n.data + ')';
+  return n.nodeName + (n.id ? '#' + n.id : '');
+}
+function logAll(tag, recs) {
+  log(tag + ' ' + recs.length);
+  for (var i = 0; i < recs.length; i++) {
+    var r = recs[i];
+    var added = [];
+    for (var j = 0; j < r.addedNodes.length; j++) added.push(nm(r.addedNodes[j]));
+    log('  ' + r.type + ' ' + nm(r.target) + ' +[' + added.join(',') + '] -' + r.removedNodes.length + ' prev=' + nm(r.previousSibling) + ' next=' + nm(r.nextSibling));
+  }
+}
+var host = document.getElementById('host');
+var mo = new MutationObserver(function (recs) { logAll('parsed', recs); });
+mo.observe(host, { childList: true, subtree: true, attributes: true, characterData: true });
+log('observing');
+</script><p id="p1" title="t">one</p><!--note--><span>two<b>three</b></span><script>
+log('second script');
+host.appendChild(document.createElement('em'));
+</script><em></em><i id="tail">tail</i></div><div id="after">after</div>
+<script>
+log('third script ' + mo.takeRecords().length);
+document.addEventListener('DOMContentLoaded', function () {
+  log('DOMContentLoaded ' + mo.takeRecords().length);
+});
+</script>
+<div id="late"></div>
+<script>
+mo.observe(document.getElementById('late'), { childList: true });
+log('observing late');
+</script>
+
+
+</body></html>

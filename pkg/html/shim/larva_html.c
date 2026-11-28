@@ -13,6 +13,21 @@ typedef struct {
 	lxb_html_tree_t *tree;
 	lxb_dom_node_t *script;
 	size_t closed;
+	// The document's own mutation steps, and the copy of them installed in their place,
+	// whose `inserted` is larva_inserted: the parser-inserted nodes a MutationObserver
+	// sees (larva_html_parse_chunk). Copied rather than named, so whatever steps lexbor
+	// gives an HTML document still run first.
+	lxb_dom_document_t *doc;
+	const lxb_dom_document_mutation_cb_t *base;
+	lxb_dom_document_mutation_cb_t mutation;
+	// Nodes the parser inserted while `observe` is set, in insertion order, until
+	// larva_html_take_inserted hands them out. `parsing` is set only inside lexbor's
+	// parse calls, so an insertion a script makes through the DOM is never counted.
+	lxb_dom_node_t **inserted;
+	size_t inserted_len;
+	size_t inserted_cap;
+	bool observe;
+	bool parsing;
 } larva_html_hook;
 
 typedef struct {
@@ -54,6 +69,41 @@ static lxb_html_token_t *larva_hook_cb(lxb_html_tokenizer_t *tkz, lxb_html_token
 	return h->orig(tkz, token, h->orig_ctx);
 }
 
+// The document's `inserted` step: lexbor's own, then the node recorded for a
+// MutationObserver when the parser inserted it. A node the record cannot grow for is
+// dropped from the records, never from the tree.
+static lxb_status_t larva_inserted(lxb_dom_node_t *node) {
+	larva_html_hook *h = node->owner_document->user;
+	lxb_status_t status = LXB_STATUS_OK;
+
+	if (h == NULL) {
+		return status;
+	}
+
+	if (h->base->inserted != NULL) {
+		status = h->base->inserted(node);
+	}
+
+	if (!h->parsing || !h->observe || node->owner_document != h->doc) {
+		return status;
+	}
+
+	if (h->inserted_len == h->inserted_cap) {
+		size_t cap = h->inserted_cap == 0 ? 64 : h->inserted_cap * 2;
+		lxb_dom_node_t **grown = realloc(h->inserted, cap * sizeof(*grown));
+
+		if (grown == NULL) {
+			return status;
+		}
+
+		h->inserted = grown;
+		h->inserted_cap = cap;
+	}
+
+	h->inserted[h->inserted_len++] = node;
+	return status;
+}
+
 larva_html_hook *larva_html_begin(lxb_html_document_t *doc) {
 	if (lxb_html_document_parse_chunk_begin(doc) != LXB_STATUS_OK) {
 		return NULL;
@@ -75,7 +125,48 @@ larva_html_hook *larva_html_begin(lxb_html_document_t *doc) {
 	h->orig_ctx = parser->tkz->callback_token_ctx;
 	h->tree = parser->tree;
 	lxb_html_tokenizer_callback_token_done_set(parser->tkz, larva_hook_cb, h);
+
+	h->doc = &doc->dom_document;
+	h->base = doc->dom_document.mutation;
+	h->mutation = *h->base;
+	h->mutation.inserted = larva_inserted;
+	doc->dom_document.mutation = &h->mutation;
+	doc->dom_document.user = h;
 	return h;
+}
+
+// lxb_html_document_parse_chunk with the hook's `parsing` set across it.
+lxb_status_t larva_html_parse_chunk(larva_html_hook *h, lxb_html_document_t *doc, const lxb_char_t *data, size_t len) {
+	h->parsing = true;
+	lxb_status_t status = lxb_html_document_parse_chunk(doc, data, len);
+	h->parsing = false;
+	return status;
+}
+
+// lxb_html_document_parse_chunk_end with the hook's `parsing` set across it: the end of
+// the input still inserts what the tokenizer held back (trailing text).
+lxb_status_t larva_html_parse_end(larva_html_hook *h, lxb_html_document_t *doc) {
+	h->parsing = true;
+	lxb_status_t status = lxb_html_document_parse_chunk_end(doc);
+	h->parsing = false;
+	return status;
+}
+
+// Starts or stops recording parser-inserted nodes; stopping drops what was recorded.
+void larva_html_observe(larva_html_hook *h, bool on) {
+	h->observe = on;
+
+	if (!on) {
+		h->inserted_len = 0;
+	}
+}
+
+// The nodes recorded since the last call, oldest first; valid until the parser runs
+// again. The record is emptied.
+lxb_dom_node_t **larva_html_take_inserted(larva_html_hook *h, size_t *len) {
+	*len = h->inserted_len;
+	h->inserted_len = 0;
+	return h->inserted;
 }
 
 lxb_dom_node_t *larva_html_take_script(larva_html_hook *h, size_t *closed) {
@@ -87,6 +178,10 @@ lxb_dom_node_t *larva_html_take_script(larva_html_hook *h, size_t *closed) {
 }
 
 void larva_html_hook_free(larva_html_hook *h) {
+	if (h != NULL) {
+		free(h->inserted);
+	}
+
 	free(h);
 }
 
