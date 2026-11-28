@@ -1,0 +1,246 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-28
+# runs: 3 identical
+# command: node scripts/record-dom.mjs cookie-document-attributes.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "document.cookie attributes"
+|   "
+"
+|   <body>
+|     "
+"
+|     <pre>
+|       id="log"
+|       "path /raw/cookie-document-attributes.page
+"
+|       "default path -> "d=1"
+"
+|       "path root -> "d=1; p1=1"
+"
+|       "path parent -> "d=1; p2=1; p1=1"
+"
+|       "path parent slash -> "p3=1; d=1; p2=1; p1=1"
+"
+|       "path prefix not a segment -> "p3=1; d=1; p2=1; p1=1"
+"
+|       "path other -> "p3=1; d=1; p2=1; p1=1"
+"
+|       "path relative ignored -> "p3=1; d=1; p2=1; p6=1; p1=1"
+"
+|       "path empty -> "p3=1; d=1; p2=1; p6=1; p7=1; p1=1"
+"
+|       "path self -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; p1=1"
+"
+|       "path deeper -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; p1=1"
+"
+|       "path case -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; p1=1"
+"
+|       "same name other path -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; p1=1; d=2"
+"
+|       "domain ip -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; p1=1; d=2"
+"
+|       "domain dotted ip -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; p1=1; d=2"
+"
+|       "domain other -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; p1=1; d=2"
+"
+|       "domain suffix of ip -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; p1=1; d=2"
+"
+|       "domain empty -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; p1=1; d=2"
+"
+|       "domain localhost -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; p1=1; d=2"
+"
+|       "secure -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; p1=1; d=2"
+"
+|       "secure with a value -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; p1=1; d=2"
+"
+|       "httponly -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; p1=1; d=2"
+"
+|       "plain after httponly -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; p1=1; d=2"
+"
+|       "samesite strict -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; p1=1; d=2"
+"
+|       "samesite lax -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; p1=1; d=2"
+"
+|       "samesite none insecure -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; p1=1; d=2"
+"
+|       "samesite none secure -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; p1=1; d=2"
+"
+|       "samesite bogus -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; p1=1; d=2"
+"
+|       "__Secure- without Secure -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; p1=1; d=2"
+"
+|       "__Secure- with Secure -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2"
+"
+|       "__Host- without Secure -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2"
+"
+|       "__Host- full -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
+"
+|       "__secure- lowercase -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
+"
+|       "__host- lowercase -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
+"
+|       "nameless __Secure- value -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
+"
+|       "nameless __Host- value -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
+"
+|       "overwrite to secure -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; __Host-d=1; d=3"
+"
+|     "
+"
+|     <script>
+|       "
+// The attributes document.cookie honours, on an http://127.0.0.1 page at /raw/<case>:
+// the cookie's path and domain decide whether this document sees it; Secure, HttpOnly,
+// SameSite and the name prefixes decide whether it is stored at all.
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function step(label, line) {
+  document.cookie = line;
+  log(label + ' -> ' + JSON.stringify(document.cookie));
+}
+log('path ' + location.pathname);
+step('default path', 'd=1');
+step('path root', 'p1=1; Path=/');
+step('path parent', 'p2=1; Path=/raw');
+step('path parent slash', 'p3=1; Path=/raw/');
+step('path prefix not a segment', 'p4=1; Path=/ra');
+step('path other', 'p5=1; Path=/other');
+step('path relative ignored', 'p6=1; Path=raw');
+step('path empty', 'p7=1; Path=');
+step('path self', 'p8=1; Path=' + location.pathname);
+step('path deeper', 'p9=1; Path=' + location.pathname + '/deeper');
+step('path case', 'p10=1; Path=/RAW');
+step('same name other path', 'd=2; Path=/');
+step('domain ip', 'dom1=1; Domain=127.0.0.1');
+step('domain dotted ip', 'dom2=1; Domain=.127.0.0.1');
+step('domain other', 'dom3=1; Domain=example.com');
+step('domain suffix of ip', 'dom4=1; Domain=0.0.1');
+step('domain empty', 'dom5=1; Domain=');
+step('domain localhost', 'dom6=1; Domain=localhost');
+step('secure', 's1=1; Secure');
+step('secure with a value', 's2=1; secure=yes');
+step('httponly', 'h1=1; HttpOnly');
+// Shows whether the HttpOnly cookie was stored after all: a script may not replace
+// one, so h1=2 would then stay hidden.
+step('plain after httponly', 'h1=2');
+step('samesite strict', 'ss1=1; SameSite=Strict');
+step('samesite lax', 'ss2=1; SameSite=Lax');
+step('samesite none insecure', 'ss3=1; SameSite=None');
+step('samesite none secure', 'ss4=1; SameSite=None; Secure');
+step('samesite bogus', 'ss5=1; SameSite=Bogus');
+step('__Secure- without Secure', '__Secure-a=1');
+step('__Secure- with Secure', '__Secure-b=1; Secure');
+step('__Host- without Secure', '__Host-c=1; Path=/');
+step('__Host- full', '__Host-d=1; Secure; Path=/');
+step('__secure- lowercase', '__secure-e=1');
+step('__host- lowercase', '__host-f=1; Path=/');
+step('nameless __Secure- value', '__Secure-g');
+step('nameless __Host- value', '__Host-h');
+step('overwrite to secure', 'd=3; Path=/; Secure');
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head><title>document.cookie attributes</title></head>
+<body>
+<pre id="log">path /raw/cookie-document-attributes.page
+default path -&gt; "d=1"
+path root -&gt; "d=1; p1=1"
+path parent -&gt; "d=1; p2=1; p1=1"
+path parent slash -&gt; "p3=1; d=1; p2=1; p1=1"
+path prefix not a segment -&gt; "p3=1; d=1; p2=1; p1=1"
+path other -&gt; "p3=1; d=1; p2=1; p1=1"
+path relative ignored -&gt; "p3=1; d=1; p2=1; p6=1; p1=1"
+path empty -&gt; "p3=1; d=1; p2=1; p6=1; p7=1; p1=1"
+path self -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; p1=1"
+path deeper -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; p1=1"
+path case -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; p1=1"
+same name other path -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; p1=1; d=2"
+domain ip -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; p1=1; d=2"
+domain dotted ip -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; p1=1; d=2"
+domain other -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; p1=1; d=2"
+domain suffix of ip -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; p1=1; d=2"
+domain empty -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; p1=1; d=2"
+domain localhost -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; p1=1; d=2"
+secure -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; p1=1; d=2"
+secure with a value -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; p1=1; d=2"
+httponly -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; p1=1; d=2"
+plain after httponly -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; p1=1; d=2"
+samesite strict -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; p1=1; d=2"
+samesite lax -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; p1=1; d=2"
+samesite none insecure -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; p1=1; d=2"
+samesite none secure -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; p1=1; d=2"
+samesite bogus -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; p1=1; d=2"
+__Secure- without Secure -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; p1=1; d=2"
+__Secure- with Secure -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2"
+__Host- without Secure -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2"
+__Host- full -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
+__secure- lowercase -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
+__host- lowercase -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
+nameless __Secure- value -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
+nameless __Host- value -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
+overwrite to secure -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; __Host-d=1; d=3"
+</pre>
+<script>
+// The attributes document.cookie honours, on an http://127.0.0.1 page at /raw/<case>:
+// the cookie's path and domain decide whether this document sees it; Secure, HttpOnly,
+// SameSite and the name prefixes decide whether it is stored at all.
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function step(label, line) {
+  document.cookie = line;
+  log(label + ' -> ' + JSON.stringify(document.cookie));
+}
+log('path ' + location.pathname);
+step('default path', 'd=1');
+step('path root', 'p1=1; Path=/');
+step('path parent', 'p2=1; Path=/raw');
+step('path parent slash', 'p3=1; Path=/raw/');
+step('path prefix not a segment', 'p4=1; Path=/ra');
+step('path other', 'p5=1; Path=/other');
+step('path relative ignored', 'p6=1; Path=raw');
+step('path empty', 'p7=1; Path=');
+step('path self', 'p8=1; Path=' + location.pathname);
+step('path deeper', 'p9=1; Path=' + location.pathname + '/deeper');
+step('path case', 'p10=1; Path=/RAW');
+step('same name other path', 'd=2; Path=/');
+step('domain ip', 'dom1=1; Domain=127.0.0.1');
+step('domain dotted ip', 'dom2=1; Domain=.127.0.0.1');
+step('domain other', 'dom3=1; Domain=example.com');
+step('domain suffix of ip', 'dom4=1; Domain=0.0.1');
+step('domain empty', 'dom5=1; Domain=');
+step('domain localhost', 'dom6=1; Domain=localhost');
+step('secure', 's1=1; Secure');
+step('secure with a value', 's2=1; secure=yes');
+step('httponly', 'h1=1; HttpOnly');
+// Shows whether the HttpOnly cookie was stored after all: a script may not replace
+// one, so h1=2 would then stay hidden.
+step('plain after httponly', 'h1=2');
+step('samesite strict', 'ss1=1; SameSite=Strict');
+step('samesite lax', 'ss2=1; SameSite=Lax');
+step('samesite none insecure', 'ss3=1; SameSite=None');
+step('samesite none secure', 'ss4=1; SameSite=None; Secure');
+step('samesite bogus', 'ss5=1; SameSite=Bogus');
+step('__Secure- without Secure', '__Secure-a=1');
+step('__Secure- with Secure', '__Secure-b=1; Secure');
+step('__Host- without Secure', '__Host-c=1; Path=/');
+step('__Host- full', '__Host-d=1; Secure; Path=/');
+step('__secure- lowercase', '__secure-e=1');
+step('__host- lowercase', '__host-f=1; Path=/');
+step('nameless __Secure- value', '__Secure-g');
+step('nameless __Host- value', '__Host-h');
+step('overwrite to secure', 'd=3; Path=/; Secure');
+</script>
+
+
+</body></html>

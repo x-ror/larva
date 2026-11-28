@@ -524,6 +524,34 @@ const FIXTURES = {
     ]);
     res.end('ok');
   },
+  // The cookie jar (tests/web/cases/cookie-*): `cookie-set` answers one Set-Cookie per
+  // `c` query parameter, in order; `cookie-echo` and `cookie-echo2` (a path that shares
+  // a prefix with the first, but no segment boundary) answer the Cookie header the
+  // request carried, as JSON (null without one); `cookie-redirect` sets its `c`
+  // cookies on a 302 to `to` (default /fx/cookie-echo), so the next hop shows whether
+  // they were stored and sent.
+  '/fx/cookie-set': (req, res) => {
+    const cookies = new URL(req.url, 'http://x').searchParams.getAll('c');
+    res.writeHead(200, [
+      ['Content-Type', 'text/plain'],
+      ['Content-Length', '2'],
+      ...cookies.map((c) => ['Set-Cookie', c]),
+    ]);
+    res.end('ok');
+  },
+  '/fx/cookie-echo': (req, res) =>
+    send(res, 200, 'application/json', JSON.stringify(req.headers.cookie ?? null)),
+  '/fx/cookie-echo2': (req, res) =>
+    send(res, 200, 'application/json', JSON.stringify(req.headers.cookie ?? null)),
+  '/fx/cookie-redirect': (req, res) => {
+    const q = new URL(req.url, 'http://x').searchParams;
+    res.writeHead(302, [
+      ['Location', q.get('to') ?? '/fx/cookie-echo'],
+      ['Content-Length', '0'],
+      ...q.getAll('c').map((c) => ['Set-Cookie', c]),
+    ]);
+    res.end();
+  },
   // A 256 KiB text body ('a'..'z' repeating) written 16 KiB at a time, a turn apart,
   // so it reaches the page as many chunks and outgrows a 64 KiB stream queue while
   // nobody reads it (tests/web/cases/fetch-body-consume).

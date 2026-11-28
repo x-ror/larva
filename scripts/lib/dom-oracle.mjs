@@ -24,7 +24,7 @@
 // only what differs: the harness page, the two views and the suite's paths.
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { ROOT } from './web-oracle.mjs';
 
 // DOM_ORACLE_SUITE points the recorder and runner at another suite directory with the
@@ -207,11 +207,21 @@ export function pageScript(name, dir = CASES_DIR) {
 }
 
 /**
+ * The URL `lava page` gives a page case (--origin): the one Chrome's frame has,
+ * `/raw/<case>` on the recorder's 127.0.0.1 server, so location, document.cookie's
+ * default path and its host match the recording. The port is the server's ephemeral one
+ * in Chrome and left out here: no case prints it, and a page case fetches nothing.
+ */
+export function pageURL(file) {
+  return `http://127.0.0.1/raw/${basename(file, '.html')}`;
+}
+
+/**
  * `lava html`'s arguments for one view of one case — `lava page`'s for a page case;
  * `charset` is navCharset's.
  */
 export function lavaArgs(view, context, file, charset = null, page = false) {
-  if (page) return ['page', `--${view}`, file];
+  if (page) return ['page', `--${view}`, `--origin=${pageURL(file)}`, file];
   const sniff = charset === null ? [] : charset === '' ? ['--sniff'] : ['--charset', charset];
   return ['html', `--${view}`, ...(context ? ['--fragment', context] : []), ...sniff, file];
 }

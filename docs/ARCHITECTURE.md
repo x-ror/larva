@@ -384,9 +384,22 @@ callbacks; moving it onto `pkg/http` is stage-2 work.
 the client and the runtime's `fetch()` share one set without the
 client importing the runtime.
 
+Cookies live in `pkg/http/cookie`, a jar with no I/O that both stacks share: a
+`Request.cookie_jar` makes every hop of a transfer store its Set-Cookie before a
+redirect is followed and send the jar's Cookie for its own URL (`lava fetch` runs with
+one jar per run), and the runtime gives each page a jar of its own
+(`Runtime_State.cookie_jar`, `pkg/runtime/cookie.odin`) that fetch(), XMLHttpRequest
+and `document.cookie` reach through `internal/cookie`. Parsing, matching, SameSite,
+the name prefixes and Chrome's size limits follow Chrome 158, recorded in
+`tests/dom/cases/cookie-document-*.page` and `tests/web/cases/cookie-*`. A jar is
+per page because there is no session object yet (decision 3 gives the jar to one);
+in memory only. Domain= and the site key (per-site limits, SameSite) follow Mozilla's
+Public Suffix List as Chrome consults it (`pkg/http/cookie/psl.odin`): the vendored
+list is compiled by `scripts/gen-psl.mjs` into a sorted table embedded in the binary.
+
 What it does not do yet, all stage 2 (docs/LARVA.md decision 3): connection reuse,
-HTTP/2, cookies, proxies and client profiles. Linux only; elsewhere `fetch` returns
-`.No_Transport`.
+HTTP/2, sessions that outlive a page, proxies and client profiles. Linux only;
+elsewhere `fetch` returns `.No_Transport`.
 
 ---
 

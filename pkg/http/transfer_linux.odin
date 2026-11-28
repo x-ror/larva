@@ -7,6 +7,8 @@ import "core:net"
 import "core:slice"
 import "core:strings"
 import "core:sys/linux"
+import "core:time"
+import cookie "lava:pkg/http/cookie"
 import eventloop "lava:pkg/runtime/eventloop"
 import pico "lava:pkg/runtime/picohttpparser"
 import openssl "lava:pkg/tls"
@@ -98,6 +100,7 @@ Transfer :: struct {
 	headers:     [dynamic]Header,
 	body:        []byte,
 	max_body:    int,
+	jar:         ^cookie.Jar, // borrowed from the Request; nil for none
 	url_text:    string,
 	url:         Url,
 	state:       State,
@@ -143,6 +146,7 @@ transfer_start :: proc(
 		method = strings.clone(req.method if req.method != "" else "GET"),
 		body = slice.clone(req.body),
 		max_body = req.max_body_bytes if req.max_body_bytes > 0 else DEFAULT_MAX_BODY_BYTES,
+		jar = req.cookie_jar,
 		url_text = strings.clone(req.url),
 		url = url,
 		fd = -1,
@@ -349,7 +353,16 @@ handshake :: proc(t: ^Transfer) {
 
 @(private = "file")
 start_write :: proc(t: ^Transfer) {
-	build_request(&t.out, t.method, t.url, t.headers[:], t.body)
+	cookies: strings.Builder
+
+	if t.jar != nil {
+		cookies = strings.builder_make(t.allocator)
+		now := time.to_unix_nanoseconds(time.now())
+		cookie.cookie_header(t.jar, cookie_source(t.url), .Http, .Same_Site, now, &cookies)
+	}
+
+	build_request(&t.out, t.method, t.url, t.headers[:], t.body, strings.to_string(cookies))
+	strings.builder_destroy(&cookies)
 	t.out_off = 0
 	t.state = .Writing
 	write(t)
@@ -578,6 +591,12 @@ on_head :: proc(t: ^Transfer, status: int, reason: string, headers: []pico.Heade
 		}
 	}
 
+	// Before a redirect is followed, so the next hop already sends what this one set.
+	// A folded head stores from its joined copy, below.
+	if !folded {
+		store_cookies(t, headers)
+	}
+
 	if !folded && is_redirect(status) {
 		if location, ok := find_header(headers, "Location"); ok {
 			redirect(t, status, location)
@@ -592,6 +611,10 @@ on_head :: proc(t: ^Transfer, status: int, reason: string, headers: []pico.Heade
 	if !copy_headers(t, headers) {
 		finish(t, .Malformed_Response)
 		return false
+	}
+
+	if folded {
+		store_cookies(t, t.resp.headers[:])
 	}
 
 	if folded && is_redirect(status) {
@@ -779,6 +802,39 @@ on_eof :: proc(t: ^Transfer, clean: bool) {
 	case:
 		// Fewer bytes than Content-Length, or chunks without the last one.
 		finish(t, .Read)
+	}
+}
+
+// store_cookies hands every Set-Cookie of a response head to the transfer's jar, in
+// order, as the HTTP stack (HttpOnly allowed) of a navigation the user typed: same-site
+// with its own URL, so every SameSite value stores.
+//
+// Deviates: Chrome treats a navigation whose redirect chain crossed sites as cross-site
+// for SameSite=Strict cookies; each hop here is same-site with itself. Not recorded (the
+// fixture server has one site); stage 2's navigation work owns it.
+@(private = "file")
+store_cookies :: proc(t: ^Transfer, headers: []pico.Header) {
+	if t.jar == nil {
+		return
+	}
+
+	now := time.to_unix_nanoseconds(time.now())
+	source := cookie_source(t.url)
+	for &h in headers {
+		if ascii_equal_fold(h.name, "Set-Cookie") {
+			cookie.set_cookie(t.jar, source, h.value, .Http, .Same_Site, now)
+		}
+	}
+}
+
+// cookie_source is the jar's view of a URL: its host, its path without the query, and
+// whether it is a secure context.
+@(private = "file")
+cookie_source :: proc(u: Url) -> cookie.Source {
+	return {
+		secure = cookie.is_potentially_trustworthy(u.https, u.host),
+		host = u.host,
+		path = strings.truncate_to_byte(u.target, '?'),
 	}
 }
 

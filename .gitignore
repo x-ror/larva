@@ -25,6 +25,7 @@ reports/
 *.so
 
 # Odin test binaries emitted at the repo root by make test-* targets.
+/cookie
 /eventloop
 /html
 /http
