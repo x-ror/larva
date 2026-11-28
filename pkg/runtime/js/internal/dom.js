@@ -42,8 +42,6 @@
   var DOMException = require('internal/domexception').DOMException;
   var ObjectDefineProperty = P.ObjectDefineProperty;
   var ObjectFreeze = P.ObjectFreeze;
-  var ObjectGetPrototypeOf = P.ObjectGetPrototypeOf;
-  var ObjectSetPrototypeOf = P.ObjectSetPrototypeOf;
   var ProxyP = P.Proxy;
   var ReflectApply = P.ReflectApply;
   var ReflectDefineProperty = P.ReflectDefineProperty;
@@ -1405,14 +1403,14 @@
     nRemoveAttribute = observed.removeAttribute;
 
     var global = globalThis;
-    events.setHostTargets(nIsNode, nParent, global, isDocument);
+    events.setHostTargets(nIsNode, nParent, isDocument);
     nativeShape.defineGlobalAttribute('window', function () {
       return global;
     });
     nativeShape.defineGlobalAttribute('document', function () {
       return nDocument();
     });
-    installWindowTarget(global);
+    windowTarget = global;
 
     var protos = [];
     for (var j = 0; j < names.length; j++) {
@@ -1459,48 +1457,9 @@
     return nNodeType(o) === DOCUMENT_NODE;
   }
 
-  // The window's `onload` (HTML's event handler IDL attribute on Window): the handler,
-  // and the listener entry it holds in the window's `load` list while non-null.
+  // The page's window, which `load` is fired at (internal/event_target made it an
+  // EventTarget, with its `onload`, at that module's eval).
   var windowTarget = null;
-  var onload = null;
-  var onloadEntry = null;
-
-  function readOnload() {
-    return onload;
-  }
-
-  /**
-   * Makes the page's global an EventTarget, as Chrome's window is: its [[Prototype]]
-   * chain reaches EventTarget.prototype, so addEventListener and the rest are
-   * inherited, not own; and `onload`.
-   * @node Chrome 158, tests/dom/cases/dom-window-events.page and dom-load.page.
-   * @deviates The chain is global → its class prototype → EventTarget.prototype: Blink's
-   *   Window.prototype and WindowProperties are not modeled, so `window instanceof
-   *   Window` is still false (there is no Window interface object yet). onload is the
-   *   window's one event handler attribute so far.
-   */
-  function installWindowTarget(global) {
-    windowTarget = global;
-    ObjectSetPrototypeOf(ObjectGetPrototypeOf(global), events.EventTarget.prototype);
-    ObjectDefineProperty(global, 'onload', {
-      __proto__: null,
-      get: nativeShape.wrapGetter('onload', function () {
-        return onload;
-      }),
-      set: nativeShape.wrapSetter('onload', function (fn) {
-        // [LegacyTreatNonObjectAsNull]: any object is kept, anything else is null.
-        onload = (typeof fn === 'object' && fn !== null) || typeof fn === 'function' ? fn : null;
-        if (onload !== null && onloadEntry === null) {
-          onloadEntry = events.attachHandler(global, 'load', readOnload);
-        } else if (onload === null && onloadEntry !== null) {
-          events.detachHandler(global, 'load', onloadEntry);
-          onloadEntry = null;
-        }
-      }),
-      enumerable: true,
-      configurable: true,
-    });
-  }
 
   // The steps of one readiness change, one listener a step (event_target dispatch):
   // `interactive` is readystatechange at the document; `contentloaded` is

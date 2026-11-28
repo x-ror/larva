@@ -122,3 +122,5 @@ shape('Location');
 shape('history');
 shape('History');
 shape('DOMStringList');
+shape('PopStateEvent');
+shape('HashChangeEvent');

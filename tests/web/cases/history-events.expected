@@ -1,0 +1,28 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs history-events
+# ---
+onhashchange own get=function set=function enum=true conf=true
+onpopstate own get=function set=function enum=true conf=true
+initial null null
+global is EventTarget true
+onhashchange non-object null
+onhashchange set function
+script: popstate state=null same=true visual=false trusted=true bubbles=false cancelable=false true [object PopStateEvent] at=#a | onpopstate null | sync after hash=a | popstate state=null same=true visual=false trusted=true bubbles=false cancelable=false true [object PopStateEvent] at=#b | onpopstate null | sync after hash=b | pushState and replaceState are silent
+first timer: hashchange (none)->#a trusted=true bubbles=false cancelable=false target=true true [object HashChangeEvent] sameDoc=true now=#replaced | onhashchange this=true hashchange | hashchange #a->#b trusted=true bubbles=false cancelable=false target=true true [object HashChangeEvent] sameDoc=true now=#replaced | onhashchange this=true hashchange
+hash=one: popstate state=null same=true visual=false trusted=true bubbles=false cancelable=false true [object PopStateEvent] at=#one | onpopstate null | sync | hashchange #replaced->#one trusted=true bubbles=false cancelable=false target=true true [object HashChangeEvent] sameDoc=true now=#one | onhashchange this=true hashchange
+assign #two twice: popstate state=null same=true visual=false trusted=true bubbles=false cancelable=false true [object PopStateEvent] at=#two | onpopstate null | popstate state=null same=true visual=false trusted=true bubbles=false cancelable=false true [object PopStateEvent] at=#two | onpopstate null | hashchange #one->#two trusted=true bubbles=false cancelable=false target=true true [object HashChangeEvent] sameDoc=true now=#two | onhashchange this=true hashchange
+replace #three: popstate state=null same=true visual=false trusted=true bubbles=false cancelable=false true [object PopStateEvent] at=#three | onpopstate null | hashchange #two->#three trusted=true bubbles=false cancelable=false target=true true [object HashChangeEvent] sameDoc=true now=#three | onhashchange this=true hashchange
+href #four then same hash: popstate state=null same=true visual=false trusted=true bubbles=false cancelable=false true [object PopStateEvent] at=#four | onpopstate null | hashchange #three->#four trusted=true bubbles=false cancelable=false target=true true [object HashChangeEvent] sameDoc=true now=#four | onhashchange this=true hashchange
+empty hash: popstate state=null same=true visual=false trusted=true bubbles=false cancelable=false true [object PopStateEvent] at= | onpopstate null | hashchange #four-># trusted=true bubbles=false cancelable=false target=true true [object HashChangeEvent] sameDoc=true now= | onhashchange this=true hashchange
+pushState x, y, y2: -
+back (same fragment): back queued | popstate state={"s":"y"} same=true visual=false trusted=true bubbles=false cancelable=false true [object PopStateEvent] at=#y | onpopstate {"s":"y"}
+back (#y to #x): popstate state={"s":"x"} same=true visual=false trusted=true bubbles=false cancelable=false true [object PopStateEvent] at=#x | onpopstate {"s":"x"} | hashchange #y->#x trusted=true bubbles=false cancelable=false target=true true [object HashChangeEvent] sameDoc=true now=#x | onhashchange this=true hashchange
+go(-2): popstate state=null same=true visual=false trusted=true bubbles=false cancelable=false true [object PopStateEvent] at=#four | onpopstate null | hashchange #x->#four trusted=true bubbles=false cancelable=false target=true true [object HashChangeEvent] sameDoc=true now=#four | onhashchange this=true hashchange
+forward: popstate state=null same=true visual=false trusted=true bubbles=false cancelable=false true [object PopStateEvent] at= | onpopstate null | hashchange #four-># trusted=true bubbles=false cancelable=false target=true true [object HashChangeEvent] sameDoc=true now= | onhashchange this=true hashchange
+handlers cleared null object
+go(2) without handlers: popstate state={"s":"y"} same=true visual=false trusted=true bubbles=false cancelable=false true [object PopStateEvent] at=#y | hashchange #->#y trusted=true bubbles=false cancelable=false target=true true [object HashChangeEvent] sameDoc=true now=#y
+task order: popstate state=null same=true visual=false trusted=true bubbles=false cancelable=false true [object PopStateEvent] at=#timer-race | hashchange #y->#timer-race trusted=true bubbles=false cancelable=false target=true true [object HashChangeEvent] sameDoc=true now=#timer-race | timeout queued after the navigation
+done #timer-race
