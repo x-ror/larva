@@ -15,8 +15,9 @@
  * or permission — an empty list, a rejection with Blink's error, a promise a prompt
  * nobody answers would leave pending. Each member's @deviates says which.
  *
- * Every interface here is built by `api`: a prototype written as an object literal
- * (getters and operations, in Blink's order), re-laid by internal/native_shape. An
+ * Every interface here is built by `api`: its members written as an object literal
+ * (getters and operations, in Blink's order), laid onto the interface prototype by
+ * internal/native_shape. An
  * instance carries one private record (`recOf`): which interface it is — the brand
  * every member checks — and its state. Event handler attributes (`onchange`, …) are
  * generated from the member list.
@@ -225,16 +226,22 @@
 
   /**
    * Installs interface `name`: `proto` (an object literal of its getters, setters and
-   * operations) becomes the interface prototype, re-laid in `members` order by
-   * internal/native_shape; each `on…` member without an implementation becomes an
-   * event handler attribute. A page cannot construct one ("Illegal constructor").
+   * operations) holds the implementations internal/native_shape lays, in `members`
+   * order, onto a fresh interface prototype; each `on…` member without an
+   * implementation becomes an event handler attribute. A page cannot construct one
+   * ("Illegal constructor").
+   *
+   * The interface prototype is not `proto` itself: an event handler attribute lands at
+   * the end of the literal, wherever Blink lists it, so re-laying the literal took off
+   * and re-added every member listed after one — 33 on every page, across 13 of these
+   * interfaces. Laid onto an empty object, every member is appended in order.
    * @param {string} name
    * @param {boolean} target An EventTarget (its prototype chains to EventTarget's).
    * @param {string[]} members Blink's order, native_shape's entry syntax.
    * @param {Object} proto
    * @param {boolean} [global] false for an interface Blink does not expose
    *   (DeprecatedStorageQuota).
-   * @returns {Object} The interface prototype.
+   * @returns {Object} The interface prototype (not `proto`).
    * @node n/a — Chrome 158, tests/web/cases/shape-navigator-apis.expected.
    * @deviates none
    */
@@ -253,19 +260,21 @@
       if (StringPrototypeStartsWith(m, 'on') && !(m in proto)) handlerAttribute(proto, name, m);
     }
 
-    holder.prototype = proto;
+    var shaped = { __proto__: target ? EventTargetImpl.prototype : ObjectProto };
+    holder.prototype = shaped;
     holder.target = target;
     HOLDERS[name] = holder;
     nativeShape.defineInterface({
       name: name,
       impl: holder,
+      source: proto,
       length: 0,
       illegal: true,
       parent: target ? PublicEventTarget : undefined,
       members: members,
       global: global,
     });
-    return proto;
+    return shaped;
   }
 
   // The operations that return a promise, per interface. WebIDL turns everything such

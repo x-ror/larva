@@ -26,6 +26,7 @@
 
   var P = require('internal/primordials');
   var URLP = require('internal/url').URL;
+  var parseStringOrNull = require('internal/url').parseStringOrNull;
   var ObjectGetOwnPropertyDescriptor = P.ObjectGetOwnPropertyDescriptor;
   var ReflectApply = P.ReflectApply;
   var EMPTY = [];
@@ -50,10 +51,17 @@
   // which has no cookies (about:blank, data:, blob:).
   function parts(href) {
     var url;
-    try {
-      url = new URLP(href);
-    } catch {
-      return null;
+    if (typeof href === 'string') {
+      // No throw to catch for a page without a URL, every page's first call
+      // (internal/url parseStringOrNull).
+      url = parseStringOrNull(href);
+      if (url === null) return null;
+    } else {
+      try {
+        url = new URLP(href);
+      } catch {
+        return null;
+      }
     }
     var protocol = read(urlProtocol, url);
     if (protocol !== 'http:' && protocol !== 'https:') return null;

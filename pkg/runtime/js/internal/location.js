@@ -31,6 +31,7 @@
   var events = require('internal/event_target');
   var cloneFor = require('internal/structured_clone').cloneFor;
   var URLP = require('internal/url').URL;
+  var parseStringOrNull = require('internal/url').parseStringOrNull;
   var ArrayPrototypeIncludes = P.ArrayPrototypeIncludes;
   var ArrayPrototypePush1 = P.ArrayPrototypePush1;
   var NumberP = P.Number;
@@ -136,7 +137,9 @@
   // {url, state, scroll}. Only this document's entries: Larva has no earlier document to
   // go back to. `current` is the active entry's URL, the document's URL.
 
-  var pageURL = parse(native && typeof native.url === 'string' ? native.url : '');
+  // Not through parse(): no throw for a page without a URL (internal/url
+  // parseStringOrNull).
+  var pageURL = parseStringOrNull(native && typeof native.url === 'string' ? native.url : '');
   if (pageURL === null) pageURL = new URLP(BLANK);
   var entries = [{ __proto__: null, url: pageURL, state: null, scroll: 'auto' }];
   var index = 0;

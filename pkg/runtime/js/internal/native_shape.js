@@ -41,6 +41,19 @@
  * host_native_create, same harness, best of 7 runs of 1e6 calls) — and buy nothing a
  * page can see.
  *
+ * Every page builds its ~87 interfaces here (~770 members), in JSC's interpreter: the
+ * page's copy of this code is discarded with it, so it never tiers up, and the cost is
+ * the count of calls and allocations per member. So layMembers parses, decides and
+ * defines in one pass with no object per entry or descriptor; an accessor's functions
+ * are method shorthands, not read back off a literal's descriptor; and an operation
+ * whose WebIDL length is 0 or 1 is made with that length rather than redefined.
+ * Measured against master (b3d6d08), bench/pages -o:speed, N=1, 300 pages a launch,
+ * performance.now() around every defineInterface and around the loader, medians of the
+ * per-page values (first 10 dropped) over 5 interleaved launches per arm, Linux x64:
+ * defineInterface 2.81 -> 2.06 ms a page, the whole loader 10.02 -> 8.41 ms (with the
+ * deletes taken out of Navigator and navigator_apis, and the throw out of the page-URL
+ * parse, internal/url parseStringOrNull).
+ *
  * Instantiated eagerly, before any module that installs a global (the loader names it
  * right after the intrinsics are locked), so the captures below are pristine and the
  * mask is in before any page code runs.
@@ -65,7 +78,6 @@
     parseEntry,
     wellKnown,
     layMembers,
-    inPlace,
     findMember,
     installGlobal,
     defineInterface,
@@ -85,7 +97,6 @@
   var ReflectApply = P.ReflectApply;
   var ReflectConstruct = P.ReflectConstruct;
   var ReflectOwnKeys = P.ReflectOwnKeys;
-  var ArrayPrototypeIndexOf = P.ArrayPrototypeIndexOf;
   var StringPrototypeCharCodeAt = P.StringPrototypeCharCodeAt;
   var StringPrototypeIndexOf = P.StringPrototypeIndexOf;
   var StringPrototypeSlice = P.StringPrototypeSlice;
@@ -201,48 +212,77 @@
   // key gives every member's holder object a Structure of its own, one per distinct
   // name per page. Measured cold, as every page runs this (a fresh process, 400
   // wrappers): 310 us with computed keys, 240 us fixed with the name defined after.
+  // The literal is picked by WebIDL length, so the common lengths come out right and
+  // only `name` is defined afterwards: 0 and 1 are ~85% of the operations on a page,
+  // and each `length` defined was a property reification and a define per operation.
+  // The named parameters are never read; the body forwards `arguments` either way.
   function wrapOperation(name, impl, length) {
-    var fn = {
-      op() {
-        try {
-          return ReflectApply(impl, this, arguments);
-        } catch (e) {
-          throw scrubThrown(e, name);
-        }
-      },
-    }.op;
-    return nameNative(fn, name, length, 0);
-  }
-
-  function wrapGetter(name, impl) {
-    var fn = ObjectGetOwnPropertyDescriptor(
-      {
-        get attr() {
+    var fn;
+    var natural = length;
+    if (length === 0) {
+      fn = {
+        op() {
           try {
-            return impl.call(this); // primordials-ok: invoke — impl is unreachable from user code
+            return ReflectApply(impl, this, arguments);
           } catch (e) {
-            throw scrubThrown(e, 'get ' + name);
+            throw scrubThrown(e, name);
           }
         },
+      }.op;
+    } else if (length === 1) {
+      fn = {
+        op(_a) {
+          try {
+            return ReflectApply(impl, this, arguments);
+          } catch (e) {
+            throw scrubThrown(e, name);
+          }
+        },
+      }.op;
+    } else {
+      natural = 0;
+      fn = {
+        op() {
+          try {
+            return ReflectApply(impl, this, arguments);
+          } catch (e) {
+            throw scrubThrown(e, name);
+          }
+        },
+      }.op;
+    }
+
+    return nameNative(fn, name, length, natural);
+  }
+
+  // An accessor's functions are method shorthands too, not `get`/`set` literals read
+  // back through their descriptor: what a page can tell a getter-kind function by — no
+  // `prototype`, not a constructor, strict — a method has as well, and its name, length
+  // and text are set here either way. The descriptor read was an object and an
+  // accessor pair per accessor, ~265 of them on every page.
+  function wrapGetter(name, impl) {
+    var fn = {
+      attr() {
+        try {
+          return impl.call(this); // primordials-ok: invoke — impl is unreachable from user code
+        } catch (e) {
+          throw scrubThrown(e, 'get ' + name);
+        }
       },
-      'attr',
-    ).get;
+    }.attr;
     return nameNative(fn, 'get ' + name, 0, 0);
   }
 
   function wrapSetter(name, impl) {
-    var fn = ObjectGetOwnPropertyDescriptor(
-      {
-        set attr(value) {
-          try {
-            impl.call(this, value); // primordials-ok: invoke — impl is unreachable from user code
-          } catch (e) {
-            throw scrubThrown(e, 'set ' + name);
-          }
-        },
+    var fn = {
+      attr(value) {
+        try {
+          impl.call(this, value); // primordials-ok: invoke — impl is unreachable from user code
+        } catch (e) {
+          throw scrubThrown(e, 'set ' + name);
+        }
       },
-      'attr',
-    ).set;
+    }.attr;
     return nameNative(fn, 'set ' + name, 1, 1);
   }
 
@@ -265,20 +305,34 @@
   // A member entry: `name`, `name:length` for an operation whose WebIDL length is not
   // the implementation's, `@@toStringTag`, `@@iterator=entries` (an alias of another
   // member's function, as Blink's iterator is its `entries`), or a constant's name.
+  // Parsed inside layMembers' one pass, into these three rather than an object per
+  // entry: a length is the digits after the last `:`, so a plain name — most entries —
+  // is told by its last character alone, with no search. Only a well-known symbol's
+  // entry names an alias.
+  var entryKey = '';
+  var entryLength = -1;
+  var entryAlias = null;
   function parseEntry(entry) {
-    var colon = StringPrototypeIndexOf(entry, ':', 0);
-    var eq = StringPrototypeIndexOf(entry, '=', 0);
-    var key = entry;
-    var length = -1;
-    var alias = null;
-    if (colon !== -1) {
-      key = StringPrototypeSlice(entry, 0, colon);
-      length = +StringPrototypeSlice(entry, colon + 1, entry.length);
-    } else if (eq !== -1) {
-      key = StringPrototypeSlice(entry, 0, eq);
-      alias = StringPrototypeSlice(entry, eq + 1, entry.length);
+    entryKey = entry;
+    entryLength = -1;
+    entryAlias = null;
+    if (entry[0] === '@') {
+      var eq = StringPrototypeIndexOf(entry, '=', 0);
+      if (eq !== -1) {
+        entryKey = StringPrototypeSlice(entry, 0, eq);
+        entryAlias = StringPrototypeSlice(entry, eq + 1, entry.length);
+      }
+
+      return;
     }
-    return { __proto__: null, key: key, length: length, alias: alias };
+
+    var end = entry.length - 1;
+    var at = end;
+    while (at > 0 && entry[at] >= '0' && entry[at] <= '9') at--;
+    if (at < end && entry[at] === ':') {
+      entryKey = StringPrototypeSlice(entry, 0, at);
+      entryLength = +StringPrototypeSlice(entry, at + 1, entry.length);
+    }
   }
 
   function wellKnown(key) {
@@ -288,112 +342,130 @@
     return key;
   }
 
+  // The two descriptors every member is defined through, refilled per member rather
+  // than allocated: ObjectDefineProperty reads a descriptor's fields and keeps nothing
+  // of the object. Nothing between filling one and defining it re-enters layMembers
+  // (the target is ours, never a Proxy, and wrapping runs no page code); layMembers
+  // clears them before it returns, so they hold no page's functions.
+  var DATA_DESC = {
+    __proto__: null,
+    value: undefined,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  };
+  var ACCESSOR_DESC = {
+    __proto__: null,
+    get: undefined,
+    set: undefined,
+    enumerable: true,
+    configurable: true,
+  };
+
   // Re-lays `target`'s own members in `entries` order, each wrapped. A member the list
   // names is taken off and defined again at the end, so the listed ones end up in the
   // list's order after anything unlisted. `source` holds the implementation (the same
   // object for a prototype; the implementation class for statics).
+  //
+  // Which members can be redefined where they are rather than taken off and appended:
+  // the longest run from the start of the list — strings and symbols separately, as
+  // Reflect.ownKeys orders them — that is already in the list's order on `target` (a
+  // member the target lacks ends the run: it is appended). Everything after it moves.
+  // A delete is what costs here (it turns the object into a dictionary): a class
+  // prototype is already in Blink's order but for `constructor`, which a class puts
+  // first, so most members stay. Re-laying every member took 7.2 us a 14-member
+  // prototype against 1.1 us for the class itself (best of 300, bin/lava).
+  //
+  // Every page lays ~770 members through here (87 interfaces) in JSC's interpreter —
+  // the page's copy of this code never runs long enough to tier up — where each call
+  // counts, and a primordial is three: the wrapper, the locked `call` getter, the
+  // method. So one pass parses, decides and defines, with no object per entry or per
+  // descriptor, and the run is found by walking the own keys forward from its last
+  // member (the very next key, as a rule) instead of searching them per entry. The run
+  // is decided against the keys as they were before the first member is touched, as a
+  // separate pass would decide it. What this saved is in the file comment.
   function layMembers(iface, target, source, entries, constants, ctor) {
     var done = { __proto__: null };
-    var parsed = [];
-    for (var j = 0; j < entries.length; j++) parsed[j] = parseEntry(entries[j]);
-    var keep = inPlace(target, parsed);
-    for (var i = 0; i < parsed.length; i++) {
-      var e = parsed[i];
-      var key = wellKnown(e.key);
-      var desc;
-      if (e.key === 'constructor') {
-        desc = {
-          __proto__: null,
-          value: ctor,
-          writable: true,
-          enumerable: false,
-          configurable: true,
-        };
-      } else if (e.key === '@@toStringTag') {
-        desc = {
-          __proto__: null,
-          value: iface,
-          writable: false,
-          enumerable: false,
-          configurable: true,
-        };
-      } else if (e.alias !== null) {
-        desc = {
-          __proto__: null,
-          value: done[e.alias],
-          writable: true,
-          enumerable: false,
-          configurable: true,
-        };
-      } else if (constants !== null && e.key in constants) {
-        desc = {
-          __proto__: null,
-          value: constants[e.key],
-          writable: false,
-          enumerable: true,
-          configurable: false,
-        };
-      } else {
-        var impl = findMember(source, key);
-        if (impl === undefined) {
-          throw new TypeErrorP('native_shape: ' + iface + ' has no member ' + e.key);
-        }
-
-        if (ObjectHasOwn(impl, 'value')) {
-          var fn = wrapOperation(e.key, impl.value, e.length !== -1 ? e.length : impl.value.length);
-          done[e.key] = fn;
-          desc = {
-            __proto__: null,
-            value: fn,
-            writable: true,
-            enumerable: true,
-            configurable: true,
-          };
-        } else {
-          desc = {
-            __proto__: null,
-            get: impl.get === undefined ? undefined : wrapGetter(e.key, impl.get),
-            set: impl.set === undefined ? undefined : wrapSetter(e.key, impl.set),
-            enumerable: true,
-            configurable: true,
-          };
-        }
-      }
-
-      if (!keep[i] && ObjectHasOwn(target, key)) delete target[key];
-      ObjectDefineProperty(target, key, desc);
-    }
-  }
-
-  // Which entries can be redefined where they are rather than taken off and appended:
-  // the longest run from the start of the list — strings and symbols separately, as
-  // Reflect.ownKeys orders them — that is already in the list's order on `target`.
-  // Everything after it moves. A delete is what costs here (it turns the object into a
-  // dictionary): a class prototype is already in Blink's order but for `constructor`,
-  // which a class puts first, so most members stay. Re-laying every member took 7.2 us
-  // a 14-member prototype against 1.1 us for the class itself (best of 300, bin/lava).
-  function inPlace(target, parsed) {
     var own = ReflectOwnKeys(target);
-    var keep = [];
+    var count = own.length;
     var lastString = -1;
     var lastSymbol = -1;
     var stringRun = true;
     var symbolRun = true;
-    for (var i = 0; i < parsed.length; i++) {
-      var key = wellKnown(parsed[i].key);
-      var at = ArrayPrototypeIndexOf(own, key);
+    for (var i = 0; i < entries.length; i++) {
+      parseEntry(entries[i]);
+      var name = entryKey;
+      var key = name[0] === '@' ? wellKnown(name) : name;
+      var keep = false;
+      var j;
       if (typeof key === 'symbol') {
-        symbolRun = symbolRun && at > lastSymbol;
-        if (symbolRun) lastSymbol = at;
-        keep[i] = symbolRun;
-      } else {
-        stringRun = stringRun && at > lastString;
-        if (stringRun) lastString = at;
-        keep[i] = stringRun;
+        if (symbolRun) {
+          j = lastSymbol + 1;
+          while (j < count && own[j] !== key) j++;
+          symbolRun = j < count;
+          if (symbolRun) lastSymbol = j;
+          keep = symbolRun;
+        }
+      } else if (stringRun) {
+        j = lastString + 1;
+        while (j < count && own[j] !== key) j++;
+        stringRun = j < count;
+        if (stringRun) lastString = j;
+        keep = stringRun;
       }
+
+      var desc = DATA_DESC;
+      if (name === 'constructor') {
+        desc.value = ctor;
+        desc.writable = true;
+        desc.enumerable = false;
+        desc.configurable = true;
+      } else if (name === '@@toStringTag') {
+        desc.value = iface;
+        desc.writable = false;
+        desc.enumerable = false;
+        desc.configurable = true;
+      } else if (entryAlias !== null) {
+        desc.value = done[entryAlias];
+        desc.writable = true;
+        desc.enumerable = false;
+        desc.configurable = true;
+      } else if (constants !== null && name in constants) {
+        desc.value = constants[name];
+        desc.writable = false;
+        desc.enumerable = true;
+        desc.configurable = false;
+      } else {
+        var length = entryLength;
+        var impl = ObjectGetOwnPropertyDescriptor(source, key);
+        if (impl === undefined) impl = findMember(source, key);
+        if (impl === undefined) {
+          throw new TypeErrorP('native_shape: ' + iface + ' has no member ' + name);
+        }
+
+        if (ObjectHasOwn(impl, 'value')) {
+          var fn = wrapOperation(name, impl.value, length !== -1 ? length : impl.value.length);
+          done[name] = fn;
+          desc.value = fn;
+          desc.writable = true;
+          desc.enumerable = true;
+          desc.configurable = true;
+        } else {
+          desc = ACCESSOR_DESC;
+          desc.get = impl.get === undefined ? undefined : wrapGetter(name, impl.get);
+          desc.set = impl.set === undefined ? undefined : wrapSetter(name, impl.set);
+        }
+      }
+
+      // Not kept: taken off if the target has it (no earlier entry adds or removes this
+      // key), and defined again at the end.
+      if (!keep && ObjectHasOwn(target, key)) delete target[key];
+      ObjectDefineProperty(target, key, desc);
     }
 
-    return keep;
+    DATA_DESC.value = undefined;
+    ACCESSOR_DESC.get = undefined;
+    ACCESSOR_DESC.set = undefined;
   }
 
   // The descriptor of `key` on `source` or the nearest object it inherits it from
@@ -432,11 +504,15 @@
    *   members: string[],
    *   constants?: Object,
    *   global?: boolean,
+   *   source?: Object,
    * }} spec `impl` is the implementation, whose `prototype` becomes the interface
    *   prototype object; `illegal` makes every construction throw "Illegal constructor";
    *   `parent` is the parent interface object; `statics`/`members` list the interface
    *   object's and the prototype's keys in Blink's order (parseEntry); `constants`
-   *   maps a constant's name to its value, defined on both.
+   *   maps a constant's name to its value, defined on both; `source` holds the
+   *   prototype's member implementations when they are not on the prototype itself —
+   *   an empty prototype is laid with no member moved (layMembers' deletes), which is
+   *   what an interface whose `constructor` Blink lists mid-way (Navigator) needs.
    * @returns {Function} The interface object, installed on the global unless
    *   `global: false`.
    * @node n/a — Chrome 158: tests/web/cases/shape-*.expected.
@@ -495,9 +571,10 @@
     });
     if (spec.parent !== undefined) ObjectSetPrototypeOf(ctor, spec.parent);
     markNative(ctor, name);
-    var statics = spec.statics === undefined ? EMPTY : spec.statics;
-    layMembers(name, ctor, impl, statics, constants, ctor);
-    layMembers(name, impl.prototype, impl.prototype, spec.members, constants, ctor);
+    if (spec.statics !== undefined) layMembers(name, ctor, impl, spec.statics, constants, ctor);
+    var proto = impl.prototype;
+    var source = spec.source === undefined ? proto : spec.source;
+    layMembers(name, proto, source, spec.members, constants, ctor);
     if (spec.global !== false) installGlobal(name, ctor, false);
     return ctor;
   }
