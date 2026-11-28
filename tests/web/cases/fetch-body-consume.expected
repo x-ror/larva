@@ -1,0 +1,19 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-28
+# runs: 5 identical
+# command: node scripts/record-chrome.mjs --runs 5 fetch-body-consume
+# ---
+text true true | intact | true true
+arrayBuffer ArrayBuffer intact
+bytes Uint8Array 0 true intact
+blob 262144 "text/plain" intact
+json {"ok":true,"list":[1,2,3]}
+again THREW TypeError Failed to execute 'text' on 'Response': body stream already read
+two readers intact | TypeError Failed to execute 'arrayBuffer' on 'Response': body stream already read
+locked TypeError Failed to execute 'text' on 'Response': body stream is locked | true intact
+disturbed THREW TypeError Failed to execute 'text' on 'Response': body stream already read
+paused intact
+paused arrayBuffer intact
+abort AbortError true | true true
+clone intact intact

@@ -615,8 +615,19 @@
     return historyObject;
   });
 
+  /**
+   * The document's URL, serialized: what a reflected URL attribute resolves against
+   * when the document has no `<base href>` (internal/dom_reflect), and what a form's
+   * `action` answers when it has none. The active entry's, so it follows pushState.
+   * @returns {string}
+   */
+  function documentURL() {
+    return read(urlHref, current);
+  }
+
   module.exports = P.ObjectFreeze({
     __proto__: null,
+    documentURL: documentURL,
     // For internal/navigator_apis' sendBeacon: `text` parsed against the document's
     // current URL, serialized; null when it does not parse.
     resolveHref: function (text) {

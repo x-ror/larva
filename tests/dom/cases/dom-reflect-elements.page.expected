@@ -1,0 +1,755 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-28
+# runs: 3 identical
+# command: node scripts/record-dom.mjs dom-reflect-elements.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     "
+"
+|     <title>
+|       "reflect elements"
+|     "
+"
+|     <base>
+|       href="https://last.example/"
+|     "
+"
+|     <meta>
+|       name="viewport"
+|       http-equiv="refresh"
+|       content="width=device-width"
+|     "
+"
+|   "
+"
+|   <body>
+|     "
+"
+|     <a>
+|       id="link"
+|       href="../up/x y.html?a=1#frag"
+|       rel="noopener  Noreferrer"
+|       target="_blank"
+|       download="f.txt"
+|       hreflang="en"
+|       type="text/html"
+|       referrerpolicy="ORIGIN"
+|       "link"
+|     "
+"
+|     <form>
+|       id="form"
+|       action="submit?x"
+|       method="POST"
+|       enctype="TEXT/PLAIN"
+|       accept-charset="utf-8"
+|       novalidate=""
+|     "
+"
+|     <pre>
+|       id="log"
+|       "parsed href="https://example.com/up/x%20y.html?a=1#frag" origin="https://example.com" protocol="https:" username="" password="" host="example.com" hostname="example.com" port="" pathname="/up/x%20y.html" search="?a=1" hash="#frag"
+"
+|       "parsed "noopener  Noreferrer" "_blank" "f.txt" "en" "text/html" "origin" "link" "https://example.com/up/x%20y.html?a=1#frag" "https://example.com/up/x%20y.html?a=1#frag"
+"
+|       "no href href="" origin="" protocol=":" username="" password="" host="" hostname="" port="" pathname="" search="" hash=""
+"
+|       "empty href href="https://example.com/dir/page.html?q" origin="https://example.com" protocol="https:" username="" password="" host="example.com" hostname="example.com" port="" pathname="/dir/page.html" search="?q" hash=""
+"
+|       "bad href href="http://[bad" origin="" protocol=":" username="" password="" host="" hostname="" port="" pathname="" search="" hash=""
+"
+|       "setters on bad href "http://[bad"
+"
+|       "absolute href="http://u:p@ex.com/p/a?x=1#h" origin="http://ex.com" protocol="http:" username="u" password="p" host="ex.com" hostname="ex.com" port="" pathname="/p/a" search="?x=1" hash="#h" attr="HTTP://u:p@Ex.com:80/p/a?x=1#h"
+"
+|       "after setters "https://user@h.org:8080/q/r?k=v#zz"
+"
+|       "host setter "https://user@other.net:99/q/r?k=v#zz"
+"
+|       "mailto href="mailto:x@y" origin="null" protocol="mailto:" username="" password="" host="" hostname="" port="" pathname="x@y" search="" hash=""
+"
+|       "mailto host setter "mailto:x@y"
+"
+|       "blob origin "https://ex.com"
+"
+|       "removed href null ":"
+"
+|       "text "T&lt;b&gt;" "T<b>"
+"
+|       "referrerPolicy "bogus" ""
+"
+|       "referrerpolicy "NO-REFERRER" -> "no-referrer"
+"
+|       "referrerpolicy "unsafe-url" -> "unsafe-url"
+"
+|       "referrerpolicy "strict-origin-when-cross-origin" -> "strict-origin-when-cross-origin"
+"
+|       "referrerpolicy "" -> ""
+"
+|       "referrerpolicy "origin " -> ""
+"
+|       "lone surrogate "a�b"
+"
+|       "img defaults "" "" "" "" null "" false 0 0 "" "auto" "auto" "auto" "" "" "" 0 0 "" ""
+"
+|       "img dims 100 50 0 0
+"
+|       "img width = -1 -> "0"
+"
+|       "img width = 3000000000 -> "0"
+"
+|       "img width = 2147483647 -> "2147483647"
+"
+|       "img width = 2147483648 -> "0"
+"
+|       "img width = "12.7" -> "12"
+"
+|       "img width = NaN -> "0"
+"
+|       "img width = 4294967296 -> "0"
+"
+|       "img urls "https://example.com/dir/a%20b.png" "a b.png" "https://example.com/low.png" "https://other.org/d"
+"
+|       "img bad src "http://[bad"
+"
+|       "crossorigin "bogus" -> "anonymous"
+"
+|       "crossorigin "" -> "anonymous"
+"
+|       "crossorigin "USE-CREDENTIALS" -> "use-credentials"
+"
+|       "crossorigin "anonymous" -> "anonymous"
+"
+|       "crossOrigin = null false null
+"
+|       "crossOrigin = undefined null
+"
+|       "loading "LAZY" -> "lazy"
+"
+|       "loading "eager" -> "eager"
+"
+|       "loading "x" -> "auto"
+"
+|       "decoding "SYNC" -> "sync"
+"
+|       "decoding "x" -> "auto"
+"
+|       "fetchpriority "HIGH" -> "high"
+"
+|       "fetchpriority "x" -> "auto"
+"
+|       "img border null "" ismap ""
+"
+|       "script defaults "" "" false "" true false null "" "" "auto" "" "" ""
+"
+|       "async = false false false
+"
+|       "async = true true ""
+"
+|       "async attr added and removed false
+"
+|       "async attr never there, removed true
+"
+|       "parser-inserted async false
+"
+|       "innerHTML script async false
+"
+|       "script text "ad" "aBd"
+"
+|       "script text set 1 "zz"
+"
+|       "script attrs "w" "" "https://example.com/dir/js/app.js"
+"
+|       "link defaults "" "" "" "" "" "" null false "" "" "" "auto" "" ""
+"
+|       "as "fetch" -> "fetch"
+"
+|       "as "SCRIPT" -> "script"
+"
+|       "as "style" -> "style"
+"
+|       "as "font" -> "font"
+"
+|       "as "image" -> "image"
+"
+|       "as "track" -> "track"
+"
+|       "as "audio" -> ""
+"
+|       "as "document" -> ""
+"
+|       "as "json" -> ""
+"
+|       "as "x" -> ""
+"
+|       "link set "https://example.com/dir/s.css" "" "a.png 1x"
+"
+|       "input defaults "text" "" "" "" false false false false false ""
+"
+|       "type "EMAIL" -> "email"
+"
+|       "type "bogus" -> "text"
+"
+|       "type "datetime" -> "text"
+"
+|       "type "datetime-local" -> "datetime-local"
+"
+|       "type "checkbox" -> "checkbox"
+"
+|       "type "" -> "text"
+"
+|       "input set "Number" "dv" "" "" "p"
+"
+|       "form parsed "https://example.com/dir/submit?x" "post" "text/plain" "text/plain" "utf-8" true "on"
+"
+|       "form defaults "get" "application/x-www-form-urlencoded" "" "" "on" false true
+"
+|       "empty action is the document URL true
+"
+|       "method bogus "get" "bogus"
+"
+|       "method Dialog "dialog"
+"
+|       "encoding "multipart/form-data" "multipart/FORM-data"
+"
+|       "autocomplete OFF "off"
+"
+|       "autocomplete x "on"
+"
+|       "action "https://example.com/post"
+"
+|       "meta "viewport" "X-UA-Compatible" "width=device-width" "" ""
+"
+|       "meta http-equiv "refresh"
+"
+|       "iframe defaults "" "" "" false "" "" "" "" "auto" ""
+"
+|       "iframe set "100" "50%" "https://example.com/dir/f.html" "frame" "" "" "lazy"
+"
+|       "base changed "https://changed.example/up/x%20y.html?a=1#frag" "http://[bad"
+"
+|       "base readded "https://last.example/up/x%20y.html?a=1#frag"
+"
+|     "
+"
+|     <script>
+|       "
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function show(v) {
+  return typeof v === 'string' ? JSON.stringify(v) : String(v);
+}
+function attempt(label, f) {
+  try {
+    log(label + ' ' + show(f()));
+  } catch (e) {
+    log(label + ' threw ' + e.name + ': ' + e.message);
+  }
+}
+var COMPONENTS = ['href', 'origin', 'protocol', 'username', 'password', 'host', 'hostname', 'port', 'pathname', 'search', 'hash'];
+function parts(a) {
+  return COMPONENTS.map(function (k) { return k + '=' + show(a[k]); }).join(' ');
+}
+
+// HTMLAnchorElement: URL resolution against <base>, and the URL decomposition.
+var link = document.getElementById('link');
+log('parsed ' + parts(link));
+log('parsed ' + [link.rel, link.target, link.download, link.hreflang, link.type, link.referrerPolicy, link.text, String(link), link.toString()].map(show).join(' '));
+var a = document.createElement('a');
+log('no href ' + parts(a));
+a.setAttribute('href', '');
+log('empty href ' + parts(a));
+a.setAttribute('href', 'http://[bad');
+log('bad href ' + parts(a));
+a.protocol = 'https';
+a.hash = 'x';
+log('setters on bad href ' + show(a.getAttribute('href')));
+a.href = 'HTTP://u:p@Ex.com:80/p/a?x=1#h';
+log('absolute ' + parts(a) + ' attr=' + show(a.getAttribute('href')));
+a.protocol = 'https:';
+a.username = 'user';
+a.password = '';
+a.port = '8080';
+a.hostname = 'h.org';
+a.pathname = 'q/r';
+a.search = 'k=v';
+a.hash = '#zz';
+log('after setters ' + show(a.getAttribute('href')));
+a.host = 'other.net:99';
+log('host setter ' + show(a.getAttribute('href')));
+a.setAttribute('href', 'mailto:x@y');
+log('mailto ' + parts(a));
+a.host = 'ignored';
+log('mailto host setter ' + show(a.getAttribute('href')));
+a.setAttribute('href', 'blob:https://ex.com/uuid');
+log('blob origin ' + show(a.origin));
+a.removeAttribute('href');
+a.hash = 'x';
+log('removed href ' + show(a.getAttribute('href')) + ' ' + show(a.protocol));
+a.text = 'T<b>';
+log('text ' + show(a.innerHTML) + ' ' + show(a.text));
+a.referrerPolicy = 'bogus';
+log('referrerPolicy ' + show(a.getAttribute('referrerpolicy')) + ' ' + show(a.referrerPolicy));
+['NO-REFERRER', 'unsafe-url', 'strict-origin-when-cross-origin', '', 'origin '].forEach(function (v) {
+  a.setAttribute('referrerpolicy', v);
+  log('referrerpolicy ' + show(v) + ' -> ' + show(a.referrerPolicy));
+});
+a.href = 'a\uD800b';
+log('lone surrogate ' + show(a.getAttribute('href')));
+
+// HTMLImageElement.
+var img = document.createElement('img');
+log('img defaults ' + [img.alt, img.src, img.srcset, img.sizes, img.crossOrigin, img.useMap, img.isMap, img.width, img.height, img.referrerPolicy, img.decoding, img.fetchPriority, img.loading, img.name, img.lowsrc, img.align, img.hspace, img.vspace, img.longDesc, img.border].map(show).join(' '));
+img.setAttribute('width', '100');
+img.setAttribute('height', '50px');
+img.setAttribute('hspace', '-3');
+img.setAttribute('vspace', '2147483648');
+log('img dims ' + img.width + ' ' + img.height + ' ' + img.hspace + ' ' + img.vspace);
+[-1, 3000000000, 2147483647, 2147483648, '12.7', NaN, 4294967296].forEach(function (v) {
+  img.width = v;
+  log('img width = ' + show(v) + ' -> ' + show(img.getAttribute('width')));
+});
+img.src = 'a b.png';
+img.lowsrc = '/low.png';
+img.longDesc = 'https://other.org/d';
+log('img urls ' + [img.src, img.getAttribute('src'), img.lowsrc, img.longDesc].map(show).join(' '));
+img.setAttribute('src', 'http://[bad');
+log('img bad src ' + show(img.src));
+['bogus', '', 'USE-CREDENTIALS', 'anonymous'].forEach(function (v) {
+  img.setAttribute('crossorigin', v);
+  log('crossorigin ' + show(v) + ' -> ' + show(img.crossOrigin));
+});
+img.crossOrigin = null;
+log('crossOrigin = null ' + img.hasAttribute('crossorigin') + ' ' + show(img.crossOrigin));
+img.crossOrigin = 'x';
+img.crossOrigin = undefined;
+log('crossOrigin = undefined ' + show(img.getAttribute('crossorigin')));
+[['loading', 'LAZY'], ['loading', 'eager'], ['loading', 'x'], ['decoding', 'SYNC'], ['decoding', 'x'], ['fetchpriority', 'HIGH'], ['fetchpriority', 'x']].forEach(function (pair) {
+  img.setAttribute(pair[0], pair[1]);
+  log(pair[0] + ' ' + show(pair[1]) + ' -> ' + show(img[pair[0] === 'fetchpriority' ? 'fetchPriority' : pair[0]]));
+});
+img.border = null;
+img.isMap = 'no';
+log('img border null ' + show(img.getAttribute('border')) + ' ismap ' + show(img.getAttribute('ismap')));
+
+// HTMLScriptElement, and the force-async flag.
+var s = document.createElement('script');
+log('script defaults ' + [s.src, s.type, s.noModule, s.charset, s.async, s.defer, s.crossOrigin, s.text, s.referrerPolicy, s.fetchPriority, s.event, s.htmlFor, s.integrity].map(show).join(' '));
+s.async = false;
+log('async = false ' + s.async + ' ' + s.hasAttribute('async'));
+s.async = true;
+log('async = true ' + s.async + ' ' + show(s.getAttribute('async')));
+var s2 = document.createElement('script');
+s2.setAttribute('ASYNC', '');
+s2.removeAttribute('async');
+log('async attr added and removed ' + s2.async);
+var s3 = document.createElement('script');
+s3.removeAttribute('async');
+log('async attr never there, removed ' + s3.async);
+log('parser-inserted async ' + document.querySelector('script').async);
+var frag = document.createElement('div');
+frag.innerHTML = '<script><\/script>';
+log('innerHTML script async ' + frag.firstChild.async);
+s.appendChild(document.createTextNode('a'));
+var b = document.createElement('b');
+b.textContent = 'B';
+s.appendChild(b);
+s.appendChild(document.createComment('c'));
+s.appendChild(document.createTextNode('d'));
+log('script text ' + show(s.text) + ' ' + show(s.textContent));
+s.text = 'zz';
+log('script text set ' + s.childNodes.length + ' ' + show(s.innerHTML));
+s.htmlFor = 'w';
+s.noModule = true;
+s.src = 'js/app.js';
+log('script attrs ' + show(s.getAttribute('for')) + ' ' + show(s.getAttribute('nomodule')) + ' ' + show(s.src));
+
+// HTMLLinkElement.
+var l = document.createElement('link');
+log('link defaults ' + [l.href, l.rel, l.as, l.media, l.hreflang, l.type, l.crossOrigin, l.disabled, l.integrity, l.referrerPolicy, String(l.sizes), l.fetchPriority, l.imageSrcset, l.imageSizes].map(show).join(' '));
+['fetch', 'SCRIPT', 'style', 'font', 'image', 'track', 'audio', 'document', 'json', 'x'].forEach(function (v) {
+  l.setAttribute('as', v);
+  log('as ' + show(v) + ' -> ' + show(l.as));
+});
+l.href = 's.css';
+l.disabled = true;
+l.imageSrcset = 'a.png 1x';
+log('link set ' + show(l.href) + ' ' + show(l.getAttribute('disabled')) + ' ' + show(l.getAttribute('imagesrcset')));
+
+// HTMLInputElement basics.
+var i = document.createElement('input');
+log('input defaults ' + [i.type, i.name, i.defaultValue, i.placeholder, i.disabled, i.required, i.defaultChecked, i.readOnly, i.multiple, i.src].map(show).join(' '));
+['EMAIL', 'bogus', 'datetime', 'datetime-local', 'checkbox', ''].forEach(function (v) {
+  i.setAttribute('type', v);
+  log('type ' + show(v) + ' -> ' + show(i.type));
+});
+i.type = 'Number';
+i.defaultValue = 'dv';
+i.defaultChecked = true;
+i.readOnly = 1;
+i.placeholder = 'p';
+log('input set ' + [i.getAttribute('type'), i.getAttribute('value'), i.getAttribute('checked'), i.getAttribute('readonly'), i.getAttribute('placeholder')].map(show).join(' '));
+
+// HTMLFormElement.
+var form = document.getElementById('form');
+log('form parsed ' + [form.action, form.method, form.enctype, form.encoding, form.acceptCharset, form.noValidate, form.autocomplete].map(show).join(' '));
+var f = document.createElement('form');
+log('form defaults ' + [f.method, f.enctype, f.target, f.name, f.autocomplete, f.noValidate, f.action === location.href].map(show).join(' '));
+f.setAttribute('action', '');
+log('empty action is the document URL ' + (f.action === location.href));
+f.method = 'bogus';
+log('method bogus ' + show(f.method) + ' ' + show(f.getAttribute('method')));
+f.setAttribute('method', 'Dialog');
+log('method Dialog ' + show(f.method));
+f.encoding = 'multipart/FORM-data';
+log('encoding ' + show(f.enctype) + ' ' + show(f.getAttribute('enctype')));
+f.setAttribute('autocomplete', 'OFF');
+log('autocomplete OFF ' + show(f.autocomplete));
+f.setAttribute('autocomplete', 'x');
+log('autocomplete x ' + show(f.autocomplete));
+f.action = '/post';
+log('action ' + show(f.action));
+
+// HTMLMetaElement.
+var meta = document.querySelector('meta');
+log('meta ' + [meta.name, meta.httpEquiv, meta.content, meta.media, meta.scheme].map(show).join(' '));
+meta.httpEquiv = 'refresh';
+log('meta http-equiv ' + show(meta.getAttribute('http-equiv')));
+
+// HTMLIFrameElement.
+var fr = document.createElement('iframe');
+log('iframe defaults ' + [fr.src, fr.srcdoc, fr.name, fr.allowFullscreen, fr.width, fr.height, fr.referrerPolicy, fr.allow, fr.loading, fr.frameBorder].map(show).join(' '));
+fr.width = 100;
+fr.height = '50%';
+fr.src = 'f.html';
+fr.name = 'frame';
+fr.allowFullscreen = true;
+fr.marginHeight = null;
+fr.setAttribute('loading', 'LAZY');
+log('iframe set ' + [fr.getAttribute('width'), fr.getAttribute('height'), fr.src, fr.getAttribute('name'), fr.getAttribute('allowfullscreen'), fr.getAttribute('marginheight'), fr.loading].map(show).join(' '));
+
+// The base URL follows the <base> element.
+var base = document.querySelector('base');
+base.setAttribute('href', 'https://changed.example/x/');
+log('base changed ' + show(link.href) + ' ' + show(img.src));
+base.removeAttribute('href');
+base.setAttribute('href', 'https://last.example/');
+log('base readded ' + show(link.href));
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head>
+<title>reflect elements</title>
+<base href="https://last.example/">
+<meta name="viewport" http-equiv="refresh" content="width=device-width">
+</head>
+<body>
+<a id="link" href="../up/x y.html?a=1#frag" rel="noopener  Noreferrer" target="_blank" download="f.txt" hreflang="en" type="text/html" referrerpolicy="ORIGIN">link</a>
+<form id="form" action="submit?x" method="POST" enctype="TEXT/PLAIN" accept-charset="utf-8" novalidate=""></form>
+<pre id="log">parsed href="https://example.com/up/x%20y.html?a=1#frag" origin="https://example.com" protocol="https:" username="" password="" host="example.com" hostname="example.com" port="" pathname="/up/x%20y.html" search="?a=1" hash="#frag"
+parsed "noopener  Noreferrer" "_blank" "f.txt" "en" "text/html" "origin" "link" "https://example.com/up/x%20y.html?a=1#frag" "https://example.com/up/x%20y.html?a=1#frag"
+no href href="" origin="" protocol=":" username="" password="" host="" hostname="" port="" pathname="" search="" hash=""
+empty href href="https://example.com/dir/page.html?q" origin="https://example.com" protocol="https:" username="" password="" host="example.com" hostname="example.com" port="" pathname="/dir/page.html" search="?q" hash=""
+bad href href="http://[bad" origin="" protocol=":" username="" password="" host="" hostname="" port="" pathname="" search="" hash=""
+setters on bad href "http://[bad"
+absolute href="http://u:p@ex.com/p/a?x=1#h" origin="http://ex.com" protocol="http:" username="u" password="p" host="ex.com" hostname="ex.com" port="" pathname="/p/a" search="?x=1" hash="#h" attr="HTTP://u:p@Ex.com:80/p/a?x=1#h"
+after setters "https://user@h.org:8080/q/r?k=v#zz"
+host setter "https://user@other.net:99/q/r?k=v#zz"
+mailto href="mailto:x@y" origin="null" protocol="mailto:" username="" password="" host="" hostname="" port="" pathname="x@y" search="" hash=""
+mailto host setter "mailto:x@y"
+blob origin "https://ex.com"
+removed href null ":"
+text "T&amp;lt;b&amp;gt;" "T&lt;b&gt;"
+referrerPolicy "bogus" ""
+referrerpolicy "NO-REFERRER" -&gt; "no-referrer"
+referrerpolicy "unsafe-url" -&gt; "unsafe-url"
+referrerpolicy "strict-origin-when-cross-origin" -&gt; "strict-origin-when-cross-origin"
+referrerpolicy "" -&gt; ""
+referrerpolicy "origin " -&gt; ""
+lone surrogate "a�b"
+img defaults "" "" "" "" null "" false 0 0 "" "auto" "auto" "auto" "" "" "" 0 0 "" ""
+img dims 100 50 0 0
+img width = -1 -&gt; "0"
+img width = 3000000000 -&gt; "0"
+img width = 2147483647 -&gt; "2147483647"
+img width = 2147483648 -&gt; "0"
+img width = "12.7" -&gt; "12"
+img width = NaN -&gt; "0"
+img width = 4294967296 -&gt; "0"
+img urls "https://example.com/dir/a%20b.png" "a b.png" "https://example.com/low.png" "https://other.org/d"
+img bad src "http://[bad"
+crossorigin "bogus" -&gt; "anonymous"
+crossorigin "" -&gt; "anonymous"
+crossorigin "USE-CREDENTIALS" -&gt; "use-credentials"
+crossorigin "anonymous" -&gt; "anonymous"
+crossOrigin = null false null
+crossOrigin = undefined null
+loading "LAZY" -&gt; "lazy"
+loading "eager" -&gt; "eager"
+loading "x" -&gt; "auto"
+decoding "SYNC" -&gt; "sync"
+decoding "x" -&gt; "auto"
+fetchpriority "HIGH" -&gt; "high"
+fetchpriority "x" -&gt; "auto"
+img border null "" ismap ""
+script defaults "" "" false "" true false null "" "" "auto" "" "" ""
+async = false false false
+async = true true ""
+async attr added and removed false
+async attr never there, removed true
+parser-inserted async false
+innerHTML script async false
+script text "ad" "aBd"
+script text set 1 "zz"
+script attrs "w" "" "https://example.com/dir/js/app.js"
+link defaults "" "" "" "" "" "" null false "" "" "" "auto" "" ""
+as "fetch" -&gt; "fetch"
+as "SCRIPT" -&gt; "script"
+as "style" -&gt; "style"
+as "font" -&gt; "font"
+as "image" -&gt; "image"
+as "track" -&gt; "track"
+as "audio" -&gt; ""
+as "document" -&gt; ""
+as "json" -&gt; ""
+as "x" -&gt; ""
+link set "https://example.com/dir/s.css" "" "a.png 1x"
+input defaults "text" "" "" "" false false false false false ""
+type "EMAIL" -&gt; "email"
+type "bogus" -&gt; "text"
+type "datetime" -&gt; "text"
+type "datetime-local" -&gt; "datetime-local"
+type "checkbox" -&gt; "checkbox"
+type "" -&gt; "text"
+input set "Number" "dv" "" "" "p"
+form parsed "https://example.com/dir/submit?x" "post" "text/plain" "text/plain" "utf-8" true "on"
+form defaults "get" "application/x-www-form-urlencoded" "" "" "on" false true
+empty action is the document URL true
+method bogus "get" "bogus"
+method Dialog "dialog"
+encoding "multipart/form-data" "multipart/FORM-data"
+autocomplete OFF "off"
+autocomplete x "on"
+action "https://example.com/post"
+meta "viewport" "X-UA-Compatible" "width=device-width" "" ""
+meta http-equiv "refresh"
+iframe defaults "" "" "" false "" "" "" "" "auto" ""
+iframe set "100" "50%" "https://example.com/dir/f.html" "frame" "" "" "lazy"
+base changed "https://changed.example/up/x%20y.html?a=1#frag" "http://[bad"
+base readded "https://last.example/up/x%20y.html?a=1#frag"
+</pre>
+<script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function show(v) {
+  return typeof v === 'string' ? JSON.stringify(v) : String(v);
+}
+function attempt(label, f) {
+  try {
+    log(label + ' ' + show(f()));
+  } catch (e) {
+    log(label + ' threw ' + e.name + ': ' + e.message);
+  }
+}
+var COMPONENTS = ['href', 'origin', 'protocol', 'username', 'password', 'host', 'hostname', 'port', 'pathname', 'search', 'hash'];
+function parts(a) {
+  return COMPONENTS.map(function (k) { return k + '=' + show(a[k]); }).join(' ');
+}
+
+// HTMLAnchorElement: URL resolution against <base>, and the URL decomposition.
+var link = document.getElementById('link');
+log('parsed ' + parts(link));
+log('parsed ' + [link.rel, link.target, link.download, link.hreflang, link.type, link.referrerPolicy, link.text, String(link), link.toString()].map(show).join(' '));
+var a = document.createElement('a');
+log('no href ' + parts(a));
+a.setAttribute('href', '');
+log('empty href ' + parts(a));
+a.setAttribute('href', 'http://[bad');
+log('bad href ' + parts(a));
+a.protocol = 'https';
+a.hash = 'x';
+log('setters on bad href ' + show(a.getAttribute('href')));
+a.href = 'HTTP://u:p@Ex.com:80/p/a?x=1#h';
+log('absolute ' + parts(a) + ' attr=' + show(a.getAttribute('href')));
+a.protocol = 'https:';
+a.username = 'user';
+a.password = '';
+a.port = '8080';
+a.hostname = 'h.org';
+a.pathname = 'q/r';
+a.search = 'k=v';
+a.hash = '#zz';
+log('after setters ' + show(a.getAttribute('href')));
+a.host = 'other.net:99';
+log('host setter ' + show(a.getAttribute('href')));
+a.setAttribute('href', 'mailto:x@y');
+log('mailto ' + parts(a));
+a.host = 'ignored';
+log('mailto host setter ' + show(a.getAttribute('href')));
+a.setAttribute('href', 'blob:https://ex.com/uuid');
+log('blob origin ' + show(a.origin));
+a.removeAttribute('href');
+a.hash = 'x';
+log('removed href ' + show(a.getAttribute('href')) + ' ' + show(a.protocol));
+a.text = 'T<b>';
+log('text ' + show(a.innerHTML) + ' ' + show(a.text));
+a.referrerPolicy = 'bogus';
+log('referrerPolicy ' + show(a.getAttribute('referrerpolicy')) + ' ' + show(a.referrerPolicy));
+['NO-REFERRER', 'unsafe-url', 'strict-origin-when-cross-origin', '', 'origin '].forEach(function (v) {
+  a.setAttribute('referrerpolicy', v);
+  log('referrerpolicy ' + show(v) + ' -> ' + show(a.referrerPolicy));
+});
+a.href = 'a\uD800b';
+log('lone surrogate ' + show(a.getAttribute('href')));
+
+// HTMLImageElement.
+var img = document.createElement('img');
+log('img defaults ' + [img.alt, img.src, img.srcset, img.sizes, img.crossOrigin, img.useMap, img.isMap, img.width, img.height, img.referrerPolicy, img.decoding, img.fetchPriority, img.loading, img.name, img.lowsrc, img.align, img.hspace, img.vspace, img.longDesc, img.border].map(show).join(' '));
+img.setAttribute('width', '100');
+img.setAttribute('height', '50px');
+img.setAttribute('hspace', '-3');
+img.setAttribute('vspace', '2147483648');
+log('img dims ' + img.width + ' ' + img.height + ' ' + img.hspace + ' ' + img.vspace);
+[-1, 3000000000, 2147483647, 2147483648, '12.7', NaN, 4294967296].forEach(function (v) {
+  img.width = v;
+  log('img width = ' + show(v) + ' -> ' + show(img.getAttribute('width')));
+});
+img.src = 'a b.png';
+img.lowsrc = '/low.png';
+img.longDesc = 'https://other.org/d';
+log('img urls ' + [img.src, img.getAttribute('src'), img.lowsrc, img.longDesc].map(show).join(' '));
+img.setAttribute('src', 'http://[bad');
+log('img bad src ' + show(img.src));
+['bogus', '', 'USE-CREDENTIALS', 'anonymous'].forEach(function (v) {
+  img.setAttribute('crossorigin', v);
+  log('crossorigin ' + show(v) + ' -> ' + show(img.crossOrigin));
+});
+img.crossOrigin = null;
+log('crossOrigin = null ' + img.hasAttribute('crossorigin') + ' ' + show(img.crossOrigin));
+img.crossOrigin = 'x';
+img.crossOrigin = undefined;
+log('crossOrigin = undefined ' + show(img.getAttribute('crossorigin')));
+[['loading', 'LAZY'], ['loading', 'eager'], ['loading', 'x'], ['decoding', 'SYNC'], ['decoding', 'x'], ['fetchpriority', 'HIGH'], ['fetchpriority', 'x']].forEach(function (pair) {
+  img.setAttribute(pair[0], pair[1]);
+  log(pair[0] + ' ' + show(pair[1]) + ' -> ' + show(img[pair[0] === 'fetchpriority' ? 'fetchPriority' : pair[0]]));
+});
+img.border = null;
+img.isMap = 'no';
+log('img border null ' + show(img.getAttribute('border')) + ' ismap ' + show(img.getAttribute('ismap')));
+
+// HTMLScriptElement, and the force-async flag.
+var s = document.createElement('script');
+log('script defaults ' + [s.src, s.type, s.noModule, s.charset, s.async, s.defer, s.crossOrigin, s.text, s.referrerPolicy, s.fetchPriority, s.event, s.htmlFor, s.integrity].map(show).join(' '));
+s.async = false;
+log('async = false ' + s.async + ' ' + s.hasAttribute('async'));
+s.async = true;
+log('async = true ' + s.async + ' ' + show(s.getAttribute('async')));
+var s2 = document.createElement('script');
+s2.setAttribute('ASYNC', '');
+s2.removeAttribute('async');
+log('async attr added and removed ' + s2.async);
+var s3 = document.createElement('script');
+s3.removeAttribute('async');
+log('async attr never there, removed ' + s3.async);
+log('parser-inserted async ' + document.querySelector('script').async);
+var frag = document.createElement('div');
+frag.innerHTML = '<script><\/script>';
+log('innerHTML script async ' + frag.firstChild.async);
+s.appendChild(document.createTextNode('a'));
+var b = document.createElement('b');
+b.textContent = 'B';
+s.appendChild(b);
+s.appendChild(document.createComment('c'));
+s.appendChild(document.createTextNode('d'));
+log('script text ' + show(s.text) + ' ' + show(s.textContent));
+s.text = 'zz';
+log('script text set ' + s.childNodes.length + ' ' + show(s.innerHTML));
+s.htmlFor = 'w';
+s.noModule = true;
+s.src = 'js/app.js';
+log('script attrs ' + show(s.getAttribute('for')) + ' ' + show(s.getAttribute('nomodule')) + ' ' + show(s.src));
+
+// HTMLLinkElement.
+var l = document.createElement('link');
+log('link defaults ' + [l.href, l.rel, l.as, l.media, l.hreflang, l.type, l.crossOrigin, l.disabled, l.integrity, l.referrerPolicy, String(l.sizes), l.fetchPriority, l.imageSrcset, l.imageSizes].map(show).join(' '));
+['fetch', 'SCRIPT', 'style', 'font', 'image', 'track', 'audio', 'document', 'json', 'x'].forEach(function (v) {
+  l.setAttribute('as', v);
+  log('as ' + show(v) + ' -> ' + show(l.as));
+});
+l.href = 's.css';
+l.disabled = true;
+l.imageSrcset = 'a.png 1x';
+log('link set ' + show(l.href) + ' ' + show(l.getAttribute('disabled')) + ' ' + show(l.getAttribute('imagesrcset')));
+
+// HTMLInputElement basics.
+var i = document.createElement('input');
+log('input defaults ' + [i.type, i.name, i.defaultValue, i.placeholder, i.disabled, i.required, i.defaultChecked, i.readOnly, i.multiple, i.src].map(show).join(' '));
+['EMAIL', 'bogus', 'datetime', 'datetime-local', 'checkbox', ''].forEach(function (v) {
+  i.setAttribute('type', v);
+  log('type ' + show(v) + ' -> ' + show(i.type));
+});
+i.type = 'Number';
+i.defaultValue = 'dv';
+i.defaultChecked = true;
+i.readOnly = 1;
+i.placeholder = 'p';
+log('input set ' + [i.getAttribute('type'), i.getAttribute('value'), i.getAttribute('checked'), i.getAttribute('readonly'), i.getAttribute('placeholder')].map(show).join(' '));
+
+// HTMLFormElement.
+var form = document.getElementById('form');
+log('form parsed ' + [form.action, form.method, form.enctype, form.encoding, form.acceptCharset, form.noValidate, form.autocomplete].map(show).join(' '));
+var f = document.createElement('form');
+log('form defaults ' + [f.method, f.enctype, f.target, f.name, f.autocomplete, f.noValidate, f.action === location.href].map(show).join(' '));
+f.setAttribute('action', '');
+log('empty action is the document URL ' + (f.action === location.href));
+f.method = 'bogus';
+log('method bogus ' + show(f.method) + ' ' + show(f.getAttribute('method')));
+f.setAttribute('method', 'Dialog');
+log('method Dialog ' + show(f.method));
+f.encoding = 'multipart/FORM-data';
+log('encoding ' + show(f.enctype) + ' ' + show(f.getAttribute('enctype')));
+f.setAttribute('autocomplete', 'OFF');
+log('autocomplete OFF ' + show(f.autocomplete));
+f.setAttribute('autocomplete', 'x');
+log('autocomplete x ' + show(f.autocomplete));
+f.action = '/post';
+log('action ' + show(f.action));
+
+// HTMLMetaElement.
+var meta = document.querySelector('meta');
+log('meta ' + [meta.name, meta.httpEquiv, meta.content, meta.media, meta.scheme].map(show).join(' '));
+meta.httpEquiv = 'refresh';
+log('meta http-equiv ' + show(meta.getAttribute('http-equiv')));
+
+// HTMLIFrameElement.
+var fr = document.createElement('iframe');
+log('iframe defaults ' + [fr.src, fr.srcdoc, fr.name, fr.allowFullscreen, fr.width, fr.height, fr.referrerPolicy, fr.allow, fr.loading, fr.frameBorder].map(show).join(' '));
+fr.width = 100;
+fr.height = '50%';
+fr.src = 'f.html';
+fr.name = 'frame';
+fr.allowFullscreen = true;
+fr.marginHeight = null;
+fr.setAttribute('loading', 'LAZY');
+log('iframe set ' + [fr.getAttribute('width'), fr.getAttribute('height'), fr.src, fr.getAttribute('name'), fr.getAttribute('allowfullscreen'), fr.getAttribute('marginheight'), fr.loading].map(show).join(' '));
+
+// The base URL follows the <base> element.
+var base = document.querySelector('base');
+base.setAttribute('href', 'https://changed.example/x/');
+log('base changed ' + show(link.href) + ' ' + show(img.src));
+base.removeAttribute('href');
+base.setAttribute('href', 'https://last.example/');
+log('base readded ' + show(link.href));
+</script>
+
+
+</body></html>
