@@ -4216,6 +4216,60 @@
       "replace": "",
       "gate": "make:test-dom",
       "expect_detail": "FAIL dom-script-dynamic.page"
+    },
+    {
+      "name": "vm_script_cache_isolates_pages_and_is_reused dies when embedded sources stop going through the VM's scripts",
+      "why": "Without it every page makes a new source string per embedded file again and re-hashes ~0.8 MB of runtime JS, and nothing but a benchmark would notice.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "if script := vm_script(state.vm, name, embedded); script != nil {",
+      "replace": "if script := jsc.JSScriptRef(nil); script != nil {",
+      "gate": "odin:cmd/lava:main.vm_script_cache_isolates_pages_and_is_reused",
+      "expect_detail": "the first page made no script on its VM"
+    },
+    {
+      "name": "vm_scripts_go_with_a_retired_vm dies when a retired VM keeps its scripts",
+      "why": "Every retirement (one per 200 pages by default) would leak its VM's ~37 scripts, each holding a copy of an embedded source.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tvm_release_scripts(vm)\n\tjsc.JSContextGroupRelease(vm.group)\n\tfree(vm, pool.allocator)\n\tpool.retired += 1",
+      "replace": "\tjsc.JSContextGroupRelease(vm.group)\n\tfree(vm, pool.allocator)\n\tpool.retired += 1",
+      "gate": "odin:cmd/lava:main.vm_scripts_go_with_a_retired_vm",
+      "expect_detail": "scripts outlived their retired VM"
+    },
+    {
+      "name": "vm_script_cache_isolates_pages_and_is_reused dies when a destroyed pool keeps its VMs' scripts",
+      "why": "A thread's pool is destroyed when the thread ends; its VMs' scripts would outlive it for the life of the process.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\t\tvm_release_scripts(vm)\n\t\tjsc.JSContextGroupRelease(vm.group)",
+      "replace": "\t\tjsc.JSContextGroupRelease(vm.group)",
+      "gate": "odin:cmd/lava:main.vm_script_cache_isolates_pages_and_is_reused",
+      "expect_detail": "expected jsc.script_live_count() to be"
+    },
+    {
+      "name": "vm_script_refuses_another_text_under_a_cached_name dies when the cache trusts the name alone",
+      "why": "A name looked up with a different text (a LAVA_JS_OVERRIDE build, or a future caller) would run the source cached first instead of the one asked for.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "if raw_data(entry.source) == raw_data(source) && len(entry.source) == len(source) {",
+      "replace": "if true {",
+      "gate": "odin:cmd/lava:main.vm_script_refuses_another_text_under_a_cached_name",
+      "expect_detail": "another text ran under a cached name"
+    },
+    {
+      "name": "never_optimize_keeps_install_helpers_out_of_the_dfg dies when the hook marks nothing",
+      "why": "A hook that resolves but no longer calls setNeverOptimize puts every page's DFG compiles of the install helpers back, invisible to every oracle.",
+      "source": "pkg/jsc/private_optimize.odin",
+      "find": "\t\tg_never_optimize(ctx, fn)\n\t\treturn true",
+      "replace": "\t\treturn true",
+      "gate": "odin:cmd/lava:main.never_optimize_keeps_install_helpers_out_of_the_dfg",
+      "expect_detail": "a function marked never-optimize was DFG-compiled"
+    },
+    {
+      "name": "never_optimize_keeps_install_helpers_out_of_the_dfg dies when native_shape stops marking wrapOperation",
+      "why": "wrapOperation runs once per operation of every interface on every page; unmarked, the DFG compiles it again per page.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "    wrapOperation,\n    wrapGetter,\n",
+      "replace": "    wrapGetter,\n",
+      "gate": "odin:cmd/lava:main.never_optimize_keeps_install_helpers_out_of_the_dfg",
+      "expect_detail": "wrapOperation was DFG-compiled"
     }
   ]
 }
