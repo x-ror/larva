@@ -4758,7 +4758,7 @@
       "find": "\t\tcookie_jar    = &c.session.jar,\n",
       "replace": "",
       "gate": "odin:cmd/lava:main.serve_sessions_share_cookies_across_requests",
-      "expect_detail": "pg=p1"
+      "expect_detail": "captured cookies"
     }
   ]
 }
