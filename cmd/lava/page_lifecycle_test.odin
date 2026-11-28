@@ -142,6 +142,14 @@ Churn :: struct {
 // could not. The test forces full collections between every step of the second page too
 // (vm_collect), rather than hoping one happens.
 //
+// The stretch is timed without those collections. They are the test's own work, a full
+// synchronous GC plus a probe context each, and they cannot run the cleanup — a
+// collection only queues it on the RunLoop, which nothing iterates inside one. Under load
+// they were nearly all of it: at load ~18 on 4 cores the stretch took 1.9-2.9 s and
+// failed, and 0.01-0.02 s once they are left out (three runs), so the 1.2 s bound is
+// again a bound on the cleanup's 1.5 s spin — wall time wherever it runs — and not on
+// how slow GC is on a loaded machine.
+//
 // On a fresh thread (on_fresh_thread), so the drive is on: a test-runner thread whose
 // first VM was a bare JSGlobalContextCreate never adopts it, and the cleanup would never
 // be dispatched at all — the test would pass for the wrong reason, as it did while it was
@@ -208,12 +216,15 @@ runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first :: proc(t: ^t
 			{cpu_budget = 1},
 			&second,
 		)
+		collecting: time.Duration
 		for lava.page_runner_live(&runner) > 0 {
 			lava.page_runner_step(&runner)
+			c := time.tick_now()
 			vm_collect(t, vm)
+			collecting += time.tick_since(c)
 		}
 		lava.page_runner_run(&runner)
-		elapsed := time.duration_seconds(time.tick_since(start))
+		elapsed := time.duration_seconds(time.tick_since(start) - collecting)
 		testing.expectf(
 			t,
 			second.done && second.status == .Ok && second.kill == .None && second.exit == 0,

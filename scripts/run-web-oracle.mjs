@@ -87,7 +87,9 @@ for (const [area, a] of [...byArea].sort()) {
 const total = (v) => results.filter((r) => r.verdict === v).length;
 const failed = total('fail') + problems.length;
 console.log(`web oracle: ${total('pass')} pass, ${total('known')} known, ${failed} fail`);
-process.exit(failed ? 1 : 0);
+// exitCode, not process.exit(): exit drops stdout still queued on a non-blocking pipe;
+// see the same line in run-dom-oracle.mjs.
+process.exitCode = failed ? 1 : 0;
 
 async function runCase(name) {
   const source = readFileSync(join(CASES_DIR, `${name}.js`), 'utf8');
