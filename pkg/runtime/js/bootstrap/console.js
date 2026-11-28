@@ -284,20 +284,19 @@
   }
 
   var console = {
-    log: function () {
-      line(out, args(arguments));
-    },
-    info: function () {
-      line(out, args(arguments));
-    },
+    // Blink's member order (internal/console's MEMBERS), so the namespace is re-laid
+    // there with nothing taken off and re-added: on every page, before any page code.
     debug: function () {
-      line(out, args(arguments));
-    },
-    dirxml: function () {
       line(out, args(arguments));
     },
     error: function () {
       line(err, args(arguments));
+    },
+    info: function () {
+      line(out, args(arguments));
+    },
+    log: function () {
+      line(out, args(arguments));
     },
     warn: function () {
       line(err, args(arguments));
@@ -305,16 +304,31 @@
     dir: function (obj) {
       emit(out, inspect(obj, [], 0));
     },
+    dirxml: function () {
+      line(out, args(arguments));
+    },
+    table: function (data, columns) {
+      table(data, columns);
+    },
     trace: function () {
       var msg = formatArgs(args(arguments));
       var e = new Error();
       var stack = e.stack ? e.stack.split('\n').slice(1).join('\n') : '';
       emit(err, 'Trace' + (msg ? ': ' + msg : '') + (stack ? '\n' + stack : ''));
     },
-    assert: function (value) {
-      if (value) return;
-      var msg = formatArgs(args(arguments, 1));
-      emit(err, 'Assertion failed' + (msg ? ': ' + msg : ''));
+    group: function () {
+      if (arguments.length > 0) line(out, args(arguments));
+      groupIndent += '  ';
+    },
+    groupCollapsed: function () {
+      if (arguments.length > 0) line(out, args(arguments));
+      groupIndent += '  ';
+    },
+    groupEnd: function () {
+      groupIndent = groupIndent.slice(0, -2);
+    },
+    clear: function () {
+      out('[2J[3J[H');
     },
     count: function (name) {
       var key = label(name);
@@ -329,17 +343,15 @@
       }
       delete counts[key];
     },
-    group: function () {
-      if (arguments.length > 0) line(out, args(arguments));
-      groupIndent += '  ';
+    assert: function (value) {
+      if (value) return;
+      var msg = formatArgs(args(arguments, 1));
+      emit(err, 'Assertion failed' + (msg ? ': ' + msg : ''));
     },
-    groupCollapsed: function () {
-      if (arguments.length > 0) line(out, args(arguments));
-      groupIndent += '  ';
-    },
-    groupEnd: function () {
-      groupIndent = groupIndent.slice(0, -2);
-    },
+    // profile, profileEnd and timeStamp: Chrome's own are no-ops without DevTools
+    // attached, which a headless page never has.
+    profile: function () {},
+    profileEnd: function () {},
     time: function (name) {
       var key = label(name);
       if (timers[key] !== undefined) {
@@ -347,16 +359,6 @@
         return;
       }
       timers[key] = Date.now();
-    },
-    timeEnd: function (name) {
-      var key = label(name);
-      if (timers[key] === undefined) {
-        emit(err, "Warning: No such label '" + key + "' for console.timeEnd()");
-        return;
-      }
-      var d = Date.now() - timers[key];
-      delete timers[key];
-      emit(out, key + ': ' + duration(d));
     },
     timeLog: function (name) {
       var key = label(name);
@@ -368,16 +370,17 @@
       var extra = args(arguments, 1);
       emit(out, key + ': ' + duration(d) + (extra.length > 0 ? ' ' + formatArgs(extra) : ''));
     },
-    // Chrome's own are no-ops without DevTools attached, which a headless page never has.
-    profile: function () {},
-    profileEnd: function () {},
+    timeEnd: function (name) {
+      var key = label(name);
+      if (timers[key] === undefined) {
+        emit(err, "Warning: No such label '" + key + "' for console.timeEnd()");
+        return;
+      }
+      var d = Date.now() - timers[key];
+      delete timers[key];
+      emit(out, key + ': ' + duration(d));
+    },
     timeStamp: function () {},
-    clear: function () {
-      out('[2J[3J[H');
-    },
-    table: function (data, columns) {
-      table(data, columns);
-    },
   };
 
   function Console() {

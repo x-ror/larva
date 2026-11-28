@@ -1942,6 +1942,21 @@
     },
   });
 
+  // `new URL(str)` for a string `str`, but null where the constructor throws: what
+  // internal/location and internal/cookie parse the page's own URL with at their eval,
+  // on every page. A page without a URL (every `lava run` page) made both of those
+  // parses throw, each a TypeError built, its stack captured and scrubbed, only to be
+  // caught: 2 a page, and JSC compiled the scrub's frame scan with the DFG on every
+  // page for them. The object is the constructor's, built as URL.parse builds it.
+  function parseStringOrNull(str) {
+    var record = basicURLParse(str);
+    if (record === FAILURE) return null;
+    var url = ObjectCreate(URL.prototype);
+    url[kRecord] = record;
+    url[kSearchParams] = null;
+    return url;
+  }
+
   // Preserve the object-URL statics internal/blob.js attaches to globalThis.URL (it
   // runs first and stubs URL). Copy any it already set onto the real class so
   // `URL.createObjectURL`/`revokeObjectURL` keep working.
@@ -2010,5 +2025,6 @@
     URLSearchParams: PublicURLSearchParams,
     // For Body.formData() on an application/x-www-form-urlencoded body (internal/formdata).
     formUrlencodedParse: formUrlencodedParse,
+    parseStringOrNull: parseStringOrNull,
   };
 });

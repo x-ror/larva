@@ -3685,10 +3685,91 @@
       "name": "shape-operations dies when an operation wrapper is an ordinary function",
       "why": "A function expression has a `prototype` and a [[Construct]]; Chrome's operations have neither, and `new atob()` constructing is a fingerprint.",
       "source": "pkg/runtime/js/internal/native_shape.js",
-      "find": "    var fn = {\n      op() {\n",
-      "replace": "    var fn = {\n      op: function () {\n",
+      "find": "    } else if (length === 1) {\n      fn = {\n        op(_a) {\n",
+      "replace": "    } else if (length === 1) {\n      fn = {\n        op: function (_a) {\n",
       "gate": "make:test-web",
       "expect_detail": "FAIL shape-operations"
+    },
+    {
+      "name": "shape-url dies when a length-0 operation wrapper is an ordinary function",
+      "why": "wrapOperation makes each operation from the literal of its WebIDL length; the length-0 arm (toJSON, toString) is a separate function body, and an ordinary function there has a `prototype` and a [[Construct]] Chrome's operations lack.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "    if (length === 0) {\n      fn = {\n        op() {\n",
+      "replace": "    if (length === 0) {\n      fn = {\n        op: function () {\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL shape-url"
+    },
+    {
+      "name": "shape-url dies when a length-2+ operation wrapper is an ordinary function",
+      "why": "The arm for every other WebIDL length (URLSearchParams.append, set) is its own function body too; an ordinary function there is constructible where Chrome's operation is not.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "      natural = 0;\n      fn = {\n        op() {\n",
+      "replace": "      natural = 0;\n      fn = {\n        op: function () {\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL shape-url"
+    },
+    {
+      "name": "shape-url dies when an attribute getter wrapper is an ordinary function",
+      "why": "Getters are method shorthands now, not read back off a `get` literal: a plain function expression would give `get href` a `prototype` and a [[Construct]], which Chrome's getters lack.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "    var fn = {\n      attr() {\n",
+      "replace": "    var fn = {\n      attr: function () {\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL shape-url"
+    },
+    {
+      "name": "shape-url dies when an attribute setter wrapper is an ordinary function",
+      "why": "The setter twin of the getter entry: `set href` must be neither a constructor nor carry a `prototype`.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "      attr(value) {\n",
+      "replace": "      attr: function (value) {\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL shape-url"
+    },
+    {
+      "name": "shape-domexception dies when a member outside the in-place run is not taken off",
+      "why": "layMembers keeps only the leading run already in Blink's order; a member after it must be deleted before it is defined again, or it keeps its old place (a class's `constructor` stays first).",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "      if (!keep && ObjectHasOwn(target, key)) delete target[key];\n",
+      "replace": "      if (false) delete target[key];\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL shape-domexception"
+    },
+    {
+      "name": "shape-domexception dies when the in-place run survives a key not found ahead of it",
+      "why": "The run is found by walking the own keys forward from its last member; a key not found ahead (out of order, or absent) must end it, or every later member stays where the class put it.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "        stringRun = j < count;\n",
+      "replace": "        stringRun = true;\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL shape-domexception"
+    },
+    {
+      "name": "shape-url dies when an entry's WebIDL length is not parsed",
+      "why": "parseEntry reads `name:N` by its trailing digits; dropping the length leaves the implementation's own arity, which differs from Blink's for an operation with optional arguments.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "      entryLength = +StringPrototypeSlice(entry, at + 1, entry.length);\n",
+      "replace": "",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL shape-url"
+    },
+    {
+      "name": "shape-domexception dies when a reused descriptor keeps the previous member's enumerability",
+      "why": "One descriptor object is refilled for every member; each branch must set every field, or `constructor` inherits the enumerable `true` of the operation laid before it.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "        desc.value = ctor;\n        desc.writable = true;\n        desc.enumerable = false;\n",
+      "replace": "        desc.value = ctor;\n        desc.writable = true;\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL shape-domexception"
+    },
+    {
+      "name": "location-basic dies when the page URL is parsed as a failure",
+      "why": "location and cookie parse the page's own URL through parseStringOrNull, which must answer the constructor's URL for a valid one; null makes every page about:blank.",
+      "source": "pkg/runtime/js/internal/url.js",
+      "find": "    if (record === FAILURE) return null;\n    var url = ObjectCreate(URL.prototype);\n",
+      "replace": "    return null;\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL location-basic"
     },
     {
       "name": "shape-stacks dies when an error leaving an entry point keeps our frames",
@@ -3742,7 +3823,7 @@
       "find": "  ObjectDefineProperty(FunctionProto, 'toString', { __proto__: null, value: maskedToString });\n",
       "replace": "",
       "gate": "odin:cmd/lava:main.native_shape_mask_is_per_page",
-      "expect_detail": "atob: got op() {"
+      "expect_detail": "atob: got op(_a) {"
     },
     {
       "name": "encoding-webidl dies when encodeInto() accepts any view as dest",

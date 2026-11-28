@@ -33,6 +33,7 @@
   var ObjectDefineProperty = P.ObjectDefineProperty;
   var ObjectFreeze = P.ObjectFreeze;
   var ReflectApply = P.ReflectApply;
+  var ReflectConstruct = P.ReflectConstruct;
   var StringPrototypeSlice = P.StringPrototypeSlice;
   var StringPrototypeStartsWith = P.StringPrototypeStartsWith;
   var TypeErrorP = P.TypeError;
@@ -237,10 +238,20 @@
     });
   }
 
+  // The interface prototype starts empty and takes its members from the class's: the
+  // class lays its own getters first and navigator_apis' after them, with `constructor`
+  // ahead of all, while Blink interleaves the two and lists `constructor` mid-way — so
+  // re-laying the class prototype itself took off and re-added 65 of its members on
+  // every page. navigatorObject is the class's instance (its brand) with this
+  // prototype; the class prototype stays internal.
+  function NavigatorPrototypeHolder() {}
+  NavigatorPrototypeHolder.prototype = {};
+
   // Blink's member order (Chrome 158, shape-navigator).
   nativeShape.defineInterface({
     name: 'Navigator',
-    impl: Navigator,
+    impl: NavigatorPrototypeHolder,
+    source: Navigator.prototype,
     length: 0,
     illegal: true,
     members: [
@@ -318,7 +329,7 @@
     ],
   });
 
-  var navigatorObject = new Navigator(INTERNAL);
+  var navigatorObject = ReflectConstruct(Navigator, [INTERNAL], NavigatorPrototypeHolder);
   nativeShape.defineGlobalAttribute('navigator', function () {
     return navigatorObject;
   });
