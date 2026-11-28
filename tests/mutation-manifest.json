@@ -955,6 +955,15 @@
       "expect_detail": "got no pages / doubled up"
     },
     {
+      "name": "dispatcher_busy_page_does_not_hold_other_workers dies when submit stops comparing loads",
+      "why": "Round-robin hands every other short page to the spinner's worker, where it waits out the whole spin and is reported after the spinner.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "\t\tif l < best_load {",
+      "replace": "\t\tif false {",
+      "gate": "odin:cmd/lava:main.dispatcher_busy_page_does_not_hold_other_workers",
+      "expect_detail": "the spinner was reported before the short pages"
+    },
+    {
       "name": "dispatcher_queues_past_capacity dies when a worker opens pages past its slots",
       "why": "Opened past capacity, the extra pages find no VM in the worker's pool and fail instead of waiting in the inbox.",
       "source": "pkg/runtime/page_dispatcher.odin",
@@ -3004,7 +3013,7 @@
       "find": "\tif jsc.runloop_due() {\n\t\tjsc.runloop_dispatch()\n\t}\n",
       "replace": "",
       "gate": "odin:cmd/lava:main.eval_runs_a_finalization_cleanup",
-      "expect_detail": "no FinalizationRegistry cleanup within 3 s"
+      "expect_detail": "no FinalizationRegistry cleanup in 100 ticks"
     },
     {
       "name": "vm_pool_releases_its_timerfds dies when vm_pool_destroy no longer iterates the RunLoop after its releases",

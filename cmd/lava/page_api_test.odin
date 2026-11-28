@@ -405,22 +405,49 @@ cond_clear_unreffed_timers :: proc(page: ^lava.Page, user_data: rawptr) -> bool 
 // The re-arm of the deadline wake-up, reached the only way left since #92: the wake is
 // cleared natively between ticks (cond_clear_unreffed_timers), after every tick. The page
 // leaves a 10 ms timer, so the first tick returns well before the deadline, and a far
-// timer behind it: a wake that is not re-armed for the second tick lets it sleep 3 s, to
-// the far timer, instead of returning at the 100 ms deadline.
+// timer behind it: a wake that is not re-armed for the second tick lets it sleep to the
+// far timer instead of returning at the 100 ms deadline.
+//
+// The far timer is 10 s out and the bound half of that, 50x the deadline: what a broken
+// re-arm costs is the sleep to the far timer, all of it (10.07 s measured), and a bound
+// that close to the deadline timed the machine instead (it was 1.5 s against a 3 s far
+// timer). Not the far timer's callback as the signal: the tick that sleeps to it sampled
+// its clock before the poll, so it returns without running it, and the run then stops
+// at the deadline it has long passed.
+//
+// The case also needs a clear to have happened (cleared >= 1), which is timing the test
+// does not control: a first tick that ends past the deadline has run the wake-up itself
+// and left nothing to clear. In a whole suite run beside 14 CPU burners on 4 cores it was
+// seen down to one clear. A run with none proves nothing, so it is retried.
 @(test)
 page_run_until_deadline_survives_a_native_clear_of_its_wake :: proc(t: ^testing.T) {
-	page: lava.Page
-	loop: eventloop.Loop
-	open_web_page(t, &page, &loop, `setTimeout(() => {}, 3000); setTimeout(() => {}, 10);`)
-	defer close_page(&page)
+	for attempt in 0 ..< 10 {
+		page: lava.Page
+		loop: eventloop.Loop
+		open_web_page(t, &page, &loop, `setTimeout(() => {}, 10000); setTimeout(() => {}, 10);`)
 
-	cleared := 0
-	start := time.tick_now()
-	stop := lava.page_run_until(&page, cond_clear_unreffed_timers, &cleared, 100)
-	elapsed := time.duration_seconds(time.tick_since(start))
-	testing.expect_value(t, stop, lava.Run_Stop.Deadline)
-	testing.expectf(t, cleared >= 1, "the condition cleared no wake-up timer: the case tested nothing")
-	testing.expectf(t, elapsed < 1.5, "Deadline after %.3fs, want ~0.1s: the cleared wake-up was not re-armed", elapsed)
+		cleared := 0
+		start := time.tick_now()
+		stop := lava.page_run_until(&page, cond_clear_unreffed_timers, &cleared, 100)
+		elapsed := time.duration_seconds(time.tick_since(start))
+		close_page(&page)
+
+		if cleared == 0 {
+			continue
+		}
+
+		testing.expect_value(t, stop, lava.Run_Stop.Deadline)
+		testing.expectf(
+			t,
+			elapsed < 5,
+			"Deadline after %.3fs, want ~0.1s (attempt %d): the cleared wake-up was not re-armed",
+			elapsed,
+			attempt,
+		)
+		return
+	}
+
+	testing.fail_now(t, "the condition cleared no wake-up timer in 10 runs: the case tested nothing")
 }
 
 // Finished: a limit kill inside a timer ends the page; the run reports it rather than
