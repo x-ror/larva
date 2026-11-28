@@ -36,6 +36,9 @@ step('domain localhost', 'dom6=1; Domain=localhost');
 step('secure', 's1=1; Secure');
 step('secure with a value', 's2=1; secure=yes');
 step('httponly', 'h1=1; HttpOnly');
+// Shows whether the HttpOnly cookie was stored after all: a script may not replace
+// one, so h1=2 would then stay hidden.
+step('plain after httponly', 'h1=2');
 step('samesite strict', 'ss1=1; SameSite=Strict');
 step('samesite lax', 'ss2=1; SameSite=Lax');
 step('samesite none insecure', 'ss3=1; SameSite=None');

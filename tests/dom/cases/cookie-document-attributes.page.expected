@@ -61,33 +61,35 @@
 "
 |       "httponly -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; p1=1; d=2"
 "
-|       "samesite strict -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; p1=1; d=2"
+|       "plain after httponly -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; p1=1; d=2"
 "
-|       "samesite lax -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; p1=1; d=2"
+|       "samesite strict -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; p1=1; d=2"
 "
-|       "samesite none insecure -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; p1=1; d=2"
+|       "samesite lax -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; p1=1; d=2"
 "
-|       "samesite none secure -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; p1=1; d=2"
+|       "samesite none insecure -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; p1=1; d=2"
 "
-|       "samesite bogus -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; ss5=1; p1=1; d=2"
+|       "samesite none secure -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; p1=1; d=2"
 "
-|       "__Secure- without Secure -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; ss5=1; p1=1; d=2"
+|       "samesite bogus -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; p1=1; d=2"
 "
-|       "__Secure- with Secure -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2"
+|       "__Secure- without Secure -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; p1=1; d=2"
 "
-|       "__Host- without Secure -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2"
+|       "__Secure- with Secure -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2"
 "
-|       "__Host- full -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
+|       "__Host- without Secure -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2"
 "
-|       "__secure- lowercase -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
+|       "__Host- full -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
 "
-|       "__host- lowercase -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
+|       "__secure- lowercase -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
 "
-|       "nameless __Secure- value -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
+|       "__host- lowercase -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
 "
-|       "nameless __Host- value -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
+|       "nameless __Secure- value -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
 "
-|       "overwrite to secure -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; __Host-d=1; d=3"
+|       "nameless __Host- value -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
+"
+|       "overwrite to secure -> "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; __Host-d=1; d=3"
 "
 |     "
 "
@@ -125,6 +127,9 @@ step('domain localhost', 'dom6=1; Domain=localhost');
 step('secure', 's1=1; Secure');
 step('secure with a value', 's2=1; secure=yes');
 step('httponly', 'h1=1; HttpOnly');
+// Shows whether the HttpOnly cookie was stored after all: a script may not replace
+// one, so h1=2 would then stay hidden.
+step('plain after httponly', 'h1=2');
 step('samesite strict', 'ss1=1; SameSite=Strict');
 step('samesite lax', 'ss2=1; SameSite=Lax');
 step('samesite none insecure', 'ss3=1; SameSite=None');
@@ -169,20 +174,21 @@ domain localhost -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=
 secure -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; p1=1; d=2"
 secure with a value -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; p1=1; d=2"
 httponly -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; p1=1; d=2"
-samesite strict -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; p1=1; d=2"
-samesite lax -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; p1=1; d=2"
-samesite none insecure -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; p1=1; d=2"
-samesite none secure -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; p1=1; d=2"
-samesite bogus -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; ss5=1; p1=1; d=2"
-__Secure- without Secure -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; ss5=1; p1=1; d=2"
-__Secure- with Secure -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2"
-__Host- without Secure -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2"
-__Host- full -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
-__secure- lowercase -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
-__host- lowercase -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
-nameless __Secure- value -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
-nameless __Host- value -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
-overwrite to secure -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; __Host-d=1; d=3"
+plain after httponly -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; p1=1; d=2"
+samesite strict -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; p1=1; d=2"
+samesite lax -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; p1=1; d=2"
+samesite none insecure -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; p1=1; d=2"
+samesite none secure -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; p1=1; d=2"
+samesite bogus -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; p1=1; d=2"
+__Secure- without Secure -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; p1=1; d=2"
+__Secure- with Secure -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2"
+__Host- without Secure -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2"
+__Host- full -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
+__secure- lowercase -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
+__host- lowercase -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
+nameless __Secure- value -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
+nameless __Host- value -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; d=2; __Host-d=1"
+overwrite to secure -&gt; "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; __Host-d=1; d=3"
 </pre>
 <script>
 // The attributes document.cookie honours, on an http://127.0.0.1 page at /raw/<case>:
@@ -217,6 +223,9 @@ step('domain localhost', 'dom6=1; Domain=localhost');
 step('secure', 's1=1; Secure');
 step('secure with a value', 's2=1; secure=yes');
 step('httponly', 'h1=1; HttpOnly');
+// Shows whether the HttpOnly cookie was stored after all: a script may not replace
+// one, so h1=2 would then stay hidden.
+step('plain after httponly', 'h1=2');
 step('samesite strict', 'ss1=1; SameSite=Strict');
 step('samesite lax', 'ss2=1; SameSite=Lax');
 step('samesite none insecure', 'ss3=1; SameSite=None');

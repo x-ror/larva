@@ -111,6 +111,7 @@ attributes_match_chrome :: proc(t: ^testing.T) {
 		"s1=1; Secure",
 		"s2=1; secure=yes",
 		"h1=1; HttpOnly",
+		"h1=2",
 		"ss1=1; SameSite=Strict",
 		"ss2=1; SameSite=Lax",
 		"ss3=1; SameSite=None",
@@ -131,7 +132,7 @@ attributes_match_chrome :: proc(t: ^testing.T) {
 		set_cookie(&jar, url, line, .Script, .Same_Site, NOW + i64(i))
 	}
 
-	want := "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; __Host-d=1; d=3"
+	want := "p8=1; p3=1; d=1; p2=1; p6=1; p7=1; dom1=1; dom2=1; dom5=1; s1=1; s2=1; h1=2; ss1=1; ss2=1; ss4=1; ss5=1; __Secure-b=1; p1=1; __Host-d=1; d=3"
 	got := header(&jar, url)
 	testing.expectf(t, got == want, "want %q,\n got %q", want, got)
 }
