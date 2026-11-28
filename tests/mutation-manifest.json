@@ -2931,8 +2931,8 @@
       "name": "the web oracle runner exits non-zero on a failing case",
       "why": "make test-web is read by its exit status (CI, make gates); a summary that prints fails and exits 0 is a green gate.",
       "source": "scripts/run-web-oracle.mjs",
-      "find": "process.exit(failed ? 1 : 0);",
-      "replace": "process.exit(0);",
+      "find": "process.exitCode = failed ? 1 : 0;",
+      "replace": "process.exitCode = 0;",
       "gate": "node-test:scripts/run-web-oracle.test.mjs",
       "test": "the runner exits non-zero when a case does not match its recording",
       "expect_detail": "the runner exits non-zero when a case does not match its recording"
@@ -3363,8 +3363,8 @@
       "name": "the DOM oracle runner exits non-zero on a failing view",
       "why": "Without the exit status the whole suite is decoration: CI reads the code, not the table.",
       "source": "scripts/run-dom-oracle.mjs",
-      "find": "process.exit(failed ? 1 : 0);",
-      "replace": "process.exit(0);",
+      "find": "process.exitCode = failed ? 1 : 0;",
+      "replace": "process.exitCode = 0;",
       "gate": "node-test:scripts/run-dom-oracle.test.mjs",
       "test": "a view that differs from its recording fails alone, naming the view",
       "expect_detail": "a view that differs from its recording fails alone, naming the view"
