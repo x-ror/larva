@@ -4288,6 +4288,69 @@
       "replace": "",
       "gate": "make:test-http-odin",
       "expect_detail": "a_redirect_sends_the_cookies_it_set"
+    },
+    {
+      "name": "psl_vectors_match_publicsuffix_org dies when the Public Suffix List lookup finds nothing",
+      "why": "With no rule found every TLD is one label, so `Domain=co.uk` or `Domain=github.io` sets a cookie for every site under that suffix: the supercookie / cookie-tossing hole the list closes.",
+      "source": "pkg/http/cookie/psl.odin",
+      "find": "\t\t\treturn entries[at]\n",
+      "replace": "\t\t\treturn 0\n",
+      "gate": "make:test-http-odin",
+      "expect_detail": "psl_vectors_match_publicsuffix_org"
+    },
+    {
+      "name": "psl_vectors_match_publicsuffix_org dies when exception rules are ignored",
+      "why": "`!city.kobe.jp` carves a registrable domain out of `*.kobe.jp`; ignoring it makes city.kobe.jp a public suffix that can set no domain cookie, where Chrome lets it.",
+      "source": "pkg/http/cookie/psl.odin",
+      "find": "\tif flags & RULE_EXCEPTION != 0 {\n",
+      "replace": "\tif false {\n",
+      "gate": "make:test-http-odin",
+      "expect_detail": "psl_vectors_match_publicsuffix_org"
+    },
+    {
+      "name": "domain_attribute_refuses_public_suffixes dies when wildcard rules are ignored",
+      "why": "Under `*.ck` every second-level name is a registry; ignoring the wildcard lets `Domain=test.ck` from b.test.ck cover every site under test.ck.",
+      "source": "pkg/http/cookie/psl.odin",
+      "find": "\tif flags & RULE_WILDCARD != 0 {\n",
+      "replace": "\tif false {\n",
+      "gate": "make:test-http-odin",
+      "expect_detail": "domain_attribute_refuses_public_suffixes"
+    },
+    {
+      "name": "domain_attribute_refuses_public_suffixes dies when Domain= skips the registrable-domain check",
+      "why": "Domain-match alone accepts `Domain=co.uk` from www.example.co.uk; the cookie must share the host's registrable domain, which no public suffix has.",
+      "source": "pkg/http/cookie/cookie.odin",
+      "find": "\tif !ascii_equal_fold(registrable_domain(d), site) || !domain_matches(host, d) {\n",
+      "replace": "\tif !domain_matches(host, d) {\n",
+      "gate": "make:test-http-odin",
+      "expect_detail": "domain_attribute_refuses_public_suffixes"
+    },
+    {
+      "name": "sites_are_registrable_domains dies when a cookie's site is not its registrable domain",
+      "why": "Keyed by the parent label, a.github.io and b.github.io share one 180-cookie budget, so one github.io site can purge another's cookies.",
+      "source": "pkg/http/cookie/cookie.odin",
+      "find": "\tc.site = c.domain[len(c.domain) - len(site_key(c.domain)):]\n",
+      "replace": "\tc.site = c.domain[strings.index_byte(c.domain, '.') + 1:]\n",
+      "gate": "make:test-http-odin",
+      "expect_detail": "sites_are_registrable_domains"
+    },
+    {
+      "name": "domain_to_ascii_punycodes_labels dies when punycode's first bias adaptation does not damp",
+      "why": "RFC 3492 damps the first delta by 700; without it multi-code-point labels encode to the wrong A-label, so an IDN Domain= no longer matches its own host.",
+      "source": "pkg/http/cookie/punycode.odin",
+      "find": "\td := delta / DAMP if first else delta / 2\n",
+      "replace": "\td := delta / 2\n",
+      "gate": "make:test-http-odin",
+      "expect_detail": "domain_to_ascii_punycodes_labels"
+    },
+    {
+      "name": "gen-psl drift test dies when the drift check always passes",
+      "why": "A .dat update nobody regenerated would ship the old table under the new list's name.",
+      "source": "scripts/gen-psl.mjs",
+      "find": "build(dat).equals(bin)",
+      "replace": "true",
+      "gate": "node-test:scripts/gen-psl.test.mjs",
+      "expect_detail": "drift"
     }
   ]
 }

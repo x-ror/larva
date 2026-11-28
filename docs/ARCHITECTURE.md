@@ -393,12 +393,13 @@ and `document.cookie` reach through `internal/cookie`. Parsing, matching, SameSi
 the name prefixes and Chrome's size limits follow Chrome 158, recorded in
 `tests/dom/cases/cookie-document-*.page` and `tests/web/cases/cookie-*`. A jar is
 per page because there is no session object yet (decision 3 gives the jar to one);
-in memory only, with no public suffix list (a single-label Domain= stands in for a
-suffix).
+in memory only. Domain= and the site key (per-site limits, SameSite) follow Mozilla's
+Public Suffix List as Chrome consults it (`pkg/http/cookie/psl.odin`): the vendored
+list is compiled by `scripts/gen-psl.mjs` into a sorted table embedded in the binary.
 
 What it does not do yet, all stage 2 (docs/LARVA.md decision 3): connection reuse,
-HTTP/2, sessions that outlive a page, the public suffix list, proxies and client
-profiles. Linux only; elsewhere `fetch` returns `.No_Transport`.
+HTTP/2, sessions that outlive a page, proxies and client profiles. Linux only;
+elsewhere `fetch` returns `.No_Transport`.
 
 ---
 

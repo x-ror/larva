@@ -89,6 +89,10 @@ Cookie :: struct {
 	// Without a leading dot. A host-only cookie matches this host exactly; a domain
 	// cookie also matches its subdomains.
 	domain:      string,
+	// The domain's site key (site_key): a view into `domain`, its tail, so the per-site
+	// count on every store compares a stored string instead of consulting the public
+	// suffix list once per cookie in the jar.
+	site:        string,
 	path:        string,
 	// Unix seconds; meaningful only for a persistent cookie.
 	expires:     i64,
@@ -120,8 +124,8 @@ Status :: enum u8 {
 	// A control character, or an empty name and value (RFC 6265bis §5.6 steps 1-3).
 	Invalid,
 	Too_Large, // name and value over MAX_NAME_VALUE_BYTES
-	// Domain= that the host does not domain-match, or a public suffix (see
-	// domain_attribute for the MVP rule).
+	// Domain= that the host does not domain-match, or that names a public suffix
+	// (domain_attribute).
 	Bad_Domain,
 	Insecure, // Secure from an insecure source
 	Prefix, // a __Secure- or __Host- name (or nameless value) without what it requires
@@ -178,14 +182,15 @@ jar_clear :: proc(jar: ^Jar) {
 //   replaced cookie keeps its creation time, and so its place in the header, only when
 //   its value is unchanged; Secure is accepted from http://127.0.0.1; the __Secure- and
 //   __Host- prefixes match case-insensitively; SameSite=None without Secure is refused.
+//   Domain= follows the Public Suffix List as Chrome does (psl.odin, domain_attribute):
+//   `Domain=co.uk` or `Domain=github.io` is refused, `Domain=example.co.uk` from
+//   `www.example.co.uk` stores, and a non-ASCII Domain= is matched as its punycode.
 // Deviates:
-//   No public suffix list (docs/LARVA.md stage 2 embeds one): Domain= naming a single
-//   label is treated as a public suffix, so `Domain=co.uk` is accepted where Chrome
-//   refuses it. Eviction purges by last access only, where Chrome first spends
-//   non-secure, then low-priority cookies, and keys a site by its registrable domain,
-//   which without the list is approximated by the last two labels (site_key). A
-//   non-ASCII Domain= is refused, where Chrome converts it to punycode. Pinned by
-//   pkg/http/cookie/cookie_test.odin.
+//   Eviction purges by last access only, where Chrome first spends non-secure, then
+//   low-priority cookies; it keys a site by its registrable domain, as Chrome does. A
+//   non-ASCII Domain= that UTS-46 would map beyond lowercasing is refused, where Chrome
+//   maps it (domain_to_ascii). Pinned by pkg/http/cookie/cookie_test.odin and
+//   psl_test.odin.
 set_cookie :: proc(jar: ^Jar, url: Source, line: string, access: Access, site: Site_Context, now_ns: i64) -> Status {
 	parsed, status := parse(line)
 
@@ -301,9 +306,10 @@ set_cookie :: proc(jar: ^Jar, url: Source, line: string, access: Access, site: S
 		jar.next_id += 1
 	}
 
+	c.site = c.domain[len(c.domain) - len(site_key(c.domain)):]
 	c.last_access = now_ns
 	append(&jar.cookies, c)
-	evict(jar, c.domain, now_s)
+	evict(jar, c.site, now_s)
 	return .Stored
 }
 
@@ -439,24 +445,22 @@ same_site :: proc(a_https: bool, a_host: string, b_https: bool, b_host: string) 
 	return ascii_equal_fold(site_key(strip_brackets(a_host)), site_key(strip_brackets(b_host)))
 }
 
-// site_key stands in for a host's registrable domain (eTLD+1): the host itself for an IP
-// literal or a single label, else its last two labels. Without a public suffix list
-// `a.co.uk` and `b.co.uk` share a key, where Chrome gives each its own; see set_cookie's
-// Deviates.
+// site_key is a host's site: its registrable domain (eTLD+1, registrable_domain), or the
+// host itself when it has none (an IP literal, a single label, a public suffix). Always
+// a suffix of `host`, so a caller may keep it as a view.
+//
+// Node:
+//   Chrome 158's SchemefulSite and CookieMonster's per-domain key, both
+//   GetDomainAndRegistry with INCLUDE_PRIVATE_REGISTRIES falling back to the host:
+//   `a.github.io` and `b.github.io` are two sites (a SameSite=Strict cookie does not
+//   follow a navigation between them, probed; psl_test.odin), `a.co.uk` and `b.co.uk`
+//   too.
 site_key :: proc(host: string) -> string {
-	if is_ip(host) {
-		return host
+	if site := registrable_domain(host); site != "" {
+		return site
 	}
 
-	h := strings.trim_right(host, ".")
-	last := strings.last_index_byte(h, '.')
-
-	if last < 0 {
-		return h
-	}
-
-	prev := strings.last_index_byte(h[:last], '.')
-	return h[prev + 1:]
+	return host
 }
 
 // --- parsing -------------------------------------------------------------------------
@@ -696,11 +700,18 @@ parse_cookie_date :: proc(s: string) -> (unix: i64, ok: bool) {
 // domain_attribute applies a Domain= value for a cookie from `host`.
 //
 // Returns the cookie's domain and whether it is host-only; ok false refuses the cookie.
-// A leading dot is dropped and the value lowercased. For an IP host the value must name
-// that IP, and the cookie stays host-only (recorded: `Domain=127.0.0.1` and
-// `Domain=.127.0.0.1` store, `Domain=0.0.1` does not). Public suffixes: without the
-// list, a single label stands in for one (`com`, `localhost`) — refused unless it is the
-// host itself, which RFC 6265bis §5.7 step 9 turns into a host-only cookie.
+// A leading dot is dropped, the value lowercased and a non-ASCII one punycoded
+// (domain_to_ascii). For an IP host the value must name that IP, and the cookie stays
+// host-only (recorded: `Domain=127.0.0.1` and `Domain=.127.0.0.1` store,
+// `Domain=0.0.1` does not). A host with no registrable domain (a single label, a public
+// suffix) may name only itself, which RFC 6265bis §5.7 step 9 turns into a host-only
+// cookie. Otherwise the value must have the host's registrable domain — so a public
+// suffix (`co.uk`, `github.io`) is refused — and the host must domain-match it.
+//
+// Node:
+//   Chrome 158's GetCookieDomainWithString, probed with --host-resolver-rules (the
+//   cases are in psl_test.odin): `Domain=co.uk` from `co.uk` stores host-only,
+//   `Domain=b.test` from `a.b.test` stores (an unlisted TLD is one label).
 @(private)
 domain_attribute :: proc(value, host: string) -> (domain: string, host_only: bool, ok: bool) {
 	d := value
@@ -713,23 +724,21 @@ domain_attribute :: proc(value, host: string) -> (domain: string, host_only: boo
 		return "", false, false
 	}
 
-	for b in transmute([]byte)d {
-		if b >= 0x80 {
-			return "", false, false
-		}
-	}
-
+	buf: [MAX_ASCII_DOMAIN]u8
+	d = domain_to_ascii(d, buf[:]) or_return
 	d = strip_brackets(d)
 
 	if is_ip(host) {
 		return host, true, ascii_equal_fold(d, host)
 	}
 
-	if strings.index_byte(d, '.') < 0 {
+	site := registrable_domain(host)
+
+	if site == "" {
 		return host, true, ascii_equal_fold(d, host)
 	}
 
-	if !domain_matches(host, d) {
+	if !ascii_equal_fold(registrable_domain(d), site) || !domain_matches(host, d) {
 		return "", false, false
 	}
 
@@ -874,16 +883,15 @@ shadows_secure :: proc(jar: ^Jar, c: Cookie) -> bool {
 	return false
 }
 
-// evict keeps the site of `domain` at DOMAIN_MAX_COOKIES and the jar at
+// evict keeps the site `key` at DOMAIN_MAX_COOKIES and the jar at
 // TOTAL_MAX_COOKIES: over either, expired cookies go first, then the least recently
 // accessed (the older on a tie) until the purge target. Recorded: the 181st cookie on a
 // site leaves 150, the oldest ones gone.
 @(private)
-evict :: proc(jar: ^Jar, domain: string, now_s: i64) {
-	key := site_key(domain)
+evict :: proc(jar: ^Jar, key: string, now_s: i64) {
 	n := 0
 	for &c in jar.cookies {
-		if ascii_equal_fold(site_key(c.domain), key) {
+		if ascii_equal_fold(c.site, key) {
 			n += 1
 		}
 	}
@@ -903,7 +911,7 @@ evict :: proc(jar: ^Jar, domain: string, now_s: i64) {
 purge :: proc(jar: ^Jar, key: string, count: int, now_s: i64) {
 	count := count
 	in_scope :: proc(c: ^Cookie, key: string) -> bool {
-		return key == "" || ascii_equal_fold(site_key(c.domain), key)
+		return key == "" || ascii_equal_fold(c.site, key)
 	}
 
 	for i := 0; i < len(jar.cookies) && count > 0; {
@@ -1044,7 +1052,7 @@ trim_wsp :: proc(s: string) -> string {
 	return s[lo:hi]
 }
 
-@(private = "file")
+@(private)
 strip_brackets :: proc(host: string) -> string {
 	if len(host) >= 2 && host[0] == '[' && host[len(host) - 1] == ']' {
 		return host[1:len(host) - 1]
@@ -1053,7 +1061,7 @@ strip_brackets :: proc(host: string) -> string {
 	return host
 }
 
-@(private = "file")
+@(private)
 is_ip :: proc(host: string) -> bool {
 	return net.parse_address(strip_brackets(host)) != nil
 }
@@ -1085,7 +1093,7 @@ ascii_has_suffix_fold :: proc(s, suffix: string) -> bool {
 	return len(s) >= len(suffix) && ascii_equal_fold(s[len(s) - len(suffix):], suffix)
 }
 
-@(private = "file")
+@(private)
 ascii_lower :: proc(b: byte) -> byte {
 	return b + ('a' - 'A') if 'A' <= b && b <= 'Z' else b
 }
