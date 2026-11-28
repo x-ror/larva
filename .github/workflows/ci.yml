@@ -195,6 +195,12 @@ jobs:
       - name: Pages bench smoke
         run: make test-bench-pages-smoke
 
+      # `lava serve` (#15): its Odin tests over loopback (test-odin-green runs them
+      # too; a few seconds), then the CLI stopped by SIGTERM/SIGINT with a request in
+      # flight, which only a real process can show.
+      - name: Serve (Odin tests + SIGTERM smoke)
+        run: make test-serve
+
   # MUTATION GATE. Breaks the code each recorded test claims to pin and requires
   # the test to go red. It exists because three tests in #321 passed for the
   # wrong reason and every one was caught only by doing this by hand: an oracle

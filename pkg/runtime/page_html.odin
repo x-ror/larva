@@ -84,9 +84,34 @@ run_html_page :: proc(
 }
 
 // html_page_run is run_html_page on a page page_create made live: install, parse and
-// script, DOMContentLoaded, the loop, the view.
+// script, DOMContentLoaded, the loop, `load`, the loop again, the view.
 @(private = "file")
 html_page_run :: proc(page: ^Page, data: []byte, source_name, document_path: string, view: Html_View) -> string {
+	if !html_page_begin(page, data, source_name, document_path) {
+		return ""
+	}
+
+	page_run_idle(page)
+
+	// Then the loop again, for what the load listeners queued.
+	if !html_page_fire_load(page) {
+		return ""
+	}
+
+	page_run_idle(page)
+	return html_page_view(page, view)
+}
+
+// html_page_begin is the HTML page's start, up to and including DOMContentLoaded: the
+// DOM installed, `data` parsed with its classic scripts run as the parser reaches each,
+// `interactive`, the defer scripts, then DOMContentLoaded. Shared by run_html_page and
+// the crawl driver (page_crawl.odin), which tick the loop between the steps themselves.
+//
+// Returns:
+//   false when the page has ended (a limit, a failed install, a failed parse; its Result
+//   is recorded) and there is nothing more to run.
+@(private)
+html_page_begin :: proc(page: ^Page, data: []byte, source_name, document_path: string) -> bool {
 	ctx := cast(jsc.JSContextRef)page.ctx
 
 	vm_cpu_enter(page.vm)
@@ -95,7 +120,7 @@ html_page_run :: proc(page: ^Page, data: []byte, source_name, document_path: str
 
 	if install_err != "" {
 		page_fail(page, Result{status = .Native_Runtime_Unavailable, exit_code = 70, message = install_err})
-		return ""
+		return false
 	}
 
 	scripts_attach(page, document_path, source_name)
@@ -122,11 +147,11 @@ html_page_run :: proc(page: ^Page, data: []byte, source_name, document_path: str
 				is_allocated = true,
 			},
 		)
-		return ""
+		return false
 	}
 
 	if page.finished {
-		return ""
+		return false
 	}
 
 	dom_advance(ctx, page, .Interactive)
@@ -136,22 +161,32 @@ html_page_run :: proc(page: ^Page, data: []byte, source_name, document_path: str
 		dom_advance(ctx, page, .Content_Loaded)
 	}
 
-	page_run_idle(page)
+	return page_dom_live(page)
+}
 
-	// `load` once the loop idled: the async and inserted scripts it ran were the page's
-	// only subresources (a page with no loop runs them here). Then the loop again, for
-	// what the load listeners queued.
+// html_page_fire_load is the page's `load`, to be called once its loop has idled after
+// DOMContentLoaded: the async and inserted scripts it ran were the page's only
+// subresources (a page with no loop runs them here), then `complete` (readystatechange,
+// the window's `load`). Returns false when the page has ended.
+@(private)
+html_page_fire_load :: proc(page: ^Page) -> bool {
 	if page_dom_live(page) {
 		scripts_run_ready(page)
 	}
 
 	if page_dom_live(page) {
-		dom_advance(ctx, page, .Complete)
-		page_run_idle(page)
+		dom_advance(cast(jsc.JSContextRef)page.ctx, page, .Complete)
 	}
 
-	// A page a limit or a stop ended reports that, not its document.
-	if page.finished || page.state == nil || page.state.dom == nil {
+	return page_dom_live(page)
+}
+
+// html_page_view is the document as it now is, allocated with context.allocator; "" when
+// the page has ended — a page a limit or a stop ended reports that, not its document — or
+// the view could not be made.
+@(private)
+html_page_view :: proc(page: ^Page, view: Html_View) -> string {
+	if !page_dom_live(page) {
 		return ""
 	}
 
@@ -169,7 +204,7 @@ html_page_run :: proc(page: ^Page, data: []byte, source_name, document_path: str
 }
 
 // page_dom_live reports whether the page is still running with its DOM.
-@(private = "file")
+@(private)
 page_dom_live :: proc(page: ^Page) -> bool {
 	return !page.finished && page.state != nil && page.state.dom != nil
 }

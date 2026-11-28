@@ -6,8 +6,9 @@
 // Why: it replaces the allocating, line-splitting response-head parser in fetch
 // (strings.split + per-header to_lower) with one C pass that returns name/value
 // slices ALIASING the input buffer. pkg/http's client parses its response heads through
-// the same wrapper. (phr_parse_request was bound too, for the node:http server; it went
-// with that server in the Node-profile removal.)
+// the same wrapper, and `lava serve` (pkg/adapters) its request heads through
+// parse_request. (phr_parse_request was bound once before, for the node:http server; it
+// went with that server in the Node-profile removal and came back with `lava serve`.)
 //
 // LIFETIME: every returned string (msg, header name/value) points INTO `buf`. They
 // are valid only until `buf` is mutated or reallocated. fetch accumulates the head
@@ -42,6 +43,8 @@ foreign pico {
 	// Returns: # bytes consumed (head length incl. the terminating CRLFCRLF) on
 	// success, -1 on a malformed head, -2 when the head is not yet complete.
 	phr_parse_response :: proc(buf: [^]u8, buf_len: c.size_t, minor_version: ^c.int, status: ^c.int, msg: ^[^]u8, msg_len: ^c.size_t, headers: [^]phr_header, num_headers: ^c.size_t, last_len: c.size_t) -> c.int ---
+	// Same return convention as phr_parse_response.
+	phr_parse_request :: proc(buf: [^]u8, buf_len: c.size_t, method: ^[^]u8, method_len: ^c.size_t, path: ^[^]u8, path_len: ^c.size_t, minor_version: ^c.int, headers: [^]phr_header, num_headers: ^c.size_t, last_len: c.size_t) -> c.int ---
 }
 
 // MAX_HEADERS bounds a single message's header count. picohttpparser fails (-1) if a
@@ -120,4 +123,66 @@ parse_response :: proc(
 	}
 	if msg_ptr != nil && msg_len > 0 {msg = string(msg_ptr[:msg_len])}
 	return int(ret), int(status_c), msg, num, .Complete
+}
+
+// parse_request runs phr_parse_request over `buf`: parse_response's contract for a
+// request head. On Complete `method`, `target` and out[:num] alias `buf`, and
+// `minor_version` is the 1 of HTTP/1.1 (or 0); on Partial/Error everything else is zero.
+parse_request :: proc(
+	buf: []byte,
+	last_len: int,
+	out: []Header,
+) -> (
+	consumed: int,
+	method: string,
+	target: string,
+	minor_version: int,
+	num: int,
+	result: Result,
+) {
+	raw: [MAX_HEADERS]phr_header
+	n := c.size_t(min(len(out), MAX_HEADERS))
+	minor_c: c.int
+	method_ptr, path_ptr: [^]u8
+	method_len, path_len: c.size_t
+
+	ret := phr_parse_request(
+		raw_data(buf),
+		c.size_t(len(buf)),
+		&method_ptr,
+		&method_len,
+		&path_ptr,
+		&path_len,
+		&minor_c,
+		&raw[0],
+		&n,
+		c.size_t(last_len),
+	)
+	switch {
+	case ret == -1:
+		return 0, "", "", 0, 0, .Error
+	case ret == -2:
+		return 0, "", "", 0, 0, .Partial
+	}
+
+	num = int(n)
+	for i in 0 ..< num {
+		h := raw[i]
+		name := h.name != nil && h.name_len > 0 ? string(h.name[:h.name_len]) : ""
+		value := h.value != nil && h.value_len > 0 ? string(h.value[:h.value_len]) : ""
+		out[i] = Header {
+			name  = name,
+			value = value,
+		}
+	}
+
+	if method_ptr != nil && method_len > 0 {
+		method = string(method_ptr[:method_len])
+	}
+
+	if path_ptr != nil && path_len > 0 {
+		target = string(path_ptr[:path_len])
+	}
+
+	return int(ret), method, target, int(minor_c), num, .Complete
 }

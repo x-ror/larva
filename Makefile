@@ -25,7 +25,7 @@ endif
 SOURCE ?= console.log('hello from Lava')
 FILE ?=
 
-.PHONY: gates test-stdio test-web record-web test-dom record-dom help env sdk-diff test-one bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-mutation check-jsc check-native native-deps test test-all test-odin-serial test-odin test-eventloop-odin test-runtime-odin test-html-odin test-http-odin test-sqlite-odin test-odin-green bench bench-gate fmt clean test-fetch-html-smoke test-bench-pages-smoke bench-pages bench-html
+.PHONY: gates test-stdio test-web record-web test-dom record-dom help env sdk-diff test-one bootstrap-windows-deps build-sqlite-windows build run eval check check-cli check-runtime check-js fix-js check-md fix-md check-actions check-primordials test-scripts test-mutation check-jsc check-native native-deps test test-all test-odin-serial test-odin test-eventloop-odin test-runtime-odin test-html-odin test-http-odin test-sqlite-odin test-odin-green bench bench-gate fmt clean test-fetch-html-smoke test-serve test-bench-pages-smoke bench-pages bench-html
 
 help:
 	@printf '%s\n' 'Lava commands'
@@ -80,6 +80,7 @@ help:
 	@printf '%s\n' ''
 	@printf '%s\n' 'Smokes (bind local ports)'
 	@printf '%s\n' '  make test-fetch-html-smoke  lava fetch (redirect, coding, charset) vs tests/dom recordings'
+	@printf '%s\n' '  make test-serve         lava serve: its Odin tests over loopback, then the SIGTERM smoke'
 	@printf '%s\n' '  make test-bench-pages-smoke  bench/pages builds, runs, and fails on a refused page'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Bench / report'
@@ -158,6 +159,11 @@ check-runtime:
 	$(ODIN) check pkg/html -no-entry-point -collection:lava=.
 	$(ODIN) check pkg/html -no-entry-point -collection:lava=. -target:windows_amd64
 	$(ODIN) check pkg/html -no-entry-point -collection:lava=. -target:darwin_arm64
+	# pkg/adapters (`lava serve`): its !linux stub (serve_other.odin) refuses with a real
+	# error; cmd/lava reaches only the Linux side.
+	$(ODIN) check pkg/adapters -no-entry-point -collection:lava=.
+	$(ODIN) check pkg/adapters -no-entry-point -collection:lava=. -target:windows_amd64
+	$(ODIN) check pkg/adapters -no-entry-point -collection:lava=. -target:darwin_arm64
 
 # Compile vendored C deps (picohttpparser) Odin links into the runtime. Idempotent;
 # `odin check` does not need it, but every link of cmd/lava (build, test-odin) does.
@@ -342,6 +348,16 @@ endif
 test-fetch-html-smoke: build
 	LAVA_BIN="$(LAVA)" node scripts/run-fetch-html-smoke.mjs
 
+# `lava serve` (#15): cmd/lava's serve_* tests — the server driven over loopback against a
+# fixture origin, CPU kills, timeouts, concurrency, allocator pairing and, on one runner
+# thread (SERIAL=1), the descriptor census — then scripts/run-serve-smoke.mjs, the CLI
+# stopped by SIGTERM/SIGINT with a request in flight. Binds 127.0.0.1 ports.
+test-serve: build
+	@names=$$(sed -n 's/^\(serve_[a-z_]*\) :: proc.*/main.\1/p' cmd/lava/serve_test.odin | paste -sd, -); \
+	echo "$(ODIN) test cmd/lava -collection:lava=. -define:ODIN_TEST_NAMES=$$names"; \
+	$(ODIN) test cmd/lava -collection:lava=. -define:ODIN_TEST_NAMES=$$names $(if $(SERIAL),-define:ODIN_TEST_THREADS=1,)
+	LAVA_BIN="$(LAVA)" node scripts/run-serve-smoke.mjs
+
 # bench/pages, small: a valid run must report no failed page and a budget-0 run must
 # exit 1 with every page counted failed. Links the runtime, so native-deps, not lava.
 test-bench-pages-smoke: native-deps
@@ -383,14 +399,14 @@ ODINFMT ?= odinfmt
 # picohttpparser opts out (its own .clang-format).
 fmt:
 	@if command -v $(ODINFMT) >/dev/null 2>&1; then \
-		for d in cmd/lava pkg/jsc pkg/runtime pkg/std/sqlite pkg/html pkg/http pkg/tls pkg/profile; do $(ODINFMT) -w $$d >/dev/null; done; \
+		for d in cmd/lava pkg/jsc pkg/runtime pkg/std/sqlite pkg/html pkg/http pkg/tls pkg/profile pkg/adapters; do $(ODINFMT) -w $$d >/dev/null; done; \
 	else echo 'make fmt: odinfmt not found; set ODINFMT=/path/to/odinfmt'; fi
 	$(ODIN) strip-semicolon cmd/lava -collection:lava=.
 	$(ODIN) strip-semicolon pkg/jsc -no-entry-point
 	clang-format -i pkg/jsc/*.cpp pkg/html/shim/*.c
 	# Multi-line blocks after if/else/for and blank lines around if: no formatter does
 	# either (scripts/fmt-if.mjs). Run after odinfmt, whose convert_do makes the braces.
-	node scripts/fmt-if.mjs cmd/lava pkg/jsc pkg/runtime pkg/std/sqlite pkg/html pkg/http pkg/tls pkg/profile
+	node scripts/fmt-if.mjs cmd/lava pkg/jsc pkg/runtime pkg/std/sqlite pkg/html pkg/http pkg/tls pkg/profile pkg/adapters
 
 # `rm` isn't a Windows command and can't take the $(RUNSCRIPT) prefix (bash would treat
 # `rm` as a script), so invoke the shell explicitly: $(SHELL) is Git Bash on Windows and

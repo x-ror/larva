@@ -309,7 +309,7 @@ core has fake geometry. Sensor-script and captcha sites stay on Chrome either wa
 | 2   | **Network** — BoringSSL, HTTP/2 (nghttp2), per-session connection pool and TLS sessions, CONNECT proxies, cookie jar, redirects, gzip/brotli/zstd, Chrome client profiles                                                                                                                                                           | ClientHello and H2 fingerprints match the claimed Chrome version                          | In progress | [#6](https://github.com/x-ror/larva/issues/6), [#7](https://github.com/x-ror/larva/issues/7), [#8](https://github.com/x-ror/larva/issues/8), [#9](https://github.com/x-ror/larva/issues/9) |
 | 3   | **HTML + DOM** — streaming parser (pause/resume at `<script>`), tree, mutation, events, serialization, CSS selectors, XPath, shadow DOM, same-origin iframes; `larva fetch URL`                                                                                                                                                     | Static pages serialize like the oracle                                                    | Not started | [#10](https://github.com/x-ror/larva/issues/10), [#11](https://github.com/x-ror/larva/issues/11)                                                                                           |
 | 4   | **Window** — DOM bindings, script execution (sync/defer/async/module), XHR, `location`/`history`, storage, `MutationObserver`, profile-driven `navigator`/`screen`/timezone, plausible fake geometry                                                                                                                                | Oracle JS pages match after `load`                                                        | In progress | [#12](https://github.com/x-ror/larva/issues/12), [#13](https://github.com/x-ror/larva/issues/13), [#14](https://github.com/x-ror/larva/issues/14)                                          |
-| 5   | **HTTP server & adapter** — stateless HTTP crawling API: selector and DOM wait conditions, network-idle wait across XHR **and** `fetch`, custom script evaluation with async and scroll helpers, interaction actions DSL, cookie and network capture, response metadata headers, structured error codes, hard per-page kill timeout | Drop-in backend behind per-domain A/B routing                                             | Not started | [#15](https://github.com/x-ror/larva/issues/15)                                                                                                                                            |
+| 5   | **HTTP server & adapter** — stateless HTTP crawling API: selector and DOM wait conditions, network-idle wait across XHR **and** `fetch`, custom script evaluation with async and scroll helpers, interaction actions DSL, cookie and network capture, response metadata headers, structured error codes, hard per-page kill timeout | Drop-in backend behind per-domain A/B routing                                             | In progress | [#15](https://github.com/x-ror/larva/issues/15)                                                                                                                                            |
 | 6   | **Scale and CDP** — memory limits per page, recycling, then CDP for Puppeteer/Playwright                                                                                                                                                                                                                                            | —                                                                                         | Not started | [#16](https://github.com/x-ror/larva/issues/16), [#17](https://github.com/x-ror/larva/issues/17)                                                                                           |
 
 Status as of 2026-11-14. The issues are the source of truth; this column is updated
@@ -376,6 +376,26 @@ parser-inserted script runs (parsed before write returns). Each is a recorded
 module loader; a known gap), fetching a `src` over the network (a `lava page` document
 is a file, so a `src` is a file beside it; an http(s) `src` fails its fetch), and
 document.write after the parse (Chrome's implicit document.open).
+
+Stage 5 so far (#15): `lava serve [--listen ip:port] [--threads N]` (`pkg/adapters`,
+decision 5), an HTTP/1.1 server on one event loop in front of a page dispatcher. A
+`GET /render?url=…` request is fetched with pkg/http on the server's thread (no JS runs
+there), decoded, and handed to a dispatcher worker as a crawl job
+(`pkg/runtime/page_crawl.odin`): a page the runner ticks through a `Page_Driver` beside its
+other pages, under its CPU budget and slicing, which parses and scripts the document, fires
+`load`, waits for an optional selector, runs an optional custom script (#15's
+`_resolve`/`_reject`/`_delay` contract, result as JSON) and serializes the DOM. The answer
+carries the final URL, the origin's status and `Server-Timing`, or an `X-Larva-Error` code
+(`kill_timeout`, `navigation_failed`, `script_error`, `selector_not_found`, `page_killed`,
+`over_capacity`, `unsupported`, …). The wire names are this MVP's own, written down in
+`pkg/adapters/serve_contract.odin`, since #15 keeps production's private. SIGTERM drains:
+the listener closes, admitted requests are answered. Pinned by `cmd/lava/serve_test.odin`
+and `make test-serve`. Not there yet: network-idle across XHR and `fetch`, the actions DSL,
+the fixed body wait, cookie and network capture, proxies, identity and viewport
+parameters, gzip responses, keep-alive, a TLS listener, admission per host and capacity
+publishing, and CDP (stage 6). A served page's `src` scripts are not fetched (their
+`error` fires), and its `load` is the loader's — the loop idling after DOMContentLoaded —
+so a page whose loop never idles before then ends at its timeout.
 
 ## Risks
 
