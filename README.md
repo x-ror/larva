@@ -27,19 +27,19 @@ for how the runtime pieces fit together.
 - JavaScriptCore development headers and libraries
 - SQLite development headers and libraries (for `pkg/std/sqlite`'s own tests; nothing
   else links SQLite)
-- OpenSSL development headers and libraries (for `fetch` HTTPS/TLS). The roadmap
-  replaces it with BoringSSL (stage 2); until that lands, OpenSSL is what links.
 - zlib, brotli (`libbrotlidec`) and zstd development headers and libraries (Linux):
   `pkg/http` decodes gzip, deflate, br and zstd response bodies through them.
-- `cmake`, `git` and network access on the first build (Linux): `pkg/html` links
-  [lexbor](https://github.com/lexbor/lexbor), which `scripts/build-lexbor.sh` fetches
-  at a pinned commit, checks by its commit id and builds into `.deps/`.
+- `cmake`, `git`, a C++ compiler and network access on the first build (Linux):
+  `pkg/html` links [lexbor](https://github.com/lexbor/lexbor) and `pkg/tls` links
+  [BoringSSL](https://boringssl.googlesource.com/boringssl) (HTTPS, with Chrome's TLS
+  ClientHello), which `scripts/build-lexbor.sh` and `scripts/build-boringssl.sh` fetch
+  at a pinned commit, check by commit id and build into `.deps/`. No system OpenSSL is
+  linked.
 
 On Linux, the JSC package is exposed through `pkg-config` as `javascriptcoregtk-6.0`,
-SQLite as `sqlite3`, OpenSSL as `openssl`, and the decoders as `zlib`, `libbrotlidec`
-and `libzstd`
-(e.g. `apt-get install libjavascriptcoregtk-6.0-dev libsqlite3-dev libssl-dev libbrotli-dev
-libzstd-dev zlib1g-dev`).
+SQLite as `sqlite3`, and the decoders as `zlib`, `libbrotlidec` and `libzstd`
+(e.g. `apt-get install libjavascriptcoregtk-6.0-dev libsqlite3-dev libbrotli-dev
+libzstd-dev zlib1g-dev cmake`).
 
 On macOS, JSC is provided by the `JavaScriptCore` framework and SQLite by the
 system `libsqlite3`; OpenSSL comes from Homebrew (`brew install openssl@3`) and

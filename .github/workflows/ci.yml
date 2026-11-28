@@ -54,11 +54,11 @@ jobs:
 
       # No SQLite: nothing here links, and since node:sqlite went (Node-profile removal S3)
       # the binary does not either; only the test job's pkg/std/sqlite tests do.
-      - name: Install JavaScriptCoreGTK (6.0) and OpenSSL
+      - name: Install JavaScriptCoreGTK (6.0) and the decoders
         if: needs.scope.outputs.scope != 'docs'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libjavascriptcoregtk-6.0-dev libssl-dev libbrotli-dev libzstd-dev zlib1g-dev pkg-config
+          sudo apt-get install -y libjavascriptcoregtk-6.0-dev libbrotli-dev libzstd-dev zlib1g-dev pkg-config
 
       - uses: actions/setup-node@v7
         with:
@@ -79,6 +79,16 @@ jobs:
         uses: ./.github/actions/setup-odin
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      # BoringSSL (#6) is built from a pinned commit by scripts/build-boringssl.sh, ~1 min
+      # on 4 cores; the script names the commit, so its hash keys the cache. A hit makes
+      # the build step a no-op (the script checks the archives and the pin's stamp).
+      - name: Cache BoringSSL
+        if: needs.scope.outputs.scope == 'code' || needs.scope.outputs.scope == 'full'
+        uses: actions/cache@v6
+        with:
+          path: .deps/boringssl
+          key: boringssl-${{ runner.os }}-${{ hashFiles('scripts/build-boringssl.sh') }}
 
       - name: Type-check
         if: needs.scope.outputs.scope == 'code' || needs.scope.outputs.scope == 'full'
@@ -134,10 +144,10 @@ jobs:
       - uses: actions/checkout@v7
 
       # SQLite only for pkg/std/sqlite's own tests: the binding is kept, nothing links it.
-      - name: Install JavaScriptCoreGTK (6.0), SQLite and OpenSSL
+      - name: Install JavaScriptCoreGTK (6.0), SQLite and the decoders
         run: |
           sudo apt-get update
-          sudo apt-get install -y libjavascriptcoregtk-6.0-dev libsqlite3-dev libssl-dev libbrotli-dev libzstd-dev zlib1g-dev pkg-config
+          sudo apt-get install -y libjavascriptcoregtk-6.0-dev libsqlite3-dev libbrotli-dev libzstd-dev zlib1g-dev pkg-config
 
       - uses: actions/setup-node@v7
         with:
@@ -156,6 +166,13 @@ jobs:
         uses: ./.github/actions/setup-odin
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      # See the checks job: the pinned BoringSSL build, keyed by its script.
+      - name: Cache BoringSSL
+        uses: actions/cache@v6
+        with:
+          path: .deps/boringssl
+          key: boringssl-${{ runner.os }}-${{ hashFiles('scripts/build-boringssl.sh') }}
 
       - name: Build
         run: make build
@@ -180,8 +197,9 @@ jobs:
       - name: Test (Odin, pkg/html)
         run: make test-html-odin
 
-      # Content decoding against recorded Chrome output; a leak fails the run.
-      - name: Test (Odin, pkg/http)
+      # Content decoding against recorded Chrome output, and pkg/tls's ClientHello against
+      # Chrome 158's recorded one; a leak fails the run.
+      - name: Test (Odin, pkg/http, pkg/tls)
         run: make test-http-odin
 
       # The SQLite binding has no caller since node:sqlite went; its own tests keep it
@@ -231,10 +249,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install JavaScriptCoreGTK (6.0), SQLite and OpenSSL
+      - name: Install JavaScriptCoreGTK (6.0), SQLite and the decoders
         run: |
           sudo apt-get update
-          sudo apt-get install -y libjavascriptcoregtk-6.0-dev libsqlite3-dev libssl-dev libbrotli-dev libzstd-dev zlib1g-dev pkg-config
+          sudo apt-get install -y libjavascriptcoregtk-6.0-dev libsqlite3-dev libbrotli-dev libzstd-dev zlib1g-dev pkg-config
 
       - uses: actions/setup-node@v7
         with:
@@ -254,6 +272,12 @@ jobs:
         uses: ./.github/actions/setup-odin
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache BoringSSL
+        uses: actions/cache@v6
+        with:
+          path: .deps/boringssl
+          key: boringssl-${{ runner.os }}-${{ hashFiles('scripts/build-boringssl.sh') }}
 
       - name: Test (mutation gate)
         run: make test-mutation SHARD=${{ matrix.shard }}/3 ${{ needs.scope.outputs.scope != 'full' && 'CHANGED=1' || '' }}

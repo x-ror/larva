@@ -33,6 +33,7 @@ if [ "$(uname -s)" = Linux ]; then
 	"$ODIN" test "$ROOT_DIR/pkg/html"
 	"$ODIN" test "$ROOT_DIR/pkg/http" -collection:lava="$ROOT_DIR" -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true
 	"$ODIN" test "$ROOT_DIR/pkg/http/cookie" -collection:lava="$ROOT_DIR" -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true
+	"$ODIN" test "$ROOT_DIR/pkg/tls" -collection:lava="$ROOT_DIR" -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true
 fi
 
 if [ "$is_windows" = 1 ] && [ ! -f "$ROOT_DIR/build/sqlite3.lib" ]; then

@@ -48,6 +48,44 @@ Client_Profile :: struct {
 	window:               Window_Geometry,
 	ua_data:              UA_Data,
 	connection:           Network_Information,
+	tls:                  TLS_Profile,
+}
+
+// The TLS ClientHello (#6): what pkg/tls configures BoringSSL with so a JA3/JA4 capture
+// of Larva reads as this browser's. Every value is read off a recorded Chrome
+// ClientHello (tests/tls/, recorded by scripts/record-tls-hello.mjs against a local
+// echo), not off Chromium's source: pkg/tls/fingerprint_test.odin compares the two.
+// Codepoints are IANA's; extension ORDER is not a field because Chrome permutes it.
+TLS_Profile :: struct {
+	// BoringSSL cipher-rule string for TLS 1.2 suites, applied strictly (an unknown
+	// rule fails the context). TLS 1.3 suites are not configurable in BoringSSL and
+	// come out in Chrome's order (AES-128-GCM, AES-256-GCM, ChaCha20) already.
+	cipher_list:             cstring,
+	// supported_groups, most preferred first (GREASE excluded; BoringSSL adds it).
+	groups:                  []u16,
+	// signature_algorithms, in order (GREASE excluded).
+	sigalgs:                 []u16,
+	// ALPN protocol list, in wire format (each name length-prefixed).
+	alpn:                    []u8,
+	// draft-ietf-tls-trust-anchor-ids: the TrustAnchorIDs Chrome requests, wire format
+	// without the outer length. Empty sends no extension.
+	trust_anchors:           []u8,
+	// Bytes of padding requested from the server (BoringSSL's server_padding
+	// experiment, extension 4832); -1 sends no extension.
+	server_padding_request:  int,
+	// RFC 8701 GREASE in ciphers, extensions, groups, versions and sigalgs.
+	grease:                  bool,
+	// Shuffle the ClientHello extension order per connection, as Chrome >= 110 does.
+	permute_extensions:      bool,
+	// A GREASE encrypted_client_hello extension when no ECH config is known.
+	ech_grease:              bool,
+	// RFC 8879 certificate compression with brotli (decompression only).
+	cert_compression_brotli: bool,
+	// status_request (OCSP stapling) and signed_certificate_timestamp.
+	ocsp_stapling:           bool,
+	signed_cert_timestamps:  bool,
+	// Resume with session tickets / TLS 1.3 PSK from a per-host cache.
+	session_resumption:      bool,
 }
 
 // navigator.userAgentData (User-Agent Client Hints). The low-entropy values (brands,
@@ -164,6 +202,71 @@ CHROME_158_LINUX := Client_Profile {
 		form_factors = {"Desktop"},
 	},
 	connection = {effective_type = "4g", rtt = 50, downlink = 10, save_data = false},
+	// Chrome 158's ClientHello, from tests/tls/chrome-158-linux.clienthello.hex (Chrome for
+	// Testing 158.0.8127.36, headless, Linux, at a non-localhost name).
+	// ALPN offers http/1.1 only: Larva speaks HTTP/1.1 until H2 (#7), and offering h2 to a
+	// server that picks it would break the request. Chrome offers h2,http/1.1 and sends
+	// ALPS (17613) for h2; both are deviations in the JA4 (`h1` for `h2`, one extension
+	// fewer), and fingerprint_test.odin names them. ECH GREASE is off because the
+	// recording carries no encrypted_client_hello extension.
+	tls = {
+		cipher_list = "ALL:!aPSK:!ECDSA+SHA1:!3DES",
+		// X25519MLKEM768, X25519, P-256, P-384.
+		groups = {0x11ec, 0x001d, 0x0017, 0x0018},
+		sigalgs = {
+			0x0904, // mldsa44
+			0x0905, // mldsa65
+			0x0906, // mldsa87
+			0x0403, // ecdsa_secp256r1_sha256
+			0x0804, // rsa_pss_rsae_sha256
+			0x0401, // rsa_pkcs1_sha256
+			0x0503, // ecdsa_secp384r1_sha384
+			0x0805, // rsa_pss_rsae_sha384
+			0x0501, // rsa_pkcs1_sha384
+			0x0806, // rsa_pss_rsae_sha512
+			0x0601, // rsa_pkcs1_sha512
+		},
+		alpn = {8, 'h', 't', 't', 'p', '/', '1', '.', '1'},
+		// The Chrome Root Store's trust anchor IDs (relative OIDs), as recorded.
+		trust_anchors = {
+			0x05, 0x82, 0xdf, 0x13, 0x02, 0x01,
+			0x05, 0x82, 0xdf, 0x13, 0x02, 0x06,
+			0x05, 0x82, 0xdf, 0x13, 0x02, 0x0d,
+			0x05, 0x82, 0xdf, 0x13, 0x02, 0x0e,
+			0x05, 0x82, 0xdf, 0x13, 0x02, 0x0f,
+			0x05, 0x82, 0xdf, 0x13, 0x02, 0x12,
+			0x05, 0x82, 0xdf, 0x13, 0x02, 0x13,
+			0x05, 0x82, 0xdf, 0x13, 0x02, 0x14,
+			0x08, 0x83, 0x9a, 0x64, 0x8c, 0x9b, 0x2d, 0x01, 0x07,
+			0x08, 0x83, 0x9a, 0x64, 0x8c, 0x9b, 0x2d, 0x01, 0x08,
+			0x08, 0x83, 0x9a, 0x64, 0x8c, 0x9b, 0x2d, 0x01, 0x09,
+			0x08, 0x83, 0x9a, 0x64, 0x8c, 0x9b, 0x2d, 0x01, 0x0a,
+			0x08, 0x83, 0x9a, 0x64, 0x8c, 0x9b, 0x2d, 0x01, 0x0b,
+			0x08, 0x83, 0x9a, 0x64, 0x8c, 0x9b, 0x2d, 0x01, 0x0c,
+			0x08, 0x83, 0x9a, 0x64, 0x8c, 0x9b, 0x2d, 0x01, 0x0d,
+			0x08, 0x83, 0x9a, 0x64, 0x8c, 0x9b, 0x2d, 0x01, 0x12,
+			0x08, 0x83, 0x9a, 0x64, 0x8c, 0x9b, 0x2d, 0x01, 0x13,
+			0x04, 0xd6, 0x79, 0x09, 0x01,
+			0x04, 0xd6, 0x79, 0x09, 0x04,
+			0x04, 0xd6, 0x79, 0x09, 0x05,
+			0x04, 0xd6, 0x79, 0x09, 0x06,
+			0x04, 0xd6, 0x79, 0x09, 0x07,
+			0x04, 0xd6, 0x79, 0x09, 0x08,
+			0x04, 0xd6, 0x79, 0x09, 0x0a,
+			0x04, 0xd6, 0x79, 0x09, 0x0b,
+			0x04, 0xd6, 0x79, 0x09, 0x0c,
+			0x04, 0xd6, 0x79, 0x09, 0x0d,
+			0x04, 0xd6, 0x79, 0x09, 0x0f,
+		},
+		server_padding_request = 0,
+		grease = true,
+		permute_extensions = true,
+		ech_grease = false,
+		cert_compression_brotli = true,
+		ocsp_stapling = true,
+		signed_cert_timestamps = true,
+		session_resumption = true,
+	},
 }
 
 // default_profile returns the profile a page gets when the caller names none. Read-only:

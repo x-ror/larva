@@ -2,9 +2,9 @@
   "$comment": "What Larva links from C, hand-rolls, or plans to link — and the SDK names that would replace it. `make sdk-diff` tests each `match` regex (case-insensitive) against every NEW package id (`core:crypto/tls`) and every NEW symbol as `pkg.name` (`core:sys/windows.GetPriorityClass`), and lists hits under 'Candidates'. A hit is a lead for the reuse scout (CLAUDE.md §2), not a verdict: `why` says what a replacement must keep. Hand-declared foreign procs need no entry here; sdk-diff finds those by name on its own. Add an entry in the PR that adds the dependency or the hand-rolled code.",
   "entries": [
     {
-      "ours": "pkg/tls/tls.odin (OpenSSL libssl/libcrypto)",
-      "match": ["^core:crypto/tls", "^vendor:[^.]*(ssl|tls)"],
-      "why": "Client and server TLS for fetch/net/https. Stage 2 (#6) needs ClientHello control matching Chrome's fingerprint — a replacement must expose extension order, GREASE, cipher and group lists, ALPN and session resumption, and serve tls.createServer too."
+      "ours": "pkg/tls/tls.odin (BoringSSL libssl/libcrypto, static, pinned in scripts/build-boringssl.sh)",
+      "match": ["^core:crypto/tls", "^vendor:[^.]*(ssl|tls|boring)"],
+      "why": "Client TLS for pkg/http and the JS fetch transport, with Chrome 158's ClientHello (#6): a replacement must expose GREASE, extension permutation, cipher/group/sigalg lists incl. X25519MLKEM768 and ML-DSA, brotli certificate compression, trust-anchor IDs, ALPN/ALPS and session resumption — and cost less than BoringSSL's ~3 MB of text in bin/lava."
     },
     {
       "ours": "pkg/tls/roots_*.odin (system trust store loading)",

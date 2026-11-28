@@ -490,7 +490,6 @@ recv :: proc(t: ^Transfer, buf: []byte) -> (n: int, io: IO) {
 @(private = "file")
 ssl_io :: proc(t: ^Transfer, ret: c.int) -> IO {
 	e := openssl.SSL_get_error(t.ssl, ret)
-	reason := openssl.err_get_reason(openssl.ERR_peek_error())
 	openssl.ERR_clear_error()
 	switch e {
 	case openssl.SSL_ERROR_WANT_READ:
@@ -500,9 +499,8 @@ ssl_io :: proc(t: ^Transfer, ret: c.int) -> IO {
 	case openssl.SSL_ERROR_ZERO_RETURN:
 		return .Closed
 	case openssl.SSL_ERROR_SYSCALL:
+		// BoringSSL reports a TCP close without close_notify here, with a zero return.
 		return .Unclean_EOF if ret == 0 else .Failed
-	case openssl.SSL_ERROR_SSL:
-		return .Unclean_EOF if reason == openssl.SSL_R_UNEXPECTED_EOF_WHILE_READING else .Failed
 	}
 
 	return .Failed

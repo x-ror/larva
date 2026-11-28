@@ -4750,6 +4750,15 @@
       "replace": "",
       "gate": "make:test-dom",
       "expect_detail": "FAIL dom-reflect-elements.page"
+    },
+    {
+      "name": "clienthello_matches_chrome_158 dies when tls_configure_ctx stops enabling GREASE",
+      "why": "Chrome GREASEs its ciphers, groups, versions, signature algorithms and extensions; JA4 drops GREASE values, so without this check a ClientHello with none would still hash like Chrome's while every GREASE-aware fingerprinter tells it apart.",
+      "source": "pkg/tls/tls.odin",
+      "find": "\tSSL_CTX_set_grease_enabled(ctx, c.int(p.grease))\n",
+      "replace": "",
+      "gate": "make:test-http-odin",
+      "expect_detail": "first cipher is not GREASE"
     }
   ]
 }

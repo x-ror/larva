@@ -306,7 +306,7 @@ names is reachable: tests/web/cases/globals-window.js pins the set against Chrom
 
 `fetch_transport.odin` is a platform-agnostic connect→[TLS]→write→read state
 machine; each platform supplies only narrow socket primitives, and TLS is a
-swappable backend (OpenSSL, or a rejecting stub). The OpenSSL bindings live in
+swappable backend (BoringSSL, or a rejecting stub). The BoringSSL bindings live in
 their own package, `pkg/tls`, with no runtime or JSC dependency, so a JS-free client
 can share them. DNS — `fetch`'s (`fetch_dns.odin`; `node:dns` is gone with the Node
 profile) — resolves off-loop on the loop's own 4-worker pool (`threadpool.odin`). Streaming request _and_ response bodies are real
@@ -380,9 +380,12 @@ with `.Cancelled`, from inside `destroy`.
 The runtime's `fetch()` still has its own transport and chunked decoder, bound to JS
 callbacks; moving it onto `pkg/http` is stage-2 work.
 
-`pkg/tls` holds the OpenSSL bindings that used to live in `pkg/runtime/tls.odin`, so
+`pkg/tls` holds the TLS client bindings that used to live in `pkg/runtime/tls.odin`, so
 the client and the runtime's `fetch()` share one set without the
-client importing the runtime.
+client importing the runtime. Since #6 they bind BoringSSL, built static from a pinned
+commit, and configure the ClientHello from the client profile's `tls` section
+(`pkg/profile`), so a JA3/JA4 capture of Larva reads as Chrome 158's;
+`pkg/tls/fingerprint_test.odin` compares it with Chrome's recorded ClientHello.
 
 Cookies live in `pkg/http/cookie`, a jar with no I/O that both stacks share: a
 `Request.cookie_jar` makes every hop of a transfer store its Set-Cookie before a
