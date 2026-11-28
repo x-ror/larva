@@ -1,0 +1,309 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-28
+# runs: 3 identical
+# command: node scripts/record-dom.mjs dom-reflect-shape.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "reflect shape"
+|   "
+"
+|   <body>
+|     "
+"
+|     <pre>
+|       id="log"
+|       "Element id,className,classList,slot,innerHTML
+"
+|       "HTMLElement title,lang,translate,dir,hidden,inert,accessKey,draggable,spellcheck,autofocus,tabIndex
+"
+|       "HTMLAnchorElement download,ping,rel,relList,referrerPolicy,text,coords,charset,name,rev,shape,target,href,origin,protocol,username,password,host,hostname,port,pathname,search,hash,hreflang,type,toString
+"
+|       "HTMLImageElement alt,src,srcset,sizes,crossOrigin,useMap,isMap,width,height,referrerPolicy,decoding,fetchPriority,loading,name,lowsrc,align,hspace,vspace,longDesc,border
+"
+|       "HTMLScriptElement src,type,noModule,charset,async,defer,crossOrigin,text,referrerPolicy,fetchPriority,event,htmlFor,integrity
+"
+|       "HTMLLinkElement disabled,href,crossOrigin,rel,relList,media,hreflang,type,as,referrerPolicy,sizes,fetchPriority,imageSrcset,imageSizes,charset,rev,target,integrity
+"
+|       "HTMLInputElement accept,alt,defaultChecked,dirName,disabled,max,min,multiple,name,pattern,placeholder,readOnly,required,src,step,type,defaultValue
+"
+|       "HTMLFormElement acceptCharset,action,autocomplete,enctype,encoding,method,name,noValidate,target,rel,relList
+"
+|       "HTMLMetaElement name,httpEquiv,content,media,scheme
+"
+|       "HTMLIFrameElement src,srcdoc,name,allowFullscreen,width,height,referrerPolicy,allow,loading,align,scrolling,frameBorder,longDesc,marginHeight,marginWidth
+"
+|       "DOMTokenList entries,keys,values,forEach,length,value,add,contains,item,remove,replace,supports,toggle,toString
+"
+|       "title get title set title/1 truetrue
+"
+|       "hidden get hidden set hidden/1 truetrue
+"
+|       "tabIndex get tabIndex set tabIndex/1 truetrue
+"
+|       "classList get classList set classList/1 truetrue
+"
+|       "origin get origin - truetrue
+"
+|       "toString op toString/0 truetruetrue
+"
+|       "async get async set async/1 truetrue
+"
+|       "length get length - truetrue
+"
+|       "value get value set value/1 truetrue
+"
+|       "add op add/0 truetruetrue
+"
+|       "contains op contains/1 truetruetrue
+"
+|       "item op item/1 truetruetrue
+"
+|       "remove op remove/0 truetruetrue
+"
+|       "replace op replace/2 truetruetrue
+"
+|       "supports op supports/1 truetruetrue
+"
+|       "toggle op toggle/1 truetruetrue
+"
+|       "forEach op forEach/1 truetruetrue
+"
+|       "toString op toString/0 truetruetrue
+"
+|       "entries op entries/0 truetruetrue
+"
+|       "iterator true
+"
+|       "native function get href() { [native code] }
+"
+|       "tag [object DOMTokenList] DOMTokenList
+"
+|       "construct threw TypeError: Failed to construct 'DOMTokenList': Illegal constructor
+"
+|       "call threw TypeError: Illegal constructor
+"
+|       "href on div threw TypeError: Illegal invocation
+"
+|       "href on object threw TypeError: Illegal invocation
+"
+|       "title on text threw TypeError: Illegal invocation
+"
+|       "toString on div threw TypeError: Illegal invocation
+"
+|       "href on reparented div threw TypeError: Illegal invocation
+"
+|       "title on reparented anchor kept
+"
+|       "add on classList of other threw TypeError: Illegal invocation
+"
+|       "item on list of tokens threw TypeError: Illegal invocation
+"
+|       "length on object threw TypeError: Illegal invocation
+"
+|     "
+"
+|     <script>
+|       "
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+// The members Lava reflects, per interface: each line prints the ones the prototype
+// has, in the prototype's own order, so Chrome's extra members do not show but its
+// order does.
+var MEMBERS = {
+  Element: ['id', 'className', 'classList', 'slot', 'innerHTML'],
+  HTMLElement: ['title', 'lang', 'translate', 'dir', 'hidden', 'inert', 'accessKey', 'draggable', 'spellcheck', 'autofocus', 'tabIndex'],
+  HTMLAnchorElement: ['download', 'ping', 'rel', 'relList', 'referrerPolicy', 'text', 'coords', 'charset', 'name', 'rev', 'shape', 'target', 'href', 'origin', 'protocol', 'username', 'password', 'host', 'hostname', 'port', 'pathname', 'search', 'hash', 'hreflang', 'type', 'toString'],
+  HTMLImageElement: ['alt', 'src', 'srcset', 'sizes', 'crossOrigin', 'useMap', 'isMap', 'width', 'height', 'referrerPolicy', 'decoding', 'fetchPriority', 'loading', 'name', 'lowsrc', 'align', 'hspace', 'vspace', 'longDesc', 'border'],
+  HTMLScriptElement: ['src', 'type', 'noModule', 'charset', 'async', 'defer', 'crossOrigin', 'text', 'referrerPolicy', 'fetchPriority', 'event', 'htmlFor', 'integrity'],
+  HTMLLinkElement: ['disabled', 'href', 'crossOrigin', 'rel', 'relList', 'media', 'hreflang', 'type', 'as', 'referrerPolicy', 'sizes', 'fetchPriority', 'imageSrcset', 'imageSizes', 'charset', 'rev', 'target', 'integrity'],
+  HTMLInputElement: ['accept', 'alt', 'defaultChecked', 'dirName', 'disabled', 'max', 'min', 'multiple', 'name', 'pattern', 'placeholder', 'readOnly', 'required', 'src', 'step', 'type', 'defaultValue'],
+  HTMLFormElement: ['acceptCharset', 'action', 'autocomplete', 'enctype', 'encoding', 'method', 'name', 'noValidate', 'target', 'rel', 'relList'],
+  HTMLMetaElement: ['name', 'httpEquiv', 'content', 'media', 'scheme'],
+  HTMLIFrameElement: ['src', 'srcdoc', 'name', 'allowFullscreen', 'width', 'height', 'referrerPolicy', 'allow', 'loading', 'align', 'scrolling', 'frameBorder', 'longDesc', 'marginHeight', 'marginWidth'],
+  DOMTokenList: ['entries', 'keys', 'values', 'forEach', 'length', 'value', 'add', 'contains', 'item', 'remove', 'replace', 'supports', 'toggle', 'toString'],
+};
+Object.keys(MEMBERS).forEach(function (name) {
+  var proto = window[name].prototype;
+  var want = MEMBERS[name];
+  var own = Object.getOwnPropertyNames(proto).filter(function (n) { return want.indexOf(n) !== -1; });
+  log(name + ' ' + own.join(',') + (own.length === want.length ? '' : ' MISSING'));
+});
+
+function describe(proto, name) {
+  var d = Object.getOwnPropertyDescriptor(proto, name);
+  if ('value' in d) return name + ' op ' + d.value.name + '/' + d.value.length + ' ' + d.enumerable + d.configurable + d.writable;
+  return name + ' ' + (d.get ? d.get.name : '-') + ' ' + (d.set ? d.set.name + '/' + d.set.length : '-') + ' ' + d.enumerable + d.configurable;
+}
+log(describe(HTMLElement.prototype, 'title'));
+log(describe(HTMLElement.prototype, 'hidden'));
+log(describe(HTMLElement.prototype, 'tabIndex'));
+log(describe(Element.prototype, 'classList'));
+log(describe(HTMLAnchorElement.prototype, 'origin'));
+log(describe(HTMLAnchorElement.prototype, 'toString'));
+log(describe(HTMLScriptElement.prototype, 'async'));
+log(describe(DOMTokenList.prototype, 'length'));
+log(describe(DOMTokenList.prototype, 'value'));
+['add', 'contains', 'item', 'remove', 'replace', 'supports', 'toggle', 'forEach', 'toString', 'entries'].forEach(function (m) {
+  log(describe(DOMTokenList.prototype, m));
+});
+log('iterator ' + (DOMTokenList.prototype[Symbol.iterator] === DOMTokenList.prototype.values));
+log('native ' + Function.prototype.toString.call(Object.getOwnPropertyDescriptor(HTMLAnchorElement.prototype, 'href').get));
+log('tag ' + Object.prototype.toString.call(document.body.classList) + ' ' + DOMTokenList.prototype[Symbol.toStringTag]);
+
+function attempt(label, f) {
+  try {
+    log(label + ' ' + f());
+  } catch (e) {
+    log(label + ' threw ' + e.name + ': ' + e.message);
+  }
+}
+attempt('construct', function () { return new DOMTokenList(); });
+attempt('call', function () { return DOMTokenList(); });
+// The brand is the node's interface, not its prototype chain.
+var div = document.createElement('div');
+var anchor = document.createElement('a');
+attempt('href on div', function () { return Object.getOwnPropertyDescriptor(HTMLAnchorElement.prototype, 'href').get.call(div); });
+attempt('href on object', function () { return Object.getOwnPropertyDescriptor(HTMLAnchorElement.prototype, 'href').get.call({}); });
+attempt('title on text', function () { return Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'title').get.call(document.createTextNode('t')); });
+attempt('toString on div', function () { return HTMLAnchorElement.prototype.toString.call(div); });
+Object.setPrototypeOf(div, HTMLAnchorElement.prototype);
+attempt('href on reparented div', function () { return div.href; });
+Object.setPrototypeOf(anchor, HTMLDivElement.prototype);
+attempt('title on reparented anchor', function () { anchor.title = 'kept'; return anchor.getAttribute('title'); });
+attempt('add on classList of other', function () { return DOMTokenList.prototype.add.call(document.body.childNodes, 'x'); });
+attempt('item on list of tokens', function () { return NodeList.prototype.item.call(document.body.classList, 0); });
+attempt('length on object', function () { return Object.getOwnPropertyDescriptor(DOMTokenList.prototype, 'length').get.call({}); });
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head><title>reflect shape</title></head>
+<body>
+<pre id="log">Element id,className,classList,slot,innerHTML
+HTMLElement title,lang,translate,dir,hidden,inert,accessKey,draggable,spellcheck,autofocus,tabIndex
+HTMLAnchorElement download,ping,rel,relList,referrerPolicy,text,coords,charset,name,rev,shape,target,href,origin,protocol,username,password,host,hostname,port,pathname,search,hash,hreflang,type,toString
+HTMLImageElement alt,src,srcset,sizes,crossOrigin,useMap,isMap,width,height,referrerPolicy,decoding,fetchPriority,loading,name,lowsrc,align,hspace,vspace,longDesc,border
+HTMLScriptElement src,type,noModule,charset,async,defer,crossOrigin,text,referrerPolicy,fetchPriority,event,htmlFor,integrity
+HTMLLinkElement disabled,href,crossOrigin,rel,relList,media,hreflang,type,as,referrerPolicy,sizes,fetchPriority,imageSrcset,imageSizes,charset,rev,target,integrity
+HTMLInputElement accept,alt,defaultChecked,dirName,disabled,max,min,multiple,name,pattern,placeholder,readOnly,required,src,step,type,defaultValue
+HTMLFormElement acceptCharset,action,autocomplete,enctype,encoding,method,name,noValidate,target,rel,relList
+HTMLMetaElement name,httpEquiv,content,media,scheme
+HTMLIFrameElement src,srcdoc,name,allowFullscreen,width,height,referrerPolicy,allow,loading,align,scrolling,frameBorder,longDesc,marginHeight,marginWidth
+DOMTokenList entries,keys,values,forEach,length,value,add,contains,item,remove,replace,supports,toggle,toString
+title get title set title/1 truetrue
+hidden get hidden set hidden/1 truetrue
+tabIndex get tabIndex set tabIndex/1 truetrue
+classList get classList set classList/1 truetrue
+origin get origin - truetrue
+toString op toString/0 truetruetrue
+async get async set async/1 truetrue
+length get length - truetrue
+value get value set value/1 truetrue
+add op add/0 truetruetrue
+contains op contains/1 truetruetrue
+item op item/1 truetruetrue
+remove op remove/0 truetruetrue
+replace op replace/2 truetruetrue
+supports op supports/1 truetruetrue
+toggle op toggle/1 truetruetrue
+forEach op forEach/1 truetruetrue
+toString op toString/0 truetruetrue
+entries op entries/0 truetruetrue
+iterator true
+native function get href() { [native code] }
+tag [object DOMTokenList] DOMTokenList
+construct threw TypeError: Failed to construct 'DOMTokenList': Illegal constructor
+call threw TypeError: Illegal constructor
+href on div threw TypeError: Illegal invocation
+href on object threw TypeError: Illegal invocation
+title on text threw TypeError: Illegal invocation
+toString on div threw TypeError: Illegal invocation
+href on reparented div threw TypeError: Illegal invocation
+title on reparented anchor kept
+add on classList of other threw TypeError: Illegal invocation
+item on list of tokens threw TypeError: Illegal invocation
+length on object threw TypeError: Illegal invocation
+</pre>
+<script>
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+// The members Lava reflects, per interface: each line prints the ones the prototype
+// has, in the prototype's own order, so Chrome's extra members do not show but its
+// order does.
+var MEMBERS = {
+  Element: ['id', 'className', 'classList', 'slot', 'innerHTML'],
+  HTMLElement: ['title', 'lang', 'translate', 'dir', 'hidden', 'inert', 'accessKey', 'draggable', 'spellcheck', 'autofocus', 'tabIndex'],
+  HTMLAnchorElement: ['download', 'ping', 'rel', 'relList', 'referrerPolicy', 'text', 'coords', 'charset', 'name', 'rev', 'shape', 'target', 'href', 'origin', 'protocol', 'username', 'password', 'host', 'hostname', 'port', 'pathname', 'search', 'hash', 'hreflang', 'type', 'toString'],
+  HTMLImageElement: ['alt', 'src', 'srcset', 'sizes', 'crossOrigin', 'useMap', 'isMap', 'width', 'height', 'referrerPolicy', 'decoding', 'fetchPriority', 'loading', 'name', 'lowsrc', 'align', 'hspace', 'vspace', 'longDesc', 'border'],
+  HTMLScriptElement: ['src', 'type', 'noModule', 'charset', 'async', 'defer', 'crossOrigin', 'text', 'referrerPolicy', 'fetchPriority', 'event', 'htmlFor', 'integrity'],
+  HTMLLinkElement: ['disabled', 'href', 'crossOrigin', 'rel', 'relList', 'media', 'hreflang', 'type', 'as', 'referrerPolicy', 'sizes', 'fetchPriority', 'imageSrcset', 'imageSizes', 'charset', 'rev', 'target', 'integrity'],
+  HTMLInputElement: ['accept', 'alt', 'defaultChecked', 'dirName', 'disabled', 'max', 'min', 'multiple', 'name', 'pattern', 'placeholder', 'readOnly', 'required', 'src', 'step', 'type', 'defaultValue'],
+  HTMLFormElement: ['acceptCharset', 'action', 'autocomplete', 'enctype', 'encoding', 'method', 'name', 'noValidate', 'target', 'rel', 'relList'],
+  HTMLMetaElement: ['name', 'httpEquiv', 'content', 'media', 'scheme'],
+  HTMLIFrameElement: ['src', 'srcdoc', 'name', 'allowFullscreen', 'width', 'height', 'referrerPolicy', 'allow', 'loading', 'align', 'scrolling', 'frameBorder', 'longDesc', 'marginHeight', 'marginWidth'],
+  DOMTokenList: ['entries', 'keys', 'values', 'forEach', 'length', 'value', 'add', 'contains', 'item', 'remove', 'replace', 'supports', 'toggle', 'toString'],
+};
+Object.keys(MEMBERS).forEach(function (name) {
+  var proto = window[name].prototype;
+  var want = MEMBERS[name];
+  var own = Object.getOwnPropertyNames(proto).filter(function (n) { return want.indexOf(n) !== -1; });
+  log(name + ' ' + own.join(',') + (own.length === want.length ? '' : ' MISSING'));
+});
+
+function describe(proto, name) {
+  var d = Object.getOwnPropertyDescriptor(proto, name);
+  if ('value' in d) return name + ' op ' + d.value.name + '/' + d.value.length + ' ' + d.enumerable + d.configurable + d.writable;
+  return name + ' ' + (d.get ? d.get.name : '-') + ' ' + (d.set ? d.set.name + '/' + d.set.length : '-') + ' ' + d.enumerable + d.configurable;
+}
+log(describe(HTMLElement.prototype, 'title'));
+log(describe(HTMLElement.prototype, 'hidden'));
+log(describe(HTMLElement.prototype, 'tabIndex'));
+log(describe(Element.prototype, 'classList'));
+log(describe(HTMLAnchorElement.prototype, 'origin'));
+log(describe(HTMLAnchorElement.prototype, 'toString'));
+log(describe(HTMLScriptElement.prototype, 'async'));
+log(describe(DOMTokenList.prototype, 'length'));
+log(describe(DOMTokenList.prototype, 'value'));
+['add', 'contains', 'item', 'remove', 'replace', 'supports', 'toggle', 'forEach', 'toString', 'entries'].forEach(function (m) {
+  log(describe(DOMTokenList.prototype, m));
+});
+log('iterator ' + (DOMTokenList.prototype[Symbol.iterator] === DOMTokenList.prototype.values));
+log('native ' + Function.prototype.toString.call(Object.getOwnPropertyDescriptor(HTMLAnchorElement.prototype, 'href').get));
+log('tag ' + Object.prototype.toString.call(document.body.classList) + ' ' + DOMTokenList.prototype[Symbol.toStringTag]);
+
+function attempt(label, f) {
+  try {
+    log(label + ' ' + f());
+  } catch (e) {
+    log(label + ' threw ' + e.name + ': ' + e.message);
+  }
+}
+attempt('construct', function () { return new DOMTokenList(); });
+attempt('call', function () { return DOMTokenList(); });
+// The brand is the node's interface, not its prototype chain.
+var div = document.createElement('div');
+var anchor = document.createElement('a');
+attempt('href on div', function () { return Object.getOwnPropertyDescriptor(HTMLAnchorElement.prototype, 'href').get.call(div); });
+attempt('href on object', function () { return Object.getOwnPropertyDescriptor(HTMLAnchorElement.prototype, 'href').get.call({}); });
+attempt('title on text', function () { return Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'title').get.call(document.createTextNode('t')); });
+attempt('toString on div', function () { return HTMLAnchorElement.prototype.toString.call(div); });
+Object.setPrototypeOf(div, HTMLAnchorElement.prototype);
+attempt('href on reparented div', function () { return div.href; });
+Object.setPrototypeOf(anchor, HTMLDivElement.prototype);
+attempt('title on reparented anchor', function () { anchor.title = 'kept'; return anchor.getAttribute('title'); });
+attempt('add on classList of other', function () { return DOMTokenList.prototype.add.call(document.body.childNodes, 'x'); });
+attempt('item on list of tokens', function () { return NodeList.prototype.item.call(document.body.classList, 0); });
+attempt('length on object', function () { return Object.getOwnPropertyDescriptor(DOMTokenList.prototype, 'length').get.call({}); });
+</script>
+
+
+</body></html>

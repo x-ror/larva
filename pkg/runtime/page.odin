@@ -20,6 +20,24 @@ import eventloop "lava:pkg/runtime/eventloop"
 // collected heap.
 HEAP_COLLECT_BYTES :: 16 * 1024 * 1024
 
+// HEAP_CHECK_COST_RATIO and HEAP_CHECK_MIN_NS schedule the heap-limit check
+// (page_heap_check, which gives the measurements): a page whose heap is not growing
+// toward its limit is read again once it has spent HEAP_CHECK_COST_RATIO times the
+// last reading's CPU cost, so reading costs it at most 1/17 (~6%) of its CPU; never
+// sooner than HEAP_CHECK_MIN_NS of page CPU after the last one. 16 and 1 ms are chosen
+// against those bounds, not tuned by a benchmark.
+HEAP_CHECK_COST_RATIO :: 16
+HEAP_CHECK_MIN_NS :: i64(1_000_000)
+
+// HEAP_CHECK_FIRST_RATE is the growth the heap-limit check assumes before it has seen
+// any (the check after the install has no earlier reading to measure one from): bytes
+// of heap per nanosecond of page CPU, 1.0 being ~1 MB per ms. Above what was measured:
+// 0.6 MB per ms building 800k small objects in page_heap_check's probe, 0.7 MB per ms
+// for the page in runner_kills_a_page_over_its_heap_limit_alone (17.6 MB in 25 ms of
+// its CPU, one logged run under the parallel suite). Without it, the first interval was
+// the 16x one, and that page went from 2.3 to 19 MB of an 8 MB limit in it.
+HEAP_CHECK_FIRST_RATE :: 1.0
+
 // A page is one script run in its own global context, in its own pooled VM, with its
 // own event loop (docs/LARVA.md decision 2). eval runs one page to completion; the
 // page runner (page_runner.odin) interleaves many on one thread. Both drive the same
@@ -210,7 +228,7 @@ page_create :: proc(
 			Result {
 				status = .Invalid_Input,
 				exit_code = 2,
-				message = "page CPU limits need a pooled VM, which this platform does not use",
+				message = "page limits need a pooled VM, which this platform does not use",
 			},
 		)
 	}
@@ -232,6 +250,7 @@ page_create :: proc(
 	if limits != {} {
 		vm_set_entry_limit(vm, limits.entry_limit)
 		vm_set_cpu_budget(vm, limits.cpu_budget)
+		vm_set_heap_limit(vm, limits.heap_bytes)
 	}
 
 	state := new_runtime_state(loop)
@@ -268,6 +287,20 @@ page_create :: proc(
 	// Before any page code: what the install could not replace is not left as the engine's
 	// on a thread whose RunLoop is driven (deferred.odin).
 	deferred_fail_closed(cast(jsc.JSContextRef)ctx, state)
+
+	// The first heap check is due here, after the install (heap_next_ns starts at 0). A
+	// limit this JSC cannot read is refused rather than run unenforced, as limits on a
+	// platform without a pooled VM are above.
+	if !page_heap_check(page) {
+		return page_fail(
+			page,
+			Result {
+				status = .Invalid_Input,
+				exit_code = 2,
+				message = "page heap limit needs JSGetMemoryUsageStatistics, which this JavaScriptCore does not export",
+			},
+		)
+	}
 
 	if ended, result := page_ended(page); ended {
 		return page_fail(page, result)
@@ -332,6 +365,8 @@ page_run_script :: proc(page: ^Page, source: string, source_name := "<eval>", ec
 	}
 
 	vm_cpu_exit(vm)
+	// After the completion value is rooted: the check allocates, and can collect.
+	page_heap_check(page)
 
 	if ended, result := page_ended(page); ended {
 		return page_fail(page, result)
@@ -405,6 +440,7 @@ page_eval :: proc(page: ^Page, source: string, source_name := "<page_eval>") -> 
 	}
 
 	vm_cpu_exit(page.vm)
+	page_heap_check(page)
 
 	if ended, end := page_ended(page); ended {
 		// A kill during the call: it fails, so the slot holds nothing. The
@@ -467,6 +503,13 @@ page_run_element_script :: proc(page: ^Page, source, source_name: string) -> boo
 		ctx := cast(jsc.JSContextRef)page.ctx
 		report_uncaught(ctx, exception)
 		mark_async_failed(ctx)
+	}
+
+	// Last, once nothing unrooted (the exception) is held: the check allocates.
+	page_heap_check(page)
+
+	if ended, end := page_ended(page); ended {
+		return page_fail(page, end)
 	}
 
 	return true
@@ -595,6 +638,9 @@ page_tick :: proc(page: ^Page) -> (alive: bool, did_work: bool) {
 	vm_cpu_enter(page.vm)
 	did_work = eventloop.run_next(loop)
 	vm_cpu_exit(page.vm)
+	// Between ticks, on the loop thread, with no entry open and nothing of the page's
+	// held unrooted: the one kind of point where the heap is read (page_heap_check).
+	page_heap_check(page)
 
 	if ended, result := page_ended(page); ended {
 		loop.force_exit = true
@@ -800,7 +846,14 @@ page_fail_with_exception :: proc(page: ^Page, exception: jsc.JSValueRef) -> bool
 @(private)
 page_ended :: proc(page: ^Page) -> (bool, Result) {
 	if kill := vm_kill_reason(page.vm); kill != .None {
-		return true, page_killed(kill)
+		result := page_killed(kill)
+
+		// The reading that killed it, so a caller sees how far over the limit it was.
+		if kill == .Heap_Limit {
+			result.heap_bytes = page.vm.heap_last_bytes
+		}
+
+		return true, result
 	}
 
 	if page.vm != nil && page.vm.stop_requested && page.state != nil {
@@ -832,7 +885,8 @@ page_killed_result :: proc(kill: Kill_Reason) -> Result {
 //   No counterpart: Node has no per-script CPU limit, so the messages are Larva's.
 // Deviates:
 //   n/a (no oracle). Status, Result.kill and the message wording are pinned by
-//   cmd/lava/page_cpu_budget_test.odin.
+//   cmd/lava/page_cpu_budget_test.odin, and for .Heap_Limit by
+//   cmd/lava/page_heap_limit_test.odin.
 @(private = "file")
 page_killed :: proc(kill: Kill_Reason) -> Result {
 	msg: string
@@ -841,6 +895,8 @@ page_killed :: proc(kill: Kill_Reason) -> Result {
 		msg = "page killed: a script exceeded the execution time limit"
 	case .Cpu_Budget:
 		msg = "page killed: CPU budget exceeded"
+	case .Heap_Limit:
+		msg = "page killed: heap limit exceeded"
 	case .Cancelled:
 		msg = "page cancelled: its runner was destroyed while it ran"
 	case .Reaping_Full:
@@ -848,6 +904,144 @@ page_killed :: proc(kill: Kill_Reason) -> Result {
 	case .None:
 	}
 	return Result{status = .Execution_Error, exit_code = 1, message = msg, kill = kill}
+}
+
+// page_heap_check reads the page's heap when its heap limit (Page_Limits.heap_bytes) has
+// a check due, and kills the page (vm_heap_kill: Kill_Reason.Heap_Limit, its VM
+// retired at release) when the heap is over the limit after a full collection. The
+// caller's page_ended then reports the kill like any other.
+//
+// Returns:
+//   false only when a due check could not read the heap at all (a JSC without
+//   JSGetMemoryUsageStatistics); page_create refuses the page then. true otherwise —
+//   no limit, no check due, a page already ended, or a reading taken.
+// Node:
+//   No counterpart: Chrome has no per-page heap limit a page can observe. The kill's
+//   Result is Larva's (page_killed).
+// Deviates:
+//   n/a (no oracle). Pinned by cmd/lava/page_heap_limit_test.odin.
+//
+// Where: only between the page's steps, on the loop thread, with no entry open — after
+// its install, its top-level script, each page_eval and element script, and each tick
+// (a runner tick ends at its CPU quantum, RUNNER_SLICE_US) — never inside an entry,
+// never from another thread (JSC is the loop thread's), and never with an unrooted
+// value of the page held, since the reading allocates in the page's context and the
+// collection collects. It is the reading page_close samples into Result.heap_bytes
+// (jsc.heap_size_bytes), not a second sampler; this one is charged to the page's CPU
+// budget, since it is the page's heap that makes it cost.
+//
+// Why a full collection before the verdict: the reading is the heap's capacity, which
+// keeps blocks of garbage no collection has given back yet. Measured on the probe
+// below: a VM whose 92 MB live set had been dropped and which then churned 2M
+// short-lived objects read 138-154 MB of capacity, and 420 KB after one
+// collect_garbage_now. Without the collection, a page that only makes garbage would be
+// killed as if it kept it (runner_heap_limit_spares_a_page_that_only_churns_garbage).
+// The collection runs only on a reading over the limit, and is what JSC's GC timers
+// (off with the RunLoop drive) would have run anyway.
+//
+// How often: the reading walks the heap, so it costs in proportion to it. Measured with
+// a throwaway probe (not in the tree; to reproduce: one pooled VM, one context with no
+// Lava runtime, `globalThis.keep = Array.from({ length: K }, (_, i) => ({ i, s: 'x' + i
+// }))` for K = 0, 10k, 50k, 200k, 800k in turn, then 9 back-to-back
+// jsc.heap_size_bytes calls, median; two launches, -o:speed, 4-core Xeon @ 2.10GHz):
+// 0.16-0.25 ms at 441 KB of capacity, 0.55-0.68 ms at 1.0-1.2 MB, 2.7-3.0 ms at 5.5 MB,
+// 15-18.5 ms at 23 MB, 80 ms at 92 MB — about 0.85 ms per MB. A full collection there:
+// 0.6-0.75 ms at 441 KB, 12-18 ms at 23 MB, 67-85 ms at 92 MB. Building the 800k
+// objects took 120.6 ms for ~70 MB of capacity growth, ~0.6 MB per ms of CPU: a
+// reading costs about half of what allocating the heap it walks cost. So no schedule
+// is both cheap and tight, and this one is amortised on the page's own CPU clock
+// (VM.cpu_used_ns; siblings' CPU on the thread does not count):
+//   - the next check is due HEAP_CHECK_COST_RATIO (16) times this check's cost later:
+//     at most ~6% of the page's CPU goes to checks while its heap is steady;
+//   - when the heap grew since the last check, sooner: at half the time it would take
+//     to reach the limit at the growth rate just seen, but never sooner than one
+//     reading's cost (at most half the page's CPU, and only while it heads for its
+//     limit, where a kill is due); the first check, with no growth seen yet, assumes
+//     HEAP_CHECK_FIRST_RATE;
+//   - never sooner than HEAP_CHECK_MIN_NS (1 ms) of page CPU.
+// What that bounds: a page allocating steadily at the rate above is read about every
+// one read's cost, ~0.85 ms per MB of its heap H, in which it can add ~0.5 H — killed
+// by about 1.5 times its limit: 1.02-1.41x of 8 MB in thirty runs of
+// runner_kills_a_page_over_its_heap_limit_alone at that limit, 1.07-1.62x of its 4 MB
+// (~2.3 MB of which is the installed runtime) in twenty, load average ~8 on the box. A
+// burst after a steady stretch is bounded by the 16x interval instead, up to ~8 H; and
+// one entry that allocates without returning is not checked at all until it returns
+// (Page_Limits.heap_bytes). What it costs a page that only churns garbage under its
+// limit: its capacity crosses the limit again and again, and each crossing the schedule
+// sees costs it a full collection — a heap kept at the limit's size, which is what a
+// limit on a capacity reading means.
+@(private = "file")
+page_heap_check :: proc(page: ^Page) -> bool {
+	vm := page.vm
+
+	if vm == nil || vm.heap_limit <= 0 || page.ctx == nil || vm.cpu_used_ns < vm.heap_next_ns {
+		return true
+	}
+
+	if vm_kill_reason(vm) != .None || vm.stop_requested {
+		return true
+	}
+
+	ctx := cast(jsc.JSContextRef)page.ctx
+	start := vm.cpu_used_ns
+	// Charged like any entry: the reading's C-API exit drains the VM's microtask queue,
+	// which is empty between steps, but whatever ran would run under the page's limits.
+	vm_cpu_enter(vm)
+	raw, ok := jsc.heap_size_bytes(ctx)
+	// The schedule below runs on ONE reading's cost. A check that also collects and reads
+	// again costs more, but the collection is the page's own garbage, not the price of
+	// reading, and counted in it stretched the floor: one run went from 7.7 MB just after
+	// a collection to 15 MB of an 8 MB limit in the 9 ms that bought (measured before
+	// this split; with both readings counted, 13.6 MB in another).
+	vm_cpu_checkpoint(vm)
+	cost := max(vm.cpu_used_ns - start, 0)
+	bytes := raw
+
+	if ok && raw > vm.heap_limit {
+		jsc.collect_garbage_now(ctx)
+		bytes, ok = jsc.heap_size_bytes(ctx)
+	}
+
+	vm_cpu_exit(vm)
+
+	if !ok {
+		return false
+	}
+
+	interval := cost * HEAP_CHECK_COST_RATIO
+	// Growth is the reading BEFORE any collection against the heap the last check left:
+	// against the collected reading, a page whose capacity had to be collected back under
+	// its limit would show no growth and wait the full 16x of a collection's cost — a
+	// page keeping objects then went from 8 to 17.5 MB between two checks (measured, one
+	// run in six of runner_kills_a_page_over_its_heap_limit_alone before this).
+	grown := raw - vm.heap_last_bytes
+	since := start - vm.heap_last_ns
+	// Bytes per ns of page CPU; 0 when the heap did not grow.
+	rate := 0.0
+
+	if vm.heap_last_bytes == 0 {
+		rate = HEAP_CHECK_FIRST_RATE
+	} else if grown > 0 && since > 0 {
+		rate = f64(grown) / f64(since)
+	}
+
+	if rate > 0 && bytes < vm.heap_limit {
+		// Half the time to the limit at that rate: a page that speeds up (measured: 0.22
+		// MB per ms over its first ticks, 0.6 after) would otherwise cross it before the
+		// check lands — 3.6 to 16.5 MB of an 8 MB limit in one run before the halving.
+		eta := i64(f64(vm.heap_limit - bytes) / rate / 2)
+		interval = min(interval, max(eta, cost))
+	}
+
+	vm.heap_next_ns = vm.cpu_used_ns + max(interval, HEAP_CHECK_MIN_NS)
+	vm.heap_last_bytes = bytes
+	vm.heap_last_ns = vm.cpu_used_ns
+
+	if bytes > vm.heap_limit {
+		vm_heap_kill(vm)
+	}
+
+	return true
 }
 
 // page_finish_early ends a page that holds no context yet. The loop is consumed on

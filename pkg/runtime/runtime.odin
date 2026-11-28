@@ -37,7 +37,9 @@ Result :: struct {
 	// capacity, uncollected garbage included, the VM's earlier pages' too);
 	// 0 means "not sampled" — sampling off (Page_Runner.heap_sample_every), not this
 	// page's turn, a page a limit or a cancel ended, a Result built without a page, or a
-	// JSC without the symbol. A sample is always > 0, so 0 is the only sentinel.
+	// JSC without the symbol. A sample is always > 0, so 0 is the only sentinel. One
+	// exception: a page its heap limit ended (kill .Heap_Limit) carries the reading that
+	// killed it, taken after a full collection (page_heap_check), whatever the sampling.
 	heap_bytes:     i64,
 }
 
