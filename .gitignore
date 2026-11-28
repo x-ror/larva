@@ -28,6 +28,7 @@ reports/
 /cookie
 /eventloop
 /html
+/tls
 /http
 /lava
 
