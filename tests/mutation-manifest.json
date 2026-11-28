@@ -4347,10 +4347,19 @@
       "name": "dom-script-defer.page dies when the deferred scripts are not run before DOMContentLoaded",
       "why": "Chrome runs defer scripts after the interactive readystatechange and before DOMContentLoaded; skipping them drops their effects and their load events.",
       "source": "pkg/runtime/page_html.odin",
-      "find": "\tscripts_run_deferred(page)\n",
+      "find": "\t\tif !scripts_run_deferred(page) {\n\t\t\treturn page_dom_live(page)\n\t\t}\n",
       "replace": "",
       "gate": "make:test-dom",
       "expect_detail": "FAIL dom-script-defer.page"
+    },
+    {
+      "name": "page_network_scripts_run_in_document_order dies when a network src is not fetched",
+      "why": "Without the fetch every http(s) script on a page with a URL fails with `error`, so `lava serve` renders real sites without their external scripts.",
+      "source": "pkg/runtime/page_script.odin",
+      "find": "\t\t\tscript_fetch_start(dom, &job, absolute)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.page_network_scripts_run_in_document_order",
+      "expect_detail": "the page saw"
     },
     {
       "name": "dom-script-write.page dies when document.write does not parse its text before returning",

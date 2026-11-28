@@ -28,8 +28,12 @@ Html_View :: enum {
 //                html.decode_document).
 //   source_name  The page's name, under which its inline scripts run (stack traces show
 //                it).
-//   document_path  The document's file, which a script's `src` resolves against and is
-//                read beside; "" fails every external script's fetch (its `error`).
+//   document_path  The document's file, which a script's `src` naming a local file
+//                resolves against and is read beside; "" for none.
+//   origin       The page's origin or URL (`location`). When it is an http(s) URL, a
+//                `src` that names no local file is resolved against it and fetched over
+//                the network on `loop` (page_script.odin); otherwise such a script fails
+//                its fetch (its `error`).
 //   loop         Consumed on every path, as by eval.
 //   report       eval's Result_Hook, fired by page_close.
 // Returns:
@@ -43,12 +47,12 @@ Html_View :: enum {
 //   tree and serialization after its scripts with Chrome 158's, read once the frame
 //   holding the page has loaded.
 // Deviates:
-//   Module scripts never run, and a `src` is read from disk (page_script.odin says what
-//   that changes). The document is parsed whole by
+//   Module scripts never run, and a local `src` is read from disk (page_script.odin says
+//   what that changes). The document is parsed whole by
 //   lexbor with scripting off, so `<noscript>` content parses as markup, where a
 //   scripted Chrome page parses it as text. `load` fires once the loop has idled after
-//   DOMContentLoaded (there are no subresources to wait for), so a timer set before it
-//   runs first, where Chrome's order with one is a race.
+//   DOMContentLoaded (scripts are the only subresources waited for), so a timer set
+//   before it runs first, where Chrome's order with one is a race.
 run_html_page :: proc(
 	data: []byte,
 	source_name: string,
@@ -69,7 +73,7 @@ run_html_page :: proc(
 	page: Page
 
 	if page_create(&page, source_name, loop, origin = origin) {
-		output = html_page_run(&page, data, source_name, document_path, view)
+		output = html_page_run(&page, data, source_name, document_path, origin, view)
 	}
 
 	busy_loop: ^eventloop.Loop
@@ -86,8 +90,13 @@ run_html_page :: proc(
 // html_page_run is run_html_page on a page page_create made live: install, parse and
 // script, DOMContentLoaded, the loop, `load`, the loop again, the view.
 @(private = "file")
-html_page_run :: proc(page: ^Page, data: []byte, source_name, document_path: string, view: Html_View) -> string {
-	if !html_page_begin(page, data, source_name, document_path) {
+html_page_run :: proc(
+	page: ^Page,
+	data: []byte,
+	source_name, document_path, document_url: string,
+	view: Html_View,
+) -> string {
+	if !html_page_begin(page, data, source_name, document_path, document_url) {
 		return ""
 	}
 
@@ -104,14 +113,21 @@ html_page_run :: proc(page: ^Page, data: []byte, source_name, document_path: str
 
 // html_page_begin is the HTML page's start, up to and including DOMContentLoaded: the
 // DOM installed, `data` parsed with its classic scripts run as the parser reaches each,
-// `interactive`, the defer scripts, then DOMContentLoaded. Shared by run_html_page and
-// the crawl driver (page_crawl.odin), which tick the loop between the steps themselves.
+// `interactive`, the defer scripts, then DOMContentLoaded (html_page_continue). Shared
+// by run_html_page and the crawl driver (page_crawl.odin), which tick the loop between
+// the steps themselves.
+//
+// A script fetched over the network pauses that sequence instead of blocking the
+// thread: html_page_begin returns with the parse (or the defer scripts) waiting, and
+// the fetch's completion, a task on the page's loop, carries it on. Either way the
+// caller's next step is to tick the loop until it idles — an in-flight fetch keeps it
+// busy — so DOMContentLoaded has fired by the time it does.
 //
 // Returns:
 //   false when the page has ended (a limit, a failed install, a failed parse; its Result
 //   is recorded) and there is nothing more to run.
 @(private)
-html_page_begin :: proc(page: ^Page, data: []byte, source_name, document_path: string) -> bool {
+html_page_begin :: proc(page: ^Page, data: []byte, source_name, document_path, document_url: string) -> bool {
 	ctx := cast(jsc.JSContextRef)page.ctx
 
 	vm_cpu_enter(page.vm)
@@ -123,41 +139,89 @@ html_page_begin :: proc(page: ^Page, data: []byte, source_name, document_path: s
 		return false
 	}
 
-	scripts_attach(page, document_path, source_name)
+	scripts_attach(page, document_path, document_url, source_name)
+	html.feed(&page.state.dom.parser, data)
+	html.finish(&page.state.dom.parser)
+	return html_page_continue(page)
+}
 
-	on_script :: proc(p: ^html.Parser, script: html.Node, user_data: rawptr) {
-		page := cast(^Page)user_data
+// html_page_continue runs the page's load sequence from where it stands until it waits
+// on a fetch or is done: the parser, pumped until a parser-blocking script is still in
+// flight or the document ends; then `interactive` and the defer scripts, until one is
+// still in flight; then DOMContentLoaded. Called by html_page_begin, and by a script
+// fetch's completion (page_script.odin scripts_fetched) to go on. A call made while one
+// is running (a fetch completing under a script) returns at once: the running one
+// sees what completed when its script returns.
+//
+// Returns:
+//   false when the page has ended; its Result is recorded.
+@(private)
+html_page_continue :: proc(page: ^Page) -> bool {
+	if !page_dom_live(page) {
+		return false
+	}
 
-		// A page a limit ended runs nothing more; the parse still finishes, cheaply.
-		if page.finished || page.state == nil || page.state.dom == nil {
-			return
+	dom := page.state.dom
+	s := &dom.scripts
+
+	if s.continuing {
+		return true
+	}
+
+	s.continuing = true
+	defer if page_dom_live(page) && page.state.dom == dom {
+		s.continuing = false
+	}
+
+	ctx := cast(jsc.JSContextRef)page.ctx
+
+	for s.parse_state == .Parsing {
+		// What a script wrote first, and what a previous step left pending.
+		scripts_run_pending(page)
+
+		if !page_dom_live(page) {
+			return false
 		}
 
-		scripts_parser_reached(page, script)
-		scripts_run_pending(page)
+		if s.has_pending {
+			return true
+		}
+
+		script, status := html.pump(&dom.parser)
+
+		switch status {
+		case .Script:
+			scripts_parser_reached(page, script)
+		case .Need_Input:
+			// Everything was fed and finished before the first pump; never reached.
+			html.finish(&dom.parser)
+		case .Done:
+			s.parse_state = .Deferred
+			dom_advance(ctx, page, .Interactive)
+		case .Failed:
+			page_fail(
+				page,
+				Result {
+					status = .Execution_Error,
+					exit_code = 1,
+					message = strings.clone(html.error_message(&dom.parser)),
+					is_allocated = true,
+				},
+			)
+			return false
+		}
+
+		if !page_dom_live(page) {
+			return false
+		}
 	}
 
-	if !html.parse_all(&page.state.dom.parser, data, on_script, page) {
-		page_fail(
-			page,
-			Result {
-				status = .Execution_Error,
-				exit_code = 1,
-				message = strings.clone(html.error_message(&page.state.dom.parser)),
-				is_allocated = true,
-			},
-		)
-		return false
-	}
+	if s.parse_state == .Deferred {
+		if !scripts_run_deferred(page) {
+			return page_dom_live(page)
+		}
 
-	if page.finished {
-		return false
-	}
-
-	dom_advance(ctx, page, .Interactive)
-	scripts_run_deferred(page)
-
-	if page_dom_live(page) {
+		s.parse_state = .Loaded
 		dom_advance(ctx, page, .Content_Loaded)
 	}
 
@@ -165,8 +229,8 @@ html_page_begin :: proc(page: ^Page, data: []byte, source_name, document_path: s
 }
 
 // html_page_fire_load is the page's `load`, to be called once its loop has idled after
-// DOMContentLoaded: the async and inserted scripts it ran were the page's only
-// subresources (a page with no loop runs them here), then `complete` (readystatechange,
+// DOMContentLoaded: the async and inserted scripts it ran, fetches and all, were the
+// page's only subresources (a page with no loop runs them here), then `complete` (readystatechange,
 // the window's `load`). Returns false when the page has ended.
 @(private)
 html_page_fire_load :: proc(page: ^Page) -> bool {

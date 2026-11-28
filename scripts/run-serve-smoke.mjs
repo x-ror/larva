@@ -5,7 +5,8 @@
 // SIGTERM handler's self-pipe (pkg/adapters serve_stop_on_signals) and the exit code.
 //
 // Checks, against a node fixture origin on 127.0.0.1:
-//   1. a request renders (the inline script's DOM write is in the body);
+//   1. a request renders (the inline script's DOM write is in the body), and so does a
+//      page whose only script is an external one fetched from the origin (`/ext`);
 //   2. SIGTERM while a request is in flight: that request is still answered 200, and the
 //      process exits 0 once it has been;
 //   3. SIGINT on an idle server exits 0 as well.
@@ -21,13 +22,24 @@ const LAVA = process.env.LAVA_BIN || join(ROOT, 'bin/lava');
 
 const PAGES = {
   '/a': '<!doctype html><p id="x">static</p><script>document.getElementById("x").textContent = "js ran";</script>',
+  // The DOM write comes from /ext.js, fetched over the network as a parser-blocking script.
+  '/ext': '<!doctype html><p id="x">static</p><script src="/ext.js"></script>',
   // `load` waits 400 ms for its timer: long enough to be in flight when the signal lands.
   '/slow':
     '<!doctype html><body><script>setTimeout(() => { document.body.id = "slow-done"; }, 400)</script></body>',
 };
 
 let served = 0;
+const SCRIPTS = {
+  '/ext.js': 'document.getElementById("x").textContent = "external js ran";',
+};
+
 const origin = createServer((req, res) => {
+  if (SCRIPTS[req.url] !== undefined) {
+    res.writeHead(200, { 'Content-Type': 'text/javascript' });
+    res.end(SCRIPTS[req.url]);
+    return;
+  }
   const body = PAGES[req.url];
   served++;
   res.writeHead(body ? 200 : 404, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -56,6 +68,12 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
       page.status === 200 && page.body.includes('<p id="x">js ran</p>'),
       'a request renders the page after its script',
       `${page.status} ${page.headers['x-larva-error'] ?? ''} ${page.body}`,
+    );
+    const ext = await render(lava.port, '/ext');
+    check(
+      ext.status === 200 && ext.body.includes('<p id="x">external js ran</p>'),
+      'a page whose script is fetched from the origin renders after it ran',
+      `${ext.status} ${ext.headers['x-larva-error'] ?? ''} ${ext.body}`,
     );
     const before = served;
     const inflight = render(lava.port, '/slow');
