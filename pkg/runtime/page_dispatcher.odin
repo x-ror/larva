@@ -75,6 +75,9 @@ Dispatch_Job :: struct {
 	source_name: string,
 	limits:      Page_Limits,
 	user_data:   rawptr,
+	// Set for a page submitted through page_dispatcher_submit_driven, which carries no
+	// source: the worker opens it with page_runner_open_driven.
+	driver:      Page_Driver,
 }
 
 @(private = "file")
@@ -282,6 +285,52 @@ page_dispatcher_submit :: proc(
 		return false
 	}
 
+	return dispatcher_enqueue(d, job)
+}
+
+// page_dispatcher_submit_driven hands the least-loaded worker a page `driver` runs
+// (Page_Driver, page_runner_open_driven) instead of a script. Safe from any thread,
+// including from inside on_done; the driver's procs then run on that worker's thread.
+//
+// Params:
+//   driver  Copied as is: driver.data, driver.name and driver.origin are borrowed and
+//           must stay valid until on_done has run for the page.
+//   limits  As page_dispatcher_submit's.
+// Returns:
+//   page_dispatcher_submit's contract: true when on_done will run for the page exactly
+//   once, false when nothing was kept.
+page_dispatcher_submit_driven :: proc(
+	d: ^Page_Dispatcher,
+	driver: Page_Driver,
+	limits: Page_Limits,
+	user_data: rawptr = nil,
+) -> bool {
+	if d.allocator.procedure == nil || driver.start == nil || driver.tick == nil {
+		return false
+	}
+
+	if !dispatcher_accepts(d) {
+		return false
+	}
+
+	job, jerr := new(Dispatch_Job, d.allocator)
+
+	if jerr != nil {
+		return false
+	}
+
+	job^ = {
+		limits    = limits,
+		user_data = user_data,
+		driver    = driver,
+	}
+	return dispatcher_enqueue(d, job)
+}
+
+// dispatcher_enqueue is the half of a submit that runs under the gate: the deciding
+// check, the pick and the push. It frees `job` on every refusal.
+@(private = "file")
+dispatcher_enqueue :: proc(d: ^Page_Dispatcher, job: ^Dispatch_Job) -> bool {
 	sync.shared_lock(&d.gate)
 	defer sync.shared_unlock(&d.gate)
 
@@ -568,7 +617,11 @@ worker_loop :: proc(w: ^Dispatch_Worker) {
 				break
 			}
 
-			page_runner_open(&w.runner, job.source, job.source_name, job.limits, job)
+			if job.driver.start != nil {
+				page_runner_open_driven(&w.runner, job.driver, job.limits, job)
+			} else {
+				page_runner_open(&w.runner, job.source, job.source_name, job.limits, job)
+			}
 		}
 
 		// Done once nothing is live. That also means the inbox is empty — the open loop

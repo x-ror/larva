@@ -618,8 +618,8 @@
       "name": "runner_reports_a_page_it_cannot_start dies when a page that fails at open is reported from inside page_runner_open",
       "why": "Reporting from inside open lets on_done reopen, recursing once per failing page: a long feed of bad pages overflows the stack.",
       "source": "pkg/runtime/page_runner.odin",
-      "find": "runner_finish(runner, index, deliver = false)",
-      "replace": "runner_finish(runner, index)",
+      "find": "runner_page = true,\n\t) {\n\t\trunner_finish(runner, index, deliver = false)",
+      "replace": "runner_page = true,\n\t) {\n\t\trunner_finish(runner, index)",
       "gate": "odin:cmd/lava:main.runner_reports_a_page_it_cannot_start",
       "expect_detail": "reported from inside page_runner_open"
     },
@@ -4378,6 +4378,63 @@
       "replace": "",
       "gate": "make:test-dom",
       "expect_detail": "FAIL dom-script-dynamic.page"
+    },
+    {
+      "name": "serve_runs_the_custom_script dies when a throw in the script does not reject the job",
+      "why": "An async function's throw is a rejected promise nobody holds unless the wrapper routes it to _reject; without that a throwing script never settles and the caller sees no error until the timeout.",
+      "source": "pkg/runtime/page_crawl.odin",
+      "find": "      body(_resolve, _reject, _delay).catch(_reject);",
+      "replace": "      body(_resolve, _reject, _delay);",
+      "gate": "odin:cmd/lava:main.serve_runs_the_custom_script",
+      "expect_detail": [
+        "want script_error with \"TypeError: thrown\"",
+        "Uncaught (in promise) TypeError: thrown"
+      ]
+    },
+    {
+      "name": "serve_waits_for_a_selector_after_load dies when the selector wait does not wait",
+      "why": "A wait that captures without checking the selector returns the document before the element the caller asked for exists.",
+      "source": "pkg/runtime/page_crawl.odin",
+      "find": "\t\t\t\tif !found {\n",
+      "replace": "\t\t\t\tif false {\n",
+      "gate": "odin:cmd/lava:main.serve_waits_for_a_selector_after_load",
+      "expect_detail": "the waited-for element is missing"
+    },
+    {
+      "name": "serve_reports_a_page_killed_by_its_cpu_budget dies when a kill is reported as an engine failure",
+      "why": "The caller's retry logic tells a page that must go to Chrome (killed) from an engine that is down; collapsing the two retries the wrong way.",
+      "source": "pkg/adapters/serve.odin",
+      "find": "\t\t\tconn_fail(c, .Page_Killed, job.message, job.rendered)",
+      "replace": "\t\t\tconn_fail(c, .Engine_Unavailable, job.message, job.rendered)",
+      "gate": "odin:cmd/lava:main.serve_reports_a_page_killed_by_its_cpu_budget",
+      "expect_detail": "want page_killed"
+    },
+    {
+      "name": "serve_allocations_pair_through_its_allocator dies when a request's decoded document is not freed",
+      "why": "Every rendered request would leak its whole document on a long-running server.",
+      "source": "pkg/adapters/serve.odin",
+      "find": "\tdelete(job.document)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.serve_allocations_pair_through_its_allocator",
+      "expect_detail": "the server leaked"
+    },
+    {
+      "name": "serve_runs_requests_on_its_threads_concurrently dies when admission ignores max_inflight",
+      "why": "Without the bound a burst queues without limit behind the workers instead of telling the caller over_capacity, so its host selection never moves load away.",
+      "source": "pkg/adapters/serve.odin",
+      "find": "\tif s.inflight >= s.cfg.max_inflight {",
+      "replace": "\tif false {",
+      "gate": "odin:cmd/lava:main.serve_runs_requests_on_its_threads_concurrently",
+      "expect_detail": "want over_capacity"
+    },
+    {
+      "name": "serve_renders_the_document_after_load dies when the dispatcher opens a driven page as a script page",
+      "why": "A driven job carries no source: opened as a script it is refused as empty and every crawl request fails.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "\t\t\tif job.driver.start != nil {",
+      "replace": "\t\t\tif false {",
+      "gate": "odin:cmd/lava:main.serve_renders_the_document_after_load",
+      "expect_detail": "want 200"
     },
     {
       "name": "cookie-fetch dies when path-match ignores the segment boundary",
