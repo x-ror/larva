@@ -4252,6 +4252,51 @@
       "replace": "",
       "gate": "make:test-dom",
       "expect_detail": "FAIL dom-script-dynamic.page"
+    },
+    {
+      "name": "dom-reflect-shape.page dies when a reflected accessor stops checking its receiver's interface",
+      "why": "A reflected getter called on the wrong element (HTMLAnchorElement's href on a div, or on a node whose prototype the page re-pointed) must throw Illegal invocation, as Blink's brand check does, not read whatever attribute the node has.",
+      "source": "pkg/runtime/js/internal/dom_reflect.js",
+      "find": "    if (ok[nInterface(o)] !== true) throw illegalInvocation();",
+      "replace": "",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-reflect-shape.page"
+    },
+    {
+      "name": "dom-reflect-elements.page dies when a created script loses its force-async flag",
+      "why": "A script element a script creates reads async true until written (HTML's force async); without the flag every loader that checks script.async sees false.",
+      "source": "pkg/runtime/js/internal/dom_reflect.js",
+      "find": "    WeakMapPrototypeSet(forceAsync, el, true);",
+      "replace": "",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-reflect-elements.page"
+    },
+    {
+      "name": "dom-reflect-elements.page dies when enumerated attributes match their keywords case-sensitively",
+      "why": "An enumerated attribute's keywords match ASCII case-insensitively (method=POST is post, crossorigin=USE-CREDENTIALS is use-credentials); an exact match answers the invalid default.",
+      "source": "pkg/runtime/js/internal/dom_reflect.js",
+      "find": "          var state = o.keywords[asciiLower(v)];",
+      "replace": "          var state = o.keywords[v];",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-reflect-elements.page"
+    },
+    {
+      "name": "dom-reflect-tokenlist.page dies when the update steps write an empty set to a missing attribute",
+      "why": "DOM's update steps leave a missing attribute missing when the set is empty: classList.remove on an element with no class must not create class=\"\" (nor queue a MutationObserver record).",
+      "source": "pkg/runtime/js/internal/dom_reflect.js",
+      "find": "    if (!always && set.length === 0 && nGetAttribute(rec.node, rec.arg) === null) return;",
+      "replace": "",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-reflect-tokenlist.page"
+    },
+    {
+      "name": "dom-reflect-elements.page dies when URL attributes ignore the base element",
+      "why": "A reflected URL resolves against the document base URL, which a <base href> sets; resolving against the document's URL alone gives every page with a base element wrong absolute URLs.",
+      "source": "pkg/runtime/js/internal/dom_reflect.js",
+      "find": "      if (url !== null) return ReflectApply(urlHref, url, EMPTY);",
+      "replace": "",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-reflect-elements.page"
     }
   ]
 }

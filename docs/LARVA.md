@@ -338,6 +338,17 @@ document is freed — pinned by `cmd/lava/dom_page_test.odin`; the behaviour is 
 with Chrome by tests/dom's `*.page` cases. Left for 4b: a WebIDL generator, live
 collections, `window` as an EventTarget and `load`, and reflected attributes.
 
+Reflected attributes (#12) come from one declarative table,
+`pkg/runtime/js/internal/dom_reflect.js` (interface → members, each a reflection kind:
+DOMString, boolean, long, unsigned long, enumerated, URL, DOMTokenList, or a custom
+getter/setter) — the shape a WebIDL generator would emit. It covers the HTMLElement
+globals, `classList`, and the common members of the anchor, img, script, link, input,
+form, meta and iframe interfaces, in Blink's prototype order; URLs resolve against the
+`<base href>` or the document's URL (`about:blank` under `lava page` without
+`--origin`). Not there: form state (`input.value`, `.checked`), layout-dependent
+answers (a rendered `img.width`), event handler attributes. Pinned by the
+`dom-reflect-*.page` cases.
+
 Script execution beyond inline classic scripts (#13, `pkg/runtime/page_script.odin`):
 parser-blocking external scripts (`<script src>`, read beside the page and run with the
 parser paused, then the element's `load` or `error`), `defer` scripts between the
