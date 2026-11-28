@@ -2317,6 +2317,15 @@
       "expect_detail": "free(s) through the runner allocator of memory it never allocated"
     },
     {
+      "name": "cpu_budget_spent_in_the_install_is_reported_by_the_result_alone dies when a killed install reports its termination",
+      "why": "A page killed inside the runtime install would write every terminated step to the process's stderr as an install failure (a loader TypeError among them), a runtime defect that is not there; the mutation gate read one as runner_churn_of_mixed_fates_frees_everything_it_allocates' failure.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "exception: jsc.JSValueRef) {\n\tif holder_ended(ctx) {\n\t\treturn\n\t}\n",
+      "replace": "exception: jsc.JSValueRef) {\n",
+      "gate": "odin:cmd/lava:main.cpu_budget_spent_in_the_install_is_reported_by_the_result_alone",
+      "expect_detail": "the kill was reported as an install failure"
+    },
+    {
       "name": "runner_pages_leave_the_vm_protect_count_where_they_found_it dies when a cancelled timer keeps its roots",
       "why": "A timer or interval the loop drops without firing (a cleared interval, a killed or exited page) would leave its callback protected in the VM for every later page.",
       "source": "pkg/runtime/globals.odin",
@@ -3026,12 +3035,16 @@
     },
     {
       "name": "runner_churn_with_the_drive_does_not_crash dies when JSC's GC activity timers stay on under the drive",
-      "why": "A driven full-GC activity timer reaches RunLoop::mainSingleton(), null in this embedding (session probes: SIGSEGV in 12 of 12 runs); the observable here is the crash, or a spin, so the verdict is the gate's own failure.",
+      "why": "A driven full-GC activity timer reaches RunLoop::mainSingleton(), null in this embedding (session probes: SIGSEGV in 12 of 12 runs). The churn keeps that timer 2-50 s out until its VMs are destroyed, so the crash alone survived (0 of 6 runs); the RunLoop coming to rest after the churn is what pins it, and a timer that fires inside that wait is the crash.",
       "source": "pkg/jsc/runloop_linux.odin",
       "find": "\t\t\t(transmute(Disable_GC_Timer_Proc)p)()\n",
       "replace": "\t\t\t_ = p\n",
       "gate": "odin:cmd/lava:main.runner_churn_with_the_drive_does_not_crash",
-      "expect_detail": "",
+      "expect_detail": [
+        "a GC activity timer is armed",
+        "Signal caught:",
+        "odin test exited -1"
+      ],
       "timeout_ms": 120000
     },
     {
@@ -4392,6 +4405,60 @@
       "replace": "if (rec === undefined || rec.iface !== iface) {\n        throw illegalInvocation();",
       "gate": "make:test-web",
       "expect_detail": "FAIL navigator-apis"
+    },
+    {
+      "name": "vm_script_cache_isolates_pages_and_is_reused dies when embedded sources stop going through the VM's scripts",
+      "why": "Without it every page makes a new source string per embedded file again and re-hashes ~0.8 MB of runtime JS, and nothing but a benchmark would notice.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "if script := vm_script(state.vm, name, embedded); script != nil {",
+      "replace": "if script := jsc.JSScriptRef(nil); script != nil {",
+      "gate": "odin:cmd/lava:main.vm_script_cache_isolates_pages_and_is_reused",
+      "expect_detail": "the first page made no script on its VM"
+    },
+    {
+      "name": "vm_scripts_go_with_a_retired_vm dies when a retired VM keeps its scripts",
+      "why": "Every retirement (one per 200 pages by default) would leak its VM's ~37 scripts, each holding a copy of an embedded source.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tvm_release_scripts(vm)\n\tjsc.JSContextGroupRelease(vm.group)\n\tfree(vm, pool.allocator)\n\tpool.retired += 1",
+      "replace": "\tjsc.JSContextGroupRelease(vm.group)\n\tfree(vm, pool.allocator)\n\tpool.retired += 1",
+      "gate": "odin:cmd/lava:main.vm_scripts_go_with_a_retired_vm",
+      "expect_detail": "scripts outlived their retired VM"
+    },
+    {
+      "name": "vm_script_cache_isolates_pages_and_is_reused dies when a destroyed pool keeps its VMs' scripts",
+      "why": "A thread's pool is destroyed when the thread ends; its VMs' scripts would outlive it for the life of the process.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\t\tvm_release_scripts(vm)\n\t\tjsc.JSContextGroupRelease(vm.group)",
+      "replace": "\t\tjsc.JSContextGroupRelease(vm.group)",
+      "gate": "odin:cmd/lava:main.vm_script_cache_isolates_pages_and_is_reused",
+      "expect_detail": "expected jsc.script_live_count() to be"
+    },
+    {
+      "name": "vm_script_refuses_another_text_under_a_cached_name dies when the cache trusts the name alone",
+      "why": "A name looked up with a different text (a LAVA_JS_OVERRIDE build, or a future caller) would run the source cached first instead of the one asked for.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "if raw_data(entry.source) == raw_data(source) && len(entry.source) == len(source) {",
+      "replace": "if true {",
+      "gate": "odin:cmd/lava:main.vm_script_refuses_another_text_under_a_cached_name",
+      "expect_detail": "another text ran under a cached name"
+    },
+    {
+      "name": "never_optimize_keeps_install_helpers_out_of_the_dfg dies when the hook marks nothing",
+      "why": "A hook that resolves but no longer calls setNeverOptimize puts every page's DFG compiles of the install helpers back, invisible to every oracle.",
+      "source": "pkg/jsc/private_optimize.odin",
+      "find": "\t\tg_never_optimize(ctx, fn)\n\t\treturn true",
+      "replace": "\t\treturn true",
+      "gate": "odin:cmd/lava:main.never_optimize_keeps_install_helpers_out_of_the_dfg",
+      "expect_detail": "a function marked never-optimize was DFG-compiled"
+    },
+    {
+      "name": "never_optimize_keeps_install_helpers_out_of_the_dfg dies when native_shape stops marking wrapOperation",
+      "why": "wrapOperation runs once per operation of every interface on every page; unmarked, the DFG compiles it again per page.",
+      "source": "pkg/runtime/js/internal/native_shape.js",
+      "find": "    wrapOperation,\n    wrapGetter,\n",
+      "replace": "    wrapGetter,\n",
+      "gate": "odin:cmd/lava:main.never_optimize_keeps_install_helpers_out_of_the_dfg",
+      "expect_detail": "wrapOperation was DFG-compiled"
     },
     {
       "name": "history-events dies when a fragment change queues no hashchange",

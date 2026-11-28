@@ -12,7 +12,10 @@
 //
 // A module id is its path under pkg/runtime/js without `.js` — `internal/primordials`,
 // `internal/fetch/body`.
-(function (compile, natives) {
+//
+// `neverOptimize(...fns)` is a native that keeps JSC's optimizing JIT off the functions
+// it is given (pkg/jsc/private_optimize.odin); a no-op on a JSC without the hook.
+(function (compile, natives, neverOptimize) {
   'use strict';
 
   var cache = Object.create(null);
@@ -39,6 +42,16 @@
   function req(id) {
     return load(id);
   }
+
+  // Install-time code runs once per page but calls its helpers once per module or per
+  // interface member, often enough that JSC compiled each of them with the DFG on every
+  // page: work a JIT thread did for code that never runs again, since a page's
+  // functions die with it. So the loader's own two, and the helpers an internal module
+  // hands to req.neverOptimize (internal/native_shape's), stay in the baseline tier.
+  // Only install-time helpers: the wrappers a page calls keep every tier.
+  if (typeof neverOptimize !== 'function') neverOptimize = function () {};
+  neverOptimize(load, req);
+  req.neverOptimize = neverOptimize;
 
   // Eagerly instantiate modules that install globals (Blob/File/atob/btoa and the URL
   // object-URL statics; the Web Streams ReadableStream/WritableStream/TransformStream

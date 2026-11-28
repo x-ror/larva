@@ -51,6 +51,28 @@
 (function (require, module) {
   'use strict';
 
+  // The install-time helpers below run once per interface member on every page, enough
+  // calls for JSC to DFG-compile each of them per page, for nothing (bootstrap/loader.js
+  // says why): kept in the baseline tier, marked before any of them first runs. Not the
+  // functions they make (`op`, `get attr`, `set attr`, the interface objects): those are
+  // what a page calls, and keep every tier.
+  require.neverOptimize(
+    markNative,
+    nameNative,
+    wrapOperation,
+    wrapGetter,
+    wrapSetter,
+    parseEntry,
+    wellKnown,
+    layMembers,
+    inPlace,
+    findMember,
+    installGlobal,
+    defineInterface,
+    defineOperation,
+    defineGlobalAttribute,
+    defineNamespace,
+  );
   var P = require('internal/primordials');
   var webErrors = require('internal/web_errors');
 
