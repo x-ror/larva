@@ -1,6 +1,7 @@
 package lava_runtime
 
 import "base:runtime"
+import "core:strings"
 import jsc "lava:pkg/jsc"
 
 // A per-thread pool of JavaScriptCore VMs (context groups). See docs/LARVA.md §2 and
@@ -104,6 +105,20 @@ VM :: struct {
 	heap_next_ns:    i64,
 	heap_last_bytes: i64,
 	heap_last_ns:    i64,
+	// The embedded runtime sources as JSScripts of this VM, by source name, made on a
+	// source's first evaluation here and evaluated again by every later page
+	// (vm_script). Survives vm_release; released with the VM, before its group
+	// (vm_release_scripts). Bound to the pool's allocator at its first insert.
+	scripts:         map[string]VM_Script,
+}
+
+// VM_Script is one entry of VM.scripts. `source` is the embedded text the script was
+// made from, kept to check that a later lookup under the same name asks for the same
+// text (it always does for an embedded file; a mismatch is evaluated uncached).
+// `script` is nil when it could not be made.
+VM_Script :: struct {
+	script: jsc.JSScriptRef,
+	source: string,
 }
 
 // Page_Limits are the limits a page runs under; 0 = no limit.
@@ -252,6 +267,7 @@ vm_pool_destroy :: proc(pool: ^VM_Pool) {
 			jsc.JSContextGroupClearExecutionTimeLimit(vm.group)
 		}
 
+		vm_release_scripts(vm)
 		jsc.JSContextGroupRelease(vm.group)
 		free(vm, pool.allocator)
 	}
@@ -366,6 +382,91 @@ vm_release :: proc(vm: ^VM) {
 			break
 		}
 	}
+}
+
+// vm_script returns this VM's script of the embedded source `source`, named `name`,
+// making it on the first call for that name. nil when no script could be made (the JSC
+// lacks the API, the source does not parse, an allocation failed; recorded, so not
+// retried on every page) or when `name` was cached with a different text: the caller
+// then evaluates the source the ordinary way.
+//
+// Why per VM and keyed by name: JSScriptEvaluate refuses a context of another VM
+// (jsc.script_create), and a page's realm is never in the cache — only the parsed
+// source is. Each evaluation still makes the page's own objects, exactly as
+// JSEvaluateScript did (a second page in a reused VM sees nothing of the first:
+// vm_script_cache_isolates_pages_and_is_reused). Measured: see jsc.script_create.
+//
+// Why at the first use: making a script syntax-checks its source, so deferring it to a
+// name's second use looked like it would spare a VM's first page — every `lava run` —
+// that parse. Measured, it spared 0.6 ms there and cost the second page 12.9 ms (cold
+// 32.6 -> 32.0 ms, warm 8.0 -> 20.9 ms; bench/pages -o:speed, N=10, 100 pages a launch,
+// medians of 7 interleaved launches per arm). Not taken apart further; the likely cause
+// is that a script's first evaluation misses the CodeCache entry an ordinary evaluation
+// of the same text made, and compiles again.
+vm_script :: proc(vm: ^VM, name: string, source: string) -> jsc.JSScriptRef {
+	if vm == nil {
+		return nil
+	}
+
+	if entry, found := vm.scripts[name]; found {
+		if raw_data(entry.source) == raw_data(source) && len(entry.source) == len(source) {
+			return entry.script
+		}
+
+		return nil
+	}
+
+	allocator := vm.pool.allocator
+
+	if vm.scripts == nil {
+		// Bound here, explicitly: a zero map binds whatever allocator is ambient at its
+		// first grow (CLAUDE.md §4), and this one lives as long as the VM.
+		vm.scripts = make(map[string]VM_Script, 64, allocator)
+	}
+
+	c_source, source_err := strings.clone_to_cstring(source, context.temp_allocator)
+	c_name, name_err := strings.clone_to_cstring(name, context.temp_allocator)
+
+	if source_err != nil || name_err != nil {
+		return nil
+	}
+
+	js_source := jsc.JSStringCreateWithUTF8CString(c_source)
+	defer jsc.JSStringRelease(js_source)
+	js_name := jsc.JSStringCreateWithUTF8CString(c_name)
+	defer jsc.JSStringRelease(js_name)
+
+	script := jsc.script_create(vm.group, js_name, js_source)
+	key, key_err := strings.clone(name, allocator)
+
+	if key_err != nil {
+		jsc.script_release(script)
+		return nil
+	}
+
+	if _, insert_err := map_insert(&vm.scripts, key, VM_Script{script = script, source = source}); insert_err != nil {
+		delete(key, allocator)
+		jsc.script_release(script)
+		return nil
+	}
+
+	return script
+}
+
+// vm_release_scripts releases every script vm_script made for this VM and frees the
+// table. Called with the VM idle, before its group is released.
+vm_release_scripts :: proc(vm: ^VM) {
+	if vm.scripts == nil {
+		return
+	}
+
+	allocator := vm.pool.allocator
+	for key, entry in vm.scripts {
+		jsc.script_release(entry.script)
+		delete(key, allocator)
+	}
+	delete(vm.scripts)
+	vm.scripts = nil
 }
 
 // vm_create_context creates a global context inside the VM.
@@ -499,6 +600,15 @@ vm_kill_reason :: proc(vm: ^VM) -> Kill_Reason {
 	}
 
 	return .None
+}
+
+// vm_holder_ended reports whether a limit or a requested stop has ended the VM's current
+// holder — every way the watchdog terminates JS here, a heap kill (#151) included. An
+// exception the holder's own install sees after that is the termination, not a broken
+// runtime (globals.odin, report_internal_exception). False for nil: an unpooled eval has
+// no limits.
+vm_holder_ended :: proc(vm: ^VM) -> bool {
+	return vm != nil && (vm.budget_hit || vm.limit_hit || vm.heap_hit || vm.stop_requested)
 }
 
 // vm_metered reports whether the VM's holder has its CPU time summed into cpu_used_ns:
@@ -706,6 +816,7 @@ vm_retire :: proc(vm: ^VM) {
 		}
 	}
 
+	vm_release_scripts(vm)
 	jsc.JSContextGroupRelease(vm.group)
 	free(vm, pool.allocator)
 	pool.retired += 1

@@ -1071,6 +1071,13 @@ install_globals :: proc(ctx: jsc.JSContextRef, loop: ^eventloop.Loop) {
 	install_rejection_tracker(ctx)
 }
 
+// holder_ended is vm_holder_ended for the VM behind `ctx`'s Runtime_State.
+@(private = "file")
+holder_ended :: proc(ctx: jsc.JSContextRef) -> bool {
+	state := get_state_from_ctx(ctx)
+	return state != nil && vm_holder_ended(state.vm)
+}
+
 // The Performance API clock origin. perf_origin_tick anchors the monotonic
 // high-resolution timer (performance.now); perf_time_origin_ms is the wall-clock
 // Unix epoch at that anchor (performance.timeOrigin), so
@@ -1397,9 +1404,22 @@ install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef)
 	// Native, not a module: nothing of it is JS a page could see in a stack (wasm.odin).
 	install_wasm(ctx, state)
 
-	args := [2]jsc.JSValueRef{cast(jsc.JSValueRef)compile, cast(jsc.JSValueRef)natives}
+	// The loader's third argument, as `compile` is its first: reachable only from its
+	// closure and, through req.neverOptimize, from internal modules. Cold (a handful of
+	// calls per page), so the generic host path. Without it the loader runs a no-op.
+	never_optimize := cast(jsc.JSValueRef)host_native_create(ctx, "neverOptimize", never_optimize_cb, 0)
+
+	if never_optimize == nil {
+		never_optimize = cast(jsc.JSValueRef)make_native_function(ctx, "neverOptimize", never_optimize_cb)
+	}
+
+	if never_optimize == nil {
+		never_optimize = jsc.JSValueMakeUndefined(ctx)
+	}
+
+	args := [3]jsc.JSValueRef{cast(jsc.JSValueRef)compile, cast(jsc.JSValueRef)natives, never_optimize}
 	exception: jsc.JSValueRef
-	handle := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)loader, nil, 2, raw_data(args[:]), &exception)
+	handle := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)loader, nil, 3, raw_data(args[:]), &exception)
 
 	if exception != nil {
 		report_internal_exception(ctx, "internal:loader", exception)
@@ -1412,6 +1432,39 @@ install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef)
 
 	jsc.JSValueProtect(ctx, handle)
 	state.loader = handle
+}
+
+// never_optimize_cb is the loader's `neverOptimize(...fns)`: it keeps JSC's optimizing
+// tiers off each function argument (jsc.never_optimize), for the install-time helpers
+// that run once per page (bootstrap/loader.js, internal/native_shape).
+//
+// Returns:
+//   undefined, always; a non-object argument is skipped.
+// Node:
+//   n/a — not reachable from page code, and a JIT tier is not observable: every shape
+//   and web case reads the same with and without it.
+//
+// Measured on bench/pages (-o:speed, N=1, 400 pages a launch, medians of 5 interleaved
+// launches per arm, 4-core Xeon shared with other work; 8ecd066 vs this hook alone):
+// process CPU 14.9 -> 10.4 ms a page, pages/s 82 -> 100. JSC_useDFGJIT=0 for the whole
+// process, the ceiling, measured 9.8 ms a page in the same run. Marking the primordials
+// wrappers too reached it, but cost url-parse 1.9x and request-new 1.5x in `make bench`:
+// those run on every page call, and stay optimizable.
+never_optimize_cb :: proc "c" (
+	ctx: jsc.JSContextRef,
+	function: jsc.JSObjectRef,
+	this_object: jsc.JSObjectRef,
+	argument_count: c.size_t,
+	arguments: [^]jsc.JSValueRef,
+	exception: ^jsc.JSValueRef,
+) -> jsc.JSValueRef {
+	for i in 0 ..< int(argument_count) {
+		if jsc.JSValueIsObject(ctx, arguments[i]) {
+			jsc.never_optimize(ctx, arguments[i])
+		}
+	}
+
+	return jsc.JSValueMakeUndefined(ctx)
 }
 
 // builtin_compile_cb is the loader's `compile(id)`: it evaluates the embedded
@@ -1659,6 +1712,23 @@ eval_internal_source :: proc(
 		}
 	}
 
+	// The embedded text, on a pooled VM: through the VM's script of it, made once per
+	// VM rather than a new source string per page (vm_script; jsc.script_create says
+	// what that saves).
+	if state := get_state_from_ctx(ctx); state != nil && state.vm != nil {
+		if script := vm_script(state.vm, name, embedded); script != nil {
+			exception: jsc.JSValueRef
+			value := jsc.script_evaluate(ctx, script, &exception)
+
+			if exception != nil {
+				report_internal_exception(ctx, name, exception)
+				return nil
+			}
+
+			return value
+		}
+	}
+
 	return eval_internal(ctx, name, embedded)
 }
 
@@ -1695,7 +1765,29 @@ eval_internal :: proc(ctx: jsc.JSContextRef, name: string, source: string) -> js
 	return value
 }
 
+// report_internal_exception writes a failed install step to stderr — unless the
+// context's holder has been ended by a limit or a stop, whose watchdog termination is
+// what failed it. That page's Result already names the kill, so a line here would
+// report a runtime defect that is not there. It did, for a page killed by a 20 ms
+// budget on a cold VM, whose install
+// takes ~31 ms of thread CPU (-o:none, first page on a fresh thread; ~8-10 ms warm; two
+// runs of 4 pages each): every module the cut terminated, then "failed to initialize
+// internal:loader: TypeError: undefined is not an object (evaluating
+// 'req('internal/crypto/random').randomUUID')", the loader reading the undefined that
+// builtin_compile_cb answers for a module whose evaluation failed. In a runner that
+// lands on the process's stderr among every other page's output.
+//
+// The rest of such an install still runs, each step cut at the kill's 1 ms watchdog
+// floor. Returning from install_globals at the kill was tried and reverted: those later
+// entries are what consume a termination JSC still holds when one landed inside a nested
+// evaluation (builtin_compile_cb's) and was answered there. Without them the next page
+// in the VM had its console prelude terminated by it, with no limit of its own hit — 11
+// of 120 killed-then-clean page pairs on one warm VM, against 0 of 120 with them.
 report_internal_exception :: proc(ctx: jsc.JSContextRef, name: string, exception: jsc.JSValueRef) {
+	if holder_ended(ctx) {
+		return
+	}
+
 	msg, allocated := jsc_value_to_string_or_default(ctx, exception)
 	process_write(os.stderr, "lava: failed to initialize ", name, ": ", msg, "\n")
 
