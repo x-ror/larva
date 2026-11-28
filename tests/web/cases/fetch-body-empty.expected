@@ -1,0 +1,37 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-28
+# runs: 5 identical
+# command: node scripts/record-chrome.mjs --runs 5 fetch-body-empty
+# ---
+response absent null false null false
+response undefined null false null false
+response null null false null false
+response string ReadableStream false true undefined true
+response blob ReadableStream false true undefined true
+response buffer ReadableStream false true undefined true
+response view ReadableStream false true undefined true
+response params ReadableStream false true undefined true
+response toString ReadableStream false true undefined true
+request absent null null
+request null null null
+request string ReadableStream true undefined
+request blob ReadableStream true undefined
+request view ReadableStream true undefined
+byob response true Uint8Array 0 4
+byob request true Uint8Array 0 4
+text ""
+arrayBuffer 0
+bytes 0
+blob 0 "text/plain;charset=utf-8"
+json SyntaxError
+used THREW TypeError Failed to execute 'text' on 'Response': body stream already read
+clone ReadableStream true undefined
+request clone ReadableStream true undefined
+content-type text/plain;charset=UTF-8
+status 204 THREW TypeError Failed to construct 'Response': Response with null body status cannot have body
+status 204 null null
+get with empty THREW TypeError Failed to construct 'Request': Request with GET/HEAD method cannot have body.
+get from empty post THREW TypeError Failed to construct 'Request': Request with GET/HEAD method cannot have body.
+get from bodiless post null
+fetch post empty {"method":"POST","contentType":"text/plain;charset=UTF-8","xTest":null,"body":""}
