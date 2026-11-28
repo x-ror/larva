@@ -3,7 +3,7 @@
 // entry while the page loads, adding one after), scrollRestoration, and traversal
 // (queued, not synchronous). Lengths are printed relative to the initial one, which is
 // the browser's (Chrome's recorder starts on about:blank). Traversal stays inside the
-// entries this page made; events are not observed (no window EventTarget yet).
+// entries this page made; the events it fires are history-events'.
 const strip = (s) => String(s).split(ORIGIN).join('ORIGIN');
 const L0 = history.length;
 const where = () => strip(location.href) + ' len+' + (history.length - L0);

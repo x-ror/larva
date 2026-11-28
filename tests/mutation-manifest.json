@@ -580,7 +580,7 @@
     },
     {
       "name": "runner_busy_page_is_not_held_up_by_a_waiting_sibling dies when a page loop may block in its own poll",
-      "why": "A page loop that blocks on its own timer stalls every other page on the thread, so ten 300 ms pages run one after another.",
+      "why": "A page loop that blocks in its own poll sleeps through the round until its timer, so a sibling 1 s from its only timer is reported before a busy page that needs 30 rounds of ~4 ms.",
       "source": "pkg/runtime/page_runner.odin",
       "find": "\trp.loop.never_block = true\n",
       "replace": "\trp.loop.never_block = false\n",
@@ -589,12 +589,12 @@
     },
     {
       "name": "runner_pages_wait_concurrently dies when the runner spins instead of waiting on the page loops",
-      "why": "Without the epoll wait an idle runner busy-loops over its pages, burning a core while every page sleeps.",
+      "why": "Without the epoll wait an idle runner busy-loops over its pages: 92k-130k rounds in the 600 ms every page sleeps, against under 50 blocking.",
       "source": "pkg/runtime/page_runner.odin",
       "find": "\t\trunner_wait(runner)\n\t}\n\n\treturn false",
       "replace": "\t}\n\n\treturn false",
       "gate": "odin:cmd/lava:main.runner_pages_wait_concurrently",
-      "expect_detail": "runner burned"
+      "expect_detail": "runner spun"
     },
     {
       "name": "close_begin_cancels_a_running_job_without_waiting_for_it dies when close_begin skips the cancel hook of a running job",
@@ -953,6 +953,15 @@
       "replace": "\t\tif false {",
       "gate": "odin:cmd/lava:main.dispatcher_picks_the_least_loaded_worker",
       "expect_detail": "got no pages / doubled up"
+    },
+    {
+      "name": "dispatcher_busy_page_does_not_hold_other_workers dies when submit stops comparing loads",
+      "why": "Round-robin hands every other short page to the spinner's worker, where it waits out the whole spin and is reported after the spinner.",
+      "source": "pkg/runtime/page_dispatcher.odin",
+      "find": "\t\tif l < best_load {",
+      "replace": "\t\tif false {",
+      "gate": "odin:cmd/lava:main.dispatcher_busy_page_does_not_hold_other_workers",
+      "expect_detail": "the spinner was reported before the short pages"
     },
     {
       "name": "dispatcher_queues_past_capacity dies when a worker opens pages past its slots",
@@ -2272,6 +2281,15 @@
       "expect_detail": "failed to initialize internal:loader: TypeError: Attempting to change the setter of an unconfigurable property"
     },
     {
+      "name": "runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first dies when the shim runs a closed page's cleanup at the RunLoop dispatch",
+      "why": "A cleanup JSC queued for the first page before it closed then runs anyway, after the close, and its 1.5 s spin lands on the second page in the reused VM, which its 1 s budget kills.",
+      "source": "pkg/runtime/js/internal/deferred.js",
+      "find": "      enqueue(cleanup, heldValue, registry);",
+      "replace": "      cleanup(heldValue);",
+      "gate": "odin:cmd/lava:main.runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first",
+      "expect_detail": "second page: {done=true status=Execution_Error kill=Cpu_Budget"
+    },
+    {
       "name": "runner_churn_of_mixed_fates_frees_everything_it_allocates dies when runner_finish keeps the Runner_Page",
       "why": "Every closed page would leak its Runner_Page on the runner allocator, whatever its fate.",
       "source": "pkg/runtime/page_runner.odin",
@@ -2843,6 +2861,15 @@
       "expect_detail": "waited out the hog's turn"
     },
     {
+      "name": "runner_slicing_keeps_event_loop_order dies when a suspended turn requeues the timer it stopped before",
+      "why": "A slice must resume the same turn with its tasks in place; requeued behind what arrived during the turn, Y runs after Z and the interval's second fire after `early` (X,Z,Y,W,T and A,interval1,early,interval2,late).",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\t\tloop.resume_seq_limit = timer_phase_sequence_limit\n\t\t\treturn did_work\n",
+      "replace": "\t\t\tloop.resume_seq_limit = timer_phase_sequence_limit\n\t\t\tready_push(loop, ready_pop(loop))\n\t\t\treturn did_work\n",
+      "gate": "odin:cmd/lava:main.runner_slicing_keeps_event_loop_order",
+      "expect_detail": "Uncaught Error: X,Z,Y,W,T"
+    },
+    {
       "name": "runner_sibling_ticks_between_slices_of_a_timer_heavy_page dies when a runner page does not take the runner's quantum",
       "why": "The quantum lives on the runner; a page that never copies it to its VM never slices.",
       "source": "pkg/runtime/page_runner.odin",
@@ -2986,7 +3013,7 @@
       "find": "\tif jsc.runloop_due() {\n\t\tjsc.runloop_dispatch()\n\t}\n",
       "replace": "",
       "gate": "odin:cmd/lava:main.eval_runs_a_finalization_cleanup",
-      "expect_detail": "no FinalizationRegistry cleanup within 3 s"
+      "expect_detail": "no FinalizationRegistry cleanup in 100 ticks"
     },
     {
       "name": "vm_pool_releases_its_timerfds dies when vm_pool_destroy no longer iterates the RunLoop after its releases",
@@ -3024,6 +3051,15 @@
       "replace": "      cleanup(heldValue);",
       "gate": "odin:cmd/lava:main.runner_charges_a_cleanup_to_its_own_page",
       "expect_detail": "were not charged to A"
+    },
+    {
+      "name": "runner_dispatches_the_runloop_while_every_round_is_busy dies when a busy round does not sync the RunLoop",
+      "why": "The runner then learns GLib's deadlines and descriptors only before it blocks, so a runner whose every round progresses never dispatches the RunLoop and a queued FinalizationRegistry cleanup never runs (0 of 200 at load ~18).",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\t\tjsc.runloop_sync_stale(RUNNER_RUNLOOP_SYNC_INTERVAL)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.runner_dispatches_the_runloop_while_every_round_is_busy",
+      "expect_detail": "no FinalizationRegistry cleanup in 100 busy rounds"
     },
     {
       "name": "page_sees_finalization_cleanups_as_chrome_does dies when one task runs every registry's cleanups",
@@ -3078,6 +3114,15 @@
       "replace": "",
       "gate": "odin:cmd/lava:main.wasm_start_function_is_charged_to_its_page",
       "expect_detail": "the start functions were not charged"
+    },
+    {
+      "name": "wasm_of_a_killed_page_runs_nothing_after_it dies when the engine's WebAssembly.compile is kept",
+      "why": "The engine settles a compile from the thread's RunLoop, so a killed page's `then` getter still runs after its close — inside the next page's tick on the reused VM, which its entry limit then kills (#97 review, safety F1).",
+      "source": "pkg/runtime/wasm.odin",
+      "find": "\tset_named(ctx, ns, \"compile\", cast(jsc.JSValueRef)compile)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.wasm_of_a_killed_page_runs_nothing_after_it",
+      "expect_detail": "vector 1: the next page paid for A's wasm"
     },
     {
       "name": "runner_holds_a_page_until_its_wasm_settles dies when a settlement job takes no hold on the loop",
@@ -3586,6 +3631,26 @@
       "expect_detail": "the harness page makes a foreign context element in its namespace"
     },
     {
+      "name": "the DOM oracle runner's report reaches a pipe whole",
+      "why": "process.exit() drops stdout still queued on a non-blocking pipe; the mutation gate read `make test-dom` cut mid-list and reported killed mutations as WRONG REASON.",
+      "source": "scripts/run-dom-oracle.mjs",
+      "find": "process.exitCode = failed ? 1 : 0;",
+      "replace": "process.exit(failed ? 1 : 0);",
+      "gate": "node-test:scripts/run-dom-oracle.test.mjs",
+      "test": "a long failing run reaches a pipe whole: every FAIL line and the summary",
+      "expect_detail": "did not match the regular expression /^FAIL t-"
+    },
+    {
+      "name": "the web oracle runner's report reaches a pipe whole",
+      "why": "process.exit() drops stdout still queued on a non-blocking pipe, so a gate reading `make test-web` through spawnSync loses the failing cases' names.",
+      "source": "scripts/run-web-oracle.mjs",
+      "find": "process.exitCode = failed ? 1 : 0;",
+      "replace": "process.exit(failed ? 1 : 0);",
+      "gate": "node-test:scripts/run-web-oracle.test.mjs",
+      "test": "a long failing run reaches a pipe whole: every FAIL line and the summary",
+      "expect_detail": "did not match the regular expression /^FAIL t-"
+    },
+    {
       "name": "shape-domexception dies when DOMException.prototype keeps constructor first",
       "why": "Chrome lists code, name, message, the 25 constants, then constructor; a class puts constructor first, and native_shape moves it only when the member list names it.",
       "source": "pkg/runtime/js/internal/domexception.js",
@@ -4089,7 +4154,7 @@
       "name": "tests/dom dom-window-events.page dies when a node's path stops at the document",
       "why": "Without the window on the path a window listener sees nothing of a node's event and composedPath() lacks it (the 4a known gap).",
       "source": "pkg/runtime/js/internal/event_target.js",
-      "find": "if (hostWindow !== null && state.type !== 'load' && hostIsDocument(top)) {",
+      "find": "if (state.type !== 'load' && hostIsDocument(top)) {",
       "replace": "if (false) {",
       "gate": "make:test-dom",
       "expect_detail": "dom-window-events.page"
@@ -4354,6 +4419,60 @@
       "replace": "    wrapGetter,\n",
       "gate": "odin:cmd/lava:main.never_optimize_keeps_install_helpers_out_of_the_dfg",
       "expect_detail": "wrapOperation was DFG-compiled"
+    },
+    {
+      "name": "history-events dies when a fragment change queues no hashchange",
+      "why": "HTML queues hashchange whenever a navigation or traversal changes the fragment; without it a router listening for hashchange never runs.",
+      "source": "pkg/runtime/js/internal/location.js",
+      "find": "    if (fragmentOf(oldHref) === fragmentOf(newHref)) return;\n",
+      "replace": "    return;\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL history-events"
+    },
+    {
+      "name": "history-events dies when a fragment navigation fires no popstate",
+      "why": "Chrome fires popstate inside location.hash=/assign/replace/href for a fragment navigation, before the next statement; dropping it hides that navigation from popstate routers.",
+      "source": "pkg/runtime/js/internal/location.js",
+      "find": "    firePopState(null);\n",
+      "replace": "",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL history-events"
+    },
+    {
+      "name": "history-events dies when a traversal's popstate does not carry the entry's state",
+      "why": "popstate's state is the arrived-at entry's state (the one history.state returns); null loses what pushState stored.",
+      "source": "pkg/runtime/js/internal/location.js",
+      "find": "      firePopState(entries[target].state);\n",
+      "replace": "      firePopState(null);\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL history-events"
+    },
+    {
+      "name": "history-events dies when the global is not an EventTarget",
+      "why": "Chrome's window is an EventTarget with or without a document; under `lava run` addEventListener would be missing and no window event could be observed.",
+      "source": "pkg/runtime/js/internal/event_target.js",
+      "find": "    ObjectSetPrototypeOf(ObjectGetPrototypeOf(global), PublicEventTarget.prototype);\n",
+      "replace": "",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL history-events"
+    },
+    {
+      "name": "history-events dies when a non-callable event handler is invoked",
+      "why": "A [LegacyTreatNonObjectAsNull] handler holding a non-callable object is invoked as returning undefined; calling it throws an uncaught TypeError at every event.",
+      "source": "pkg/runtime/js/internal/event_target.js",
+      "find": "        if (typeof handler !== 'function') return;\n",
+      "replace": "        if (handler === null) return;\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL history-events"
+    },
+    {
+      "name": "window_env_event_listeners_share_one_microtask_checkpoint dies when a traversal fires no popstate",
+      "why": "The Lava-only pin of History's microtask @deviates must observe the traversal's popstate at all, or it pins nothing.",
+      "source": "pkg/runtime/js/internal/location.js",
+      "find": "      firePopState(entries[target].state);\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.window_env_event_listeners_share_one_microtask_checkpoint",
+      "expect_detail": "order: h1 h2 micro-h1"
     },
     {
       "name": "dom-reflect-shape.page dies when a reflected accessor stops checking its receiver's interface",
