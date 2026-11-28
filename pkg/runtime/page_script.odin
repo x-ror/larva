@@ -32,11 +32,12 @@ import eventloop "lava:pkg/runtime/eventloop"
 // the element gets `error`, as an unreachable URL would in Chrome. A network page
 // loader, which would fetch over pkg/http, is not there yet.
 //
+// Module scripts (`type=module`, page_module.odin) are prepared here like a classic
+// external script with `defer`, inline or not: parser-inserted ones run in document order
+// with the `defer` scripts, an `async` or inserted one as a task of its own. They do not
+// set document.currentScript, and an inline one fires no `load`.
+//
 // Deviations, each pinned by a tests/dom case or noted as unrecorded:
-//   - module scripts (`type=module`) never run: the JavaScriptCore C API has no module
-//     loader (JSContext's module loader delegate is Objective-C only), so they are
-//     marked started and skipped; tests/dom/known-gaps.txt pins
-//     dom-script-module.page, where Chrome runs them.
 //   - an external script is decoded as UTF-8 (a UTF-8 BOM is dropped); a `charset`
 //     attribute, another BOM and the document's encoding are not consulted.
 //     Unrecorded: every case's script is UTF-8.
@@ -57,6 +58,8 @@ Script_Job :: struct {
 	name:   string,
 	// The fetch failed: running the job fires `error` at the element.
 	failed: bool,
+	// A module script (page_module.odin).
+	module: bool,
 }
 
 // Page_Scripts is a page's script state, held by its Dom_Page (dom.odin) and released
@@ -434,9 +437,9 @@ script_prepare :: proc(dom: ^Dom_Page, node: html.Node, parser_inserted: bool) -
 
 	s.started[node] = {}
 
-	// A module never runs (see the file comment); a nomodule classic script is for
-	// browsers without modules, which Chrome is not.
+	// A nomodule classic script is for browsers without modules, which Chrome is not.
 	if kind == .Module {
+		script_prepare_module(dom, node, src, has_src, parser_inserted)
 		return .None, {}
 	}
 
@@ -466,6 +469,33 @@ script_prepare :: proc(dom: ^Dom_Page, node: html.Node, parser_inserted: bool) -
 	append(&s.ready, job)
 	scripts_schedule(dom)
 	return .None, {}
+}
+
+// script_prepare_module queues a module script: HTML's "prepare the script element" for
+// type=module. Inline or external, a parser-inserted module without `async` waits with
+// the `defer` scripts; any other one runs as a task of its own.
+@(private = "file")
+script_prepare_module :: proc(dom: ^Dom_Page, node: html.Node, src: string, has_src: bool, parser_inserted: bool) {
+	s := &dom.scripts
+	job: Script_Job
+	empty := false
+
+	if has_src {
+		job, empty = script_fetch(s, node, src)
+	} else {
+		job = Script_Job{node = node, source = html.text(node, s.allocator)}
+	}
+
+	job.module = true
+	_, async := html.attr_view(node, "async")
+
+	if parser_inserted && !async && !empty {
+		append(&s.deferred, job)
+		return
+	}
+
+	append(&s.ready, job)
+	scripts_schedule(dom)
 }
 
 // scripts_prepare_inserted prepares a script a script inserted, and runs it when inline.
@@ -509,6 +539,11 @@ script_execute :: proc(page: ^Page, job: ^Script_Job, parser: bool) {
 		source = source[3:]
 	}
 
+	if job.module {
+		script_execute_module(page, job, source)
+		return
+	}
+
 	previous := s.current
 	s.current = job.node
 
@@ -530,6 +565,28 @@ script_execute :: proc(page: ^Page, job: ^Script_Job, parser: bool) {
 	s.current = previous
 
 	if job.name != "" && !page.finished {
+		script_fire(page, job.node, "load")
+	}
+}
+
+// script_execute_module runs a module script's job: document.currentScript stays null
+// and the script nesting level is untouched (HTML sets neither for a module). An
+// external one gets `load` once it ran, or `error` when a module of its graph could not
+// be fetched; an inline one gets only that `error`.
+@(private = "file")
+script_execute_module :: proc(page: ^Page, job: ^Script_Job, source: string) {
+	dom := page.state.dom
+	url := job.name == "" ? "" : module_file_url(job.name, context.temp_allocator)
+	name := url if url != "" else dom.scripts.source_name
+	ok, ended := page_run_module_script(page, source, url, name)
+
+	if ended || page.finished || page.state == nil || page.state.dom != dom {
+		return
+	}
+
+	if !ok {
+		script_fire(page, job.node, "error")
+	} else if job.name != "" {
 		script_fire(page, job.node, "load")
 	}
 }
@@ -656,7 +713,7 @@ script_fetch :: proc(s: ^Page_Scripts, node: html.Node, src: string) -> (job: Sc
 // Returns:
 //   ok false for a URL that names no local file — another scheme (http:, data:, …) or a
 //   host — or a page with no document path.
-@(private = "file")
+@(private)
 script_resolve :: proc(document_path, url: string) -> (path: string, ok: bool) {
 	if document_path == "" {
 		return "", false

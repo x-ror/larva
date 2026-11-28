@@ -1,0 +1,169 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-28
+# runs: 3 identical
+# command: node scripts/record-dom.mjs dom-script-module-graph.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "module graph"
+|     "
+"
+|     <script>
+|       "
+var order = [];
+document.addEventListener('DOMContentLoaded', function () {
+  order.push('DOMContentLoaded');
+});
+window.addEventListener('load', function () {
+  document.getElementById('log').textContent = order.join('\n') + '\n';
+});
+"
+|     "
+"
+|     <script>
+|       id="main"
+|       type="module"
+|       "
+import a, { counter, inc } from './dom-script-module-graph.page.a.js';
+import * as ns from './dom-script-module-graph.page.b.js';
+import { c as cee, p, r } from './dom-script-module-graph.page.c.js';
+order.push('main a=' + a + ' c=' + cee + ' p=' + p + ' r=' + r + ' counter=' + counter);
+inc();
+inc();
+order.push('main live counter=' + counter);
+order.push('main ns keys=' + Object.keys(ns).join(',') + ' b=' + ns.b + ' tag=' + ns[Symbol.toStringTag] + ' frozen=' + Object.isExtensible(ns));
+order.push('main c evaluations=' + window.cEvaluations);
+try {
+  counter = 5;
+} catch (e) {
+  order.push('main assign ' + e.name + ': ' + e.message);
+}
+order.push('main this=' + typeof this);
+var text = `import x from 'nowhere' ${'export const y = 1'}`;
+order.push('main text=' + text + ' regex=' + /import\/x/.test('import/x'));
+"
+|     "
+"
+|     <script>
+|       id="tla"
+|       type="module"
+|       "
+order.push('tla before');
+const v = await Promise.resolve(42);
+order.push('tla after ' + v);
+"
+|     "
+"
+|     <script>
+|       id="ext"
+|       type="module"
+|       src="dom-script-module-graph.page.e.js"
+|     "
+"
+|     <script>
+|       "
+document.getElementById('ext').addEventListener('load', function () {
+  order.push('ext load');
+});
+order.push('classic ' + document.readyState);
+"
+|     "
+"
+|   "
+"
+|   <body>
+|     "
+"
+|     <pre>
+|       id="log"
+|       "classic loading
+c evaluates
+a evaluates c=C
+b evaluates c=C
+main a=AC c=C p=P r=R counter=0
+main live counter=2
+main ns keys=b,c,other,p,r b=BC tag=Module frozen=false
+main c evaluations=1
+main assign TypeError: Assignment to constant variable.
+main this=undefined
+main text=import x from 'nowhere' export const y = 1 regex=true
+tla before
+tla after 42
+ext evaluates b=BC interactive meta=dom-script-module-graph.page.e.js
+bare TypeError: Failed to resolve module specifier 'bare-specifier'
+ext load
+DOMContentLoaded
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head><title>module graph</title>
+<script>
+var order = [];
+document.addEventListener('DOMContentLoaded', function () {
+  order.push('DOMContentLoaded');
+});
+window.addEventListener('load', function () {
+  document.getElementById('log').textContent = order.join('\n') + '\n';
+});
+</script>
+<script id="main" type="module">
+import a, { counter, inc } from './dom-script-module-graph.page.a.js';
+import * as ns from './dom-script-module-graph.page.b.js';
+import { c as cee, p, r } from './dom-script-module-graph.page.c.js';
+order.push('main a=' + a + ' c=' + cee + ' p=' + p + ' r=' + r + ' counter=' + counter);
+inc();
+inc();
+order.push('main live counter=' + counter);
+order.push('main ns keys=' + Object.keys(ns).join(',') + ' b=' + ns.b + ' tag=' + ns[Symbol.toStringTag] + ' frozen=' + Object.isExtensible(ns));
+order.push('main c evaluations=' + window.cEvaluations);
+try {
+  counter = 5;
+} catch (e) {
+  order.push('main assign ' + e.name + ': ' + e.message);
+}
+order.push('main this=' + typeof this);
+var text = `import x from 'nowhere' ${'export const y = 1'}`;
+order.push('main text=' + text + ' regex=' + /import\/x/.test('import/x'));
+</script>
+<script id="tla" type="module">
+order.push('tla before');
+const v = await Promise.resolve(42);
+order.push('tla after ' + v);
+</script>
+<script id="ext" type="module" src="dom-script-module-graph.page.e.js"></script>
+<script>
+document.getElementById('ext').addEventListener('load', function () {
+  order.push('ext load');
+});
+order.push('classic ' + document.readyState);
+</script>
+</head>
+<body>
+<pre id="log">classic loading
+c evaluates
+a evaluates c=C
+b evaluates c=C
+main a=AC c=C p=P r=R counter=0
+main live counter=2
+main ns keys=b,c,other,p,r b=BC tag=Module frozen=false
+main c evaluations=1
+main assign TypeError: Assignment to constant variable.
+main this=undefined
+main text=import x from 'nowhere' export const y = 1 regex=true
+tla before
+tla after 42
+ext evaluates b=BC interactive meta=dom-script-module-graph.page.e.js
+bare TypeError: Failed to resolve module specifier 'bare-specifier'
+ext load
+DOMContentLoaded
+</pre>
+
+
+</body></html>

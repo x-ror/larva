@@ -143,5 +143,10 @@
     installDom: function (native, names) {
       return req('internal/dom').install(native, names);
     },
+    // A page's module script (pkg/runtime/page_module.odin): internal/module_loader, on a
+    // page's first one, so a page without module scripts never compiles it.
+    runModule: function (source, url, base, name) {
+      return req('internal/module_loader').run(source, url, base, name);
+    },
   });
 });
