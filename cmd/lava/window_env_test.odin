@@ -8,6 +8,7 @@ import "core:testing"
 import http "lava:pkg/http"
 import profile "lava:pkg/profile"
 import lava "lava:pkg/runtime"
+import eventloop "lava:pkg/runtime/eventloop"
 
 // Pins what no Chrome recording can show about location/history/navigator
 // (internal/location.js, internal/navigator.js): the page URL without a usable
@@ -27,9 +28,21 @@ run_window_script :: proc(t: ^testing.T, name: string, source: string, origin :=
 	}
 
 	defer os.remove(path)
-	result := lava.run_file(path, origin = origin)
+	// A loop, or the timers never run: run_file without one stops after the top level.
+	// run_file consumes (destroys) it on every path.
+	loop := eventloop.init()
+	result := lava.run_file(path, &loop, origin = origin)
 	defer lava.result_destroy(&result)
-	testing.expectf(t, result.status == .Ok, "%s: status=%v message=%q", name, result.status, result.message)
+	// A throw from a timer leaves the status Ok and is reported as exit code 1 at close.
+	testing.expectf(
+		t,
+		result.status == .Ok && result.exit_code == 0,
+		"%s: status=%v exit_code=%d message=%q",
+		name,
+		result.status,
+		result.exit_code,
+		result.message,
+	)
 }
 
 // The embedder's value is the page URL; an origin is its root, and no value or one that
