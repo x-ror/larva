@@ -325,6 +325,54 @@
       "expect_detail": "timerfd(s) outlived the retired VM"
     },
     {
+      "name": "runner_kills_a_page_over_its_heap_limit_alone dies when the heap check never kills",
+      "why": "A heap limit whose verdict is dropped lets a page grow without bound beside its siblings while every caller believes it is capped.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\tif bytes > vm.heap_limit {\n\t\tvm_heap_kill(vm)",
+      "replace": "\tif false {\n\t\tvm_heap_kill(vm)",
+      "gate": "odin:cmd/lava:main.runner_kills_a_page_over_its_heap_limit_alone",
+      "expect_detail": "grower: {done=true status=Ok"
+    },
+    {
+      "name": "runner_kills_a_page_over_its_heap_limit_alone dies when the kill compares against four times the limit",
+      "why": "A check against the wrong bound lets the page past the limit it was given: either the kill's reading shows it, or, the collection having stretched the schedule, the page ends unkilled.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\tif bytes > vm.heap_limit {\n\t\tvm_heap_kill(vm)",
+      "replace": "\tif bytes > vm.heap_limit * 4 {\n\t\tvm_heap_kill(vm)",
+      "gate": "odin:cmd/lava:main.runner_kills_a_page_over_its_heap_limit_alone",
+      "expect_detail": [
+        "within 3x of it",
+        "grower: {done=true status=Ok"
+      ]
+    },
+    {
+      "name": "runner_kills_a_page_over_its_heap_limit_alone dies when a heap kill stops retiring the VM",
+      "why": "A VM whose heap was over a limit after a full collection would host the next page with that heap still in it.",
+      "source": "pkg/runtime/vm_pool.odin",
+      "find": "\tif vm.heap_hit {\n\t\treturn true\n\t}\n\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.runner_kills_a_page_over_its_heap_limit_alone",
+      "expect_detail": "expected retired to be 1, got 0"
+    },
+    {
+      "name": "runner_heap_limit_spares_a_page_under_it dies when the kill ignores the limit",
+      "why": "A check that kills on any reading kills every page that sets a limit, the ones well under it included.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\tif bytes > vm.heap_limit {\n\t\tvm_heap_kill(vm)",
+      "replace": "\tif bytes > 0 {\n\t\tvm_heap_kill(vm)",
+      "gate": "odin:cmd/lava:main.runner_heap_limit_spares_a_page_under_it",
+      "expect_detail": "kill=Heap_Limit"
+    },
+    {
+      "name": "runner_heap_limit_spares_a_page_that_only_churns_garbage dies when the check stops collecting before its verdict",
+      "why": "The reading is the heap's capacity, garbage included; without the collection a page that keeps nothing is killed as if it kept it.",
+      "source": "pkg/runtime/page.odin",
+      "find": "\t\tjsc.collect_garbage_now(ctx)\n\t\tbytes, ok = jsc.heap_size_bytes(ctx)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.runner_heap_limit_spares_a_page_that_only_churns_garbage",
+      "expect_detail": "kill=Heap_Limit"
+    },
+    {
       "name": "runner_churn_with_retirement_keeps_fds_flat_and_rss_bounded dies when a retired VM's group is never released",
       "why": "A retirement that only drops the VM from the pool keeps its heap and timerfd alive: ~8 MB and one descriptor per retirement.",
       "source": "pkg/runtime/vm_pool.odin",
