@@ -48,6 +48,15 @@
   var TypeErrorP = P.TypeError;
   var StringP = P.String;
   var webErrors = require('internal/web_errors');
+  // internal/cookie, required on first use: it is instantiated eagerly, but after this
+  // module (it needs internal/url, which needs TextEncoder), so not at this module-eval.
+  var cookieJar = null;
+  function cookies() {
+    if (cookieJar === null) cookieJar = require('internal/cookie');
+    return cookieJar;
+  }
+  var ArrayPrototypePush1 = P.ArrayPrototypePush1;
+  var StringPrototypeToLowerCase = P.StringPrototypeToLowerCase;
 
   // collectStreamBody materializes a known-length streaming body (a Blob) to a
   // single Uint8Array so it can be sent with Content-Length framing — matching
@@ -211,13 +220,15 @@
 
   // serializeHeaders renders a Request's user headers into the wire
   // "Name: Value\r\n" block, dropping the transport-owned headers (Host /
-  // Content-Length / Connection / Transfer-Encoding) the native side sets itself.
+  // Content-Length / Connection / Transfer-Encoding) the native side sets itself, and a
+  // page's own `cookie`: Cookie is a forbidden request header, which Chrome drops from
+  // what a page sets (tests/web/cases/cookie-fetch); the jar's goes out instead.
   function serializeHeaders(headers) {
     var headerLines = '';
     var entries = headerEntries(headers);
     for (var i = 0; i < entries.length; i++) {
       var key = entries[i][0];
-      if (TRANSPORT_OWNED_HEADERS[key]) continue;
+      if (TRANSPORT_OWNED_HEADERS[key] || key === 'cookie') continue;
       // Names/values were CR/LF/NUL-validated when set (see Headers.append), so a
       // header cannot split the request line here.
       headerLines += key + ': ' + entries[i][1] + '\r\n';
@@ -232,6 +243,10 @@
   //   - any other body is sent buffered.
   function sendOne(req, signal) {
     var headerLines = serializeHeaders(req.headers);
+    // Per hop: a redirect is matched against the jar on its own URL, after the hop
+    // before it stored its Set-Cookie (startFetch's onResponse).
+    var jarCookies = cookies().forRequest(req.url, req.credentials);
+    if (jarCookies !== '') headerLines += 'cookie: ' + jarCookies + '\r\n';
     if (req.streamBody) {
       if (!req.streamNeedsDuplex) {
         return collectStreamBody(req.streamBody, signal).then(function (bytes) {
@@ -322,7 +337,14 @@
       removeRawHeader(headers, 'proxy-authorization');
     }
 
-    var nextInit = { method: method, headers: headers, redirect: req.redirect };
+    // The credentials mode carries over, so an 'omit' chain neither sends nor stores
+    // cookies on any hop (tests/web/cases/cookie-fetch).
+    var nextInit = {
+      method: method,
+      headers: headers,
+      redirect: req.redirect,
+      credentials: req.credentials,
+    };
 
     // A method-preserving redirect (307/308 with a body) must resend it. A Blob is
     // a known-length, replayable body — its bytes are read non-mutatingly (see
@@ -475,8 +497,16 @@
         // when the body settles (onEnd), fails (onError), or is cancelled.
         var headers = new Headers();
         var pairs = raw.headers || [];
-        for (var i = 0; i + 1 < pairs.length; i += 2)
+        var setCookies = [];
+        for (var i = 0; i + 1 < pairs.length; i += 2) {
           appendRawHeader(headers, pairs[i], pairs[i + 1]);
+          if (StringPrototypeToLowerCase(pairs[i]) === 'set-cookie') {
+            ArrayPrototypePush1(setCookies, pairs[i + 1]);
+          }
+        }
+        // Before the promise settles, so a redirect's next hop and the page's next
+        // request already see them.
+        cookies().fromResponse(req.url, req.credentials, setCookies);
 
         var bodyArg = null;
         if (raw.hasBody) {

@@ -614,4 +614,12 @@
   nativeShape.defineGlobalAttribute('history', function () {
     return historyObject;
   });
+
+  module.exports = {
+    // The document's URL now, for document.cookie (internal/cookie): pushState and a
+    // fragment navigation move it within the origin.
+    href: function () {
+      return read(urlHref, current);
+    },
+  };
 });

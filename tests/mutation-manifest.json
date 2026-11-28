@@ -4216,6 +4216,78 @@
       "replace": "",
       "gate": "make:test-dom",
       "expect_detail": "FAIL dom-script-dynamic.page"
+    },
+    {
+      "name": "cookie-fetch dies when path-match ignores the segment boundary",
+      "why": "A cookie for /fx/cookie-echo would go to /fx/cookie-echo2: path-match is a prefix match that must end at a '/', or a sibling path reads another path's cookies.",
+      "source": "pkg/http/cookie/cookie.odin",
+      "find": "\treturn cookie_path[len(cookie_path) - 1] == '/' || request_path[len(cookie_path)] == '/'\n",
+      "replace": "\treturn true\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL cookie-fetch"
+    },
+    {
+      "name": "sending_honours_secure_httponly_and_samesite dies when Secure is ignored on the way out",
+      "why": "A Secure cookie sent over plain http leaks the session cookie a site marked as https-only to anyone on the path.",
+      "source": "pkg/http/cookie/cookie.odin",
+      "find": "\tif c.secure && !secure {\n\t\treturn false\n\t}\n",
+      "replace": "",
+      "gate": "make:test-http-odin",
+      "expect_detail": "sending_honours_secure_httponly_and_samesite"
+    },
+    {
+      "name": "sending_honours_secure_httponly_and_samesite dies when document.cookie reads HttpOnly cookies",
+      "why": "HttpOnly exists so a script injected into the page cannot read the session cookie; handing it to document.cookie undoes that.",
+      "source": "pkg/http/cookie/cookie.odin",
+      "find": "\tif c.http_only && access == .Script {\n\t\treturn false\n\t}\n",
+      "replace": "",
+      "gate": "make:test-http-odin",
+      "expect_detail": "sending_honours_secure_httponly_and_samesite"
+    },
+    {
+      "name": "cookie-document-attributes.page dies when document.cookie may set an HttpOnly cookie",
+      "why": "Chrome refuses `h1=1; HttpOnly` from a script; storing it lets a script mint cookies the server trusts as its own HttpOnly ones.",
+      "source": "pkg/http/cookie/cookie.odin",
+      "find": "\tif c.http_only && access == .Script {\n\t\treturn .Http_Only\n\t}\n",
+      "replace": "",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL cookie-document-attributes.page"
+    },
+    {
+      "name": "cookie-document-basic.page dies when a replaced cookie always keeps its creation time",
+      "why": "Chrome keeps a replaced cookie's place in the Cookie header only when its value is unchanged; keeping it always reorders the header against the recording.",
+      "source": "pkg/http/cookie/cookie.odin",
+      "find": "\t\tif jar.cookies[old].value == c.value {\n",
+      "replace": "\t\tif true {\n",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL cookie-document-basic.page"
+    },
+    {
+      "name": "cookie-document-limits.page dies when a full site purges to another size",
+      "why": "Chrome purges a site past 180 cookies back to 150; another target changes which cookies a crawl still holds after a cookie-heavy page.",
+      "source": "pkg/http/cookie/cookie.odin",
+      "find": "DOMAIN_PURGE_TO :: 150\n",
+      "replace": "DOMAIN_PURGE_TO :: 140\n",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL cookie-document-limits.page"
+    },
+    {
+      "name": "cookie-fetch dies when credentials 'omit' still uses the jar",
+      "why": "fetch(url, {credentials: 'omit'}) must neither send nor store cookies; a page uses it precisely to make an anonymous request.",
+      "source": "pkg/runtime/js/internal/cookie.js",
+      "find": "    if (credentials === 'include') return true;\n",
+      "replace": "    return true;\n",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL cookie-fetch"
+    },
+    {
+      "name": "a_redirect_sends_the_cookies_it_set dies when a redirect's Set-Cookie is dropped",
+      "why": "A login answered with a 302 and its session cookie would land on the next page logged out: the hop after a redirect must send what the redirect set.",
+      "source": "pkg/http/transfer_linux.odin",
+      "find": "\tif !folded {\n\t\tstore_cookies(t, headers)\n\t}\n",
+      "replace": "",
+      "gate": "make:test-http-odin",
+      "expect_detail": "a_redirect_sends_the_cookies_it_set"
     }
   ]
 }

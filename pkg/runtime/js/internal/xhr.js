@@ -528,8 +528,9 @@
    *   NotSupportedError, where Chrome blocks the page until the response is in: a
    *   known gap, tests/web/cases/xhr-sync. responseXML is always null and
    *   responseType 'document' answers null: Larva builds no Document from a response.
-   *   No CORS: a cross-origin request is sent as a same-origin one, and
-   *   withCredentials is stored only (no cookie jar). A relative URL resolves against
+   *   No CORS: a cross-origin request is sent as a same-origin one; withCredentials
+   *   picks the credentials mode the page's cookie jar is used under ('include' or
+   *   'same-origin', tests/web/cases/cookie-xhr). A relative URL resolves against
    *   the embedder's origin (`lava run --origin=`), not the document's URL.
    *   responseText decodes with the response's charset, else UTF-8 — no HTML or XML
    *   encoding sniffing. setPrivateToken() checks its argument count only.
@@ -1130,6 +1131,8 @@
       method: x.method,
       headers: x.headers,
       body: bytes,
+      // XHR's credentials mode: a same-origin request has cookies either way.
+      credentials: x.withCredentials ? 'include' : 'same-origin',
       signal: ReflectApply(AbortControllerSignalGet, controller, []),
     };
     var promise = fetchOp(x.url, init);

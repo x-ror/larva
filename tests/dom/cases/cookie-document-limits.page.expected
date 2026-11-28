@@ -1,0 +1,168 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-28
+# runs: 3 identical
+# command: node scripts/record-dom.mjs cookie-document-limits.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "document.cookie limits"
+|   "
+"
+|   <body>
+|     "
+"
+|     <pre>
+|       id="log"
+|       "name+value 4096 true
+"
+|       "name+value 4097 false
+"
+|       "nameless value 4096 true
+"
+|       "nameless value 4097 false
+"
+|       "after deletes 0
+"
+|       "path value 1024 0
+"
+|       "path value 1025 true
+"
+|       "long unknown attribute true
+"
+|       "before many 0
+"
+|       "count jumps 179:150 210:150 241:150 272:150 303:150 334:150 365:150 396:150
+"
+|       "after 400 153 first k247 last k399
+"
+|     "
+"
+|     <script>
+|       "
+// Chrome's size limits on what document.cookie stores: 4096 bytes of name and value
+// together, 1024 of an attribute value, and its per-domain cookie count.
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function names() {
+  var c = document.cookie;
+  if (c === '') return [];
+  var parts = c.split('; ');
+  for (var i = 0; i < parts.length; i++) parts[i] = parts[i].split('=')[0];
+  return parts;
+}
+function has(name) {
+  return names().indexOf(name) >= 0;
+}
+function x(n) {
+  return 'x'.repeat(n);
+}
+document.cookie = 'n4096=' + x(4096 - 5);
+log('name+value 4096 ' + has('n4096'));
+document.cookie = 'n4097=' + x(4097 - 5);
+log('name+value 4097 ' + has('n4097'));
+document.cookie = x(4096);
+log('nameless value 4096 ' + (document.cookie.indexOf(x(4096)) >= 0));
+document.cookie = x(4097);
+log('nameless value 4097 ' + (document.cookie.indexOf(x(4097)) >= 0));
+document.cookie = 'n4096=; Max-Age=0';
+document.cookie = x(4096) + '; Max-Age=0';
+log('after deletes ' + names().length);
+document.cookie = 'pa=1; Path=/' + x(1023);
+log('path value 1024 ' + document.cookie.length);
+document.cookie = 'pb=1; Path=/raw' + x(1021);
+log('path value 1025 ' + has('pb'));
+document.cookie = 'pb=; Max-Age=0';
+document.cookie = 'pc=1; Unknown=' + x(5000);
+log('long unknown attribute ' + has('pc'));
+document.cookie = 'pc=; Max-Age=0';
+log('before many ' + names().length);
+var jumps = [];
+var last = 0;
+for (var i = 0; i < 400; i++) {
+  document.cookie = 'k' + i + '=' + i;
+  var n = names().length;
+  if (n !== last + 1) jumps.push(i + ':' + n);
+  last = n;
+}
+log('count jumps ' + jumps.join(' '));
+var now = names();
+log('after 400 ' + now.length + ' first ' + now[0] + ' last ' + now[now.length - 1]);
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head><title>document.cookie limits</title></head>
+<body>
+<pre id="log">name+value 4096 true
+name+value 4097 false
+nameless value 4096 true
+nameless value 4097 false
+after deletes 0
+path value 1024 0
+path value 1025 true
+long unknown attribute true
+before many 0
+count jumps 179:150 210:150 241:150 272:150 303:150 334:150 365:150 396:150
+after 400 153 first k247 last k399
+</pre>
+<script>
+// Chrome's size limits on what document.cookie stores: 4096 bytes of name and value
+// together, 1024 of an attribute value, and its per-domain cookie count.
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function names() {
+  var c = document.cookie;
+  if (c === '') return [];
+  var parts = c.split('; ');
+  for (var i = 0; i < parts.length; i++) parts[i] = parts[i].split('=')[0];
+  return parts;
+}
+function has(name) {
+  return names().indexOf(name) >= 0;
+}
+function x(n) {
+  return 'x'.repeat(n);
+}
+document.cookie = 'n4096=' + x(4096 - 5);
+log('name+value 4096 ' + has('n4096'));
+document.cookie = 'n4097=' + x(4097 - 5);
+log('name+value 4097 ' + has('n4097'));
+document.cookie = x(4096);
+log('nameless value 4096 ' + (document.cookie.indexOf(x(4096)) >= 0));
+document.cookie = x(4097);
+log('nameless value 4097 ' + (document.cookie.indexOf(x(4097)) >= 0));
+document.cookie = 'n4096=; Max-Age=0';
+document.cookie = x(4096) + '; Max-Age=0';
+log('after deletes ' + names().length);
+document.cookie = 'pa=1; Path=/' + x(1023);
+log('path value 1024 ' + document.cookie.length);
+document.cookie = 'pb=1; Path=/raw' + x(1021);
+log('path value 1025 ' + has('pb'));
+document.cookie = 'pb=; Max-Age=0';
+document.cookie = 'pc=1; Unknown=' + x(5000);
+log('long unknown attribute ' + has('pc'));
+document.cookie = 'pc=; Max-Age=0';
+log('before many ' + names().length);
+var jumps = [];
+var last = 0;
+for (var i = 0; i < 400; i++) {
+  document.cookie = 'k' + i + '=' + i;
+  var n = names().length;
+  if (n !== last + 1) jumps.push(i + ':' + n);
+  last = n;
+}
+log('count jumps ' + jumps.join(' '));
+var now = names();
+log('after 400 ' + now.length + ' first ' + now[0] + ' last ' + now[now.length - 1]);
+</script>
+
+
+</body></html>

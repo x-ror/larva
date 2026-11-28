@@ -52,9 +52,9 @@
       "why": "Design reference only: Lava's loop owns phases and timers with Node semantics. Read new nbio work before changing the loop."
     },
     {
-      "ours": "js/internal/url.js, cookie handling (planned cookie jar, #9)",
-      "match": ["^core:net/(url|cookie)", "^core:net\\..*(cookie|public_suffix)"],
-      "why": "WHATWG URL stays in JS; a public-suffix list or cookie parser in the SDK is a candidate for the #9 cookie jar."
+      "ours": "js/internal/url.js; pkg/http/cookie (hand-rolled RFC 6265bis jar, no public suffix list, #9)",
+      "match": ["^core:net/(url|cookie)", "^core:net\\..*(cookie|public_suffix)", "public_?suffix"],
+      "why": "WHATWG URL stays in JS. The cookie jar parses Set-Cookie as Chrome 158 does (tests/dom cookie-document-*.page, tests/web cookie-*): a replacement parser must keep Chrome's refusals (any CTL, HTAB inside a name or value), case-insensitive prefixes, '+' in Max-Age and the 4096/1024/180-to-150 limits. A public suffix list in the SDK replaces the jar's single-label stand-in."
     }
   ]
 }

@@ -94,11 +94,17 @@ test('a scripted page case runs under lava page, not lava html', () => {
   assert.equal(isPageCase('a.page.frag-div'), false);
   assert.equal(fragmentContext('dom-mutation.page'), null);
   assert.equal(navCharset('dom-mutation.page'), null);
-  assert.deepEqual(lavaArgs('tree', null, 'f.html', null, true), ['page', '--tree', 'f.html']);
-  assert.deepEqual(lavaArgs('serialize', null, 'f.html', null, true), [
+  assert.deepEqual(lavaArgs('tree', null, 'cases/f.page.html', null, true), [
+    'page',
+    '--tree',
+    '--origin=http://127.0.0.1/raw/f.page',
+    'cases/f.page.html',
+  ]);
+  assert.deepEqual(lavaArgs('serialize', null, 'f.page.html', null, true), [
     'page',
     '--serialize',
-    'f.html',
+    '--origin=http://127.0.0.1/raw/f.page',
+    'f.page.html',
   ]);
 });
 

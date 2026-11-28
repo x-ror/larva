@@ -2,6 +2,7 @@ package larva_http
 
 import "base:runtime"
 import "core:strings"
+import cookie "lava:pkg/http/cookie"
 import profile "lava:pkg/profile"
 import eventloop "lava:pkg/runtime/eventloop"
 import pico "lava:pkg/runtime/picohttpparser"
@@ -33,6 +34,13 @@ Request :: struct {
 	body:           []byte,
 	timeout_ms:     int, // the whole transfer, redirects included; 0 is DEFAULT_TIMEOUT_MS
 	max_body_bytes: int, // 0 is DEFAULT_MAX_BODY_BYTES
+	// The session's cookies (pkg/http/cookie), or nil to send and keep none. Every hop of
+	// the transfer, redirects included, stores the Set-Cookie it answers with before
+	// following it, and sends the Cookie header the jar then holds for its URL — unless
+	// `headers` carries a Cookie of its own, which wins on every hop that keeps it. The
+	// jar is borrowed: it must outlive on_done, and only the loop thread may touch it
+	// while the transfer runs.
+	cookie_jar:     ^cookie.Jar,
 }
 
 Error :: enum {

@@ -6,6 +6,7 @@ import "core:strconv"
 import "core:strings"
 import html "lava:pkg/html"
 import http "lava:pkg/http"
+import cookie "lava:pkg/http/cookie"
 import lava_runtime "lava:pkg/runtime"
 import eventloop "lava:pkg/runtime/eventloop"
 
@@ -520,6 +521,11 @@ EXIT_USAGE :: 2
 // the transport label (html.decode_document), and the encoding chosen is reported on
 // stderr as `charset: <name> (<step>)`. The markup on stdout is always UTF-8, as
 // Chrome's serialization of the DOM is.
+//
+// The run is one session with a cookie jar of its own (pkg/http/cookie), empty at the
+// start and gone at exit: a redirect's Set-Cookie is sent on the hops after it, as a
+// browser navigation does. Pinned by `make test-fetch-html-smoke` (a redirect that
+// answers 403 unless its cookie comes back).
 fetch_command :: proc(args: []string) {
 	if len(args) != 1 || (len(args[0]) > 0 && args[0][0] == '-') {
 		fmt.eprintln("usage: lava fetch <url>")
@@ -531,9 +537,11 @@ fetch_command :: proc(args: []string) {
 	}
 
 	resp: http.Response
+	jar: cookie.Jar
+	cookie.jar_init(&jar)
 	loop := eventloop.init(real_time = true)
 
-	if err := http.fetch(&loop, {url = args[0]}, on_done, &resp); err != .None {
+	if err := http.fetch(&loop, {url = args[0], cookie_jar = &jar}, on_done, &resp); err != .None {
 		fmt.eprintfln("lava fetch: %v", err)
 		eventloop.destroy(&loop)
 		os.exit(EXIT_USAGE)
@@ -541,6 +549,7 @@ fetch_command :: proc(args: []string) {
 
 	eventloop.run(&loop)
 	eventloop.destroy(&loop)
+	cookie.jar_destroy(&jar)
 	exit_code := print_fetched(&resp)
 	http.response_destroy(&resp)
 	os.exit(exit_code)

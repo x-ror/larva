@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head><title>document.cookie attributes</title></head>
+<body>
+<pre id="log"></pre>
+<script>
+// The attributes document.cookie honours, on an http://127.0.0.1 page at /raw/<case>:
+// the cookie's path and domain decide whether this document sees it; Secure, HttpOnly,
+// SameSite and the name prefixes decide whether it is stored at all.
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function step(label, line) {
+  document.cookie = line;
+  log(label + ' -> ' + JSON.stringify(document.cookie));
+}
+log('path ' + location.pathname);
+step('default path', 'd=1');
+step('path root', 'p1=1; Path=/');
+step('path parent', 'p2=1; Path=/raw');
+step('path parent slash', 'p3=1; Path=/raw/');
+step('path prefix not a segment', 'p4=1; Path=/ra');
+step('path other', 'p5=1; Path=/other');
+step('path relative ignored', 'p6=1; Path=raw');
+step('path empty', 'p7=1; Path=');
+step('path self', 'p8=1; Path=' + location.pathname);
+step('path deeper', 'p9=1; Path=' + location.pathname + '/deeper');
+step('path case', 'p10=1; Path=/RAW');
+step('same name other path', 'd=2; Path=/');
+step('domain ip', 'dom1=1; Domain=127.0.0.1');
+step('domain dotted ip', 'dom2=1; Domain=.127.0.0.1');
+step('domain other', 'dom3=1; Domain=example.com');
+step('domain suffix of ip', 'dom4=1; Domain=0.0.1');
+step('domain empty', 'dom5=1; Domain=');
+step('domain localhost', 'dom6=1; Domain=localhost');
+step('secure', 's1=1; Secure');
+step('secure with a value', 's2=1; secure=yes');
+step('httponly', 'h1=1; HttpOnly');
+step('samesite strict', 'ss1=1; SameSite=Strict');
+step('samesite lax', 'ss2=1; SameSite=Lax');
+step('samesite none insecure', 'ss3=1; SameSite=None');
+step('samesite none secure', 'ss4=1; SameSite=None; Secure');
+step('samesite bogus', 'ss5=1; SameSite=Bogus');
+step('__Secure- without Secure', '__Secure-a=1');
+step('__Secure- with Secure', '__Secure-b=1; Secure');
+step('__Host- without Secure', '__Host-c=1; Path=/');
+step('__Host- full', '__Host-d=1; Secure; Path=/');
+step('__secure- lowercase', '__secure-e=1');
+step('__host- lowercase', '__host-f=1; Path=/');
+step('nameless __Secure- value', '__Secure-g');
+step('nameless __Host- value', '__Host-h');
+step('overwrite to secure', 'd=3; Path=/; Secure');
+</script>
+</body>
+</html>

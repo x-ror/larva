@@ -50,9 +50,11 @@ serves the bytes as `text/html; charset=utf-8` into an unsandboxed frame of a ha
 page (`scriptedPage` in `scripts/lib/dom-oracle.mjs`), under a CSP that allows the
 case's inline scripts and same-origin external ones and blocks every other subresource,
 and reads the frame's document at its load event. Lava runs `lava page
---tree|--serialize`: the same bytes parsed with their classic scripts run as HTML runs
-them (`pkg/runtime/page_script.odin`), DOMContentLoaded fired, the event loop run until
-it idles, `load` fired. A case reports by writing into its own document (a
+--tree|--serialize --origin=http://127.0.0.1/raw/<case>` (the frame's URL without its
+ephemeral port, so `location` and `document.cookie` see the same host and path): the
+same bytes parsed with their classic scripts run as HTML runs them
+(`pkg/runtime/page_script.odin`), DOMContentLoaded fired, the event loop run until it
+idles, `load` fired. A case reports by writing into its own document (a
 `<pre id="log">` it appends text to), never through `console`, which `lava page` prints
 to stdout ahead of the view. It must finish its work by the load event: no timer whose
 callback changes the tree. The `dom-*.page` cases cover the DOM surface stage 4 binds
