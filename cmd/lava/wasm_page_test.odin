@@ -42,9 +42,20 @@ run_for :: proc(runner: ^lava.Page_Runner, seconds: f64) -> bool {
 @(private = "file")
 WASM_SPIN :: "function spin(ms) { const e = Date.now() + ms; while (Date.now() < e) {} }\n"
 
-// A page that chains ten instantiates whose start function spins 300 ms — each under its
-// 0.5 s entry limit, 3 s in all against a 1 s budget — dies of its budget. Run from the
-// RunLoop, the start function was charged to nobody and the page finished .Ok.
+// WASM_BURN costs CPU by loop iterations, not by the clock: burn(2e8) is ~0.1 s of CPU
+// (104-117 ms wall in a function under `lava run`, six runs, load 9 on 4 cores) however
+// loaded the machine is. A Date.now() spin is not — descheduled, it burns less CPU per
+// wall millisecond — and that is how a 300 ms spin left this test's page under its
+// budget at load ~18.
+@(private = "file")
+WASM_BURN :: "function burn(n) { let x = 0; for (let i = 0; i < n; i++) x += i; globalThis.sink = x; }\n"
+
+// A page that chains up to 40 instantiates whose start function burns ~0.1 s of CPU —
+// each far under its 2 s entry limit, ~4 s in all against a 1 s budget — dies of its
+// budget, around the tenth. Run from the RunLoop, the start function was charged to
+// nobody and the page finished .Ok. The counts leave room both ways: a machine 4x faster
+// still spends the budget within the 40, one 20x slower still keeps each start function
+// under the entry limit.
 @(test)
 wasm_start_function_is_charged_to_its_page :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
@@ -57,17 +68,17 @@ wasm_start_function_is_charged_to_its_page :: proc(t: ^testing.T) {
 	o: Page_Outcome
 	lava.page_runner_open(
 		&runner,
-		WASM_SPIN +
+		WASM_BURN +
 		"const bytes = " +
 		WASM_START +
 		`;
 		let n = 0;
 		(function next() {
-			if (++n > 10) return;
-			WebAssembly.instantiate(bytes, { m: { f() { spin(300); } } }).then(next);
+			if (++n > 40) return;
+			WebAssembly.instantiate(bytes, { m: { f() { burn(2e8); } } }).then(next);
 		})();`,
 		"<wasm-charged>",
-		{entry_limit = 0.5, cpu_budget = 1},
+		{entry_limit = 2, cpu_budget = 1},
 		&o,
 	)
 	lava.page_runner_run(&runner)
@@ -76,7 +87,9 @@ wasm_start_function_is_charged_to_its_page :: proc(t: ^testing.T) {
 
 @(private = "file")
 Pair :: struct {
-	a, b: Page_Outcome,
+	a, b:     Page_Outcome,
+	// When A was reported, which is after its close.
+	a_closed: time.Tick,
 }
 
 @(private = "file")
@@ -89,6 +102,7 @@ open_b_on_a_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: l
 	}
 
 	record_page_outcome(runner, &p.a, result)
+	p.a_closed = time.tick_now()
 	lava.page_runner_open(
 		runner,
 		`let k = 0; (function tick() { if (++k < 30) setTimeout(tick, 10); })();`,
@@ -103,8 +117,16 @@ open_b_on_a_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: l
 // the next page that takes the VM (where it would run under that page's limits and get
 // that page killed). One runner slot, so B reuses A's VM; three ways A's code reaches the
 // settlement: the start function, a `then` getter on WebAssembly.Module.prototype, and a
-// species constructor on Promise.prototype. Each A spins 3 s if reached; B must end .Ok
-// and the whole run well under those 3 s.
+// species constructor on Promise.prototype. Each A spins 3 s of wall time if reached; B
+// must end .Ok, and the stretch from A's report to the runner's destroy (whose RunLoop
+// iteration is one more place A's code could run) must stay well under those 3 s.
+//
+// That stretch starts at A's report, not at its open: A is killed by a 0.3 s entry limit,
+// which is CPU time, and at load ~18 on 4 cores the kill alone took 2-4 s of wall — the
+// whole-run bound timed the load, not A's leftovers. What is left in the stretch is B —
+// 30 ticks of 10 ms, its open and its close — measured at 0.31-0.35 s per vector at load
+// ~21 (three runs); a spin of A's is wall time wherever on this thread it runs, so load
+// cannot hide one either.
 @(test)
 wasm_of_a_killed_page_runs_nothing_after_it :: proc(t: ^testing.T) {
 	TAIL :: "\nspin(100); while (true) {}"
@@ -132,7 +154,6 @@ wasm_of_a_killed_page_runs_nothing_after_it :: proc(t: ^testing.T) {
 		}
 
 		p: Pair
-		start := time.tick_now()
 		lava.page_runner_open(
 			&runner,
 			src,
@@ -141,8 +162,8 @@ wasm_of_a_killed_page_runs_nothing_after_it :: proc(t: ^testing.T) {
 			&p,
 		)
 		lava.page_runner_run(&runner)
-		elapsed := time.duration_seconds(time.tick_since(start))
 		lava.page_runner_destroy(&runner)
+		elapsed := time.duration_seconds(time.tick_since(p.a_closed))
 		killed := p.a.done && p.a.kill == .Entry_Limit
 		testing.expectf(t, killed, "vector %d: A was not killed: %s", i, describe_outcome(p.a))
 		testing.expectf(

@@ -589,12 +589,12 @@
     },
     {
       "name": "runner_pages_wait_concurrently dies when the runner spins instead of waiting on the page loops",
-      "why": "Without the epoll wait an idle runner busy-loops over its pages, burning a core while every page sleeps.",
+      "why": "Without the epoll wait an idle runner busy-loops over its pages: 92k-130k rounds in the 600 ms every page sleeps, against under 50 blocking.",
       "source": "pkg/runtime/page_runner.odin",
       "find": "\t\trunner_wait(runner)\n\t}\n\n\treturn false",
       "replace": "\t}\n\n\treturn false",
       "gate": "odin:cmd/lava:main.runner_pages_wait_concurrently",
-      "expect_detail": "runner burned"
+      "expect_detail": "runner spun"
     },
     {
       "name": "close_begin_cancels_a_running_job_without_waiting_for_it dies when close_begin skips the cancel hook of a running job",
@@ -2272,6 +2272,15 @@
       "expect_detail": "failed to initialize internal:loader: TypeError: Attempting to change the setter of an unconfigurable property"
     },
     {
+      "name": "runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first dies when the shim runs a closed page's cleanup at the RunLoop dispatch",
+      "why": "A cleanup JSC queued for the first page before it closed then runs anyway, after the close, and its 1.5 s spin lands on the second page in the reused VM, which its 1 s budget kills.",
+      "source": "pkg/runtime/js/internal/deferred.js",
+      "find": "      enqueue(cleanup, heldValue, registry);",
+      "replace": "      cleanup(heldValue);",
+      "gate": "odin:cmd/lava:main.runner_second_page_in_a_reused_vm_sees_nothing_of_a_finished_first",
+      "expect_detail": "second page: {done=true status=Execution_Error kill=Cpu_Budget"
+    },
+    {
       "name": "runner_churn_of_mixed_fates_frees_everything_it_allocates dies when runner_finish keeps the Runner_Page",
       "why": "Every closed page would leak its Runner_Page on the runner allocator, whatever its fate.",
       "source": "pkg/runtime/page_runner.odin",
@@ -2843,6 +2852,15 @@
       "expect_detail": "waited out the hog's turn"
     },
     {
+      "name": "runner_slicing_keeps_event_loop_order dies when a suspended turn requeues the timer it stopped before",
+      "why": "A slice must resume the same turn with its tasks in place; requeued behind what arrived during the turn, Y runs after Z and the interval's second fire after `early` (X,Z,Y,W,T and A,interval1,early,interval2,late).",
+      "source": "pkg/runtime/eventloop/loop.odin",
+      "find": "\t\t\tloop.resume_seq_limit = timer_phase_sequence_limit\n\t\t\treturn did_work\n",
+      "replace": "\t\t\tloop.resume_seq_limit = timer_phase_sequence_limit\n\t\t\tready_push(loop, ready_pop(loop))\n\t\t\treturn did_work\n",
+      "gate": "odin:cmd/lava:main.runner_slicing_keeps_event_loop_order",
+      "expect_detail": "Uncaught Error: X,Z,Y,W,T"
+    },
+    {
       "name": "runner_sibling_ticks_between_slices_of_a_timer_heavy_page dies when a runner page does not take the runner's quantum",
       "why": "The quantum lives on the runner; a page that never copies it to its VM never slices.",
       "source": "pkg/runtime/page_runner.odin",
@@ -3026,6 +3044,15 @@
       "expect_detail": "were not charged to A"
     },
     {
+      "name": "runner_dispatches_the_runloop_while_every_round_is_busy dies when a busy round does not sync the RunLoop",
+      "why": "The runner then learns GLib's deadlines and descriptors only before it blocks, so a runner whose every round progresses never dispatches the RunLoop and a queued FinalizationRegistry cleanup never runs (0 of 200 at load ~18).",
+      "source": "pkg/runtime/page_runner.odin",
+      "find": "\t\tjsc.runloop_sync_stale(RUNNER_RUNLOOP_SYNC_INTERVAL)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.runner_dispatches_the_runloop_while_every_round_is_busy",
+      "expect_detail": "no FinalizationRegistry cleanup in 100 busy rounds"
+    },
+    {
       "name": "page_sees_finalization_cleanups_as_chrome_does dies when one task runs every registry's cleanups",
       "why": "HTML queues a cleanup task per registry, so Chrome drains one registry's microtasks before the next registry's cleanups run (AAmmBBmm); one flush for all of them prints AABBmmmm (#91 review F4).",
       "source": "pkg/runtime/deferred.odin",
@@ -3078,6 +3105,15 @@
       "replace": "",
       "gate": "odin:cmd/lava:main.wasm_start_function_is_charged_to_its_page",
       "expect_detail": "the start functions were not charged"
+    },
+    {
+      "name": "wasm_of_a_killed_page_runs_nothing_after_it dies when the engine's WebAssembly.compile is kept",
+      "why": "The engine settles a compile from the thread's RunLoop, so a killed page's `then` getter still runs after its close — inside the next page's tick on the reused VM, which its entry limit then kills (#97 review, safety F1).",
+      "source": "pkg/runtime/wasm.odin",
+      "find": "\tset_named(ctx, ns, \"compile\", cast(jsc.JSValueRef)compile)\n",
+      "replace": "",
+      "gate": "odin:cmd/lava:main.wasm_of_a_killed_page_runs_nothing_after_it",
+      "expect_detail": "vector 1: the next page paid for A's wasm"
     },
     {
       "name": "runner_holds_a_page_until_its_wasm_settles dies when a settlement job takes no hold on the loop",
