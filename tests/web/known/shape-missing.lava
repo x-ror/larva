@@ -7,5 +7,3 @@ DecompressionStream undefined
 SubtleCrypto undefined
 CryptoKey undefined
 reportError undefined
-PopStateEvent undefined
-HashChangeEvent undefined

@@ -12,5 +12,3 @@ DecompressionStream function
 SubtleCrypto function
 CryptoKey function
 reportError function
-PopStateEvent function
-HashChangeEvent function

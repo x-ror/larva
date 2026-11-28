@@ -67,7 +67,15 @@ export const FAMILIES = {
     'PerformanceMeasure',
   ],
   console: ['console'],
-  location: ['location', 'Location', 'history', 'History', 'DOMStringList'],
+  location: [
+    'location',
+    'Location',
+    'history',
+    'History',
+    'DOMStringList',
+    'PopStateEvent',
+    'HashChangeEvent',
+  ],
   navigator: ['navigator', 'Navigator', 'screen', 'Screen'],
   // The interfaces of the objects navigator's and screen's members return.
   'navigator-apis': [
@@ -139,8 +147,6 @@ export const MISSING = [
   'SubtleCrypto',
   'CryptoKey',
   'reportError',
-  'PopStateEvent',
-  'HashChangeEvent',
 ];
 
 // The printer every case shares. Page code, so plain JS; it reads through captured

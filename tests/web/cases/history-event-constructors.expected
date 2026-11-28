@@ -1,0 +1,29 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-27
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs history-event-constructors
+# ---
+hash default ["hashchange","","",false,false,false,false]
+hash proto true [object HashChangeEvent]
+hash own ["isTrusted"]
+hash init reads bubbles,cancelable,composed,newURL,oldURL -> o,n,true,false,true
+hash init coerce "null"
+hash init undefined ""
+hash no args THREW TypeError: Failed to construct 'HashChangeEvent': 1 argument required, but only 0 present.
+hash bad init THREW TypeError: Failed to construct 'HashChangeEvent': The provided value is not of type 'HashChangeEventInit'.
+hash null init 
+hash symbol type THREW TypeError: Failed to construct 'HashChangeEvent': Cannot convert a Symbol value to a string
+hash symbol url THREW TypeError: Failed to construct 'HashChangeEvent': Failed to read the 'newURL' property from 'HashChangeEventInit': Cannot convert a Symbol value to a string
+hash call THREW TypeError: Failed to construct 'HashChangeEvent': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+hash getter foreign THREW TypeError: Illegal invocation
+pop default ["popstate",null,false,false,false,false]
+pop proto true [object PopStateEvent]
+pop own ["isTrusted"]
+pop init reads bubbles,cancelable,composed,hasUAVisualTransition,state -> true,true,true,true,true,false
+pop state undefined null
+pop no args THREW TypeError: Failed to construct 'PopStateEvent': 1 argument required, but only 0 present.
+pop bad init THREW TypeError: Failed to construct 'PopStateEvent': The provided value is not of type 'PopStateEventInit'.
+pop call THREW TypeError: Failed to construct 'PopStateEvent': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+pop getter foreign THREW TypeError: Illegal invocation
+dispatched a>b false

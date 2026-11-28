@@ -42,6 +42,8 @@
   var ArrayPrototypeSplice = P.ArrayPrototypeSplice;
   var GeneratorPrototypeNext = P.GeneratorPrototypeNext;
   var ObjectDefineProperty = P.ObjectDefineProperty;
+  var ObjectGetPrototypeOf = P.ObjectGetPrototypeOf;
+  var ObjectSetPrototypeOf = P.ObjectSetPrototypeOf;
   var ReflectApply = P.ReflectApply;
   var TypeErrorP = P.TypeError;
   var WeakMapPrototypeGet = P.WeakMapPrototypeGet;
@@ -89,7 +91,8 @@
   // The page's window (its global object), an EventTarget of the same kind (stage 4b):
   // its listeners live in hostListeners too, and a node's path continues to it past the
   // document (`hostIsDocument`), except for a `load` event (HTML: a Document's "get the
-  // parent" is null for `load`). null until internal/dom installs it.
+  // parent" is null for `load`). Every page's global is one, with a document or without
+  // (`lava run`): installed at this module's eval (installWindowTarget, below).
   var hostWindow = null;
   var hostIsDocument = null;
 
@@ -534,10 +537,9 @@
   }
 
   // WebIDL: an operation called with a null or undefined `this` runs on the realm's
-  // global object — a page's bare `addEventListener(…)`. Only a page with a window target
-  // has one that is an EventTarget; elsewhere the receiver stays, and is refused.
+  // global object — a page's bare `addEventListener(…)`.
   function receiver(o) {
-    return (o === undefined || o === null) && hostWindow !== null ? hostWindow : o;
+    return o === undefined || o === null ? hostWindow : o;
   }
 
   // Runs a dispatch's steps to the end: what a page's dispatchEvent and the platform's
@@ -618,7 +620,7 @@
       top = p;
     }
 
-    if (hostWindow !== null && state.type !== 'load' && hostIsDocument(top)) {
+    if (state.type !== 'load' && hostIsDocument(top)) {
       ArrayPrototypePush1(path, hostWindow);
     }
 
@@ -723,16 +725,14 @@
    * Makes the DOM's node wrappers EventTargets (see hostBrand). Once per page: the
    * module instance is the page's, and internal/dom calls this from its install.
    * @param {function(*): boolean} brand True for a node wrapper; never throws.
-   * @param {function(Object): ?Object} parent The next node of a dispatch's path.
-   * @param {Object} window The page's global object, made an EventTarget: a node's path
-   *   continues to it past the document.
+   * @param {function(Object): ?Object} parent The next node of a dispatch's path; past
+   *   the document it continues to the window (hostWindow).
    * @param {function(Object): boolean} isDocument True for the page's document.
    */
-  function setHostTargets(brand, parent, window, isDocument) {
+  function setHostTargets(brand, parent, isDocument) {
     if (hostBrand !== null) throw new TypeErrorP('event_target: host targets are set once');
     hostBrand = brand;
     hostParent = parent;
-    hostWindow = window;
     hostIsDocument = isDocument;
   }
 
@@ -748,7 +748,10 @@
     var entry = newEntry(
       function (event) {
         var handler = read(this);
-        if (handler === null) return;
+        // WebIDL "invoke a callback function": a non-callable object, which only a
+        // [LegacyTreatNonObjectAsNull] handler holds, is invoked as returning undefined
+        // (Chrome 158, tests/web/cases/history-events: `onpopstate = {}` reports nothing).
+        if (typeof handler !== 'function') return;
         if (ReflectApply(handler, this, [event]) === false) cancel(eventState(event));
       },
       false,
@@ -837,6 +840,63 @@
     parent: PublicEvent,
     members: ['detail', 'initCustomEvent:1', 'constructor', '@@toStringTag'],
   });
+
+  // The window's event handler IDL attributes (HTML §8.1.8.1) Larva fires events for:
+  // `load` (a page with a document), `hashchange` and `popstate` (internal/location).
+  var WINDOW_HANDLERS = ['load', 'hashchange', 'popstate'];
+
+  /**
+   * Makes the page's global an EventTarget, as Chrome's window is — whether or not the
+   * page has a document (`lava page`, `lava run`): its [[Prototype]] chain reaches
+   * EventTarget.prototype, so addEventListener and the rest are inherited, not own, and
+   * a bare `addEventListener(…)` runs on it (receiver). And its `on<type>` handler
+   * attributes for WINDOW_HANDLERS: own accessors, enumerable and configurable.
+   * @node Chrome 158, tests/dom/cases/dom-window-events.page and dom-load.page (the
+   *   chain, onload); tests/web/cases/history-events.expected (the descriptors, a
+   *   non-object set reading null, `this` the window, the handler keeping its place).
+   * @deviates The chain is global → its class prototype → EventTarget.prototype: Blink's
+   *   Window.prototype and WindowProperties are not modeled, so `window instanceof
+   *   Window` is still false (there is no Window interface object yet). The window has
+   *   only the handler attributes of the events Larva fires (WINDOW_HANDLERS).
+   */
+  function installWindowTarget(global) {
+    hostWindow = global;
+    ObjectSetPrototypeOf(ObjectGetPrototypeOf(global), PublicEventTarget.prototype);
+    for (var i = 0; i < WINDOW_HANDLERS.length; i++)
+      defineWindowHandler(global, WINDOW_HANDLERS[i]);
+  }
+
+  // One handler attribute: the handler, and the listener entry it holds in the window's
+  // list for `type` while non-null.
+  function defineWindowHandler(global, type) {
+    var name = 'on' + type;
+    var handler = null;
+    var entry = null;
+    function read() {
+      return handler;
+    }
+
+    ObjectDefineProperty(global, name, {
+      __proto__: null,
+      get: nativeShape.wrapGetter(name, function () {
+        return handler;
+      }),
+      set: nativeShape.wrapSetter(name, function (fn) {
+        // [LegacyTreatNonObjectAsNull]: any object is kept, anything else is null.
+        handler = (typeof fn === 'object' && fn !== null) || typeof fn === 'function' ? fn : null;
+        if (handler !== null && entry === null) {
+          entry = attachHandler(global, type, read);
+        } else if (handler === null && entry !== null) {
+          detachHandler(global, type, entry);
+          entry = null;
+        }
+      }),
+      enumerable: true,
+      configurable: true,
+    });
+  }
+
+  installWindowTarget(globalThis);
 
   module.exports = P.ObjectFreeze({
     __proto__: null,
