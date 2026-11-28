@@ -1,6 +1,6 @@
 # Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
 # chrome: Google Chrome for Testing 158.0.8127.36
-# date: 2026-11-27
+# date: 2026-11-28
 # runs: 3 identical
 # command: node scripts/record-chrome.mjs shape-location
 # ---
@@ -112,3 +112,31 @@ proto item data ecw fn name="item" length=1 own=[length,name] prototype=false ct
 proto constructor data -cw fn name="DOMStringList" length=0 own=[length,name,prototype] prototype=true ctor=true src="function DOMStringList() { [native code] }"
 proto [Symbol(Symbol.toStringTag)] data -c- string "DOMStringList"
 proto [Symbol(Symbol.iterator)] data -cw fn name="values" length=0 own=[length,name] prototype=false ctor=false src="function values() { [native code] }"
+== PopStateEvent
+global PopStateEvent data -cw fn name="PopStateEvent" length=1 own=[length,name,prototype] prototype=true ctor=true src="function PopStateEvent() { [native code] }"
+[[Prototype]] function Event
+call: TypeError: Failed to construct 'PopStateEvent': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static prototype data --- object [object PopStateEvent]
+prototype [[Prototype]] Event.prototype
+proto state accessor ec
+  get name="get state" length=0 own=[length,name] prototype=false ctor=false src="function get state() { [native code] }"
+  set undefined
+proto hasUAVisualTransition accessor ec
+  get name="get hasUAVisualTransition" length=0 own=[length,name] prototype=false ctor=false src="function get hasUAVisualTransition() { [native code] }"
+  set undefined
+proto constructor data -cw fn name="PopStateEvent" length=1 own=[length,name,prototype] prototype=true ctor=true src="function PopStateEvent() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "PopStateEvent"
+== HashChangeEvent
+global HashChangeEvent data -cw fn name="HashChangeEvent" length=1 own=[length,name,prototype] prototype=true ctor=true src="function HashChangeEvent() { [native code] }"
+[[Prototype]] function Event
+call: TypeError: Failed to construct 'HashChangeEvent': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static prototype data --- object [object HashChangeEvent]
+prototype [[Prototype]] Event.prototype
+proto oldURL accessor ec
+  get name="get oldURL" length=0 own=[length,name] prototype=false ctor=false src="function get oldURL() { [native code] }"
+  set undefined
+proto newURL accessor ec
+  get name="get newURL" length=0 own=[length,name] prototype=false ctor=false src="function get newURL() { [native code] }"
+  set undefined
+proto constructor data -cw fn name="HashChangeEvent" length=1 own=[length,name,prototype] prototype=true ctor=true src="function HashChangeEvent() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "HashChangeEvent"

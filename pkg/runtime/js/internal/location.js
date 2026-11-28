@@ -11,8 +11,10 @@
  * navigation that stays inside the document: a fragment navigation (`location.hash`,
  * assign/replace/href to the same URL with a different fragment), pushState and
  * replaceState, and traversal between the entries those made. Each updates the URL
- * every getter here reads and the session history behind `history`. A navigation to
- * any other document is not performed (see Location's @deviates).
+ * every getter here reads and the session history behind `history`, and fires what
+ * Chrome fires at the window for it: `popstate` (PopStateEvent) and `hashchange`
+ * (HashChangeEvent), both defined here. A navigation to any other document is not
+ * performed (see Location's @deviates).
  *
  * Instantiated eagerly (the loader names it), so every capture below is pristine.
  *
@@ -26,6 +28,7 @@
   var nativeShape = require('internal/native_shape');
   var webErrors = require('internal/web_errors');
   var DOMException = require('internal/domexception').DOMException;
+  var events = require('internal/event_target');
   var cloneFor = require('internal/structured_clone').cloneFor;
   var URLP = require('internal/url').URL;
   var ArrayPrototypeIncludes = P.ArrayPrototypeIncludes;
@@ -49,6 +52,12 @@
   var wrapGetter = nativeShape.wrapGetter;
   var wrapOperation = nativeShape.wrapOperation;
   var wrapSetter = nativeShape.wrapSetter;
+  var EventImpl = events.EventImpl;
+  var EVENT_INTERNAL = events.EVENT_INTERNAL;
+  var dispatchTrusted = events.dispatchTrusted;
+  var newEventState = events.newEventState;
+  var readEventInit = events.readEventInit;
+  var toDOMStringIn = webErrors.toDOMStringIn;
 
   // Captured at this eager eval, before page code: Object.prototype.valueOf, which
   // Location carries as an own member, and Array.prototype.values, DOMStringList's
@@ -56,6 +65,9 @@
   var ObjectPrototypeValueOf = P.Object.prototype.valueOf;
   var ArrayPrototypeValues = P.Array.prototype.values;
   var setTimeoutP = setTimeout;
+  // The window popstate and hashchange are fired at (internal/event_target made it an
+  // EventTarget at its eval, before this module's).
+  var windowObject = globalThis;
 
   // URL's accessors, captured: the URL interface's prototype is the page's to replace,
   // and these read the page's own URL.
@@ -112,6 +124,12 @@
     return at === -1 ? href : StringPrototypeSlice(href, 0, at);
   }
 
+  // A serialized URL's fragment: null for none, which differs from the empty one (`…#`).
+  function fragmentOf(href) {
+    var at = StringPrototypeIndexOf(href, '#', 0);
+    return at === -1 ? null : StringPrototypeSlice(href, at + 1, href.length);
+  }
+
   // --- the session -------------------------------------------------------------------
   //
   // The page's session history: one entry per pushState or fragment navigation, each
@@ -153,6 +171,11 @@
   // HTML's "navigate", for the one case Larva performs: `url` differs from the
   // document's URL at most in a non-null fragment ("navigate to a fragment"). Every
   // other URL would load a new document; see Location's @deviates.
+  //
+  // Then the events, as Chrome 158 fires them (tests/web/cases/history-events): popstate
+  // at once, inside the navigating call, with the new entry's state (null) — even for a
+  // navigation to the URL the document already has — and hashchange queued as a task
+  // when the fragment changed.
   function navigate(url, replace) {
     var href = read(urlHref, url);
     var now = read(urlHref, current);
@@ -161,6 +184,8 @@
     // The new entry's classic history state is null, in both forms.
     if (replace || href === now || loading()) replaceEntry(url, null);
     else addEntry(url, null);
+    firePopState(null);
+    queueHashChange(now, href);
   }
 
   // WebIDL's DOMString conversion under any context `prefix` (a setter's, too).
@@ -266,9 +291,8 @@
    *   setter whose URL differs from the document's in more than the fragment, and
    *   reload() — is not performed: the page keeps its document and its URL, which is
    *   what a page in Chrome also observes until the new document commits, except that
-   *   here it never does. Neither `hashchange` nor `popstate` fires: the window is not
-   *   an EventTarget yet (stage 4b). An invalid URL's text in a SyntaxError is the
-   *   input as given, where Blink prints its own partial parse (`http://[` reads
+   *   here it never does, and no event fires. An invalid URL's text in a SyntaxError is
+   *   the input as given, where Blink prints its own partial parse (`http://[` reads
    *   `http://[/`). Pinned by cmd/lava/window_env_test.odin.
    */
   class Location {
@@ -508,12 +532,174 @@
   // HTML's "traverse the history by a delta", queued as Chrome queues it: the step is
   // taken from the active entry when the task runs, and a step outside this
   // document's entries is dropped.
+  //
+  // Arriving at the entry fires popstate with its state inside this task, then queues
+  // hashchange when the fragment changed (HTML's "update document for history step
+  // application"; Chrome 158, tests/web/cases/history-events).
   function traverse(delta) {
     setTimeoutP(function () {
       var target = index + delta;
       if (target < 0 || target >= entries.length) return;
+      var before = read(urlHref, current);
       index = target;
       current = entries[target].url;
+      firePopState(entries[target].state);
+      queueHashChange(before, read(urlHref, current));
+    }, 0);
+  }
+
+  // --- PopStateEvent and HashChangeEvent ---------------------------------------------
+
+  var isPopState;
+  var isHashChange;
+
+  // A DOMString member of an event's init dictionary (HashChangeEventInit's URLs).
+  function initString(value, iface, dict, member) {
+    return toDOMStringIn(value, context(iface) + attributeContext(dict, member, false));
+  }
+
+  /**
+   * new PopStateEvent(type, eventInitDict): the event a traversal, and a fragment
+   * navigation, fire at the window.
+   * @param {*} type DOMString.
+   * @param {{bubbles?: boolean, cancelable?: boolean, composed?: boolean,
+   *   hasUAVisualTransition?: boolean, state?: *}} [eventInitDict]
+   * @throws {TypeError} as Event's, with `PopStateEvent` in the context and
+   *   `PopStateEventInit` as the dictionary.
+   * @node Chrome 158 (tests/web/cases/history-event-constructors): the members are read
+   *   bubbles, cancelable, composed, hasUAVisualTransition, state; an undefined state is
+   *   null; `state` is the value given, not a clone.
+   * @deviates none
+   */
+  class PopStateEvent extends EventImpl {
+    #state;
+    #visual;
+
+    constructor(type, eventInitDict) {
+      var state;
+      var data = null;
+      var visual = false;
+      if (type === INTERNAL) {
+        // eventInitDict is the platform's {state}: never a visual transition here.
+        state = newEventState('popstate');
+        data = eventInitDict.state;
+      } else {
+        if (arguments.length < 1) {
+          throw typeError('PopStateEvent', undefined, argumentsRequired(1, 0));
+        }
+
+        state = newEventState(toDOMString(type, 'PopStateEvent'));
+        readEventInit(state, eventInitDict, 'PopStateEvent', 'PopStateEventInit');
+        if (eventInitDict !== undefined && eventInitDict !== null) {
+          visual = !!eventInitDict.hasUAVisualTransition;
+          var value = eventInitDict.state;
+          if (value !== undefined) data = value;
+        }
+      }
+
+      super(EVENT_INTERNAL, state);
+      this.#state = data;
+      this.#visual = visual;
+    }
+
+    get state() {
+      if (!isPopState(this)) throw illegalInvocation();
+      return this.#state;
+    }
+
+    get hasUAVisualTransition() {
+      if (!isPopState(this)) throw illegalInvocation();
+      return this.#visual;
+    }
+
+    static {
+      isPopState = function (o) {
+        return typeof o === 'object' && o !== null && #state in o;
+      };
+    }
+  }
+
+  /**
+   * new HashChangeEvent(type, eventInitDict): the event a fragment change fires at the
+   * window.
+   * @param {*} type DOMString.
+   * @param {{bubbles?: boolean, cancelable?: boolean, composed?: boolean,
+   *   newURL?: string, oldURL?: string}} [eventInitDict]
+   * @throws {TypeError} as Event's, with `HashChangeEvent` in the context and
+   *   `HashChangeEventInit` as the dictionary; `… Failed to read the 'newURL' property
+   *   from 'HashChangeEventInit': Cannot convert a Symbol value to a string`.
+   * @node Chrome 158 (tests/web/cases/history-event-constructors): the members are read
+   *   bubbles, cancelable, composed, newURL, oldURL; a URL is any DOMString (null reads
+   *   "null"), not parsed.
+   * @deviates none
+   */
+  class HashChangeEvent extends EventImpl {
+    #oldURL;
+    #newURL;
+
+    constructor(type, eventInitDict) {
+      var state;
+      var oldURL = '';
+      var newURL = '';
+      if (type === INTERNAL) {
+        // eventInitDict is the platform's {oldURL, newURL}.
+        state = newEventState('hashchange');
+        oldURL = eventInitDict.oldURL;
+        newURL = eventInitDict.newURL;
+      } else {
+        if (arguments.length < 1) {
+          throw typeError('HashChangeEvent', undefined, argumentsRequired(1, 0));
+        }
+
+        state = newEventState(toDOMString(type, 'HashChangeEvent'));
+        readEventInit(state, eventInitDict, 'HashChangeEvent', 'HashChangeEventInit');
+        if (eventInitDict !== undefined && eventInitDict !== null) {
+          var n = eventInitDict.newURL;
+          if (n !== undefined)
+            newURL = initString(n, 'HashChangeEvent', 'HashChangeEventInit', 'newURL');
+          var o = eventInitDict.oldURL;
+          if (o !== undefined)
+            oldURL = initString(o, 'HashChangeEvent', 'HashChangeEventInit', 'oldURL');
+        }
+      }
+
+      super(EVENT_INTERNAL, state);
+      this.#oldURL = oldURL;
+      this.#newURL = newURL;
+    }
+
+    get oldURL() {
+      if (!isHashChange(this)) throw illegalInvocation();
+      return this.#oldURL;
+    }
+
+    get newURL() {
+      if (!isHashChange(this)) throw illegalInvocation();
+      return this.#newURL;
+    }
+
+    static {
+      isHashChange = function (o) {
+        return typeof o === 'object' && o !== null && #oldURL in o;
+      };
+    }
+  }
+
+  // Fires popstate at the window: trusted, not bubbling, not cancelable. Its listeners
+  // run inside the caller (see History's @deviates for their microtasks).
+  function firePopState(data) {
+    dispatchTrusted(windowObject, new PopStateEvent(INTERNAL, { __proto__: null, state: data }));
+  }
+
+  // HTML: "if oldURL's fragment is not equal to entry's URL's fragment, queue a global
+  // task … to fire an event named hashchange". Larva's tasks are timers: it runs after
+  // the current task and before a timer the same task sets afterwards (Chrome 158,
+  // tests/web/cases/history-events "task order").
+  function queueHashChange(oldHref, newHref) {
+    if (fragmentOf(oldHref) === fragmentOf(newHref)) return;
+    var init = { __proto__: null, oldURL: oldHref, newURL: newHref };
+    setTimeoutP(function fireHashChange() {
+      dispatchTrusted(windowObject, new HashChangeEvent(INTERNAL, init));
     }, 0);
   }
 
@@ -524,8 +710,13 @@
    *   initial length), location-errors.expected (Blink's texts).
    * @deviates `length` counts this document's entries only, starting at 1 (Chrome's
    *   headless recorder starts at 2, its initial about:blank entry). go(0) — a reload
-   *   — and a traversal past this document's entries do nothing. No `popstate` or
-   *   `hashchange` fires (stage 4b). Pinned by cmd/lava/window_env_test.odin.
+   *   — and a traversal past this document's entries do nothing, and fire nothing.
+   *   The listeners of an event fired from a task of its own — hashchange, and a
+   *   traversal's popstate — run in one call, so a microtask one of them queues runs
+   *   after the last of them, where Chrome runs it before the next listener (as after
+   *   every callback it invokes from an empty stack: `h1 micro-h1 h2`, Lava `h1 h2
+   *   micro-h1`, measured against Chrome 158 with a throwaway tests/web case). Pinned
+   *   by cmd/lava/window_env_test.odin.
    */
   class History {
     #brand = true;
@@ -608,6 +799,21 @@
       'constructor',
       '@@toStringTag',
     ],
+  });
+
+  nativeShape.defineInterface({
+    name: 'PopStateEvent',
+    impl: PopStateEvent,
+    length: 1,
+    parent: events.Event,
+    members: ['state', 'hasUAVisualTransition', 'constructor', '@@toStringTag'],
+  });
+  nativeShape.defineInterface({
+    name: 'HashChangeEvent',
+    impl: HashChangeEvent,
+    length: 1,
+    parent: events.Event,
+    members: ['oldURL', 'newURL', 'constructor', '@@toStringTag'],
   });
 
   var historyObject = new History(INTERNAL);
