@@ -114,7 +114,11 @@ for (const [area, a] of [...byArea].sort()) {
 const total = (v) => results.filter((r) => r.verdict === v).length;
 const failed = total('fail') + problems.length;
 console.log(`dom oracle: ${total('pass')} pass, ${total('known')} known, ${failed} fail`);
-process.exit(failed ? 1 : 0);
+// exitCode, not process.exit(): exit drops stdout still queued on a non-blocking pipe,
+// and a failing run's report is hundreds of KiB. The mutation gate reads it through
+// spawnSync and got it cut mid-list, so a failing case's name went missing (pinned by
+// "a long failing run reaches a pipe whole" in run-dom-oracle.test.mjs).
+process.exitCode = failed ? 1 : 0;
 
 // Both views of one case, judged apart. A missing recording fails both (judge's rule,
 // with the recorder's command for the case rather than the view); one that does not

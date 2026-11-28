@@ -46,6 +46,9 @@
   var TypedArrayPrototypes = P.TypedArrayPrototypes;
   var Uint8ArrayP = P.Uint8Array;
   var Uint8ArrayPrototypeSet = P.Uint8ArrayPrototypeSet;
+  var WeakMapP = P.WeakMap;
+  var WeakMapPrototypeGet = P.WeakMapPrototypeGet;
+  var WeakMapPrototypeSet = P.WeakMapPrototypeSet;
   // The byte classes' brand checks, set by their static blocks below.
   var byteControllerOf;
   var byobReaderOf;
@@ -2839,6 +2842,11 @@
     return stream;
   }
 
+  // Transport streams, each to the collector that drains it straight into a list
+  // (collectTransportByteStream). A module-local table rather than a slot on the
+  // stream or its controller, both of which a page can reach.
+  var transportCollectors = new WeakMapP();
+
   // A byte stream a native transport feeds (fetch's response body). `hooks.pull` and
   // `hooks.cancel` are called synchronously; the returned handle's enqueue(bytes)
   // reports whether to keep reading (desiredSize > 0 against `highWaterMark` bytes),
@@ -2849,6 +2857,9 @@
   function createTransportByteStream(hooks, highWaterMark) {
     var stream = newReadableStreamObject();
     var c = newByteController();
+    // The body reader's collector once collectTransportByteStream took the stream:
+    // from then on chunks go to its list, never through the controller's queue.
+    var sink = null;
     setUpReadableByteStreamController(
       stream,
       c,
@@ -2864,10 +2875,73 @@
       highWaterMark,
       undefined,
     );
+
+    // Settles the collector: the stream closes, or errors, as it would under a reader
+    // that drained it. That reader is kept, as Body's generic drain keeps its own: a
+    // consumed body stays locked.
+    function settle(e, failed) {
+      var done = sink;
+      sink = null;
+      if (failed) {
+        byteControllerError(c, e);
+      } else {
+        byteControllerClearAlgorithms(c);
+        readableStreamClose(stream);
+      }
+
+      if (failed) {
+        done.deferred.reject(e);
+      } else {
+        done.deferred.resolve(done.chunks);
+      }
+    }
+
+    // The fast path behind Body's readers (internal/fetch/body consume): the rest of
+    // the body as the transport's own chunks, with no read() promise, queue entry or
+    // view per chunk. Taken only for a stream no reader has touched, so no page code
+    // holds, or will ever see, one of those chunks, and the caller may hand them out
+    // without the copy a page-supplied chunk needs. Answers null, leaving the stream
+    // untouched, when it is not readable, locked or disturbed: the generic reader path
+    // then runs and reports what it always did. Observably that path's twin — the
+    // stream is locked and disturbed from the call and stays locked, and it closes (or
+    // errors with the transport's error, an abort's reason included) when the body
+    // ends. Backpressure is off, as under the generic loop, whose always-pending read
+    // keeps desiredSize positive.
+    WeakMapPrototypeSet(transportCollectors, stream, function () {
+      if (stream._state !== 'readable' || stream._reader !== undefined || stream._disturbed) {
+        return null;
+      }
+
+      acquireReadableStreamDefaultReader(stream);
+      stream._disturbed = true;
+      var chunks = [];
+      while (byteQueueLength(c) > 0) {
+        var entry = byteQueueShift(c);
+        ArrayPrototypePush1(chunks, new Uint8ArrayP(entry.buf, entry.start, entry.count));
+      }
+
+      c._queueTotalSize = 0;
+      sink = { __proto__: null, chunks: chunks, deferred: newDeferred() };
+      var promise = sink.deferred.promise;
+      if (c._closeRequested) {
+        settle(undefined, false);
+      } else {
+        // A queue at the high-water mark paused the socket; pull resumes it (a no-op
+        // when it is not paused).
+        hooks.pull();
+      }
+
+      return promise;
+    });
     return {
       __proto__: null,
       stream: stream,
       enqueue: function (bytes) {
+        if (sink !== null) {
+          ArrayPrototypePush1(sink.chunks, bytes);
+          return true;
+        }
+
         if (stream._state !== 'readable' || c._closeRequested) {
           return false;
         }
@@ -2881,14 +2955,33 @@
         return byteControllerGetDesiredSize(c) > 0;
       },
       close: function () {
+        if (sink !== null) {
+          settle(undefined, false);
+          return;
+        }
+
         try {
           closeByteSource(c);
         } catch {}
       },
       error: function (e) {
+        if (sink !== null) {
+          settle(e, true);
+          return;
+        }
+
         byteControllerError(c, e);
       },
     };
+  }
+
+  // collectTransportByteStream answers a promise of the chunks left in `stream`, a
+  // createTransportByteStream stream, each a Uint8Array nothing else holds; or null
+  // when the fast path does not apply (any other stream; one locked, disturbed or not
+  // readable).
+  function collectTransportByteStream(stream) {
+    var collect = WeakMapPrototypeGet(transportCollectors, stream);
+    return collect === undefined ? null : collect();
   }
 
   module.exports = {
@@ -2901,6 +2994,7 @@
     createReadableStream: createReadableStream,
     createBytesSourceStream: createBytesSourceStream,
     createTransportByteStream: createTransportByteStream,
+    collectTransportByteStream: collectTransportByteStream,
     readableStreamDefaultControllerCanCloseOrEnqueue:
       readableStreamDefaultControllerCanCloseOrEnqueue,
     readableStreamDefaultControllerClose: readableStreamDefaultControllerClose,
