@@ -36,7 +36,7 @@ help:
 	@printf '%s\n' ''
 	@printf '%s\n' 'Build / run'
 	@printf '%s\n' '  make build              Build the lava CLI'
-	@printf '%s\n' '  make native-deps        Build vendored C deps (picohttpparser, lexbor)'
+	@printf '%s\n' '  make native-deps        Build vendored C deps (picohttpparser, lexbor, BoringSSL)'
 	@printf '%s\n' '  make bootstrap-windows-deps Fetch ignored Windows native deps into .deps/'
 	@printf '%s\n' '  make build-sqlite-windows Build build/sqlite3.lib via MSVC'
 	@printf '%s\n' '  make run FILE=page.js   Run a classic script with the Window globals'
@@ -67,7 +67,7 @@ help:
 	@printf '%s\n' '  make test-eventloop-odin Odin event-loop unit tests (serial)'
 	@printf '%s\n' '  make test-runtime-odin  Odin tests for pkg/runtime'
 	@printf '%s\n' '  make test-html-odin     Odin tests for pkg/html (lexbor + shim)'
-	@printf '%s\n' '  make test-http-odin     Odin tests for pkg/http and its cookie jar (against recorded Chrome)'
+	@printf '%s\n' '  make test-http-odin     Odin tests for pkg/http, its cookie jar and pkg/tls (against recorded Chrome)'
 	@printf '%s\n' '  make test-sqlite-odin   Odin tests for pkg/std/sqlite'
 	@printf '%s\n' '  make test-stdio         node:test over tests/stdio (needs bin/lava)'
 	@printf '%s\n' '  make test-web           Window-profile cases vs their Chrome recordings (tests/web)'
@@ -329,10 +329,13 @@ test-html-odin: native-deps
 # test` through scripts/run-tests.sh with the same flags. A leak fails the
 # run: core/testing only reports one unless FAIL_ON_BAD_MEMORY is set (a #config, so
 # -define, not an environment variable), and a decode step that keeps its input buffer
-# survived the leak report alone.
-test-http-odin:
+# survived the leak report alone. pkg/tls rides along: its ClientHello test compares
+# Larva's against Chrome 158's recording (tests/tls). native-deps first: pkg/http and
+# pkg/tls link the BoringSSL archives.
+test-http-odin: native-deps
 	$(ODIN) test pkg/http -collection:lava=. -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true
 	$(ODIN) test pkg/http/cookie -collection:lava=. -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true
+	$(ODIN) test pkg/tls -collection:lava=. -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true
 
 ifeq ($(OS),Windows_NT)
 test-sqlite-odin:

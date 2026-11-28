@@ -52,6 +52,7 @@ export function parseHello(buf) {
 	const compLen = u8();
 	p += compLen; // compression methods
 	const exts = [];
+	const bodies = new Map();
 	let sni = false;
 	let alpn = [];
 	let sigalgs = [];
@@ -65,6 +66,7 @@ export function parseHello(buf) {
 		const body = buf.subarray(p, p + len);
 		p += len;
 		exts.push(type);
+		bodies.set(isGrease(type) ? "grease" : hex4(type), body);
 		const list16 = (off) => {
 			const out = [];
 			for (let i = off; i + 1 < body.length; i += 2) out.push(body.readUInt16BE(i));
@@ -83,7 +85,7 @@ export function parseHello(buf) {
 		if (type === 43) versions = list16(1);
 		if (type === 11) points = [...body.subarray(1)];
 	}
-	return { legacyVersion, ciphers, exts, sni, alpn, sigalgs, groups, versions, points };
+	return { legacyVersion, ciphers, exts, bodies, sni, alpn, sigalgs, groups, versions, points };
 }
 
 export function ja3(h) {
@@ -108,7 +110,12 @@ export function ja4(h) {
 		.map(hex4)
 		.sort()
 		.join(",");
-	const ss = h.sigalgs.map(hex4).join(",");
+	// GREASE is dropped here too: Chrome now GREASEs signature_algorithms, and a random
+	// value would make two captures of one client hash apart.
+	const ss = h.sigalgs
+		.filter((v) => !isGrease(v))
+		.map(hex4)
+		.join(",");
 	const c = ss ? `${es}_${ss}` : es;
 	return { ja4: `${a}_${sha12(cs)}_${sha12(c)}`, ja4_r: `${a}_${cs}_${c}` };
 }
@@ -176,4 +183,16 @@ if (import.meta.main ?? process.argv[1] === fileURLToPath(import.meta.url)) {
 	}
 	const lava = await capture((port) => spawn(LAVA, ["fetch", `https://localhost:${port}/`], quiet));
 	report("lava", lava);
+	// Extension by extension: which bodies differ (key shares, SNI and the like differ by
+	// nature; a list that differs is a fingerprint difference).
+	const a = parseHello(chrome).bodies;
+	const b = parseHello(lava).bodies;
+	for (const k of new Set([...a.keys(), ...b.keys()])) {
+		const x = a.get(k);
+		const y = b.get(k);
+		if (!x || !y || !x.equals(y)) {
+			const show = (v) => (v ? `${v.length}B ${v.subarray(0, 24).toString("hex")}` : "absent");
+			console.log(`  ext ${k}: chrome ${show(x)} | lava ${show(y)}`);
+		}
+	}
 }
