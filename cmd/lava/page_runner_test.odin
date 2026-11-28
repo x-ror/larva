@@ -159,60 +159,57 @@ runner_reports_a_page_it_cannot_start :: proc(t: ^testing.T) {
 	testing.expect(t, a.done && a.status == .Ok, "the running page did not finish")
 }
 
+// BUSY_PAGE is a chain of 30 0 ms timers, each set by the one before, so it needs 30
+// turns and a stall in any round delays every step after it. From the sixth timer on,
+// HTML's nesting clamp (#116, eventloop TIMER_NESTING_LEVEL_MAX) makes each wait 4 ms,
+// so the chain is ~0.1 s of wall time and nearly none of CPU. It is short on purpose:
+// this test used a 100-step chain of 1 ms timers, which the clamp turned into 0.44-0.47 s
+// for the page alone (4-core box, unloaded; a 4 ms chain measured the same), ~0.55 s
+// beside its sibling — the clamp, not the sibling, was what a 0.6 s bound was timing,
+// and load pushed it over.
 @(private = "file")
-Timed :: struct {
-	start:    time.Tick,
-	finished: f64,
-	status:   lava.Status,
-}
+BUSY_PAGE :: "let n = 0; (function f() { if (++n < 30) setTimeout(f, 0); })();"
 
-@(private = "file")
-record_time :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lava.Result) {
-	result := result
-	o := cast(^Timed)user_data
-	o.finished = time.duration_seconds(time.tick_since(o.start))
-	o.status = result.status
-	lava.result_destroy(&result)
-}
-
-// A busy page must not wait on its sibling's timers. The sibling re-arms a 50 ms
-// interval for 1 s; if a page loop could block in its own poll, every round would
-// stall up to 50 ms on it, and the busy page's 100 short turns would finish only
-// once the sibling stops: 1.10 s with never_block off (the recorded mutation),
-// against well under 0.6 s with it on.
+// A busy page must not wait on its sibling's timers. The sibling's only timer is 1 s
+// out. If a page loop may block in its own poll (never_block off, the recorded
+// mutation), the sibling's tick sleeps in every round until that timer or GLib's next
+// deadline, whichever is first: the busy chain advances a step per stall, and once
+// JSC's early deadlines are past, one stall runs to the sibling's timer — the sibling
+// is reported first. With never_block on, the busy page finishes at ~0.1 s, all of it
+// the clamp's wall time. Measured by timing each page_runner_step round of this pair,
+// one run per arm, unloaded 4-core box: busy reported at 95 ms with never_block on;
+// with it off, the sibling at 0.97 s and the busy chain not yet done.
+// The measure is report order, not a clock bound, with a ~10x margin a loaded machine
+// does not erode: the busy page's time is timer waits, not CPU.
 @(test)
 runner_busy_page_is_not_held_up_by_a_waiting_sibling :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
 
-	if !lava.page_runner_init(&runner, 2, record_time, context.allocator) {
+	if !lava.page_runner_init(&runner, 2, record_finished, context.allocator) {
 		testing.fail_now(t, "page_runner_init failed")
 	}
 
 	defer lava.page_runner_destroy(&runner)
-	waiting := Timed {
-		start = time.tick_now(),
+	reported := 0
+	waiting := Finished {
+		reported = &reported,
 	}
-	busy := Timed {
-		start = time.tick_now(),
+	busy := Finished {
+		reported = &reported,
 	}
-	lava.page_runner_open(
-		&runner,
-		"let k = 0; const i = setInterval(() => { if (++k == 20) clearInterval(i); }, 50);",
-		"<waiting>",
-		LIMITS,
-		&waiting,
-	)
-	lava.page_runner_open(
-		&runner,
-		"let n = 0; (function f() { if (++n < 100) setTimeout(f, 1); })();",
-		"<busy>",
-		LIMITS,
-		&busy,
-	)
+	// Opened first, so every round ticks the waiting page before the busy one.
+	lava.page_runner_open(&runner, "setTimeout(() => {}, 1000);", "<waiting>", LIMITS, &waiting)
+	lava.page_runner_open(&runner, BUSY_PAGE, "<busy>", LIMITS, &busy)
 	lava.page_runner_run(&runner)
-	testing.expect_value(t, busy.status, lava.Status.Ok)
-	testing.expect_value(t, waiting.status, lava.Status.Ok)
-	testing.expectf(t, busy.finished < 0.6, "busy page took %.2fs: it waited on its sibling's timers", busy.finished)
+	testing.expectf(t, busy.outcome.status == .Ok, "busy page failed: %s", describe_outcome(busy.outcome))
+	testing.expectf(t, waiting.outcome.status == .Ok, "waiting page failed: %s", describe_outcome(waiting.outcome))
+	testing.expectf(
+		t,
+		busy.at == 1 && waiting.at == 2,
+		"busy page reported %d, after its sibling (%d): it waited on its sibling's timers",
+		busy.at,
+		waiting.at,
+	)
 }
 
 @(private = "file")
