@@ -501,6 +501,15 @@ vm_kill_reason :: proc(vm: ^VM) -> Kill_Reason {
 	return .None
 }
 
+// vm_holder_ended reports whether a limit or a requested stop has ended the VM's current
+// holder — every way the watchdog terminates JS here, a heap kill (#151) included. An
+// exception the holder's own install sees after that is the termination, not a broken
+// runtime (globals.odin, report_internal_exception). False for nil: an unpooled eval has
+// no limits.
+vm_holder_ended :: proc(vm: ^VM) -> bool {
+	return vm != nil && (vm.budget_hit || vm.limit_hit || vm.heap_hit || vm.stop_requested)
+}
+
 // vm_metered reports whether the VM's holder has its CPU time summed into cpu_used_ns:
 // with a budget, or with a heap limit, whose check runs on that clock. Neither costs a
 // clock read otherwise.

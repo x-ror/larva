@@ -1071,6 +1071,13 @@ install_globals :: proc(ctx: jsc.JSContextRef, loop: ^eventloop.Loop) {
 	install_rejection_tracker(ctx)
 }
 
+// holder_ended is vm_holder_ended for the VM behind `ctx`'s Runtime_State.
+@(private = "file")
+holder_ended :: proc(ctx: jsc.JSContextRef) -> bool {
+	state := get_state_from_ctx(ctx)
+	return state != nil && vm_holder_ended(state.vm)
+}
+
 // The Performance API clock origin. perf_origin_tick anchors the monotonic
 // high-resolution timer (performance.now); perf_time_origin_ms is the wall-clock
 // Unix epoch at that anchor (performance.timeOrigin), so
@@ -1695,7 +1702,29 @@ eval_internal :: proc(ctx: jsc.JSContextRef, name: string, source: string) -> js
 	return value
 }
 
+// report_internal_exception writes a failed install step to stderr — unless the
+// context's holder has been ended by a limit or a stop, whose watchdog termination is
+// what failed it. That page's Result already names the kill, so a line here would
+// report a runtime defect that is not there. It did, for a page killed by a 20 ms
+// budget on a cold VM, whose install
+// takes ~31 ms of thread CPU (-o:none, first page on a fresh thread; ~8-10 ms warm; two
+// runs of 4 pages each): every module the cut terminated, then "failed to initialize
+// internal:loader: TypeError: undefined is not an object (evaluating
+// 'req('internal/crypto/random').randomUUID')", the loader reading the undefined that
+// builtin_compile_cb answers for a module whose evaluation failed. In a runner that
+// lands on the process's stderr among every other page's output.
+//
+// The rest of such an install still runs, each step cut at the kill's 1 ms watchdog
+// floor. Returning from install_globals at the kill was tried and reverted: those later
+// entries are what consume a termination JSC still holds when one landed inside a nested
+// evaluation (builtin_compile_cb's) and was answered there. Without them the next page
+// in the VM had its console prelude terminated by it, with no limit of its own hit — 11
+// of 120 killed-then-clean page pairs on one warm VM, against 0 of 120 with them.
 report_internal_exception :: proc(ctx: jsc.JSContextRef, name: string, exception: jsc.JSValueRef) {
+	if holder_ended(ctx) {
+		return
+	}
+
 	msg, allocated := jsc_value_to_string_or_default(ctx, exception)
 	process_write(os.stderr, "lava: failed to initialize ", name, ": ", msg, "\n")
 

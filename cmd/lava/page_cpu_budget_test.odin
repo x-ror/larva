@@ -5,6 +5,7 @@
 package main
 
 import "core:strings"
+import "core:sys/linux"
 import "core:testing"
 import jsc "lava:pkg/jsc"
 import lava "lava:pkg/runtime"
@@ -291,4 +292,65 @@ entry_limit_kill_latches_over_queued_microtasks :: proc(t: ^testing.T) {
 	spent := thread_cpu_seconds() - before
 	testing.expect_value(t, result.kill, lava.Kill_Reason.Entry_Limit)
 	testing.expectf(t, spent < 0.45, "killed page ran %.3fs of CPU against a 0.3s entry limit", spent)
+}
+
+// A budget spent inside the runtime install (page_create charges it to the page) is the
+// page's kill, reported once, by its Result. The install's own steps see the watchdog's
+// termination as an exception, and used to report each one as a runtime defect on the
+// process's stderr — "lava: failed to initialize internal:loader: TypeError: undefined
+// is not an object (evaluating 'req('internal/crypto/random').randomUUID')" from a page
+// killed on a cold VM in runner_churn_of_mixed_fates_frees_everything_it_allocates, which
+// the mutation gate then read as that test's failure. The TypeError itself came from the
+// loader carrying on past the cut: builtin_compile_cb answered a terminated module "not a
+// builtin", so `req` returned undefined to the loader's next line.
+//
+// On a fresh thread, so the VM is cold: the install then costs ~31 ms of thread CPU
+// (-o:none test build, first page on a fresh thread, two runs; ~8-10 ms warm) against a
+// spent budget's 1 ms watchdog floor. `state.loader == nil` proves the cut landed inside
+// the install, so a machine fast enough to finish it under the floor fails the case
+// instead of passing it on an uncut install.
+@(test)
+cpu_budget_spent_in_the_install_is_reported_by_the_result_alone :: proc(t: ^testing.T) {
+	on_fresh_thread(t, proc(t: ^testing.T) {
+		capture, mem_err := linux.memfd_create("install-kill-stderr", {})
+
+		if mem_err != .NONE {
+			testing.fail_now(t, "setup: memfd_create failed")
+		}
+
+		defer linux.close(capture)
+		saved, dup_err := linux.dup(2)
+
+		if dup_err != .NONE {
+			testing.fail_now(t, "setup: dup(2) failed")
+		}
+
+		defer linux.close(saved)
+		// Other runner threads' output lands here too while it is swapped in; only the
+		// install's own line is looked for.
+		linux.dup2(capture, 2)
+
+		page: lava.Page
+		loop := eventloop.init(real_time = true)
+		live := lava.page_create(&page, "<install-kill>", &loop, limits = {cpu_budget = 1e-6})
+		loader_reached := page.state != nil && page.state.loader != nil
+		result, _ := lava.page_close(&page)
+		defer lava.result_destroy(&result)
+
+		linux.dup2(saved, 2)
+		size, _ := linux.lseek(capture, 0, .END)
+		buf := make([]u8, max(size, 0), context.temp_allocator)
+		n, _ := linux.pread(capture, buf, 0)
+		written := string(buf[:max(n, 0)])
+
+		testing.expect(t, !live, "page_create kept a page whose budget the install spent")
+		testing.expect_value(t, result.kill, lava.Kill_Reason.Cpu_Budget)
+		testing.expect(t, !loader_reached, "setup: the install finished under the watchdog floor; nothing was cut")
+		testing.expectf(
+			t,
+			!strings.contains(written, "failed to initialize"),
+			"the kill was reported as an install failure: %q",
+			written,
+		)
+	})
 }
