@@ -207,6 +207,18 @@ dispatcher_picks_the_least_loaded_worker :: proc(t: ^testing.T) {
 // A page spinning at top level holds its own worker, never another: five short pages
 // submitted one after another while it spins each land on the other worker and
 // finish while the spinner is still running.
+//
+// Ordered, not timed: the spinner spins until its entry limit kills it, which is CPU
+// time (Page_Limits.entry_limit), and the test asserts only that every short page was
+// reported before it. It used to spin 2 s of Date.now() and require the short pages to
+// take under 1.8 s of wall: a loaded machine stretches the short pages' wall time —
+// each is a page open, a 10 ms timer and a close on a thread that has to be scheduled —
+// but not a wall-clock spin's, so the two raced (#156 saw it fail beside 14 CPU burners
+// on 4 cores). Measured from the first submit to the fifth report: 0.26-0.33 s of wall
+// beside 22 CPU burners on 4 cores, 0.60-1.29 s with eight copies of the test running at
+// once beside them (load 32) — the old bound's 1.8 s was within reach. The spinner's 2 s
+// is CPU, which that same load stretches to several seconds of wall. A short page sent
+// to the spinner's worker waits out the whole spin and is reported after it.
 @(test)
 dispatcher_busy_page_does_not_hold_other_workers :: proc(t: ^testing.T) {
 	tally: Tally
@@ -216,31 +228,27 @@ dispatcher_busy_page_does_not_hold_other_workers :: proc(t: ^testing.T) {
 	spinner := Rec {
 		tally = &tally,
 	}
-	lava.page_dispatcher_submit(
-		&d,
-		"const s = Date.now(); while (Date.now() - s < 2000) {} setTimeout(() => { throw 7; });",
-		"<spinner>",
-		LIMITS,
-		&spinner,
-	)
+	lava.page_dispatcher_submit(&d, "while (true) {}", "<spinner>", {entry_limit = 2, cpu_budget = 30}, &spinner)
 	short: [5]Rec
-	start := time.tick_now()
 	for &r, i in short {
 		r.tally = &tally
 		lava.page_dispatcher_submit(&d, "setTimeout(() => { throw 3; }, 10);", "<short>", LIMITS, &r)
-		testing.expectf(t, wait_done(&tally, i + 1, 5), "short page %d did not finish beside the spinner", i)
+		// A hang guard, not a bound: on the spinner's worker this page waits out the spin.
+		deadline := time.tick_now()
+		for sync.atomic_load(&r.reports) == 0 && time.duration_seconds(time.tick_since(deadline)) < 30 {
+			time.sleep(2 * time.Millisecond)
+		}
+		testing.expectf(t, sync.atomic_load(&r.reports) == 1, "short page %d never finished", i)
 	}
-	elapsed := time.duration_seconds(time.tick_since(start))
 	spinner_done := sync.atomic_load(&spinner.reports)
+	testing.expectf(t, spinner_done == 0, "the spinner was reported before the short pages: they waited on its worker")
+	lava.page_dispatcher_shutdown(&d)
 	testing.expectf(
 		t,
-		spinner_done == 0 && elapsed < 1.8,
-		"short pages took %.2fs; spinner reported: %d",
-		elapsed,
-		spinner_done,
+		spinner.reports == 1 && spinner.status == .Execution_Error && spinner.kill == .Entry_Limit,
+		"spinner: %v",
+		spinner,
 	)
-	lava.page_dispatcher_shutdown(&d)
-	testing.expectf(t, spinner.reports == 1 && spinner.status == .Ok && spinner.exit == 1, "spinner: %v", spinner)
 	for r, i in short {
 		testing.expectf(t, r.reports == 1 && r.status == .Ok && r.exit == 1, "short page %d: %v", i, r)
 		testing.expectf(t, r.thread != spinner.thread, "short page %d ran on the spinner's worker", i)

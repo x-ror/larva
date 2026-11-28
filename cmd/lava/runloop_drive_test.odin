@@ -124,26 +124,51 @@ collect_before_the_loop :: proc(user_data: rawptr) -> bool {
 	return true
 }
 
+// EVAL_FR_PAGE counts its ticks instead of timing them: a 0 ms timer chain that a cleanup
+// ends, and that fails the page after 100 links without one. The cleanup the pre-run
+// collection queues runs in the page's second tick — the chain's second link sees it —
+// because the RunLoop work JSC posts for it is due at once and page_tick services the
+// RunLoop before every tick: 2 links in 36 of 36 runs beside 22 CPU burners on 4 cores
+// (20 alone, 8 as eight copies at once, 8 inside four whole suites run side by side),
+// while the wall time to it ranged 2-85 ms. 100 is 50x that, and costs ~0.4 s (the
+// nesting clamp's 4 ms a link from the sixth on) when no cleanup comes.
+@(private = "file")
+EVAL_FR_PAGE :: `
+let cleaned = false;
+globalThis.keepEval = new FinalizationRegistry(() => { cleaned = true; });
+(function () { for (let i = 0; i < 16; i++) keepEval.register({}, i); })();
+let links = 0;
+(function link() {
+	if (cleaned) return;
+	if (++links > 100) throw new Error('no FinalizationRegistry cleanup in 100 ticks');
+	setTimeout(link, 0);
+})();
+`
+
 // The same on eval's path (also `lava run`): the page's loop is the
 // thread's driver, and page_tick services the RunLoop before each tick. The collection
 // runs in eval's pre-run hook, between the top-level script and the first tick.
+//
+// Counted, not timed (EVAL_FR_PAGE). It used to run FR_PAGE and require the whole eval
+// to take under 2 s, which timed the fresh thread's first VM, the runtime install and
+// the forced collection as much as the cleanup — all before the first tick, and all of
+// it what a loaded machine stretches (#156 saw it fail beside 14 CPU burners on 4
+// cores). FR_PAGE's 3 s timer is wall time from the top-level script, so the same
+// stretch could fire it ahead of a cleanup that was on time.
 @(test)
 eval_runs_a_finalization_cleanup :: proc(t: ^testing.T) {
 	on_fresh_thread(t, proc(t: ^testing.T) {
 		loop := eventloop.init(real_time = true)
-		start := time.tick_now()
-		result := lava.eval(FR_PAGE, "<fr-eval>", &loop, false, collect_before_the_loop, t)
+		result := lava.eval(EVAL_FR_PAGE, "<fr-eval>", &loop, false, collect_before_the_loop, t)
 		defer lava.result_destroy(&result)
-		elapsed := time.duration_seconds(time.tick_since(start))
 		testing.expectf(
 			t,
 			result.status == .Ok && result.exit_code == 0,
-			"eval: %v exit %d %q",
+			"eval: %v exit %d %q: no cleanup ran in the page's ticks",
 			result.status,
 			result.exit_code,
 			result.message,
 		)
-		testing.expectf(t, elapsed < 2, "eval took %.2f s: the cleanup did not cancel the 3 s timer", elapsed)
 	})
 }
 
