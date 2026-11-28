@@ -535,7 +535,7 @@ conn_request :: proc(c: ^Conn, method, target: string) {
 	c.state = .Navigating
 	nav_err := http.fetch(
 		s.loop,
-		{url = c.req.url, timeout_ms = c.req.timeout_ms, cookie_jar = &c.session.jar},
+		{url = c.req.url, timeout_ms = c.req.timeout_ms, cookie_jar = &c.session.jar, proxy = c.req.proxy},
 		on_navigated,
 		c,
 		allocator = s.allocator,
@@ -573,6 +573,8 @@ on_navigated :: proc(resp: http.Response, user_data: rawptr) {
 	if resp.error != .None {
 		if resp.error == .Timeout {
 			conn_fail(c, .Kill_Timeout, "the navigation did not finish before the timeout")
+		} else if resp.error == .Proxy {
+			conn_fail(c, .Proxy_Failed, "the proxy was unreachable, refused the tunnel or asked for credentials")
 		} else {
 			conn_fail(c, .Navigation_Failed, fmt.tprintf("navigation failed: %v", resp.error))
 		}
@@ -604,6 +606,7 @@ on_navigated :: proc(resp: http.Response, user_data: rawptr) {
 		script_result = c.req.script_result,
 		deadline      = time.tick_add(c.admitted, time.Duration(c.req.timeout_ms) * time.Millisecond),
 		cookie_jar    = &c.session.jar,
+		proxy         = c.req.proxy,
 		allocator     = s.allocator,
 	}
 	c.job = job

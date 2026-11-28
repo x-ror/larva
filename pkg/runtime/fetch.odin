@@ -6,6 +6,7 @@ import "core:net"
 import "core:strconv"
 import "core:strings"
 import "core:sync"
+import proxy "lava:pkg/http/proxy"
 import jsc "lava:pkg/jsc"
 import eventloop "lava:pkg/runtime/eventloop"
 import pico "lava:pkg/runtime/picohttpparser"
@@ -51,6 +52,9 @@ FETCH_MAX_CHUNK_LINE :: 16 * 1024
 
 Fetch_Phase :: enum {
 	Connecting,
+	// https through a proxy: sending CONNECT, then reading its answer (tunnel_bytes).
+	Tunnel_Write,
+	Tunnel_Read,
 	TLS_Handshake, // https only: drive SSL_connect between Connecting and Writing
 	Writing, // sending the request head (and, for buffered bodies, the body)
 	Body_Write, // streaming an upload body incrementally as chunked frames
@@ -122,6 +126,11 @@ Fetch_Request :: struct {
 	port:              int,
 	request_bytes:     []byte,
 	write_offset:      int,
+	// The CONNECT request opening a tunnel through the page's proxy (Runtime_State.proxy)
+	// for an https request, sent before the TLS handshake; nil without a proxy or for
+	// http, whose request_bytes go to the proxy in absolute-form instead. Owned.
+	tunnel_bytes:      []byte,
+	tunnel_offset:     int,
 
 	// DNS for a hostname runs on the loop's generic worker pool (#77, fetch_dns.odin):
 	// the lookup result lives on a DNS_Job, not on the request, and the connect is
@@ -518,6 +527,15 @@ fetch_request_cb :: proc "c" (
 	req.path = strings.clone(path, alloc)
 	req.port = port // needed by the deferred connect after async DNS resolves
 	req.is_https = scheme == "https"
+	// A proxy (a `lava serve` request's, page_crawl.odin) takes every request: the socket
+	// goes to it, an http request in absolute-form, an https one through a tunnel.
+	via: proxy.Proxy
+
+	if state != nil {
+		via = state.proxy
+	}
+
+	absolute := via.host != "" && !req.is_https
 	// Serialize while the JSC-borrowed `body`/`header_lines` are still valid; the
 	// resulting buffer is independent of them.
 	req.request_bytes = build_http_request(
@@ -530,7 +548,19 @@ fetch_request_cb :: proc "c" (
 		req.is_https,
 		stream_body,
 		alloc,
+		absolute,
+		via.authorization if absolute else "",
 	)
+
+	if via.host != "" {
+		req.port = via.port
+
+		if req.is_https {
+			sb := strings.builder_make(alloc)
+			proxy.write_connect(&sb, req.host, port, via.authorization)
+			req.tunnel_bytes = sb.buf[:]
+		}
+	}
 
 	// Build and GC-protect the cancel / resume handles before starting the
 	// transport so the JS caller can cancel or resume even if the request settles
@@ -557,7 +587,7 @@ fetch_request_cb :: proc "c" (
 		fetch_track_active(state, req)
 	}
 
-	started, err := fetch_transport_start(req, host, port)
+	started, err := fetch_transport_start(req, via.host if via.host != "" else host, req.port)
 
 	if !started {
 		fetch_settle_error(req, err)
@@ -766,10 +796,31 @@ build_http_request :: proc(
 	is_https: bool,
 	chunked: bool,
 	alloc: runtime.Allocator,
+	absolute := false,
+	proxy_authorization := "",
 ) -> []byte {
 	b := strings.builder_make(alloc)
 	strings.write_string(&b, method)
 	strings.write_byte(&b, ' ')
+
+	// For an http proxy, the absolute-form target (RFC 9112 §3.2.2): scheme and
+	// authority before the path.
+	if absolute {
+		strings.write_string(&b, "https://" if is_https else "http://")
+
+		if strings.index_byte(host, ':') >= 0 {
+			strings.write_byte(&b, '[')
+			strings.write_string(&b, host)
+			strings.write_byte(&b, ']')
+		} else {
+			strings.write_string(&b, host)
+		}
+
+		if port != (443 if is_https else 80) {
+			strings.write_byte(&b, ':')
+			strings.write_int(&b, port)
+		}
+	}
 
 	// Origin-form request target always begins with '/': a query-only path
 	// ("?x=1", from http://host?x=1) gets the slash prepended here.
@@ -807,6 +858,7 @@ build_http_request :: proc(
 	strings.write_string(&b, "\r\n")
 
 	strings.write_string(&b, header_lines) // each line already ends with \r\n
+	proxy.write_authorization(&b, proxy_authorization)
 	strings.write_string(&b, "Connection: close\r\n")
 
 	if chunked {
@@ -1265,6 +1317,10 @@ fetch_free_request :: proc(req: ^Fetch_Request) {
 
 	if req.request_bytes != nil {
 		delete(req.request_bytes, req.allocator)
+	}
+
+	if req.tunnel_bytes != nil {
+		delete(req.tunnel_bytes, req.allocator)
 	}
 
 	delete(req.response)

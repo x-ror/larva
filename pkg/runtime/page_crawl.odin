@@ -7,6 +7,7 @@ import "core:strings"
 import "core:time"
 import html "lava:pkg/html"
 import cookie "lava:pkg/http/cookie"
+import proxy "lava:pkg/http/proxy"
 import jsc "lava:pkg/jsc"
 import eventloop "lava:pkg/runtime/eventloop"
 
@@ -71,6 +72,9 @@ Crawl_Job :: struct {
 	// Borrowed until on_done; read and written on the worker thread while the embedder's
 	// thread may use it too, which the jar's own mutex makes safe (pkg/http/cookie).
 	cookie_jar:    ^cookie.Jar,
+	// The proxy the page's own requests go through, the zero value for none. Its strings
+	// are borrowed until on_done.
+	proxy:         proxy.Proxy,
 	// Owns `body` and `message`. Used from the worker thread, so it must be thread-safe.
 	allocator:     runtime.Allocator,
 	// Outputs.
@@ -169,6 +173,8 @@ crawl_start :: proc(page: ^Page, data: rawptr) -> bool {
 	if job.cookie_jar != nil {
 		page.state.cookie_jar = job.cookie_jar
 	}
+
+	page.state.proxy = job.proxy
 
 	// No document path: a `src` is never read from the server's disk, so every external
 	// script fails its fetch (its `error` event), as page_script.odin does for "".

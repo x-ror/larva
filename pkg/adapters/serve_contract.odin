@@ -5,6 +5,7 @@ import "core:crypto"
 import "core:net"
 import "core:strconv"
 import "core:strings"
+import proxy "lava:pkg/http/proxy"
 
 // The HTTP crawling adapter's wire contract (#15; docs/LARVA.md decision 5: wire
 // protocols stay in adapters). #15 keeps the production caller's exact names in a
@@ -35,6 +36,12 @@ import "core:strings"
 //             target URL had set them: `name=value; name2=value2`, or a JSON array of
 //             set-cookie-strings (`["a=1; Domain=example.com; HttpOnly"]`) when they
 //             need attributes. A cookie the jar refuses is a bad_request.
+//   proxy     `http://[user:password@]host[:port]`: the navigation and the page's own
+//             fetch/XMLHttpRequest go through this HTTP proxy — absolute-form for http
+//             targets, a CONNECT tunnel for https, Basic Proxy-Authorization from the
+//             credentials (pkg/http/proxy). A proxy that cannot be reached, refuses the
+//             tunnel or answers 407 fails the request with `proxy_failed`; a page's own
+//             request through a failing proxy rejects as a network error would.
 //
 // Any other parameter is refused with `unsupported` (501): a feature this stage does not
 // have (screenshot, actions…) must make the caller fall back to Chrome, not quietly
@@ -76,6 +83,9 @@ Error_Code :: enum {
 	// The document could not be fetched: DNS, connect, TLS, a bad response, a body that
 	// does not decode, too many redirects.
 	Navigation_Failed,
+	// The proxy given with `proxy` failed the navigation: unreachable, a refused CONNECT,
+	// a 407.
+	Proxy_Failed,
 	// The request's timeout passed — during navigation or in the page.
 	Kill_Timeout,
 	// The custom script did not compile, threw, rejected, never settled, or resolved with
@@ -100,6 +110,7 @@ ERROR_NAME := [Error_Code]string {
 	.Over_Capacity      = "over_capacity",
 	.Engine_Unavailable = "engine_unavailable",
 	.Navigation_Failed  = "navigation_failed",
+	.Proxy_Failed       = "proxy_failed",
 	.Kill_Timeout       = "kill_timeout",
 	.Script_Error       = "script_error",
 	.Selector_Not_Found = "selector_not_found",
@@ -118,6 +129,7 @@ ERROR_STATUS := [Error_Code]int {
 	.Over_Capacity      = 503,
 	.Engine_Unavailable = 503,
 	.Navigation_Failed  = 502,
+	.Proxy_Failed       = 502,
 	.Kill_Timeout       = 504,
 	.Script_Error       = 500,
 	.Selector_Not_Found = 500,
@@ -173,6 +185,8 @@ Render_Request :: struct {
 	// "" for none.
 	session:       string,
 	cookies:       string,
+	// The zero value for none.
+	proxy:         proxy.Proxy,
 	allocator:     runtime.Allocator,
 }
 
@@ -182,6 +196,7 @@ render_request_destroy :: proc(r: ^Render_Request) {
 	delete(r.script, r.allocator)
 	delete(r.session, r.allocator)
 	delete(r.cookies, r.allocator)
+	proxy.destroy(&r.proxy, r.allocator)
 	r^ = {}
 }
 
@@ -237,7 +252,8 @@ parse_render_query :: proc(
 		if !known {
 			return req,
 				.Unsupported,
-				"unsupported parameter (this stage serves url, wait, selector, script, result, timeout, session, cookies)"
+				"unsupported parameter (this stage serves url, wait, selector, script, result, timeout, session, " +
+				"cookies, proxy)"
 		}
 
 		if param in seen {
@@ -274,6 +290,14 @@ parse_render_query :: proc(
 			req.session = strings.clone(value, allocator)
 		case .Cookies:
 			req.cookies = strings.clone(value, allocator)
+		case .Proxy:
+			parsed, proxy_ok := proxy.parse(value, allocator)
+
+			if !proxy_ok {
+				return req, .Bad_Request, "proxy must be http://[user:password@]host[:port]"
+			}
+
+			req.proxy = parsed
 		}
 	}
 
@@ -320,6 +344,7 @@ Param :: enum {
 	Token,
 	Session,
 	Cookies,
+	Proxy,
 }
 
 @(private = "file")
@@ -343,6 +368,8 @@ param_from_name :: proc(name: string) -> (Param, bool) {
 		return .Session, true
 	case "cookies":
 		return .Cookies, true
+	case "proxy":
+		return .Proxy, true
 	}
 
 	return {}, false

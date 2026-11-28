@@ -54,14 +54,32 @@ request_is_valid :: proc(req: Request) -> bool {
 // build_request writes the request head and body into `out`, grown once up front. A
 // caller's header replaces the default of the same name; `cookie`, the jar's Cookie
 // value for this URL ("" for none), is sent only when the caller sent no Cookie.
+// `absolute` writes the target in absolute-form, for an http proxy, which then also
+// gets `proxy_authorization` ("" for none).
 @(private)
-build_request :: proc(out: ^[dynamic]byte, method: string, url: Url, headers: []Header, body: []byte, cookie := "") {
+build_request :: proc(
+	out: ^[dynamic]byte,
+	method: string,
+	url: Url,
+	headers: []Header,
+	body: []byte,
+	cookie := "",
+	absolute := false,
+	proxy_authorization := "",
+) {
 	clear(out)
 	sb := strings.Builder {
 		buf = out^,
 	}
 
-	size := len(method) + len(url.target) + len(url.host) + len(body) + len(cookie) + DEFAULT_HEAD_BYTES
+	size :=
+		len(method) +
+		2 * len(url.host) +
+		len(url.target) +
+		len(body) +
+		len(cookie) +
+		len(proxy_authorization) +
+		DEFAULT_HEAD_BYTES
 	for &h in headers {
 		size += len(h.name) + len(": \r\n") + len(h.value)
 	}
@@ -69,6 +87,12 @@ build_request :: proc(out: ^[dynamic]byte, method: string, url: Url, headers: []
 	strings.builder_grow(&sb, size)
 	strings.write_string(&sb, method)
 	strings.write_byte(&sb, ' ')
+
+	if absolute {
+		strings.write_string(&sb, "https://" if url.https else "http://")
+		write_host_header(&sb, url)
+	}
+
 	strings.write_string(&sb, url.target)
 	strings.write_string(&sb, " HTTP/1.1\r\n")
 
@@ -91,6 +115,10 @@ build_request :: proc(out: ^[dynamic]byte, method: string, url: Url, headers: []
 
 	if cookie != "" && !has_header(headers, "Cookie") {
 		write_header(&sb, {"Cookie", cookie})
+	}
+
+	if absolute && proxy_authorization != "" && !has_header(headers, "Proxy-Authorization") {
+		write_header(&sb, {"Proxy-Authorization", proxy_authorization})
 	}
 
 	if (len(body) > 0 || method_has_body(method)) && !has_header(headers, "Content-Length") {

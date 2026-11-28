@@ -762,6 +762,8 @@ serve_allocations_pair_through_its_allocator :: proc(t: ^testing.T) {
 		{"/login", "&session=x&cookies=a%3D1", 200},
 		{"/login", "&cookies=a%3D1", 200},
 		{"/a", "&cookies=__Host-x%3D1", 400},
+		// The proxy is parsed, cloned into the transfer and freed with both.
+		{"/a", "&proxy=http%3A%2F%2Fu%3Ap%40127.0.0.1%3A1", 502},
 	}
 	for e in ends {
 		r := render(port, origin.port, e.path, e.extra)
@@ -997,4 +999,193 @@ serve_sessions_expire_and_evict :: proc(t: ^testing.T) {
 		defer reply_destroy(&expired)
 		testing.expectf(t, element_text(expired.body, "hdr") == "", "a outlived its TTL: %s", describe(expired))
 	}
+}
+
+// The proxy fixture's credentials, `u:p`, as Basic.
+@(private = "file")
+PROXY_AUTH :: "Proxy-Authorization: Basic dTpw\r\n"
+
+// A fixture HTTP proxy: it answers absolute-form requests itself (a document whose
+// script fetches /data, and /data naming the target it was asked for), answers CONNECT
+// with 200 and then closes (no TLS server behind it: the handshake fails), and answers
+// 407 to a request without PROXY_AUTH. It records the last CONNECT request line.
+@(private = "file")
+Proxy_Fixture :: struct {
+	listener:     net.TCP_Socket,
+	port:         int,
+	thread:       ^thread.Thread,
+	mutex:        sync.Mutex,
+	last_connect: [256]byte,
+	connect_len:  int,
+}
+
+@(private = "file")
+proxy_start :: proc(t: ^testing.T) -> (p: ^Proxy_Fixture, ok: bool) {
+	listener, err := net.listen_tcp({net.IP4_Loopback, 0})
+
+	if !testing.expectf(t, err == nil, "fixture proxy: listen: %v", err) {
+		return nil, false
+	}
+
+	endpoint, _ := net.bound_endpoint(listener)
+	p = new(Proxy_Fixture, runtime.heap_allocator())
+	p.listener = listener
+	p.port = endpoint.port
+	p.thread = thread.create_and_start_with_poly_data(p, proxy_serve)
+	return p, true
+}
+
+@(private = "file")
+proxy_stop :: proc(p: ^Proxy_Fixture) {
+	net.shutdown(p.listener, .Both)
+	thread.join(p.thread)
+	thread.destroy(p.thread)
+	net.close(p.listener)
+	free(p, runtime.heap_allocator())
+}
+
+@(private = "file")
+proxy_last_connect :: proc(p: ^Proxy_Fixture) -> string {
+	sync.guard(&p.mutex)
+	return strings.clone(string(p.last_connect[:p.connect_len]), context.temp_allocator)
+}
+
+@(private = "file")
+proxy_serve :: proc(p: ^Proxy_Fixture) {
+	for {
+		client, _, err := net.accept_tcp(p.listener)
+
+		if err != nil {
+			return
+		}
+
+		request: [4096]byte
+		n := 0
+		for !strings.contains(string(request[:n]), "\r\n\r\n") {
+			got, rerr := net.recv_tcp(client, request[n:])
+
+			if rerr != nil || got == 0 || n + got == len(request) {
+				break
+			}
+
+			n += got
+		}
+
+		head := string(request[:n])
+		line := strings.truncate_to_byte(head, '\r')
+		method, _, after_method := strings.partition(line, " ")
+		target, _, _ := strings.partition(after_method, " ")
+		out: [1024]byte
+		body: [512]byte
+		response: string
+
+		if method == "CONNECT" {
+			sync.lock(&p.mutex)
+			p.connect_len = copy(p.last_connect[:], line)
+			sync.unlock(&p.mutex)
+		}
+
+		switch {
+		case !strings.contains(head, PROXY_AUTH):
+			response = "HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+		case method == "CONNECT":
+			response = "HTTP/1.1 200 Connection established\r\n\r\n"
+		case strings.has_suffix(target, "/data"):
+			text := fmt.bprintf(body[:], "proxied %s", target)
+			response = fmt.bprintf(
+				out[:],
+				"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
+				len(text),
+				text,
+			)
+		case:
+			text :=
+				`<!doctype html><body><p id="f">pending</p><script>fetch('http://127.0.0.1:1/data')` +
+				`.then((r) => r.text()).then((t) => { document.getElementById('f').textContent = t; })</script></body>`
+			response = fmt.bprintf(
+				out[:],
+				"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
+				len(text),
+				text,
+			)
+		}
+
+		net.send_tcp(client, transmute([]byte)response)
+		net.close(client)
+	}
+}
+
+// proxy_param is `&proxy=http://<credentials>@127.0.0.1:<port>`, encoded.
+@(private = "file")
+proxy_param :: proc(credentials: string, port: int) -> string {
+	url := fmt.tprintf("http://%s@127.0.0.1:%d", credentials, port)
+	return fmt.tprintf("&proxy=%s", net.percent_encode(url, context.temp_allocator))
+}
+
+// A request with `proxy` goes through it: the document in absolute-form with the
+// credentials, the page's own fetch() too (the target's port is 1, where nothing
+// listens, so nothing went direct), and an https target through CONNECT with the
+// credentials. A proxy that wants other credentials, or cannot be reached, is
+// proxy_failed — not navigation_failed.
+@(test)
+serve_routes_through_a_proxy :: proc(t: ^testing.T) {
+	px, ok := proxy_start(t)
+
+	if !ok {
+		return
+	}
+
+	defer proxy_stop(px)
+	s, started := serve_start(t, {threads = 1})
+
+	if !started {
+		return
+	}
+
+	defer serve_stop(s)
+	port := s.server.port
+	via := proxy_param("u:p", px.port)
+	doc := net.percent_encode("http://127.0.0.1:1/doc", context.temp_allocator)
+	secure := net.percent_encode("https://example.test/x", context.temp_allocator)
+
+	r := request(port, fmt.tprintf("/render?url=%s%s", doc, via))
+	defer reply_destroy(&r)
+	testing.expectf(t, r.status == 200, "through the proxy: %s", describe(r))
+	testing.expect_value(t, element_text(r.body, "f"), "proxied http://127.0.0.1:1/data")
+
+	tls := request(port, fmt.tprintf("/render?url=%s%s", secure, via))
+	defer reply_destroy(&tls)
+	testing.expect_value(t, proxy_last_connect(px), "CONNECT example.test:443 HTTP/1.1")
+	testing.expectf(
+		t,
+		tls.status == 502 && reply_header(tls, adapters.HEADER_ERROR) == "navigation_failed",
+		"no TLS server behind the tunnel: %s",
+		describe(tls),
+	)
+
+	wrong := proxy_param("u:x", px.port)
+	for target in ([]string{doc, secure}) {
+		denied := request(port, fmt.tprintf("/render?url=%s%s", target, wrong))
+		defer reply_destroy(&denied)
+		testing.expectf(
+			t,
+			denied.status == 502 && reply_header(denied, adapters.HEADER_ERROR) == "proxy_failed",
+			"%s with the wrong credentials: %s",
+			target,
+			describe(denied),
+		)
+	}
+
+	gone := request(port, fmt.tprintf("/render?url=%s&proxy=http%%3A%%2F%%2F127.0.0.1%%3A1", doc))
+	defer reply_destroy(&gone)
+	testing.expectf(
+		t,
+		gone.status == 502 && reply_header(gone, adapters.HEADER_ERROR) == "proxy_failed",
+		"an unreachable proxy: %s",
+		describe(gone),
+	)
+
+	bad := request(port, fmt.tprintf("/render?url=%s&proxy=socks5%%3A%%2F%%2Fx", doc))
+	defer reply_destroy(&bad)
+	testing.expectf(t, bad.status == 400, "a socks proxy: %s", describe(bad))
 }
