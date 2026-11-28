@@ -50,6 +50,14 @@ FIXTURES := [?]struct {
 	},
 	// `load` waits 300 ms for a timer: a request that is in flight for a while.
 	{"/slow", `<!doctype html><script>setTimeout(() => { document.body.id = 'slow-done'; }, 300)</script>`},
+	// The DOM write comes from a parser-blocking script fetched from this origin; the
+	// inline script after it sees its effect, so the parser waited for it.
+	{
+		"/ext",
+		`<!doctype html><body><p id="x">static</p><script src="ext.js"></script>` +
+		`<script>document.body.setAttribute('data-after', document.getElementById('x').textContent);</script></body>`,
+	},
+	{"/ext.js", `document.getElementById('x').textContent = 'external ran';`},
 }
 
 @(private = "file")
@@ -329,6 +337,35 @@ serve_renders_the_document_after_load :: proc(t: ^testing.T) {
 	defer reply_destroy(&missing)
 	testing.expectf(t, missing.status == 200, "a 404 page is still a page: %s", describe(missing))
 	testing.expect_value(t, reply_header(missing, adapters.HEADER_STATUS), "404")
+}
+
+// A page's external script is fetched from its origin over the network on the worker's
+// loop (pkg/runtime/page_script.odin), with the parser paused until it has run.
+@(test)
+serve_runs_external_scripts_from_the_origin :: proc(t: ^testing.T) {
+	origin, ok := origin_start(t)
+
+	if !ok {
+		return
+	}
+
+	defer origin_stop(origin)
+	s, started := serve_start(t, {threads = 1})
+
+	if !started {
+		return
+	}
+
+	defer serve_stop(s)
+	r := render(s.server.port, origin.port, "/ext")
+	defer reply_destroy(&r)
+	testing.expectf(t, r.status == 200, "want 200: %s", describe(r))
+	testing.expectf(
+		t,
+		strings.contains(r.body, `<body data-after="external ran"><p id="x">external ran</p>`),
+		"the external script did not run before the parser went on: %s",
+		r.body,
+	)
 }
 
 // A selector wait runs past `load`: the element the load listener's timer inserts is in

@@ -21,9 +21,9 @@ import eventloop "lava:pkg/runtime/eventloop"
 // The wait order is #15's production order, cut to what this stage has:
 //   load → selector wait → custom script → capture.
 // `load` is the HTML loader's (page_html.odin): fired once the loop has idled after
-// DOMContentLoaded — there are no subresources to wait for — so a page whose loop never
-// idles before then (a setInterval started at parse time) never reaches it and ends at
-// its deadline. Network-idle, the actions DSL, the fixed body wait and capture of cookies
+// DOMContentLoaded — the page's script fetches are on that loop, so it waits for them —
+// so a page whose loop never idles before then (a setInterval started at parse time)
+// never reaches it and ends at its deadline. Network-idle, the actions DSL, the fixed body wait and capture of cookies
 // or network bodies are later work (#15).
 
 // Crawl_Outcome is how the driver ended a crawl job. `.None` means it did not: the
@@ -159,9 +159,10 @@ crawl_start :: proc(page: ^Page, data: rawptr) -> bool {
 		return false
 	}
 
-	// No document path: a `src` is never read from the server's disk, so every external
-	// script fails its fetch (its `error` event), as page_script.odin does for "".
-	return html_page_begin(page, job.document, job.url, "")
+	// No document path: a `src` is never read from the server's disk. It is resolved
+	// against the document's URL and fetched over the network on the page's loop
+	// (page_script.odin), which the Loading phase ticks until it idles.
+	return html_page_begin(page, job.document, job.url, "", job.url)
 }
 
 // crawl_tick is one round of the job: one page tick, then as many steps of the wait order

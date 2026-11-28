@@ -5,6 +5,7 @@ import "core:net"
 import "core:os"
 import "core:strings"
 import html "lava:pkg/html"
+import http "lava:pkg/http"
 import jsc "lava:pkg/jsc"
 import eventloop "lava:pkg/runtime/eventloop"
 
@@ -26,11 +27,23 @@ import eventloop "lava:pkg/runtime/eventloop"
 //     insertion order, which a FIFO satisfies for both. `load` waits for them.
 //   - inline, inserted by a script: during the insertion, before appendChild returns.
 //
-// Fetching is a file read: `lava page` documents are files, so a `src` resolves against
-// the document's path and is read from disk when the script is prepared (script_fetch).
-// A URL that names no local file (http:, https:, data:, another host) fails the fetch:
-// the element gets `error`, as an unreachable URL would in Chrome. A network page
-// loader, which would fetch over pkg/http, is not there yet.
+// Fetching (script_fetch) is a file read or a network fetch, decided when the script is
+// prepared:
+//   - a page with a document file (`lava page`): a `src` that names a local file — a
+//     relative reference, or a `file:` URL with no host — is resolved against the
+//     file's path and read from disk at once;
+//   - a page with an http(s) URL (`lava serve`'s documents, `lava page --origin=<url>`):
+//     a `src` that names no local file is resolved against that URL (http.resolve) and
+//     fetched over pkg/http on the page's own loop, with the page's cookie jar and a
+//     script request's headers (script_fetch_start). The fetch is asynchronous: the job
+//     waits, not ready, until it completes (script_fetch_done) — a parser-blocking one
+//     as the pending parsing-blocking script, with the parser paused (page_html.odin
+//     html_page_continue) while the loop goes on with the page's other tasks;
+//   - anything else (data:, blob:, another scheme, a page with neither) fails: the
+//     element gets `error`, as an unreachable URL would in Chrome. So does a non-2xx
+//     answer or a network error.
+// A killed or closed page's loop is destroyed under its fetches, which then finish
+// .Cancelled and are freed without running anything.
 //
 // Deviations, each pinned by a tests/dom case or noted as unrecorded:
 //   - module scripts (`type=module`) never run: the JavaScriptCore C API has no module
@@ -40,12 +53,26 @@ import eventloop "lava:pkg/runtime/eventloop"
 //   - an external script is decoded as UTF-8 (a UTF-8 BOM is dropped); a `charset`
 //     attribute, another BOM and the document's encoding are not consulted.
 //     Unrecorded: every case's script is UTF-8.
-//   - a fetch is synchronous and has no latency, so an async script never runs during
-//     the parse; Chrome's timing is a race (the cases pin only order-free facts).
+//   - a file fetch is synchronous and has no latency, so an async script never runs
+//     during the parse; Chrome's timing is a race (the cases pin only order-free facts).
+//   - async and inserted external scripts run in the order they were prepared, a ready
+//     one waiting behind an earlier one still in flight; Chrome runs each as its fetch
+//     completes. Order-free in every recorded case.
+//   - a network script is decoded as UTF-8 unless a UTF-16 BOM or Content-Type's
+//     charset says otherwise; the `charset` attribute and the document's encoding (the
+//     fallback HTML names) are not consulted. `<base href>` does not change the URL a
+//     `src` resolves against. Unrecorded: network scripts are pinned by Lava-only tests
+//     (cmd/lava/page_network_script_test.odin), not a Chrome recording.
 
 // SCRIPT_MAX_BYTES bounds one external script read from disk; a bigger file fails its
 // fetch. Not a Chrome limit: a page must not make Lava read a disk image into memory.
 SCRIPT_MAX_BYTES :: 64 * 1024 * 1024
+
+// SCRIPT_PAGE_MAX_BYTES bounds the bytes of all a page's network scripts together: a
+// fetch is started only while the page is under it, and asks for no more than is left
+// (counted as each completes, so fetches in flight together can overshoot by one
+// response each). Not a Chrome limit: a page must not make Lava buffer without bound.
+SCRIPT_PAGE_MAX_BYTES :: 128 * 1024 * 1024
 
 // Script_Job is one prepared script waiting to run, or its fetch's failure.
 Script_Job :: struct {
@@ -57,6 +84,34 @@ Script_Job :: struct {
 	name:   string,
 	// The fetch failed: running the job fires `error` at the element.
 	failed: bool,
+	// A network fetch: the job is ready once it is no longer in flight, and takes its
+	// outcome from it then (script_job_settle). nil for a file or an inline script.
+	fetch:  ^Script_Fetch,
+}
+
+// Script_Fetch is one script's network fetch, allocated with the page's script
+// allocator. The job holding it owns it; a job freed while its fetch is in flight
+// detaches it (owner nil) and script_fetch_done frees it.
+Script_Fetch :: struct {
+	owner:     ^Page_Scripts,
+	page:      ^Page,
+	allocator: runtime.Allocator,
+	in_flight: bool,
+	failed:    bool,
+	// The decoded script, owned; "" until it completes, or on a failure.
+	source:    string,
+	// The URL it was fetched from, owned: the name the script runs under.
+	url:       string,
+}
+
+// Parse_State is how far the page's parse has come (page_html.odin html_page_continue).
+Parse_State :: enum {
+	// The parser runs, or waits on a parser-blocking script's fetch.
+	Parsing,
+	// The document is parsed and `interactive`; the defer scripts run, or wait on a fetch.
+	Deferred,
+	// DOMContentLoaded has fired.
+	Loaded,
 }
 
 // Page_Scripts is a page's script state, held by its Dom_Page (dom.odin) and released
@@ -64,9 +119,18 @@ Script_Job :: struct {
 // `proc "c"` natives.
 Page_Scripts :: struct {
 	allocator:     runtime.Allocator,
-	// The document's file path, which a `src` resolves against; "" for a page with no
-	// file, whose every external script then fails its fetch. Owned.
+	// The document's file path, which a `src` naming a local file resolves against; ""
+	// for a page with no file. Owned.
 	document_path: string,
+	// The document's URL when it is an http(s) one, which any other `src` resolves
+	// against and is fetched from over the network; "" for none. Owned.
+	document_url:  string,
+	// How far the parse has come, and whether html_page_continue is running (a fetch
+	// completing under it leaves the work to it).
+	parse_state:   Parse_State,
+	continuing:    bool,
+	// Bytes of network script fetched so far (SCRIPT_PAGE_MAX_BYTES).
+	script_bytes:  int,
 	// The page's own name, under which its inline scripts run. Owned.
 	source_name:   string,
 	// HTML's "already started" flag: a script element in here never runs again.
@@ -136,19 +200,25 @@ scripts_destroy :: proc(s: ^Page_Scripts) {
 	delete(s.ready)
 	delete(s.started)
 	delete(s.document_path, s.allocator)
+	delete(s.document_url, s.allocator)
 	delete(s.source_name, s.allocator)
 	s^ = {}
 }
 
-// scripts_attach ties a page to its DOM's scripts: the page that runs them, the file a
-// `src` resolves against, and the name inline scripts run under. Called by the page
-// loader once dom_install succeeded, before the parse.
-scripts_attach :: proc(page: ^Page, document_path, source_name: string) {
+// scripts_attach ties a page to its DOM's scripts: the page that runs them, the file and
+// the URL a `src` resolves against, and the name inline scripts run under. Called by the
+// page loader once dom_install succeeded, before the parse. `document_url` is kept only
+// when it is an http(s) URL pkg/http can fetch from.
+scripts_attach :: proc(page: ^Page, document_path, document_url, source_name: string) {
 	dom := page.state.dom
 	dom.page = page
 	s := &dom.scripts
 	s.document_path = strings.clone(document_path, s.allocator)
 	s.source_name = strings.clone(source_name, s.allocator)
+
+	if _, ok := http.resolve(document_url, "", context.temp_allocator); ok {
+		s.document_url = strings.clone(document_url, s.allocator)
+	}
 }
 
 // scripts_parser_reached runs the step the parser takes at a script's end tag (HTML's
@@ -171,7 +241,7 @@ scripts_parser_reached :: proc(page: ^Page, node: html.Node) {
 	case .Inline:
 		script_execute(page, &job, parser = true)
 	case .Blocking:
-		if s.nesting > 0 {
+		if s.nesting > 0 || !script_job_ready(&job) {
 			s.pending = job
 			s.has_pending = true
 		} else {
@@ -185,6 +255,12 @@ scripts_parser_reached :: proc(page: ^Page, node: html.Node) {
 scripts_run_pending :: proc(page: ^Page) {
 	for !page.finished && page.state != nil && page.state.dom != nil && page.state.dom.scripts.has_pending {
 		s := &page.state.dom.scripts
+
+		// Still in flight: the parser stays paused until script_fetch_done.
+		if !script_job_ready(&s.pending) {
+			return
+		}
+
 		job := s.pending
 		s.pending = {}
 		s.has_pending = false
@@ -194,25 +270,29 @@ scripts_run_pending :: proc(page: ^Page) {
 
 // scripts_run_deferred runs the `defer` scripts in document order, each with its load
 // or error: HTML's "the end" step 3, after the `interactive` readystatechange and
-// before DOMContentLoaded.
+// before DOMContentLoaded. Returns false while one is still being fetched — the rest
+// wait behind it, and script_fetch_done calls again — or once the page has ended.
 //
 // Chrome:
 //   Chrome 158, tests/dom/cases/dom-script-defer.page.
-scripts_run_deferred :: proc(page: ^Page) {
-	for i := 0;; i += 1 {
+scripts_run_deferred :: proc(page: ^Page) -> bool {
+	for {
 		if page.finished || page.state == nil || page.state.dom == nil {
-			return
+			return false
 		}
 
 		s := &page.state.dom.scripts
 
-		if i >= len(s.deferred) {
-			clear(&s.deferred)
-			return
+		if len(s.deferred) == 0 {
+			return true
 		}
 
-		job := s.deferred[i]
-		s.deferred[i] = {}
+		if !script_job_ready(&s.deferred[0]) {
+			return false
+		}
+
+		job := s.deferred[0]
+		ordered_remove(&s.deferred, 0)
 		script_execute(page, &job, parser = false)
 	}
 }
@@ -448,7 +528,7 @@ script_prepare :: proc(dom: ^Dom_Page, node: html.Node, parser_inserted: bool) -
 		return .Inline, Script_Job{node = node, source = html.text(node, s.allocator)}
 	}
 
-	job, empty := script_fetch(s, node, src)
+	job, empty := script_fetch(dom, node, src)
 	_, async := html.attr_view(node, "async")
 	_, deferred := html.attr_view(node, "defer")
 
@@ -497,6 +577,8 @@ script_execute :: proc(page: ^Page, job: ^Script_Job, parser: bool) {
 	if page.finished {
 		return
 	}
+
+	script_job_settle(job)
 
 	if job.failed {
 		script_fire(page, job.node, "error")
@@ -566,6 +648,11 @@ scripts_schedule :: proc(dom: ^Dom_Page) {
 		return
 	}
 
+	// The head is still in flight: script_fetch_done schedules once it is not.
+	if !script_job_ready(&dom.scripts.ready[0]) {
+		return
+	}
+
 	dom.scripts.scheduled = true
 	eventloop.set_immediate(page.loop, scripts_task, page)
 }
@@ -600,7 +687,7 @@ scripts_run_one :: proc(page: ^Page) -> bool {
 
 	s := &page.state.dom.scripts
 
-	if len(s.ready) == 0 {
+	if len(s.ready) == 0 || !script_job_ready(&s.ready[0]) {
 		return false
 	}
 
@@ -610,11 +697,13 @@ scripts_run_one :: proc(page: ^Page) -> bool {
 	return true
 }
 
-// script_fetch fetches a script's `src`: resolved against the document's path, read
-// from disk. `empty` is a src that is empty after stripping whitespace, which fails
-// without a fetch.
+// script_fetch fetches a script's `src`: a local file is resolved against the
+// document's path and read from disk; anything else, on a page with an http(s) URL, is
+// resolved against that URL and its network fetch started (the job comes back not ready).
+// `empty` is a src that is empty after stripping whitespace, which fails without a fetch.
 @(private = "file")
-script_fetch :: proc(s: ^Page_Scripts, node: html.Node, src: string) -> (job: Script_Job, empty: bool) {
+script_fetch :: proc(dom: ^Dom_Page, node: html.Node, src: string) -> (job: Script_Job, empty: bool) {
+	s := &dom.scripts
 	job.node = node
 	job.failed = true
 	url := strings.trim(src, " \t\n\f\r")
@@ -626,6 +715,10 @@ script_fetch :: proc(s: ^Page_Scripts, node: html.Node, src: string) -> (job: Sc
 	path, resolved := script_resolve(s.document_path, url)
 
 	if !resolved {
+		if absolute, ok := http.resolve(s.document_url, url, context.temp_allocator); ok {
+			script_fetch_start(dom, &job, absolute)
+		}
+
 		return job, false
 	}
 
@@ -728,8 +821,182 @@ url_scheme_end :: proc(url: string) -> int {
 	return 0
 }
 
+// script_fetch_start starts the network fetch of `url` for `job` on the page's loop:
+// a GET with the page's cookie jar (Cookie sent, Set-Cookie stored, redirects
+// included), the profile's User-Agent and Accept (pkg/http's defaults), and what a
+// classic `<script src>` without `crossorigin` sends besides. On success the job holds
+// the fetch and is not ready; otherwise it stays failed (no loop, the page's script
+// bytes spent, a request pkg/http refuses).
+//
+// Chrome:
+//   A no-cors script request: `Sec-Fetch-Dest: script`, `Sec-Fetch-Mode: no-cors`,
+//   Sec-Fetch-Site and Referer per http.subresource_context. Unrecorded (no recording
+//   captures request headers); pinned by cmd/lava/page_network_script_test.odin.
+// Deviates:
+//   No Accept-Language and no User-Agent Client Hints headers (`Sec-CH-UA*`), which
+//   Chrome sends; cookies are stored and sent as same-site whatever the script's site.
+@(private = "file")
+script_fetch_start :: proc(dom: ^Dom_Page, job: ^Script_Job, url: string) {
+	page := dom.page
+	s := &dom.scripts
+	budget := SCRIPT_PAGE_MAX_BYTES - s.script_bytes
+
+	if page == nil || page.loop == nil || page.state == nil || budget <= 0 {
+		return
+	}
+
+	from := http.subresource_context(s.document_url, url)
+	headers := make([dynamic]http.Header, 0, 4, context.temp_allocator)
+	append(&headers, http.Header{"Sec-Fetch-Site", from.site})
+	append(&headers, http.Header{"Sec-Fetch-Mode", "no-cors"})
+	append(&headers, http.Header{"Sec-Fetch-Dest", "script"})
+
+	if from.referer != "" {
+		append(&headers, http.Header{"Referer", from.referer})
+	}
+
+	f := new(Script_Fetch, s.allocator)
+	f^ = {
+		owner     = s,
+		page      = page,
+		allocator = s.allocator,
+		in_flight = true,
+		url       = strings.clone(url, s.allocator),
+	}
+	req := http.Request {
+		url            = url,
+		headers        = headers[:],
+		max_body_bytes = min(SCRIPT_MAX_BYTES, budget),
+		cookie_jar     = page.state.cookie_jar,
+	}
+
+	// The heap, not the page's allocator: pkg/http may decode a body on a pool worker
+	// and free through the allocator after the loop is gone (http.fetch's contract).
+	if http.fetch(page.loop, req, script_fetch_done, f, runtime.heap_allocator()) != .None {
+		delete(f.url, f.allocator)
+		free(f, f.allocator)
+		return
+	}
+
+	// NETWORK-IDLE (feat/network-idle): page_net_begin(page.state) here, once per started
+	// fetch, paired with the page_net_end in script_fetch_done. Wired at merge.
+	job.fetch = f
+	job.failed = false
+}
+
+// script_fetch_done is a script fetch's completion, on the page's loop thread: a 2xx
+// body is decoded into the fetch, anything else fails it; then whatever waits on it
+// goes on (scripts_fetched). A fetch the page dropped (owner nil) is only freed, and so
+// is the outcome of one cancelled by the page's teardown, which runs nothing.
+@(private = "file")
+script_fetch_done :: proc(response: http.Response, user_data: rawptr) {
+	f := cast(^Script_Fetch)user_data
+	resp := response
+	defer http.response_destroy(&resp)
+	s := f.owner
+
+	if s == nil {
+		delete(f.source, f.allocator)
+		delete(f.url, f.allocator)
+		free(f, f.allocator)
+		return
+	}
+
+	// NETWORK-IDLE (feat/network-idle): page_net_end(f.page.state) here — the one end for
+	// script_fetch_start's begin, on the loop thread, cancelled fetches included (the state
+	// is still alive during close_begin). A detached fetch (above) has no state left to count.
+	f.in_flight = false
+	f.failed = true
+
+	if resp.error == .None && resp.status >= 200 && resp.status < 300 {
+		s.script_bytes += len(resp.body)
+		source, decoded := script_decode(&resp, f.allocator)
+		f.source = source
+		f.failed = !decoded
+	}
+
+	page := f.page
+
+	if page_dom_live(page) && &page.state.dom.scripts == s {
+		scripts_fetched(page)
+	}
+}
+
+// script_decode turns a script response's body into the UTF-8 text JSC takes: as it
+// is, unless a UTF-16 BOM or a non-UTF-8 Content-Type charset names another encoding,
+// which pkg/html's decoders then undo (html.decode_document with the charset as the
+// transport label; only its BOM or transport answer is taken, never its <meta> prescan).
+@(private = "file")
+script_decode :: proc(resp: ^http.Response, allocator: runtime.Allocator) -> (source: string, ok: bool) {
+	body := resp.body[:]
+	label := http.charset(resp)
+	utf16_bom := len(body) >= 2 && ((body[0] == 0xfe && body[1] == 0xff) || (body[0] == 0xff && body[1] == 0xfe))
+	labelled := label != "" && !strings.equal_fold(label, "utf-8") && !strings.equal_fold(label, "utf8")
+
+	if utf16_bom || (labelled && !strings.has_prefix(string(body), "\xef\xbb\xbf")) {
+		text, enc, decoded := html.decode_document(body, label, allocator)
+
+		if decoded && (enc.source == .BOM || enc.source == .Transport) {
+			return string(text), true
+		}
+
+		delete(text, allocator)
+	}
+
+	text, err := strings.clone(string(body), allocator)
+	return text, err == nil
+}
+
+// scripts_fetched goes on with whatever a completed fetch let through: the parse or the
+// defer scripts, then the head of the async queue.
+@(private = "file")
+scripts_fetched :: proc(page: ^Page) {
+	dom := page.state.dom
+
+	if dom.scripts.parse_state != .Loaded {
+		html_page_continue(page)
+	}
+
+	if page_dom_live(page) && page.state.dom == dom {
+		scripts_schedule(dom)
+	}
+}
+
+// script_job_ready reports whether a job can run: it has no fetch in flight.
+@(private = "file")
+script_job_ready :: proc(job: ^Script_Job) -> bool {
+	return job.fetch == nil || !job.fetch.in_flight
+}
+
+// script_job_settle moves a completed network fetch's outcome into its job — the source,
+// the URL as the name, or the failure — and frees the fetch.
+@(private = "file")
+script_job_settle :: proc(job: ^Script_Job) {
+	f := job.fetch
+
+	if f == nil {
+		return
+	}
+
+	job.fetch = nil
+	job.failed = f.failed
+	job.source = f.source
+	job.name = f.url
+	free(f, f.allocator)
+}
+
 @(private = "file")
 script_job_free :: proc(s: ^Page_Scripts, job: ^Script_Job) {
+	if f := job.fetch; f != nil {
+		if f.in_flight {
+			f.owner = nil
+		} else {
+			delete(f.source, f.allocator)
+			delete(f.url, f.allocator)
+			free(f, f.allocator)
+		}
+	}
+
 	delete(job.source, s.allocator)
 	delete(job.name, s.allocator)
 	job^ = {}

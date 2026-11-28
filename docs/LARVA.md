@@ -318,8 +318,9 @@ in the PR that changes a stage's state.
 What stands between today's tree and real crawler traffic, in order (from the issue
 status updates of 2026-11-28; each item links the issue that owns it):
 
-1. **Network-fetched subresources:** a `<script src>` resolves only to a file beside
-   the page, so `lava serve` pages never run their external scripts (#13).
+1. **Network-fetched subresources:** classic `<script src>` is fetched over the
+   network for a page with an http(s) URL (#13); stylesheets, images and iframes are
+   not fetched, and `<base href>` does not move a script's URL yet.
 2. **Network-idle wait** across XHR and `fetch` for SPA pages (#13, #15).
 3. **Sessions:** a cookie jar, connection pool and proxy tunnels shared across a
    session's requests; today each page owns its own jar (#9, #3).
@@ -385,16 +386,26 @@ answers (a rendered `img.width`), event handler attributes. Pinned by the
 `dom-reflect-*.page` cases.
 
 Script execution beyond inline classic scripts (#13, `pkg/runtime/page_script.odin`):
-parser-blocking external scripts (`<script src>`, read beside the page and run with the
-parser paused, then the element's `load` or `error`), `defer` scripts between the
+parser-blocking external scripts (`<script src>`, run with the parser paused, then the
+element's `load` or `error`), `defer` scripts between the
 `interactive` readystatechange and DOMContentLoaded, `async` and script-inserted
 external scripts as tasks on the page's loop before `load`, inline scripts a script
 inserts run during the insertion, `document.currentScript`, and `document.write` while a
 parser-inserted script runs (parsed before write returns). Each is a recorded
-`dom-script-*.page` case. Not there: module scripts (the JavaScriptCore C API has no
-module loader; a known gap), fetching a `src` over the network (a `lava page` document
-is a file, so a `src` is a file beside it; an http(s) `src` fails its fetch), and
-document.write after the parse (Chrome's implicit document.open).
+`dom-script-*.page` case. A `src` naming a local file is read beside a `lava page`
+document; any other `src`, on a page with an http(s) URL (`lava serve`, `lava page
+--origin=<url>`), is resolved against that URL and fetched with pkg/http on the page's
+own loop — the parser paused without blocking the thread, so the loop (and, in
+`lava serve`, the worker's other pages) runs on — with the page's cookie jar, the
+profile's User-Agent, a script request's `Sec-Fetch-*` headers and Referer. A non-2xx
+answer or a network error fires `error` and the parser goes on; a Content-Type charset
+or a UTF-16 BOM decodes the body, UTF-8 otherwise; a page's script bytes are capped,
+and a page that ends (a kill, a deadline) cancels and frees its fetches with its loop.
+Pinned by `cmd/lava/page_network_script_test.odin` (no recording captures it). Not
+there: module scripts (the JavaScriptCore C API has no module loader; a known gap),
+document.write after the parse (Chrome's implicit document.open), `<base href>` for a
+script's URL, and async scripts in fetch-completion order (they run in the order they
+were prepared).
 
 Stage 5 so far (#15): `lava serve [--listen ip:port] [--threads N]` (`pkg/adapters`,
 decision 5), an HTTP/1.1 server on one event loop in front of a page dispatcher. A
@@ -412,9 +423,10 @@ the listener closes, admitted requests are answered. Pinned by `cmd/lava/serve_t
 and `make test-serve`. Not there yet: network-idle across XHR and `fetch`, the actions DSL,
 the fixed body wait, cookie and network capture, proxies, identity and viewport
 parameters, gzip responses, keep-alive, a TLS listener, admission per host and capacity
-publishing, and CDP (stage 6). A served page's `src` scripts are not fetched (their
-`error` fires), and its `load` is the loader's — the loop idling after DOMContentLoaded —
-so a page whose loop never idles before then ends at its timeout.
+publishing, and CDP (stage 6). A served page's `src` scripts are fetched from the
+network on the worker's loop (above), and its `load` is the loader's — the loop idling
+after DOMContentLoaded, its script fetches included — so a page whose loop never idles
+before then ends at its timeout.
 
 ## Risks
 

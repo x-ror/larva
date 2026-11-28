@@ -53,7 +53,7 @@ page_scripts_free_the_jobs_that_never_ran :: proc(t: ^testing.T) {
 
 		ctx := cast(jsc.JSContextRef)page.ctx
 		testing.expect_value(t, lava.dom_install(ctx, page.state), "")
-		lava.scripts_attach(&page, document, "<page-script>")
+		lava.scripts_attach(&page, document, "", "<page-script>")
 
 		on_script :: proc(p: ^html.Parser, script: html.Node, user_data: rawptr) {
 			lava.scripts_parser_reached(cast(^lava.Page)user_data, script)

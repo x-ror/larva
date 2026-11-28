@@ -149,8 +149,8 @@ check-runtime:
 	# Windows/macOS build. `odin check` doesn't link, so it can't fully prove symbol elision.
 	$(ODIN) check pkg/runtime -no-entry-point -collection:lava=. -target:windows_amd64
 	$(ODIN) check pkg/runtime -no-entry-point -collection:lava=. -target:darwin_arm64
-	# pkg/http is not reached from pkg/runtime, so its !linux stubs (transfer_other.odin,
-	# content_coding_other.odin) get their own front-end check on every target.
+	# pkg/http is reached from pkg/runtime (page scripts), but its !linux stubs (transfer_other.odin,
+	# content_coding_other.odin) still get their own front-end check on every target.
 	$(ODIN) check pkg/http -no-entry-point -collection:lava=.
 	$(ODIN) check pkg/http -no-entry-point -collection:lava=. -target:windows_amd64
 	$(ODIN) check pkg/http -no-entry-point -collection:lava=. -target:darwin_arm64
