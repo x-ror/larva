@@ -51,6 +51,30 @@ import eventloop "lava:pkg/runtime/eventloop"
 // without running.
 Page_Done_Proc :: proc(runner: ^Page_Runner, user_data: rawptr, result: Result)
 
+// Page_Driver runs a page that is not one top-level script — an HTML document a
+// crawl request loads, waits on and captures (page_crawl.odin) — beside the runner's
+// script pages, under the same limits, slicing and VM pool. The runner creates the page
+// (page_create: VM, context, Window globals) and then hands it to the driver.
+//
+// Both procs run on the runner's thread and may call page_tick, page_eval and the HTML
+// loader's steps on the page; neither may close it. `data` is the embedder's and must
+// outlive the page's on_done; so must `name` and `origin`, which page_create reads.
+Page_Driver :: struct {
+	// start runs once, right after page_create, in page_runner_open_driven. Returns
+	// whether the page goes on to be ticked; false ends it (its Result is page_close's:
+	// a kill or a failure page_fail recorded, else .Ok).
+	start:  proc(page: ^Page, data: rawptr) -> bool,
+	// tick stands in for page_tick on every round: page_tick's contract — alive false
+	// ends the page (page_close then decides the Result), did_work false lets the
+	// runner block on the page's loop descriptor, bounded by its nearest timer.
+	tick:   proc(page: ^Page, data: rawptr) -> (alive: bool, did_work: bool),
+	data:   rawptr,
+	// The page's source name (its inline scripts run under it) and origin (its
+	// `location`), as page_create takes them.
+	name:   string,
+	origin: string,
+}
+
 @(private = "file")
 Done_Page :: struct {
 	user_data: rawptr,
@@ -67,6 +91,8 @@ Runner_Page :: struct {
 	loop:      ^eventloop.Loop,
 	user_data: rawptr,
 	fd:        linux.Fd,
+	// Zero for a script page; a driven page's driver (page_runner_open_driven).
+	driver:    Page_Driver,
 }
 
 // RUNNER_ORPHAN_LIMIT is the default bound on a runner's orphans (Page_Runner.
@@ -233,10 +259,83 @@ page_runner_open :: proc(
 ) {
 	context.allocator = runner.allocator
 	defer free_all(context.temp_allocator)
+	rp, index := runner_page_admit(runner, limits, user_data)
 
+	if rp == nil {
+		return
+	}
+
+	if !page_open(
+		&rp.page,
+		source,
+		source_name,
+		rp.loop,
+		false,
+		limits,
+		&runner.pool,
+		runner_page = true,
+	) {
+		runner_finish(runner, index, deliver = false)
+		return
+	}
+
+	runner_page_join(runner, rp)
+}
+
+// page_runner_open_driven starts a page `driver` runs (Page_Driver) instead of one
+// top-level script: the runner creates it — VM from its pool, loop, Window globals —
+// calls driver.start, and from then on ticks it through driver.tick every round, beside
+// its script pages. Everything page_runner_open says about refusals, `limits`, the temp
+// arena and on_done holds here too.
+//
+// Deviates:
+//   n/a (no oracle): a Lava-only seam, pinned through `lava serve` by
+//   cmd/lava/serve_test.odin.
+page_runner_open_driven :: proc(
+	runner: ^Page_Runner,
+	driver: Page_Driver,
+	limits: Page_Limits,
+	user_data: rawptr = nil,
+) {
+	context.allocator = runner.allocator
+	defer free_all(context.temp_allocator)
+	rp, index := runner_page_admit(runner, limits, user_data)
+
+	if rp == nil {
+		return
+	}
+
+	rp.driver = driver
+
+	if !page_create(
+		&rp.page,
+		driver.name,
+		rp.loop,
+		limits,
+		&runner.pool,
+		runner_page = true,
+		origin = driver.origin,
+	) {
+		runner_finish(runner, index, deliver = false)
+		return
+	}
+
+	if !driver.start(&rp.page, driver.data) {
+		runner_finish(runner, index, deliver = false)
+		return
+	}
+
+	runner_page_join(runner, rp)
+}
+
+// runner_page_admit is the part of an open that comes before the page exists: the
+// refusals (a closing runner, no CPU budget, orphans at their bound), each queued for
+// on_done, then the Runner_Page with its loop, appended live. Returns nil when refused.
+@(private = "file")
+runner_page_admit :: proc(runner: ^Page_Runner, limits: Page_Limits, user_data: rawptr) -> (^Runner_Page, int) {
 	if runner.closing {
 		append(&runner.done, Done_Page{user_data, page_killed_result(.Cancelled)})
-		return
+		return nil, -1
 	}
 
 	// `!(x > 0)`, not `x <= 0`: NaN compares false both ways.
@@ -252,12 +351,12 @@ page_runner_open :: proc(
 				},
 			},
 		)
-		return
+		return nil, -1
 	}
 
 	if page_runner_orphans(runner) >= runner.orphan_limit {
 		append(&runner.done, Done_Page{user_data, page_killed_result(.Reaping_Full)})
-		return
+		return nil, -1
 	}
 
 	rp := new(Runner_Page, runner.allocator)
@@ -274,26 +373,18 @@ page_runner_open :: proc(
 	}
 
 	append(&runner.pages, rp)
-	index := len(runner.pages) - 1
+	return rp, len(runner.pages) - 1
+}
 
-	if !page_open(
-		&rp.page,
-		source,
-		source_name,
-		rp.loop,
-		false,
-		limits,
-		&runner.pool,
-		runner_page = true,
-	) {
-		runner_finish(runner, index, deliver = false)
-		return
-	}
-
-	// After page_open, so the top-level script — which no slice can split — is not what
-	// arms it, and only here: eval, page_eval and page_run_until keep the 0 vm_acquire
-	// left. page_run_until must, since its `cond` may page_eval between two ticks, which
-	// would run script in the middle of a suspended timers phase.
+// runner_page_join is the part of an open that comes after the page's first entry: its
+// CPU quantum and its loop descriptor in the runner's epoll set.
+@(private = "file")
+runner_page_join :: proc(runner: ^Page_Runner, rp: ^Runner_Page) {
+	// After the open's first entry, so the top-level script — which no slice can
+	// split — is not what arms it, and only here: eval, page_eval and page_run_until
+	// keep the 0 vm_acquire left. page_run_until must, since its `cond` may page_eval
+	// between two ticks, which would run script in the middle of a suspended timers
+	// phase.
 	rp.page.vm.slice_ns = i64(max(runner.slice_us, 0)) * 1000
 
 	// Edge-triggered: a CQE or watched fd the page's own tick is not going to reap
@@ -387,7 +478,14 @@ runner_round :: proc(runner: ^Page_Runner, idle_wait: bool) -> bool {
 	progressed := false
 	i := 0
 	for i < len(runner.pages) {
-		alive, did_work := page_tick(&runner.pages[i].page)
+		rp := runner.pages[i]
+		alive, did_work: bool
+
+		if rp.driver.tick != nil {
+			alive, did_work = rp.driver.tick(&rp.page, rp.driver.data)
+		} else {
+			alive, did_work = page_tick(&rp.page)
+		}
 
 		if !alive {
 			// Swap-removes index i, so the page moved into it is ticked next.

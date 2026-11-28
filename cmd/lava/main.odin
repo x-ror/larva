@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:os"
 import "core:strconv"
 import "core:strings"
+import adapters "lava:pkg/adapters"
 import html "lava:pkg/html"
 import http "lava:pkg/http"
 import lava_runtime "lava:pkg/runtime"
@@ -41,6 +42,8 @@ main :: proc() {
 		page_command(args[2:])
 	case "fetch":
 		fetch_command(args[2:])
+	case "serve":
+		serve_command(args[2:])
 	case:
 		fmt.eprintfln("unknown command: %s", args[1])
 		fmt.eprintln("try `lava --help`")
@@ -72,6 +75,12 @@ Usage:
                         serialization (or its html5lib-format tree); input is UTF-8
   lava fetch <url>      Fetch a page without JS; status and headers on stderr,
                         the serialized HTML on stdout, decoded per its charset
+  lava serve [--listen ip:port] [--threads N] [--pages-per-thread N]
+             [--cpu-budget-ms N] [--token T]
+                        Serve the HTTP crawling API (GET /render?url=...): fetch the
+                        page, run it with its scripts until load (then an optional
+                        selector wait and script), answer with its serialized HTML;
+                        SIGTERM/SIGINT stop it gracefully (default 127.0.0.1:8080)
   lava --version        Print version
   lava --help           Print help
 
@@ -589,4 +598,72 @@ print_fetched :: proc(resp: ^http.Response) -> int {
 
 	fmt.println(markup)
 	return 0
+}
+
+// serve_command runs `lava serve` until SIGTERM or SIGINT: the HTTP crawling adapter
+// (pkg/adapters serve.odin; its wire contract is serve_contract.odin's header). Exits 0
+// after a graceful stop, 1 when the server cannot start, 2 on a usage error.
+serve_command :: proc(args: []string) {
+	cfg, ok := parse_serve_args(args)
+
+	if !ok {
+		fmt.eprintln(
+			"usage: lava serve [--listen ip:port] [--threads N] [--pages-per-thread N] [--cpu-budget-ms N] [--token T]",
+		)
+		os.exit(2)
+	}
+
+	server: adapters.Server
+
+	if err := adapters.server_init(&server, cfg); err != "" {
+		fmt.eprintfln("lava serve: %s", err)
+		os.exit(1)
+	}
+
+	if !adapters.serve_stop_on_signals(&server) {
+		fmt.eprintln("lava serve: cannot install the SIGTERM/SIGINT handlers")
+		adapters.server_destroy(&server)
+		os.exit(1)
+	}
+
+	fmt.eprintfln("lava serve: listening on port %d", server.port)
+	adapters.server_run(&server)
+	adapters.server_destroy(&server)
+	fmt.eprintln("lava serve: stopped")
+}
+
+// parse_serve_args reads `lava serve`'s flags; ok false is a usage error (an unknown
+// flag, a missing value, a number that is not positive).
+parse_serve_args :: proc(args: []string) -> (cfg: adapters.Server_Config, ok: bool) {
+	for i := 0; i < len(args); i += 1 {
+		flag := args[i]
+		i += 1
+
+		if i >= len(args) || args[i] == "" {
+			return {}, false
+		}
+
+		value := args[i]
+		n, is_number := strconv.parse_int(value, 10)
+		is_number = is_number && n > 0
+		switch flag {
+		case "--listen":
+			cfg.listen = value
+		case "--token":
+			cfg.token = value
+		case "--threads":
+			cfg.threads = n
+		case "--pages-per-thread":
+			cfg.pages_per_thread = n
+		case "--cpu-budget-ms":
+			cfg.cpu_budget_ms = n
+		case:
+			return {}, false
+		}
+
+		if flag != "--listen" && flag != "--token" && !is_number {
+			return {}, false
+		}
+	}
+	return cfg, true
 }
