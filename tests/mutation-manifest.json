@@ -4119,6 +4119,42 @@
       "expect_detail": "FAIL streams-body-bytes"
     },
     {
+      "name": "fetch-body-consume dies when text() on a fetched body the page locked is not refused before the fast path",
+      "why": "Body's readers must refuse a stream the page holds a reader on ('body stream is locked'); without the check the read goes on to the collector or a second getReader(), and a collector that took the stream would steal the chunks the page's reader is waiting for.",
+      "source": "pkg/runtime/js/internal/fetch/body.js",
+      "find": "if (state.bodyStream && state.bodyStream._reader !== undefined) {",
+      "replace": "if (false) {",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL fetch-body-consume"
+    },
+    {
+      "name": "fetch-body-consume dies when the body collector does not resume a transport the stream queue paused",
+      "why": "A body left unread outgrows the 64 KiB queue and pauses the socket read; a collector that takes the stream without resuming it waits forever for chunks that never come.",
+      "source": "pkg/runtime/js/internal/webstreams/readablestream.js",
+      "find": "// when it is not paused).\n        hooks.pull();",
+      "replace": "// when it is not paused).",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL fetch-body-consume"
+    },
+    {
+      "name": "fetch-body-consume dies when a transport error during collection resolves the body instead of rejecting",
+      "why": "An abort (or a network failure) mid-body must reject text()/arrayBuffer() with its reason and error the stream; settling the collector as a close hands the page a truncated body as if it were whole.",
+      "source": "pkg/runtime/js/internal/webstreams/readablestream.js",
+      "find": "        settle(e, true);",
+      "replace": "        settle(undefined, false);",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL fetch-body-consume"
+    },
+    {
+      "name": "fetch-body-empty dies when an empty string body is treated as an absent body",
+      "why": "The fetch standard's extract-a-body gives '' an empty byte stream; mapping it to null makes `new Response('').body` and a POST Request's body null where Chrome's is a stream, and lets an empty-body POST be re-made as a GET.",
+      "source": "pkg/runtime/js/internal/fetch/body.js",
+      "find": "var text = typeof body === 'string' ? body : StringP(body);",
+      "replace": "var text = typeof body === 'string' ? body : StringP(body); if (text === '') return null;",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL fetch-body-empty"
+    },
+    {
       "name": "dom-mutation-observer.page dies when MutationObserver delivers synchronously instead of in a microtask",
       "why": "DOM's 'queue a mutation observer microtask' batches every record of a task into one callback after the script; a synchronous call reports each mutation alone and before the script's later lines and promise jobs.",
       "source": "pkg/runtime/js/internal/mutation_observer.js",
@@ -4273,6 +4309,51 @@
       "replace": "\t\t\tif false {",
       "gate": "odin:cmd/lava:main.serve_renders_the_document_after_load",
       "expect_detail": "want 200"
+    },
+    {
+      "name": "dom-reflect-shape.page dies when a reflected accessor stops checking its receiver's interface",
+      "why": "A reflected getter called on the wrong element (HTMLAnchorElement's href on a div, or on a node whose prototype the page re-pointed) must throw Illegal invocation, as Blink's brand check does, not read whatever attribute the node has.",
+      "source": "pkg/runtime/js/internal/dom_reflect.js",
+      "find": "    if (ok[nInterface(o)] !== true) throw illegalInvocation();",
+      "replace": "",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-reflect-shape.page"
+    },
+    {
+      "name": "dom-reflect-elements.page dies when a created script loses its force-async flag",
+      "why": "A script element a script creates reads async true until written (HTML's force async); without the flag every loader that checks script.async sees false.",
+      "source": "pkg/runtime/js/internal/dom_reflect.js",
+      "find": "    WeakMapPrototypeSet(forceAsync, el, true);",
+      "replace": "",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-reflect-elements.page"
+    },
+    {
+      "name": "dom-reflect-elements.page dies when enumerated attributes match their keywords case-sensitively",
+      "why": "An enumerated attribute's keywords match ASCII case-insensitively (method=POST is post, crossorigin=USE-CREDENTIALS is use-credentials); an exact match answers the invalid default.",
+      "source": "pkg/runtime/js/internal/dom_reflect.js",
+      "find": "          var state = o.keywords[asciiLower(v)];",
+      "replace": "          var state = o.keywords[v];",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-reflect-elements.page"
+    },
+    {
+      "name": "dom-reflect-tokenlist.page dies when the update steps write an empty set to a missing attribute",
+      "why": "DOM's update steps leave a missing attribute missing when the set is empty: classList.remove on an element with no class must not create class=\"\" (nor queue a MutationObserver record).",
+      "source": "pkg/runtime/js/internal/dom_reflect.js",
+      "find": "    if (!always && set.length === 0 && nGetAttribute(rec.node, rec.arg) === null) return;",
+      "replace": "",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-reflect-tokenlist.page"
+    },
+    {
+      "name": "dom-reflect-elements.page dies when URL attributes ignore the base element",
+      "why": "A reflected URL resolves against the document base URL, which a <base href> sets; resolving against the document's URL alone gives every page with a base element wrong absolute URLs.",
+      "source": "pkg/runtime/js/internal/dom_reflect.js",
+      "find": "      if (url !== null) return ReflectApply(urlHref, url, EMPTY);",
+      "replace": "",
+      "gate": "make:test-dom",
+      "expect_detail": "FAIL dom-reflect-elements.page"
     }
   ]
 }
