@@ -156,6 +156,10 @@ g_tls_ctx_once: sync.Once
 // session to tls_on_new_session. Process-wide like the context, guarded by a mutex
 // because every page worker's connections land here. Keys are cloned through the heap
 // allocator explicitly: the callback runs under runtime.default_context().
+// Deviation: Chrome partitions its session cache by network isolation key (top-level
+// site); this one is per process, so two pages in one process share resumption to a
+// host. Acceptable while a process serves one client identity; partitioning comes with
+// per-page profiles (#8).
 @(private = "file")
 g_sessions: map[string]SSL_SESSION
 @(private = "file")
