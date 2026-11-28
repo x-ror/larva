@@ -21,6 +21,15 @@
  * every member checks — and its state. Event handler attributes (`onchange`, …) are
  * generated from the member list.
  *
+ * What it costs: every page installs the 38 interfaces, which Chrome conformance needs
+ * as globals from the first line of page code. bench/pages at N=1 (300 pages per
+ * launch, -o:speed, medians of 9 interleaved launches per arm against 8ecd066, Linux
+ * x64): 99 -> 74 pages/s, RSS growth per VM 34.3 -> 40.5 MB. Of a cold page start
+ * (performance.now() around internal/navigator, 5 launches), 0.4 -> 4.3 ms, ~3.3 ms of
+ * it this module's require (compile ~1.9 ms, the interfaces ~1.4 ms). The member
+ * objects are made on first read; the interfaces cannot be (a page reads
+ * `typeof Permissions` or its prototype before touching navigator).
+ *
  * Instantiated eagerly (internal/navigator requires it at its top), so every capture
  * below is pristine.
  *
@@ -2450,67 +2459,107 @@
     };
   }
 
+  // navigator's member objects that carry no state beyond their brand: attribute ->
+  // interface. Each is made on its first read (`once`): most pages read none of them,
+  // and making them all up front measured 0.75 ms of each page's start (bin/lava run
+  // of an empty page, performance.now() around create(), median of 3 launches).
+  var PLAIN_MEMBERS = {
+    __proto__: null,
+    scheduling: 'Scheduling',
+    userActivation: 'UserActivation',
+    geolocation: 'Geolocation',
+    ink: 'Ink',
+    mediaCapabilities: 'MediaCapabilities',
+    permissions: 'Permissions',
+    windowControlsOverlay: 'WindowControlsOverlay',
+    mediaSession: 'MediaSession',
+    clipboard: 'Clipboard',
+    credentials: 'CredentialsContainer',
+    keyboard: 'Keyboard',
+    managed: 'NavigatorManagedData',
+    mediaDevices: 'MediaDevices',
+    serviceWorker: 'ServiceWorkerContainer',
+    virtualKeyboard: 'VirtualKeyboard',
+    wakeLock: 'WakeLock',
+    locks: 'LockManager',
+    gpu: 'GPU',
+    login: 'NavigatorLogin',
+    devicePosture: 'DevicePosture',
+    hid: 'HID',
+    presentation: 'Presentation',
+    serial: 'Serial',
+    usb: 'USB',
+    xr: 'XRSystem',
+    storageBuckets: 'StorageBucketManager',
+  };
+
+  // `build` deferred to the first call; the same value on every call after.
+  function once(build) {
+    var value;
+    var built = false;
+    return function () {
+      if (!built) {
+        value = build();
+        built = true;
+      }
+
+      return value;
+    };
+  }
+
+  function plainMember(iface) {
+    return once(function () {
+      return make(iface);
+    });
+  }
+
   /**
-   * Makes the page's navigator member objects from the client profile.
+   * Makes the page's navigator member objects from the client profile, each on first
+   * read.
    * @param {Object} native internal/navigator's natives (pkg/runtime/window_env.odin).
    * @returns {Object} `attributes` (name -> getter of the value, brand unchecked),
    *   `operations` (name -> implementation), `promiseOperations` (the names of those
-   *   that return a promise) and `orientation`, screen.orientation.
+   *   that return a promise) and `orientation` (screen.orientation's getter).
    */
   function create(native) {
     var quota = native.storageQuota;
-    var ua = uaData(native);
-    var lists = makePlugins(native.pdfViewerEnabled === true);
+    var pdf = native.pdfViewerEnabled === true;
+    var ua = null;
     var battery = null;
-    var objects = {
-      __proto__: null,
-      scheduling: make('Scheduling'),
-      userActivation: make('UserActivation'),
-      geolocation: make('Geolocation'),
-      ink: make('Ink'),
-      mediaCapabilities: make('MediaCapabilities'),
-      permissions: make('Permissions'),
-      webkitTemporaryStorage: make('DeprecatedStorageQuota', { __proto__: null, quota: quota }),
-      windowControlsOverlay: make('WindowControlsOverlay'),
-      plugins: lists.plugins,
-      mimeTypes: lists.mimeTypes,
-      connection: make('NetworkInformation', {
+    var attributes = { __proto__: null };
+    for (var key in PLAIN_MEMBERS) attributes[key] = plainMember(PLAIN_MEMBERS[key]);
+    // One object for both, as Chrome's (navigator-apis).
+    attributes.webkitTemporaryStorage = once(function () {
+      return make('DeprecatedStorageQuota', { __proto__: null, quota: quota });
+    });
+    attributes.webkitPersistentStorage = attributes.webkitTemporaryStorage;
+    var lists = once(function () {
+      return makePlugins(pdf);
+    });
+    attributes.plugins = function () {
+      return lists().plugins;
+    };
+    attributes.mimeTypes = function () {
+      return lists().mimeTypes;
+    };
+    attributes.connection = once(function () {
+      return make('NetworkInformation', {
         __proto__: null,
         effectiveType: native.connectionEffectiveType,
         rtt: native.connectionRtt,
         downlink: native.connectionDownlink,
         saveData: native.connectionSaveData,
-      }),
-      mediaSession: make('MediaSession'),
-      clipboard: make('Clipboard'),
-      credentials: make('CredentialsContainer'),
-      keyboard: make('Keyboard'),
-      managed: make('NavigatorManagedData'),
-      mediaDevices: make('MediaDevices'),
-      serviceWorker: make('ServiceWorkerContainer'),
-      virtualKeyboard: make('VirtualKeyboard'),
-      wakeLock: make('WakeLock'),
-      locks: make('LockManager'),
-      storage: make('StorageManager', { __proto__: null, quota: quota }),
-      gpu: make('GPU'),
-      login: make('NavigatorLogin'),
-      devicePosture: make('DevicePosture'),
-      hid: make('HID'),
-      presentation: make('Presentation'),
-      serial: make('Serial'),
-      usb: make('USB'),
-      xr: make('XRSystem'),
-      storageBuckets: make('StorageBucketManager'),
-    };
-    objects.webkitPersistentStorage = objects.webkitTemporaryStorage;
-
-    var attributes = { __proto__: null };
-    for (var key in objects) attributes[key] = constant(objects[key]);
-    attributes.pdfViewerEnabled = constant(native.pdfViewerEnabled === true);
+      });
+    });
+    attributes.storage = once(function () {
+      return make('StorageManager', { __proto__: null, quota: quota });
+    });
+    attributes.pdfViewerEnabled = constant(pdf);
     attributes.globalPrivacyControl = constant(false);
     attributes.cpuPerformance = constant(native.cpuPerformance);
     // A new NavigatorUAData on each read, as Chrome's (navigator-apis).
     attributes.userAgentData = function () {
+      if (ua === null) ua = uaData(native);
       return make('NavigatorUAData', { __proto__: null, ua: ua });
     };
 
@@ -2523,9 +2572,11 @@
     };
 
     var landscape = native.screenWidth >= native.screenHeight;
-    var orientation = make('ScreenOrientation', {
-      __proto__: null,
-      type: landscape ? 'landscape-primary' : 'portrait-primary',
+    var orientation = once(function () {
+      return make('ScreenOrientation', {
+        __proto__: null,
+        type: landscape ? 'landscape-primary' : 'portrait-primary',
+      });
     });
     return {
       __proto__: null,

@@ -402,7 +402,7 @@
 
     get orientation() {
       if (!isScreen(this)) throw illegalInvocation();
-      return APIS.orientation;
+      return APIS.orientation();
     }
 
     get onchange() {
