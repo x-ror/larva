@@ -15,9 +15,10 @@ import eventloop "lava:pkg/runtime/eventloop"
 // except one whose loop has no descriptor to wait on, which is polled every 1 ms
 // (runner_wait).
 //
-// What one page cannot do to the others on the thread: run past its CPU budget (a
-// kill ends that page only — its loop is force-exited and closed, the rest keep
-// ticking), leave its VM behind (closing a page returns it), hold the thread on
+// What one page cannot do to the others on the thread: run past its CPU budget or,
+// when it has one, its heap limit (Page_Limits.heap_bytes, checked between its ticks;
+// a kill ends that page only — its loop is force-exited and closed, the rest keep
+// ticking — and a heap kill retires its VM), leave its VM behind (closing a page returns it), hold the thread on
 // blocking pool work, or starve its siblings of pool workers. The runner's pages share
 // one worker pool (eventloop.Worker_Pool, #36): four core threads for the whole
 // runner, not four per page, served round-robin across pages, with an overflow worker
@@ -223,7 +224,9 @@ page_runner_destroy :: proc(runner: ^Page_Runner) {
 //           chain of short callbacks never trips an entry limit — and so what makes
 //           "a page that spins is killed alone" hold for every caller. Negative and
 //           NaN read as "no budget" to vm_set_cpu_budget, and are refused alike.
-//           Pinned by runner_refuses_a_page_without_a_cpu_budget.
+//           Pinned by runner_refuses_a_page_without_a_cpu_budget. heap_bytes is
+//           optional (0 = none): a page over it is reported .Execution_Error with
+//           Kill_Reason.Heap_Limit, like a budget kill (page_heap_check, page.odin).
 page_runner_open :: proc(
 	runner: ^Page_Runner,
 	source: string,
