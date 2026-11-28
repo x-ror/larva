@@ -2251,6 +2251,15 @@
       "expect_detail": "free(s) through the runner allocator of memory it never allocated"
     },
     {
+      "name": "cpu_budget_spent_in_the_install_is_reported_by_the_result_alone dies when a killed install reports its termination",
+      "why": "A page killed inside the runtime install would write every terminated step to the process's stderr as an install failure (a loader TypeError among them), a runtime defect that is not there; the mutation gate read one as runner_churn_of_mixed_fates_frees_everything_it_allocates' failure.",
+      "source": "pkg/runtime/globals.odin",
+      "find": "exception: jsc.JSValueRef) {\n\tif holder_ended(ctx) {\n\t\treturn\n\t}\n",
+      "replace": "exception: jsc.JSValueRef) {\n",
+      "gate": "odin:cmd/lava:main.cpu_budget_spent_in_the_install_is_reported_by_the_result_alone",
+      "expect_detail": "the kill was reported as an install failure"
+    },
+    {
       "name": "runner_pages_leave_the_vm_protect_count_where_they_found_it dies when a cancelled timer keeps its roots",
       "why": "A timer or interval the loop drops without firing (a cleared interval, a killed or exited page) would leave its callback protected in the VM for every later page.",
       "source": "pkg/runtime/globals.odin",
@@ -2951,12 +2960,16 @@
     },
     {
       "name": "runner_churn_with_the_drive_does_not_crash dies when JSC's GC activity timers stay on under the drive",
-      "why": "A driven full-GC activity timer reaches RunLoop::mainSingleton(), null in this embedding (session probes: SIGSEGV in 12 of 12 runs); the observable here is the crash, or a spin, so the verdict is the gate's own failure.",
+      "why": "A driven full-GC activity timer reaches RunLoop::mainSingleton(), null in this embedding (session probes: SIGSEGV in 12 of 12 runs). The churn keeps that timer 2-50 s out until its VMs are destroyed, so the crash alone survived (0 of 6 runs); the RunLoop coming to rest after the churn is what pins it, and a timer that fires inside that wait is the crash.",
       "source": "pkg/jsc/runloop_linux.odin",
       "find": "\t\t\t(transmute(Disable_GC_Timer_Proc)p)()\n",
       "replace": "\t\t\t_ = p\n",
       "gate": "odin:cmd/lava:main.runner_churn_with_the_drive_does_not_crash",
-      "expect_detail": "",
+      "expect_detail": [
+        "a GC activity timer is armed",
+        "Signal caught:",
+        "odin test exited -1"
+      ],
       "timeout_ms": 120000
     },
     {

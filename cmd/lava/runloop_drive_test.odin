@@ -279,10 +279,20 @@ churn_run_done :: proc(runner: ^lava.Page_Runner, user_data: rawptr, result: lav
 // RunLoop eventually fires the full-GC timer, which reaches RunLoop::mainSingleton() —
 // null in this embedding — and the process dies with SIGSEGV (session probes p7/q3: 12/12
 // runs). jsc.runloop_before_vm turns those timers off before the first VM; this pins that
-// it does, and that the drive survives a churn that keeps the collector busy. Each page
-// waits 25 ms, so the churn lasts ~2.5 s: with 2 ms pages it ended before the full-GC
-// timer came due and survived the timers being left on (1 run); at 25 ms that aborted the
-// process (exit 134, 1 run).
+// it does, and that the drive survives a churn that keeps the collector busy.
+//
+// The crash alone did not pin it. Each page's release reschedules the full-GC timer and
+// every full collection the churn triggers cancels it, so during the churn it stays 2-50 s
+// out (JSRunLoopTimer::setTimeUntilFire under gdb, one run, JSC 2.52.6: 75 and 72 settings
+// of the two VMs' full timers, minimum 2.2 s); the churn ends after ~4.5 s (-o:none) and
+// page_runner_destroy takes the VMs, armed timers and all, before one comes due. With the
+// timers left on, 0 of 6 runs crashed. Driving on after the churn did crash (5 of 5 runs),
+// but 2-15 s later, too late and too spread to bound a test with.
+//
+// So the drive is also made to come to rest once the churn is over (churn_run_settle):
+// with the timers off the RunLoop's next deadline is gone within ~60 ms of the last page
+// (3 runs); left on, the full-GC timer holds one seconds away for as long as it is
+// pending (2 runs) — red either way, as that assertion or as the crash when it fires.
 @(test)
 runner_churn_with_the_drive_does_not_crash :: proc(t: ^testing.T) {
 	on_fresh_thread(t, proc(t: ^testing.T) {
@@ -299,6 +309,8 @@ runner_churn_with_the_drive_does_not_crash :: proc(t: ^testing.T) {
 			lava.page_runner_open(&runner, CHURN_RUN_SOURCE, "<churn>", DRIVE_LIMITS, &c)
 		}
 		lava.page_runner_run(&runner)
+		// Before the destroy: the VMs, and any timer they armed, must still be alive.
+		next_ms, settled := churn_run_settle()
 		lava.page_runner_destroy(&runner)
 		testing.expect_value(t, jsc.runloop_drive(), jsc.Runloop_Drive.Adopted)
 		testing.expect_value(t, c.reported, CHURN_RUN_PAGES)
@@ -310,7 +322,49 @@ runner_churn_with_the_drive_does_not_crash :: proc(t: ^testing.T) {
 			CHURN_RUN_PAGES,
 			describe_outcome(c.first),
 		)
+		testing.expectf(
+			t,
+			settled,
+			"the RunLoop still had a deadline %d ms out %v after the churn: a GC activity timer is armed",
+			next_ms,
+			CHURN_SETTLE_BUDGET,
+		)
 	})
+}
+
+// CHURN_SETTLE_BUDGET bounds how long churn_run_settle waits for the RunLoop to come to
+// rest: 50x the ~60 ms it takes with the GC activity timers off.
+@(private = "file")
+CHURN_SETTLE_BUDGET :: 3 * time.Second
+
+// CHURN_SETTLED_MS is the deadline the RunLoop counts as no deadline. With the timers off
+// it settles on GLib's clamp, 2^31-1 ms, the far ready time of a disarmed timer (3 runs);
+// a pending full-GC timer was at most 336 s out over the churn above.
+@(private = "file")
+CHURN_SETTLED_MS :: 3_600_000
+
+// churn_run_settle drives the thread's RunLoop as the runner does between rounds until it
+// holds no deadline closer than CHURN_SETTLED_MS, or CHURN_SETTLE_BUDGET passes. It
+// returns the last deadline GLib reported (-1: none).
+@(private = "file")
+churn_run_settle :: proc() -> (next_ms: int, settled: bool) {
+	until := time.tick_add(time.tick_now(), CHURN_SETTLE_BUDGET)
+	for {
+		for jsc.runloop_dispatch() {
+		}
+
+		next_ms, _ = jsc.runloop_sync()
+
+		if next_ms < 0 || next_ms >= CHURN_SETTLED_MS {
+			return next_ms, true
+		}
+
+		if time.tick_diff(time.tick_now(), until) <= 0 {
+			return next_ms, false
+		}
+
+		time.sleep(time.Duration(clamp(next_ms, 1, 50)) * time.Millisecond)
+	}
 }
 
 // DEFERRED_CHROME_PRELUDE is case.js's `collect()` on a `.Web` page: it parks until the
