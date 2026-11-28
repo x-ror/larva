@@ -105,8 +105,21 @@ runner_cpu_budget_kills_only_the_spinner :: proc(t: ^testing.T) {
 }
 
 // Pages on one runner wait concurrently: ten pages that each sleep 600 ms finish in
-// about 600 ms, not 6 s. Also proves the runner blocks rather than spins while every
-// page waits (see the CPU bound).
+// about 600 ms, not 6 s, and the runner blocks rather than spins while every page waits.
+//
+// Both are measured past the opens. Ten page opens are CPU work (runtime install and the
+// top-level script: 0.28-0.39 s of CPU for the ten) whose wall time grows with load —
+// 4-6 s for the whole test at load ~18 on 4 cores, which is what a clock started before
+// them timed. A page's timer counts from its loop's first tick, not from its open: the
+// run alone took 0.600 s in every run, however long the opens had taken. So from the
+// first round on it is 600 ms of timer wait, against 6 s if the pages waited one after
+// another, and almost no CPU for load to stretch.
+//
+// Spinning is counted in rounds (page_runner_step calls), not CPU: 45-49 rounds
+// blocking, 92k-130k with runner_wait removed (the recorded mutation), three runs each
+// at load ~18. The CPU bound this used to assert (< 0.2 s) has the opposite weakness: a
+// spinning runner that load deschedules burns less CPU — 0.48-0.50 s there, and less the
+// more load there is — while it still runs tens of thousands of rounds.
 @(test)
 runner_pages_wait_concurrently :: proc(t: ^testing.T) {
 	runner: lava.Page_Runner
@@ -117,7 +130,6 @@ runner_pages_wait_concurrently :: proc(t: ^testing.T) {
 
 	defer lava.page_runner_destroy(&runner)
 	outcomes: [10]Page_Outcome
-	start := time.tick_now()
 	for i in 0 ..< 10 {
 		lava.page_runner_open(
 			&runner,
@@ -127,15 +139,19 @@ runner_pages_wait_concurrently :: proc(t: ^testing.T) {
 			&outcomes[i],
 		)
 	}
-	cpu_before := thread_cpu_seconds()
-	lava.page_runner_run(&runner)
+	testing.expect_value(t, lava.page_runner_live(&runner), 10)
+	start := time.tick_now()
+	rounds := 0
+	for lava.page_runner_live(&runner) > 0 {
+		lava.page_runner_step(&runner)
+		rounds += 1
+	}
 	wall := time.duration_seconds(time.tick_since(start))
-	cpu := thread_cpu_seconds() - cpu_before
 	for o, i in outcomes {
 		testing.expectf(t, o.done && o.status == .Ok && o.exit == 1, "page %d: %s", i, describe_outcome(o))
 	}
 	testing.expectf(t, wall < 2.5, "10 x 600 ms pages took %.2fs: they ran one after another", wall)
-	testing.expectf(t, cpu < 0.2, "runner burned %.3fs of CPU while every page waited on a timer", cpu)
+	testing.expectf(t, rounds < 1000, "runner spun %d rounds while every page waited on a timer", rounds)
 }
 
 // A page that never gets a VM (the runner is full) is reported, not dropped — from the

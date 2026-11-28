@@ -3,6 +3,7 @@ package lava_runtime
 
 import "base:runtime"
 import "core:sys/linux"
+import "core:time"
 import jsc "lava:pkg/jsc"
 import eventloop "lava:pkg/runtime/eventloop"
 
@@ -91,6 +92,15 @@ RUNNER_ORPHAN_LIMIT :: 32
 // 1000 is chosen, not measured to be best: 250 µs bought nothing more there and costs
 // four times the resume ticks.
 RUNNER_SLICE_US :: 1000
+
+// RUNNER_RUNLOOP_SYNC_INTERVAL bounds how often a busy runner re-reads the RunLoop's
+// descriptors and deadline (jsc.runloop_sync_stale): a cleanup JSC queues waits at most
+// this long, plus a round, to be dispatched while no round blocks. A sync is GLib's
+// prepare+query+check: 0.19/1.1/6.5 us at 1/16/100 VMs (pkg/jsc/runloop_linux.odin, q5
+// and q6), so once per millisecond costs a busy runner at most ~0.7% of its thread at 100
+// VMs. Chosen from that bound, not tuned; a blocking runner syncs before every block, as
+// before, and pays nothing more.
+RUNNER_RUNLOOP_SYNC_INTERVAL :: time.Millisecond
 
 Page_Runner :: struct {
 	pages:             [dynamic]^Runner_Page,
@@ -412,6 +422,12 @@ runner_round :: proc(runner: ^Page_Runner, idle_wait: bool) -> bool {
 	}
 
 	if progressed {
+		// A round that progressed does not block, and blocking (runner_wait) is where the
+		// RunLoop's descriptors and deadline are re-read; without a sync here a runner kept
+		// busy never saw JSC's work come due, and a cleanup it had queued never ran
+		// (runner_dispatches_the_runloop_while_every_round_is_busy). At most one sync per
+		// RUNNER_RUNLOOP_SYNC_INTERVAL.
+		jsc.runloop_sync_stale(RUNNER_RUNLOOP_SYNC_INTERVAL)
 		return true
 	}
 
