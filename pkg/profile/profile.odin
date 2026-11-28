@@ -36,8 +36,54 @@ Client_Profile :: struct {
 	// navigator.deviceMemory, in GiB, already rounded as Chrome rounds it.
 	device_memory:        f64,
 	max_touch_points:     int,
+	// navigator.pdfViewerEnabled. While true, navigator.plugins and mimeTypes list the
+	// five PDF viewer entries every Chrome since 94 reports; while false, both are empty.
+	pdf_viewer_enabled:   bool,
+	// navigator.cpuPerformance: Chrome's coarse CPU tier, 1 (lowest) to 4; 0 is unknown.
+	cpu_performance:      int,
+	// navigator.storage.estimate().quota and the legacy webkitTemporaryStorage quota, in
+	// bytes: Chrome reports a share of the disk, so it is the profile's disk, not ours.
+	storage_quota:        f64,
 	screen:               Screen_Geometry,
 	window:               Window_Geometry,
+	ua_data:              UA_Data,
+	connection:           Network_Information,
+}
+
+// navigator.userAgentData (User-Agent Client Hints). The low-entropy values (brands,
+// mobile, platform) are what every page reads; the rest answer getHighEntropyValues.
+// They must agree with user_agent: a script checks the Chromium brand's version against
+// the UA's major version and `platform` against navigator.platform.
+UA_Data :: struct {
+	// In Chrome's GREASE order, which is a function of the major version.
+	brands:           []UA_Brand,
+	mobile:           bool,
+	platform:         string,
+	platform_version: string,
+	architecture:     string,
+	bitness:          string,
+	model:            string,
+	// uaFullVersion: the browser's full version, which the reduced UA string hides.
+	full_version:     string,
+	wow64:            bool,
+	form_factors:     []string,
+}
+
+// One brand: `version` is the major version (brands), `full_version` the full one
+// (fullVersionList).
+UA_Brand :: struct {
+	brand:        string,
+	version:      string,
+	full_version: string,
+}
+
+// navigator.connection (Network Information), already rounded as Chrome rounds it: rtt
+// to 25 ms, downlink to 25 kbit/s and capped at 10 Mbit/s.
+Network_Information :: struct {
+	effective_type: string,
+	rtt:            int,
+	downlink:       f64,
+	save_data:      bool,
 }
 
 // The display: what `screen` reports. avail* is the area left by the desktop's panels.
@@ -74,6 +120,10 @@ CHROME_158_LINUX := Client_Profile {
 	hardware_concurrency = 8,
 	device_memory = 8,
 	max_touch_points = 0,
+	pdf_viewer_enabled = true,
+	cpu_performance = 2,
+	// 60% of a 512 GB disk, Chrome's share for a non-incognito origin's quota pool.
+	storage_quota = 307_200_000_000,
 	screen = {
 		width = 1920,
 		height = 1080,
@@ -92,6 +142,28 @@ CHROME_158_LINUX := Client_Profile {
 		screen_x = 0,
 		screen_y = 0,
 	},
+	// Chrome's GREASE for major 158 (Chromium's GetUserAgentBrandList, seed = major):
+	// the brand "Not" + ".A/" + "Brand", version "24", and with three brands the order
+	// permutation 158 % 6 = 2 — Chromium, the GREASE brand, Google Chrome. The two-brand
+	// headless recording (tests/web/cases/navigator-apis.expected's machine) shows the
+	// same GREASE brand and version.
+	ua_data = {
+		brands = {
+			{brand = "Chromium", version = "158", full_version = "158.0.8127.36"},
+			{brand = "Not.A/Brand", version = "24", full_version = "24.0.0.0"},
+			{brand = "Google Chrome", version = "158", full_version = "158.0.8127.36"},
+		},
+		mobile = false,
+		platform = "Linux",
+		platform_version = "",
+		architecture = "x86",
+		bitness = "64",
+		model = "",
+		full_version = "158.0.8127.36",
+		wow64 = false,
+		form_factors = {"Desktop"},
+	},
+	connection = {effective_type = "4g", rtt = 50, downlink = 10, save_data = false},
 }
 
 // default_profile returns the profile a page gets when the caller names none. Read-only:

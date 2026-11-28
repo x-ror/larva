@@ -10,8 +10,9 @@
  * on every host — not this machine's cores or display (Larva has no display). The
  * constants every Chrome reports (appName, product, …) are Blink's and live here.
  *
- * Navigator carries the members a page commonly reads; Chrome's ~50 others (plugins,
- * mediaDevices, userAgentData, serviceWorker, …) are the shape-navigator known gap.
+ * Navigator carries every member Chrome 158 has, in Blink's order. The objects its
+ * members return (permissions, userAgentData, plugins, connection, …) and
+ * screen.orientation are internal/navigator_apis'.
  *
  * Instantiated eagerly (the loader names it), so every capture below is pristine.
  *
@@ -25,8 +26,13 @@
   var nativeShape = require('internal/native_shape');
   var webErrors = require('internal/web_errors');
   var eventTarget = require('internal/event_target');
+  var navigatorApis = require('internal/navigator_apis');
+  var ArrayPrototypeIncludes = P.ArrayPrototypeIncludes;
   var ArrayPrototypeSlice = P.ArrayPrototypeSlice;
+  var PromiseReject = P.PromiseReject;
+  var ObjectDefineProperty = P.ObjectDefineProperty;
   var ObjectFreeze = P.ObjectFreeze;
+  var ReflectApply = P.ReflectApply;
   var StringPrototypeSlice = P.StringPrototypeSlice;
   var StringPrototypeStartsWith = P.StringPrototypeStartsWith;
   var TypeErrorP = P.TypeError;
@@ -50,6 +56,7 @@
   var HARDWARE_CONCURRENCY = native.hardwareConcurrency;
   var DEVICE_MEMORY = native.deviceMemory;
   var MAX_TOUCH_POINTS = native.maxTouchPoints;
+  var APIS = navigatorApis.create(native);
 
   var INTERNAL = { __proto__: null };
   var CHANGE = 'change';
@@ -60,14 +67,14 @@
 
   /**
    * Navigator: the browser's identity and capabilities, from the client profile.
-   * @node n/a — Chrome 158, tests/web/cases/shape-navigator.expected (shape; a known
-   *   gap for the members below the line) and navigator-profile.expected (types and
-   *   the relations between the values, which are the machine's in a recording).
-   * @deviates Values are the profile's, not the host's: hardwareConcurrency and
-   *   deviceMemory are fixed, and `webdriver` is false. Not implemented: plugins,
-   *   mimeTypes, pdfViewerEnabled, userAgentData, connection, sendBeacon, permissions,
-   *   mediaDevices, serviceWorker, storage and the rest of Chrome's members
-   *   (shape-navigator known gap).
+   * @node n/a — Chrome 158, tests/web/cases/shape-navigator.expected (shape),
+   *   navigator-profile.expected (types and the relations between the values, which
+   *   are the machine's in a recording) and navigator-apis.expected (what the member
+   *   objects and operations answer).
+   * @deviates Values are the profile's, not the host's: hardwareConcurrency,
+   *   deviceMemory, cpuPerformance, connection and userAgentData are fixed, and
+   *   `webdriver` is false. The member objects' stubs are listed in
+   *   internal/navigator_apis.
    */
   class Navigator {
     #brand = true;
@@ -178,7 +185,59 @@
     }
   }
 
-  // Blink's member order (Chrome 158, shape-navigator), less what Larva lacks.
+  // navigator_apis' attributes and operations, each behind Navigator's brand check.
+  function brandedGetter(get) {
+    return function () {
+      if (!isNavigator(this)) throw illegalInvocation();
+      return get();
+    };
+  }
+
+  function brandedOperation(fn) {
+    return function () {
+      if (!isNavigator(this)) throw illegalInvocation();
+      return ReflectApply(fn, undefined, arguments);
+    };
+  }
+
+  // A promise-returning operation rejects a foreign receiver, with its context, as
+  // Blink's does (internal/navigator_apis PROMISE_OPERATIONS).
+  function brandedPromiseOperation(name, fn) {
+    return function () {
+      if (!isNavigator(this)) {
+        return PromiseReject(webErrors.typeError('Navigator', name, 'Illegal invocation'));
+      }
+
+      try {
+        return ReflectApply(fn, undefined, arguments);
+      } catch (e) {
+        return PromiseReject(e);
+      }
+    };
+  }
+
+  for (var attribute in APIS.attributes) {
+    ObjectDefineProperty(Navigator.prototype, attribute, {
+      __proto__: null,
+      get: brandedGetter(APIS.attributes[attribute]),
+      enumerable: true,
+      configurable: true,
+    });
+  }
+
+  for (var operation in APIS.operations) {
+    ObjectDefineProperty(Navigator.prototype, operation, {
+      __proto__: null,
+      value: ArrayPrototypeIncludes(APIS.promiseOperations, operation)
+        ? brandedPromiseOperation(operation, APIS.operations[operation])
+        : brandedOperation(APIS.operations[operation]),
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
+  }
+
+  // Blink's member order (Chrome 158, shape-navigator).
   nativeShape.defineInterface({
     name: 'Navigator',
     impl: Navigator,
@@ -186,7 +245,16 @@
     illegal: true,
     members: [
       'maxTouchPoints',
+      'scheduling',
+      'userActivation',
+      'geolocation',
+      'ink',
       'doNotTrack',
+      'mediaCapabilities',
+      'permissions',
+      'webkitTemporaryStorage',
+      'webkitPersistentStorage',
+      'windowControlsOverlay',
       'hardwareConcurrency',
       'cookieEnabled',
       'appCodeName',
@@ -202,9 +270,50 @@
       'languages',
       'onLine',
       'webdriver',
+      'plugins',
+      'mimeTypes',
+      'pdfViewerEnabled',
+      'connection',
+      'getGamepads:0',
       'javaEnabled:0',
+      'sendBeacon:1',
+      'vibrate:1',
+      'mediaSession',
+      'globalPrivacyControl',
       'constructor',
+      'cpuPerformance',
+      'clipboard',
+      'credentials',
+      'keyboard',
+      'managed',
+      'mediaDevices',
+      'serviceWorker',
+      'virtualKeyboard',
+      'wakeLock',
       'deviceMemory',
+      'userAgentData',
+      'locks',
+      'storage',
+      'gpu',
+      'login',
+      'devicePosture',
+      'hid',
+      'presentation',
+      'serial',
+      'usb',
+      'xr',
+      'storageBuckets',
+      'clearAppBadge:0',
+      'getBattery:0',
+      'getUserMedia:3',
+      'requestMIDIAccess:0',
+      'requestMediaKeySystemAccess:2',
+      'setAppBadge:0',
+      'webkitGetUserMedia:3',
+      'getInstalledRelatedApps:0',
+      'install:0',
+      'registerProtocolHandler:2',
+      'unregisterProtocolHandler:2',
       '@@toStringTag',
     ],
   });
@@ -230,8 +339,7 @@
    * `change`, which never fires: the profile's display does not change.
    * @node n/a — Chrome 158, tests/web/cases/shape-navigator.expected (shape) and
    *   navigator-profile.expected (relations: availWidth <= width, …).
-   * @deviates No `orientation` (ScreenOrientation is not implemented; shape-navigator
-   *   known gap). isExtended is always false.
+   * @deviates isExtended is always false; `orientation` never changes.
    */
   class Screen extends EventTargetImpl {
     #onchange = null;
@@ -292,6 +400,11 @@
       return SCREEN.availTop;
     }
 
+    get orientation() {
+      if (!isScreen(this)) throw illegalInvocation();
+      return APIS.orientation;
+    }
+
     get onchange() {
       if (!isScreen(this)) throw illegalInvocation();
       return this.#onchange;
@@ -329,6 +442,7 @@
       'pixelDepth',
       'availLeft',
       'availTop',
+      'orientation',
       'constructor',
       'onchange',
       'isExtended',

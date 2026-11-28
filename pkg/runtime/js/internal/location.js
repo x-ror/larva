@@ -614,4 +614,14 @@
   nativeShape.defineGlobalAttribute('history', function () {
     return historyObject;
   });
+
+  module.exports = P.ObjectFreeze({
+    __proto__: null,
+    // For internal/navigator_apis' sendBeacon: `text` parsed against the document's
+    // current URL, serialized; null when it does not parse.
+    resolveHref: function (text) {
+      var url = parse(text, current);
+      return url === null ? null : read(urlHref, url);
+    },
+  });
 });

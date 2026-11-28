@@ -3,6 +3,7 @@ package main
 
 import "core:fmt"
 import "core:os"
+import "core:strings"
 import "core:testing"
 import http "lava:pkg/http"
 import profile "lava:pkg/profile"
@@ -127,4 +128,82 @@ check(globalThis, [['innerWidth', %d], ['innerHeight', %d], ['outerWidth', %d], 
 	)
 	defer delete(source)
 	run_window_script(t, "profile", source)
+}
+
+// userAgentData, connection, the PDF plugins and the storage quota are the profile's
+// (pkg/profile UA_Data, Network_Information): a recording can only show their types and
+// relations (tests/web/cases/navigator-apis), since Chrome reports its own machine's.
+@(test)
+window_env_reports_the_profile_client_hints :: proc(t: ^testing.T) {
+	// Braces doubled: core:fmt reads `{` as the start of an argument index. The async
+	// checks throw from a timer, which run_file reports.
+	CHECK :: `const fail = (what, got) => {{ throw new Error(what + ' ' + JSON.stringify(got)); }};
+const u = navigator.userAgentData;
+if (JSON.stringify(u.brands) !== %q) fail('brands', u.brands);
+if (u.mobile !== %v || u.platform !== %q) fail('low entropy', u);
+const c = navigator.connection;
+if (c.effectiveType !== %q || c.rtt !== %d || c.downlink !== %v || c.saveData !== %v) {{
+  fail('connection', [c.effectiveType, c.rtt, c.downlink, c.saveData]);
+}}
+if (navigator.pdfViewerEnabled !== %v || navigator.plugins.length !== %d) fail('pdf', navigator.plugins.length);
+if (navigator.cpuPerformance !== %d) fail('cpuPerformance', navigator.cpuPerformance);
+const hints = ['architecture', 'bitness', 'model', 'platformVersion', 'uaFullVersion', 'wow64', 'fullVersionList'];
+u.getHighEntropyValues(hints).then((v) => setTimeout(() => {{
+  const got = JSON.stringify([v.architecture, v.bitness, v.model, v.platformVersion, v.uaFullVersion, v.wow64]);
+  if (got !== JSON.stringify([%q, %q, %q, %q, %q, %v])) fail('high entropy', got);
+  if (JSON.stringify(v.fullVersionList) !== %q) fail('fullVersionList', v.fullVersionList);
+}}, 0));
+navigator.storage.estimate().then((e) => setTimeout(() => {{
+  if (e.quota !== %v || e.usage !== 0) fail('estimate', e);
+}}, 0));
+`
+
+
+	p := profile.default_profile()
+	ua := &p.ua_data
+	brands := brand_list_json(ua.brands, false)
+	defer delete(brands)
+	full := brand_list_json(ua.brands, true)
+	defer delete(full)
+	source := fmt.aprintf(
+		CHECK,
+		brands,
+		ua.mobile,
+		ua.platform,
+		p.connection.effective_type,
+		p.connection.rtt,
+		p.connection.downlink,
+		p.connection.save_data,
+		p.pdf_viewer_enabled,
+		p.pdf_viewer_enabled ? 5 : 0,
+		p.cpu_performance,
+		ua.architecture,
+		ua.bitness,
+		ua.model,
+		ua.platform_version,
+		ua.full_version,
+		ua.wow64,
+		full,
+		p.storage_quota,
+	)
+	defer delete(source)
+	run_window_script(t, "client-hints", source)
+}
+
+// The JSON of a NavigatorUABrandVersion list, as JSON.stringify writes it.
+@(private = "file")
+brand_list_json :: proc(brands: []profile.UA_Brand, full: bool) -> string {
+	b := strings.builder_make()
+	strings.write_byte(&b, '[')
+
+	for brand, i in brands {
+		if i > 0 {
+			strings.write_byte(&b, ',')
+		}
+
+		fmt.sbprintf(&b, `{{"brand":%q,"version":%q}}`, brand.brand, full ? brand.full_version : brand.version)
+	}
+
+	strings.write_byte(&b, ']')
+	return strings.to_string(b)
 }

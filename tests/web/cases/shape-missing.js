@@ -9,7 +9,6 @@ for (const name of [
   'SubtleCrypto',
   'CryptoKey',
   'reportError',
-  'ScreenOrientation',
   'PopStateEvent',
   'HashChangeEvent',
 ])

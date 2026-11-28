@@ -4216,6 +4216,33 @@
       "replace": "",
       "gate": "make:test-dom",
       "expect_detail": "FAIL dom-script-dynamic.page"
+    },
+    {
+      "name": "window_env_reports_the_profile_client_hints dies when getHighEntropyValues answers architecture with the bitness",
+      "why": "A high-entropy hint read off the wrong profile field ships a client-hint set no real Chrome sends; a recording cannot see it, since Chrome reports its own machine's values.",
+      "source": "pkg/runtime/js/internal/navigator_apis.js",
+      "find": "      case 'architecture':\n        return ua.architecture;",
+      "replace": "      case 'architecture':\n        return ua.bitness;",
+      "gate": "odin:cmd/lava:main.window_env_reports_the_profile_client_hints",
+      "expect_detail": "high entropy"
+    },
+    {
+      "name": "window_env_reports_the_profile_client_hints dies when brands carries the full versions",
+      "why": "navigator.userAgentData.brands carries major versions; the full version belongs only to fullVersionList, and a mixed list is a headless tell no recording can see.",
+      "source": "pkg/runtime/js/internal/navigator_apis.js",
+      "find": "version: full ? b.fullVersion : b.version",
+      "replace": "version: b.fullVersion",
+      "gate": "odin:cmd/lava:main.window_env_reports_the_profile_client_hints",
+      "expect_detail": "brands"
+    },
+    {
+      "name": "navigator-apis dies when a promise operation throws for a foreign receiver",
+      "why": "WebIDL turns a promise operation's brand failure into a rejection with the operation's context; throwing synchronously breaks a page that only attaches .catch.",
+      "source": "pkg/runtime/js/internal/navigator_apis.js",
+      "find": "if (rec === undefined || rec.iface !== iface) {\n        return PromiseReject(typeError(iface, op, 'Illegal invocation'));",
+      "replace": "if (rec === undefined || rec.iface !== iface) {\n        throw illegalInvocation();",
+      "gate": "make:test-web",
+      "expect_detail": "FAIL navigator-apis"
     }
   ]
 }

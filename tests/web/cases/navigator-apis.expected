@@ -1,0 +1,180 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-28
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs navigator-apis
+# ---
+uad [object NavigatorUAData] same false brands same false
+brands true frozen true item frozen false keys true
+chromium true
+grease true
+mobile false platform Linux in platform true
+toJSON ["brands","mobile","platform"] true
+hev keys architecture,bitness,brands,formFactors,fullVersionList,mobile,model,platform,platformVersion,uaFullVersion,wow64
+hev types string,string,string,string,string boolean true
+full version true
+fullVersionList true true
+hev low ["brands","mobile","platform"]
+hev none rej TypeError: Failed to execute 'getHighEntropyValues' on 'NavigatorUAData': 1 argument required, but only 0 present.
+hev string rej TypeError: Failed to execute 'getHighEntropyValues' on 'NavigatorUAData': The provided value cannot be converted to a sequence.
+pdfViewerEnabled true plugins [object PluginArray] 5 same true
+ plugin ["PDF Viewer","internal-pdf-viewer","Portable Document Format",2] 0,1,application/pdf,text/pdf
+   mime ["application/pdf","pdf","Portable Document Format"] true false
+   mime ["text/pdf","pdf","Portable Document Format"] true false
+ plugin ["Chrome PDF Viewer","internal-pdf-viewer","Portable Document Format",2] 0,1,application/pdf,text/pdf
+   mime ["application/pdf","pdf","Portable Document Format"] true false
+   mime ["text/pdf","pdf","Portable Document Format"] true false
+ plugin ["Chromium PDF Viewer","internal-pdf-viewer","Portable Document Format",2] 0,1,application/pdf,text/pdf
+   mime ["application/pdf","pdf","Portable Document Format"] true false
+   mime ["text/pdf","pdf","Portable Document Format"] true false
+ plugin ["Microsoft Edge PDF Viewer","internal-pdf-viewer","Portable Document Format",2] 0,1,application/pdf,text/pdf
+   mime ["application/pdf","pdf","Portable Document Format"] true false
+   mime ["text/pdf","pdf","Portable Document Format"] true false
+ plugin ["WebKit built-in PDF","internal-pdf-viewer","Portable Document Format",2] 0,1,application/pdf,text/pdf
+   mime ["application/pdf","pdf","Portable Document Format"] true false
+   mime ["text/pdf","pdf","Portable Document Format"] true false
+plugin names 0|1|2|3|4|PDF Viewer|Chrome PDF Viewer|Chromium PDF Viewer|Microsoft Edge PDF Viewer|WebKit built-in PDF
+plugin keys 0,1,2,3,4
+plugin descs {"value":"[object Plugin]","writable":false,"enumerable":true,"configurable":true} {"value":"[object Plugin]","writable":false,"enumerable":false,"configurable":true}
+plugin item true true true null null
+plugin namedItem true null true
+plugin iterator true PDF Viewer|Chrome PDF Viewer|Chromium PDF Viewer|Microsoft Edge PDF Viewer|WebKit built-in PDF
+plugins item() threw TypeError: Failed to execute 'item' on 'PluginArray': 1 argument required, but only 0 present.
+plugin namedItem() threw TypeError: Failed to execute 'namedItem' on 'Plugin': 1 argument required, but only 0 present.
+refresh ret [object Undefined] undefined
+mimeTypes [object MimeTypeArray] 2 0|1|application/pdf|text/pdf
+ mime ["application/pdf","pdf","Portable Document Format"] true
+ mime ["text/pdf","pdf","Portable Document Format"] true
+mime named true true
+for-in plugins 5
+connection [object NetworkInformation] same true EventTarget true
+effectiveType true
+rtt true downlink true
+saveData false onchange null type undefined downlinkMax undefined
+onchange set function
+onchange string null
+perm notifications ok [object String] "prompt"
+perm geolocation ok [object String] "prompt"
+perm camera ok [object String] "prompt"
+perm microphone ok [object String] "prompt"
+perm midi ok [object String] "prompt"
+perm clipboard-read ok [object String] "prompt"
+perm clipboard-write ok [object String] "granted"
+perm persistent-storage ok [object String] "prompt"
+perm background-sync ok [object String] "granted"
+perm storage-access ok [object String] "granted"
+perm accelerometer ok [object String] "granted"
+perm periodic-background-sync ok [object String] "denied"
+perm screen-wake-lock ok [object String] "granted"
+perm push rej NotSupportedError: Failed to execute 'query' on 'Permissions': Push Permission without userVisibleOnly:true isn't supported yet.
+perm push visible ok [object String] "prompt"
+perm nfc rej TypeError: Failed to execute 'query' on 'Permissions': Web NFC is not enabled.
+perm bogus rej TypeError: Failed to execute 'query' on 'Permissions': Failed to read the 'name' property from 'PermissionDescriptor': The provided value 'bogus' is not a valid enum value of type PermissionName.
+perm {} rej TypeError: Failed to execute 'query' on 'Permissions': Failed to read the 'name' property from 'PermissionDescriptor': Required member is undefined.
+perm () rej TypeError: Failed to execute 'query' on 'Permissions': 1 argument required, but only 0 present.
+perm 5 rej TypeError: Failed to execute 'query' on 'Permissions': parameter 1 is not of type 'object'.
+perm fullscreen rej TypeError: Failed to execute 'query' on 'Permissions': Fullscreen Permission only supports allowWithoutGesture:true.
+status [object PermissionStatus] notifications prompt onchange null new true EventTarget true
+lock ok [object String] "[object Lock] a exclusive []"
+lock shared ok [object String] "shared"
+lock dash rej NotSupportedError: Failed to execute 'request' on 'LockManager': Names cannot start with '-'.
+lock no callback rej TypeError: Failed to execute 'request' on 'LockManager': 2 arguments required, but only 1 present.
+lock bad callback rej TypeError: Failed to execute 'request' on 'LockManager': parameter 2 is not of type 'Function'.
+lock bad mode rej TypeError: Failed to execute 'request' on 'LockManager': Failed to read the 'mode' property from 'LockOptions': The provided value 'x' is not a valid enum value of type LockMode.
+lock ifAvailable free ok [object Boolean] false
+locks held [["q","exclusive","string",["clientId","mode","name"]]] pending [["q","exclusive"]]
+locks results ["one",null,"three"] 1,2 null,3 q
+shared waiting 0
+shared order sh1,sh2
+lock thrower rej RangeError: boom
+locks empty {"held":[],"pending":[]}
+estimate ok [object Array] [["quota","usage","usageDetails"],"number",true,"{}"]
+persisted ok [object Boolean] false
+persist ok [object Boolean] false
+legacy quota number number
+legacy quota same true [object DeprecatedStorageQuota] undefined queryUsageAndQuota,requestQuota
+enumerateDevices ok [object Array] []
+supported constraints ret [object Number] 36
+getUserMedia audio rej NotFoundError: Requested device not found
+getUserMedia none rej TypeError: Failed to execute 'getUserMedia' on 'MediaDevices': At least one of audio and video must be requested
+legacy getUserMedia none threw TypeError: Failed to execute 'getUserMedia' on 'Navigator': 3 arguments required, but only 0 present.
+legacy getUserMedia error NotFoundError: Requested device not found
+hid devices ok [object Array] []
+usb devices ok [object Array] []
+serial ports ok [object Array] []
+hid request rej SecurityError: Failed to execute 'requestDevice' on 'HID': Must be handling a user gesture to show a permission request.
+usb request rej SecurityError: Failed to execute 'requestDevice' on 'USB': Must be handling a user gesture to show a permission request.
+serial request rej SecurityError: Failed to execute 'requestPort' on 'Serial': Must be handling a user gesture to show a permission request.
+xr inline ok [object Boolean] true
+xr vr ok [object Boolean] false
+xr bad rej TypeError: Failed to execute 'isSessionSupported' on 'XRSystem': The provided value 'x' is not a valid enum value of type XRSessionMode.
+xr session rej SecurityError: Failed to execute 'requestSession' on 'XRSystem': The requested session requires user activation.
+gpu adapter ok [object Null] null
+gpu format ret [object String] "rgba8unorm"
+wgsl [object WGSLLanguageFeatures] true same true has true false entries true keys true iterator true
+clipboard readText rej NotAllowedError: Failed to execute 'readText' on 'Clipboard': Read permission denied.
+clipboard writeText rej NotAllowedError: Failed to execute 'writeText' on 'Clipboard': Write permission denied.
+credentials password ok [object Null] null
+credentials create rej NotSupportedError: Only exactly one of 'password', 'federated', and 'publicKey' credential types are currently supported.
+credentials store rej TypeError: Failed to execute 'store' on 'CredentialsContainer': 1 argument required, but only 0 present.
+managed rej NotAllowedError: Managed configuration is empty. This API is available only for managed apps.
+midi rej NotAllowedError: Permission to use Web MIDI API was not granted.
+mksa empty rej TypeError: Failed to execute 'requestMediaKeySystemAccess' on 'Navigator': The keySystem parameter is empty.
+mksa no config rej TypeError: Failed to execute 'requestMediaKeySystemAccess' on 'Navigator': The supportedConfigurations parameter is empty.
+mksa one arg rej TypeError: Failed to execute 'requestMediaKeySystemAccess' on 'Navigator': 2 arguments required, but only 1 present.
+install rej NotAllowedError: Failed to execute 'install' on 'Navigator': Unable to install app. This API can only be called shortly after a user activation.
+related apps ok [object Array] []
+set badge ok [object Undefined] undefined
+clear badge ok [object Undefined] undefined
+sw registrations ok [object Array] []
+sw registration ok [object Undefined] undefined
+sw register none rej TypeError: Failed to execute 'register' on 'ServiceWorkerContainer': 1 argument required, but only 0 present.
+sw controller null ready same true
+login ok [object Undefined] undefined
+login bad rej TypeError: Failed to execute 'setStatus' on 'NavigatorLogin': The provided value 'x' is not a valid enum value of type LoginStatus.
+keyboard lock ok [object Undefined] undefined
+media session camera ok [object String] "not a promise: [object Undefined]"
+decodingInfo none rej TypeError: Failed to execute 'decodingInfo' on 'MediaCapabilities': 1 argument required, but only 0 present.
+encodingInfo record rej TypeError: Failed to execute 'encodingInfo' on 'MediaCapabilities': The provided value 'record' is not a valid enum value of type MediaEncodingType.
+bucket keys ok [object Array] []
+bucket delete ok [object Undefined] undefined
+bucket open none rej TypeError: Failed to execute 'open' on 'StorageBucketManager': 1 argument required, but only 0 present.
+wakeLock bad rej TypeError: Failed to execute 'request' on 'WakeLock': The provided value 'x' is not a valid enum value of type WakeLockType.
+globalPrivacyControl false cpuPerformance true
+posture continuous overlay false virtualKeyboard false
+userActivation false false isInputPending false
+mediaSession null none presentation null null
+metadata object threw TypeError: Failed to set the 'metadata' property on 'MediaSession': Failed to convert value to 'MediaMetadata'.
+playbackState bad ret [object String] "none"
+playbackState paused ret [object String] "paused"
+setActionHandler bad threw TypeError: Failed to execute 'setActionHandler' on 'MediaSession': The provided value 'x' is not a valid enum value of type MediaSessionAction.
+setActionHandler ret [object Undefined] undefined
+overlaysContent ret [object Boolean] true
+getCurrentPosition bad threw TypeError: Failed to execute 'getCurrentPosition' on 'Geolocation': parameter 1 is not of type 'Function'.
+watchPosition ret [object Array] [1,2]
+clearWatch none threw TypeError: Failed to execute 'clearWatch' on 'Geolocation': 1 argument required, but only 0 present.
+gamepads [object Array] 8 true new true
+vibrate false javaEnabled false
+vibrate none threw TypeError: Failed to execute 'vibrate' on 'Navigator': 1 argument required, but only 0 present.
+sendBeacon none threw TypeError: Failed to execute 'sendBeacon' on 'Navigator': 1 argument required, but only 0 present.
+sendBeacon ftp threw TypeError: Failed to execute 'sendBeacon' on 'Navigator': Beacons are only supported over HTTP(S).
+sendBeacon bad threw TypeError: Failed to execute 'sendBeacon' on 'Navigator': The URL argument is ill-formed or unsupported.
+sendBeacon big ret [object Boolean] false
+registerProtocolHandler bad threw SecurityError: Failed to execute 'registerProtocolHandler' on 'Navigator': The scheme 'foo' doesn't belong to the scheme allowlist. Please prefix non-allowlisted schemes with the string 'web+'.
+registerProtocolHandler one threw TypeError: Failed to execute 'registerProtocolHandler' on 'Navigator': 2 arguments required, but only 1 present.
+unregisterProtocolHandler ret [object Undefined] undefined
+battery same true
+battery [object BatteryManager] true ["true","0","Infinity","1"]
+orientation [object ScreenOrientation] landscape-primary 0 same true EventTarget true onchange null
+landscape true
+lock portrait rej NotSupportedError: screen.orientation.lock() is not available on this device.
+lock bad rej TypeError: Failed to execute 'lock' on 'ScreenOrientation': The provided value 'x' is not a valid enum value of type OrientationLockType.
+lock none rej TypeError: Failed to execute 'lock' on 'ScreenOrientation': 1 argument required, but only 0 present.
+unlock ret [object Undefined] undefined
+getter on wrong receiver threw TypeError: Illegal invocation
+query on wrong receiver rej TypeError: Failed to execute 'query' on 'Permissions': Illegal invocation
+navigator op on wrong receiver rej TypeError: Failed to execute 'getBattery' on 'Navigator': Illegal invocation
+navigator sync op on wrong receiver threw TypeError: Illegal invocation
+lock on wrong receiver rej TypeError: Failed to execute 'lock' on 'ScreenOrientation': Illegal invocation
+new Permissions threw TypeError: Failed to construct 'Permissions': Illegal constructor
+done

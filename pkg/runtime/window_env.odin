@@ -61,6 +61,37 @@ make_navigator_bindings :: proc(ctx: jsc.JSContextRef, p: ^profile.Client_Profil
 	set_number(ctx, bindings, "outerHeight", f64(p.window.outer_height))
 	set_number(ctx, bindings, "screenX", f64(p.window.screen_x))
 	set_number(ctx, bindings, "screenY", f64(p.window.screen_y))
+	set_bool(ctx, bindings, "pdfViewerEnabled", p.pdf_viewer_enabled)
+	set_number(ctx, bindings, "cpuPerformance", f64(p.cpu_performance))
+	set_number(ctx, bindings, "storageQuota", p.storage_quota)
+
+	ua := &p.ua_data
+	// Flat [brand, version, fullVersion, …]: one array rather than one object per brand.
+	// Each element is set as it is made, so none is an unrooted cell (build_string_array).
+	brands := jsc.JSObjectMakeArray(ctx, 0, nil, nil)
+
+	for b, i in ua.brands {
+		at := c.uint(i * 3)
+		jsc.JSObjectSetPropertyAtIndex(ctx, brands, at, js_string_value(ctx, b.brand), nil)
+		jsc.JSObjectSetPropertyAtIndex(ctx, brands, at + 1, js_string_value(ctx, b.version), nil)
+		jsc.JSObjectSetPropertyAtIndex(ctx, brands, at + 2, js_string_value(ctx, b.full_version), nil)
+	}
+
+	set_named(ctx, bindings, "uaBrands", cast(jsc.JSValueRef)brands)
+	set_bool(ctx, bindings, "uaMobile", ua.mobile)
+	set_named(ctx, bindings, "uaPlatform", js_string_value(ctx, ua.platform))
+	set_named(ctx, bindings, "uaPlatformVersion", js_string_value(ctx, ua.platform_version))
+	set_named(ctx, bindings, "uaArchitecture", js_string_value(ctx, ua.architecture))
+	set_named(ctx, bindings, "uaBitness", js_string_value(ctx, ua.bitness))
+	set_named(ctx, bindings, "uaModel", js_string_value(ctx, ua.model))
+	set_named(ctx, bindings, "uaFullVersion", js_string_value(ctx, ua.full_version))
+	set_bool(ctx, bindings, "uaWow64", ua.wow64)
+	set_named(ctx, bindings, "uaFormFactors", cast(jsc.JSValueRef)build_string_array(ctx, ua.form_factors))
+
+	set_named(ctx, bindings, "connectionEffectiveType", js_string_value(ctx, p.connection.effective_type))
+	set_number(ctx, bindings, "connectionRtt", f64(p.connection.rtt))
+	set_number(ctx, bindings, "connectionDownlink", p.connection.downlink)
+	set_bool(ctx, bindings, "connectionSaveData", p.connection.save_data)
 	return bindings
 }
 
@@ -81,4 +112,9 @@ location_loading_cb :: proc "c" (
 @(private = "file")
 set_number :: proc(ctx: jsc.JSContextRef, object: jsc.JSObjectRef, name: string, value: f64) {
 	set_named(ctx, object, name, jsc.JSValueMakeNumber(ctx, value))
+}
+
+@(private = "file")
+set_bool :: proc(ctx: jsc.JSContextRef, object: jsc.JSObjectRef, name: string, value: bool) {
+	set_named(ctx, object, name, jsc.JSValueMakeBoolean(ctx, b32(value)))
 }
