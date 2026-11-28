@@ -1404,9 +1404,22 @@ install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef)
 	// Native, not a module: nothing of it is JS a page could see in a stack (wasm.odin).
 	install_wasm(ctx, state)
 
-	args := [2]jsc.JSValueRef{cast(jsc.JSValueRef)compile, cast(jsc.JSValueRef)natives}
+	// The loader's third argument, as `compile` is its first: reachable only from its
+	// closure and, through req.neverOptimize, from internal modules. Cold (a handful of
+	// calls per page), so the generic host path. Without it the loader runs a no-op.
+	never_optimize := cast(jsc.JSValueRef)host_native_create(ctx, "neverOptimize", never_optimize_cb, 0)
+
+	if never_optimize == nil {
+		never_optimize = cast(jsc.JSValueRef)make_native_function(ctx, "neverOptimize", never_optimize_cb)
+	}
+
+	if never_optimize == nil {
+		never_optimize = jsc.JSValueMakeUndefined(ctx)
+	}
+
+	args := [3]jsc.JSValueRef{cast(jsc.JSValueRef)compile, cast(jsc.JSValueRef)natives, never_optimize}
 	exception: jsc.JSValueRef
-	handle := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)loader, nil, 2, raw_data(args[:]), &exception)
+	handle := jsc.JSObjectCallAsFunction(ctx, cast(jsc.JSObjectRef)loader, nil, 3, raw_data(args[:]), &exception)
 
 	if exception != nil {
 		report_internal_exception(ctx, "internal:loader", exception)
@@ -1419,6 +1432,39 @@ install_internal_modules :: proc(ctx: jsc.JSContextRef, global: jsc.JSObjectRef)
 
 	jsc.JSValueProtect(ctx, handle)
 	state.loader = handle
+}
+
+// never_optimize_cb is the loader's `neverOptimize(...fns)`: it keeps JSC's optimizing
+// tiers off each function argument (jsc.never_optimize), for the install-time helpers
+// that run once per page (bootstrap/loader.js, internal/native_shape).
+//
+// Returns:
+//   undefined, always; a non-object argument is skipped.
+// Node:
+//   n/a — not reachable from page code, and a JIT tier is not observable: every shape
+//   and web case reads the same with and without it.
+//
+// Measured on bench/pages (-o:speed, N=1, 400 pages a launch, medians of 5 interleaved
+// launches per arm, 4-core Xeon shared with other work; 8ecd066 vs this hook alone):
+// process CPU 14.9 -> 10.4 ms a page, pages/s 82 -> 100. JSC_useDFGJIT=0 for the whole
+// process, the ceiling, measured 9.8 ms a page in the same run. Marking the primordials
+// wrappers too reached it, but cost url-parse 1.9x and request-new 1.5x in `make bench`:
+// those run on every page call, and stay optimizable.
+never_optimize_cb :: proc "c" (
+	ctx: jsc.JSContextRef,
+	function: jsc.JSObjectRef,
+	this_object: jsc.JSObjectRef,
+	argument_count: c.size_t,
+	arguments: [^]jsc.JSValueRef,
+	exception: ^jsc.JSValueRef,
+) -> jsc.JSValueRef {
+	for i in 0 ..< int(argument_count) {
+		if jsc.JSValueIsObject(ctx, arguments[i]) {
+			jsc.never_optimize(ctx, arguments[i])
+		}
+	}
+
+	return jsc.JSValueMakeUndefined(ctx)
 }
 
 // builtin_compile_cb is the loader's `compile(id)`: it evaluates the embedded
@@ -1663,6 +1709,23 @@ eval_internal_source :: proc(
 			if data, read_err := os.read_entire_file(full_path, context.temp_allocator); read_err == os.ERROR_NONE {
 				return eval_internal(ctx, name, string(data))
 			}
+		}
+	}
+
+	// The embedded text, on a pooled VM: through the VM's script of it, made once per
+	// VM rather than a new source string per page (vm_script; jsc.script_create says
+	// what that saves).
+	if state := get_state_from_ctx(ctx); state != nil && state.vm != nil {
+		if script := vm_script(state.vm, name, embedded); script != nil {
+			exception: jsc.JSValueRef
+			value := jsc.script_evaluate(ctx, script, &exception)
+
+			if exception != nil {
+				report_internal_exception(ctx, name, exception)
+				return nil
+			}
+
+			return value
 		}
 	}
 
