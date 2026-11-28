@@ -617,7 +617,8 @@ on_render_done :: proc(loop: ^eventloop.Loop, user_data: rawptr) {
 		conn_fail(c, .Capture_Failed, crawl.message, job.rendered)
 	case .None:
 		switch job.kill {
-		case .Cpu_Budget, .Entry_Limit:
+		// A heap kill (#151) is a page limit like the CPU budget: page_killed.
+		case .Cpu_Budget, .Entry_Limit, .Heap_Limit:
 			conn_fail(c, .Page_Killed, job.message, job.rendered)
 		case .Cancelled, .Reaping_Full:
 			conn_fail(c, .Engine_Unavailable, job.message, job.rendered)
