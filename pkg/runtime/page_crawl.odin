@@ -57,7 +57,8 @@ Crawl_Job :: struct {
 	// A selector list to wait for after `load`; "" for none.
 	selector:      string,
 	// A custom script's body, run after the selector wait; "" for none. It runs as the
-	// body of an async function with `_resolve`, `_reject` and `_delay(ms)` in scope, and
+	// body of an async function with `_resolve`, `_reject`, `_delay(ms)` and
+	// `_scrollBottom(maxScrolls, waitMs)` in scope (CRAWL_SCRIPT_HEAD), and
 	// the job waits until it calls `_resolve` or `_reject` (#15's page script contract).
 	script:        string,
 	// Capture the value given to `_resolve`, JSON-serialized, instead of the document.
@@ -85,16 +86,22 @@ Crawl_Phase :: enum {
 
 // CRAWL_SCRIPT_HEAD and CRAWL_SCRIPT_TAIL wrap a custom script: the script body (a JSON
 // string literal between them) is compiled as an AsyncFunction taking `_resolve`,
-// `_reject` and `_delay`, so a syntax error is a SyntaxError this wrapper catches rather
+// `_reject`, `_delay` and `_scrollBottom`, so a syntax error is a SyntaxError this wrapper catches rather
 // than a failed evaluation with no message, and the body cannot close the wrapper's own
 // brackets. The completion value is a probe the driver calls between ticks: undefined
 // while the promise is pending, then "ok:<json>" or "error:<message>". A value
 // JSON.stringify drops (undefined, a function) is reported as `null`.
 //
+// `_scrollBottom(maxScrolls = 30, waitMs = 50)` scrolls the viewport to the bottom of the
+// document, waits, and repeats until document.scrollingElement.scrollHeight stops growing
+// or maxScrolls scrolls were made; it resolves with the last height. The heights are
+// internal/layout's estimate, which grows as the page appends content, so a page whose
+// scroll listener or IntersectionObserver sentinel loads more is driven to its end.
+//
 // Deviates:
 //   #15's wrapper is `new Promise(async (_resolve, _reject) => { … })`, whose throw is
 //   lost (an async executor's rejection is nobody's); here a throw rejects the job.
-//   `_scrollBottom`, `_clickElement` and `_sendKeys` are not defined yet. The result is
+//   `_clickElement` and `_sendKeys` are not defined yet. The result is
 //   JSON, not a string the script must build. Pinned by cmd/lava/serve_test.odin.
 @(private = "file")
 CRAWL_SCRIPT_HEAD :: `(() => {
@@ -103,13 +110,24 @@ CRAWL_SCRIPT_HEAD :: `(() => {
   const describe = (e) => { try { return String(e); } catch { return 'the script threw a value String() rejects'; } };
   try {
     const AsyncFunction = (async () => {}).constructor;
-    const body = new AsyncFunction('_resolve', '_reject', '_delay', `
+    const body = new AsyncFunction('_resolve', '_reject', '_delay', '_scrollBottom', `
 
 @(private = "file")
 CRAWL_SCRIPT_TAIL :: `);
     const _delay = (ms) => new Promise((r) => setTimeout(r, ms));
+    const _scrollBottom = async (maxScrolls = 30, waitMs = 50) => {
+      let last = -1;
+      for (let i = 0; i < maxScrolls; i++) {
+        const h = (document.scrollingElement || document.documentElement).scrollHeight;
+        if (h === last) break;
+        last = h;
+        scrollTo(0, h);
+        await _delay(waitMs);
+      }
+      return last;
+    };
     new Promise((_resolve, _reject) => {
-      body(_resolve, _reject, _delay).catch(_reject);
+      body(_resolve, _reject, _delay, _scrollBottom).catch(_reject);
     }).then((v) => {
       let json;
       try { json = JSON.stringify(v); } catch (e) { settle(2, 'the result is not JSON-serializable: ' + describe(e)); return; }

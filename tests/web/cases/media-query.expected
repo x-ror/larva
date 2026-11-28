@@ -1,0 +1,66 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-28
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs media-query
+# ---
+missing arg TypeError: Failed to execute 'matchMedia' on 'Window': 1 argument required, but only 0 present.
+"" -> "" true
+"all" -> "all" true
+"screen" -> "screen" true
+"print" -> "print" false
+"not print" -> "not print" true
+"only screen" -> "only screen" true
+"speech" -> "speech" false
+"not all" -> "not all" false
+"(min-width: 1px)" -> "(min-width: 1px)" true
+"  (MIN-WIDTH:1px) , print " -> "(min-width: 1px), print" true
+"(max-width: 1px)" -> "(max-width: 1px)" false
+"(min-width: 100000px)" -> "(min-width: 100000px)" false
+"(max-width: 100000px)" -> "(max-width: 100000px)" true
+"(min-height: 1px)" -> "(min-height: 1px)" true
+"(width)" -> "(width)" true
+"(height)" -> "(height)" true
+"(min-width: 1em)" -> "(min-width: 1em)" true
+"(width >= 1px)" -> "(width >= 1px)" true
+"(width < 1px)" -> "(width < 1px)" false
+"(1px <= width)" -> "(1px <= width)" true
+"(min-width: 1px) and (max-width: 2px)" -> "(min-width: 1px) and (max-width: 2px)" false
+"(min-width: 100000px), (min-width:1px)" -> "(min-width: 100000px), (min-width: 1px)" true
+"screen and (min-width: 1px)" -> "screen and (min-width: 1px)" true
+"only screen and (min-width: 1px)" -> "only screen and (min-width: 1px)" true
+"not screen and (min-width: 1px)" -> "not screen and (min-width: 1px)" false
+"(prefers-color-scheme: light)" -> "(prefers-color-scheme: light)" true
+"(prefers-color-scheme: dark)" -> "(prefers-color-scheme: dark)" false
+"(prefers-reduced-motion: no-preference)" -> "(prefers-reduced-motion: no-preference)" true
+"(prefers-reduced-motion: reduce)" -> "(prefers-reduced-motion: reduce)" false
+"(prefers-reduced-motion)" -> "(prefers-reduced-motion)" false
+"(prefers-contrast: no-preference)" -> "(prefers-contrast: no-preference)" true
+"(forced-colors: none)" -> "(forced-colors: none)" true
+"(forced-colors)" -> "(forced-colors)" false
+"(scripting: enabled)" -> "(scripting: enabled)" true
+"(display-mode: browser)" -> "(display-mode: browser)" true
+"(min-resolution: 1dppx)" -> "(min-resolution: 1dppx)" true
+"(-webkit-min-device-pixel-ratio: 1)" -> "(-webkit-min-device-pixel-ratio: 1)" true
+"(color)" -> "(color)" true
+"(monochrome)" -> "(monochrome)" false
+"(foo: bar)" -> "(foo: bar)" false
+"(foo)" -> "(foo)" false
+"foo bar" -> "not all" false
+"screen and" -> "not all" false
+"and (min-width: 1px)" -> "not all" false
+"(min-width: 1px" -> "(min-width: 1px)" true
+"null" -> "null" false
+null "null"
+undefined "undefined"
+tag [object MediaQueryList]
+instance true true
+new list false
+onchange null
+onchange set true
+onchange 5 null
+addListener undefined undefined
+removeListener undefined
+addListener none TypeError: Failed to execute 'addListener' on 'MediaQueryList': 1 argument required, but only 0 present.
+media getter TypeError: Illegal invocation
+new TypeError: Failed to construct 'MediaQueryList': Illegal constructor

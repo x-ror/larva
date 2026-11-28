@@ -112,6 +112,10 @@
   // clone, so after structured_clone; Screen is an EventTarget.
   req('internal/location');
   req('internal/navigator');
+  // matchMedia over the profile's viewport, and the Intersection/ResizeObservers over
+  // internal/layout's estimate (which internal/navigator instantiated, with the viewport).
+  req('internal/media');
+  req('internal/observers');
   // The page's side of the cookie jar, which fetch(), XMLHttpRequest and document.cookie
   // reach lazily: it parses URLs, so after internal/url (and TextEncoder before it).
   req('internal/cookie');

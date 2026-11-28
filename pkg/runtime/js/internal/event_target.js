@@ -842,8 +842,9 @@
   });
 
   // The window's event handler IDL attributes (HTML §8.1.8.1) Larva fires events for:
-  // `load` (a page with a document), `hashchange` and `popstate` (internal/location).
-  var WINDOW_HANDLERS = ['load', 'hashchange', 'popstate'];
+  // `load` (a page with a document), `hashchange` and `popstate` (internal/location),
+  // `scroll` (internal/layout: the viewport's, which bubbles from the document).
+  var WINDOW_HANDLERS = ['load', 'hashchange', 'popstate', 'scroll'];
 
   /**
    * Makes the page's global an EventTarget, as Chrome's window is — whether or not the

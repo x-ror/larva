@@ -48,6 +48,19 @@ FIXTURES := [?]struct {
 		`<!doctype html><body><p id="t"></p><script>const s = Date.now(); while (Date.now() - s < 500) {}` +
 		`document.getElementById('t').textContent = 'ran ' + s + ' ' + Date.now() + ' end';</script></body>`,
 	},
+	// An infinite feed: each scroll that reaches the bottom appends a page of 80 items
+	// (taller than the viewport), up to 4 pages. Only scrolling loads past the first.
+	{
+		"/feed",
+		`<!doctype html><body><div id="list"></div><script>` +
+		`let pages = 0; const list = document.getElementById('list');` +
+		`const more = () => { pages++; for (let i = 0; i < 80; i++) {` +
+		`const d = document.createElement('div'); d.className = 'item'; d.textContent = 'item ' + pages + '.' + i;` +
+		`list.appendChild(d); } };` +
+		`more(); addEventListener('scroll', () => {` +
+		`if (pages < 4 && scrollY + innerHeight >= document.documentElement.scrollHeight - 10) more(); });` +
+		`</script></body>`,
+	},
 	// `load` waits 300 ms for a timer: a request that is in flight for a while.
 	{"/slow", `<!doctype html><script>setTimeout(() => { document.body.id = 'slow-done'; }, 300)</script>`},
 }
@@ -460,6 +473,39 @@ serve_runs_the_custom_script :: proc(t: ^testing.T) {
 			describe(r),
 		)
 	}
+}
+
+// `_scrollBottom` drives an infinite feed to its end: it scrolls to the estimated
+// bottom, the page's scroll listener appends a page, the document grows, and it scrolls
+// again until the height stops growing.
+@(test)
+serve_script_scrolls_to_the_bottom :: proc(t: ^testing.T) {
+	origin, ok := origin_start(t)
+
+	if !ok {
+		return
+	}
+
+	defer origin_stop(origin)
+	s, started := serve_start(t, {threads = 1})
+
+	if !started {
+		return
+	}
+
+	defer serve_stop(s)
+	src :=
+		"const h = await _scrollBottom(20, 5); _resolve({pages, items: document.querySelectorAll('.item').length, " +
+		"bottom: scrollY + innerHeight === h, grew: h > innerHeight});"
+	r := render(
+		s.server.port,
+		origin.port,
+		"/feed",
+		fmt.tprintf("&result=script&script=%s", net.percent_encode(src, context.temp_allocator)),
+	)
+	defer reply_destroy(&r)
+	testing.expectf(t, r.status == 200, "want 200: %s", describe(r))
+	testing.expect_value(t, r.body, `{"pages":4,"items":320,"bottom":true,"grew":true}`)
 }
 
 // The hard timeout covers the whole request: a page that never reaches `load` is
