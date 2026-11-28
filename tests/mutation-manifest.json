@@ -3586,6 +3586,26 @@
       "expect_detail": "the harness page makes a foreign context element in its namespace"
     },
     {
+      "name": "the DOM oracle runner's report reaches a pipe whole",
+      "why": "process.exit() drops stdout still queued on a non-blocking pipe; the mutation gate read `make test-dom` cut mid-list and reported killed mutations as WRONG REASON.",
+      "source": "scripts/run-dom-oracle.mjs",
+      "find": "process.exitCode = failed ? 1 : 0;",
+      "replace": "process.exit(failed ? 1 : 0);",
+      "gate": "node-test:scripts/run-dom-oracle.test.mjs",
+      "test": "a long failing run reaches a pipe whole: every FAIL line and the summary",
+      "expect_detail": "did not match the regular expression /^FAIL t-"
+    },
+    {
+      "name": "the web oracle runner's report reaches a pipe whole",
+      "why": "process.exit() drops stdout still queued on a non-blocking pipe, so a gate reading `make test-web` through spawnSync loses the failing cases' names.",
+      "source": "scripts/run-web-oracle.mjs",
+      "find": "process.exitCode = failed ? 1 : 0;",
+      "replace": "process.exit(failed ? 1 : 0);",
+      "gate": "node-test:scripts/run-web-oracle.test.mjs",
+      "test": "a long failing run reaches a pipe whole: every FAIL line and the summary",
+      "expect_detail": "did not match the regular expression /^FAIL t-"
+    },
+    {
       "name": "shape-domexception dies when DOMException.prototype keeps constructor first",
       "why": "Chrome lists code, name, message, the 25 constants, then constructor; a class puts constructor first, and native_shape moves it only when the member list names it.",
       "source": "pkg/runtime/js/internal/domexception.js",

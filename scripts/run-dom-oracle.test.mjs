@@ -327,7 +327,7 @@ const FAKE_LAVA =
 const RIGHT = joinViews({ tree: '--tree\n', serialize: '--serialize\n' });
 
 // A throwaway suite of `count` document cases recorded as RIGHT; `extra(dir)` edits it.
-function runSuite(count, extra, argv = []) {
+function runSuite(count, extra, argv = [], lava = FAKE_LAVA) {
   const dir = mkdtempSync(join(tmpdir(), 'dom-oracle-suite-'));
   try {
     const cases = join(dir, 'cases');
@@ -340,7 +340,7 @@ function runSuite(count, extra, argv = []) {
     }
     if (extra) extra(dir);
     const fake = join(dir, 'lava');
-    writeFileSync(fake, FAKE_LAVA);
+    writeFileSync(fake, lava);
     chmodSync(fake, 0o755);
     const r = spawnSync(process.execPath, [join(ROOT, 'scripts/run-dom-oracle.mjs'), ...argv], {
       cwd: ROOT,
@@ -373,6 +373,35 @@ test('a view that differs from its recording fails alone, naming the view', () =
   assert.match(r.stdout, /FAIL t-0\.serialize\n/);
   assert.doesNotMatch(r.stdout, /t-0\.tree/);
   assert.match(r.stdout, new RegExp(`${FLOOR * 2 - 1} pass, 0 known, 1 fail`));
+});
+
+// The mutation gate (scripts/run-mutations.mjs) reads `make test-dom` through a pipe
+// and looks for the failing case's name in it. The runner ended in process.exit(),
+// which drops whatever stdout has not drained: on a pipe the parent opened
+// non-blocking, a write past the pipe buffer is queued, not done. A 281-failure run
+// reached the gate cut off mid-list (31 of 281 FAIL lines, in 3 of 4 captures), and
+// two manifest entries read WRONG REASON though their case had failed.
+test('a long failing run reaches a pipe whole: every FAIL line and the summary', () => {
+  // 4 KiB of stderr per run lands in each failure's detail: ~240 KiB in all.
+  const noisy = FAKE_LAVA.replace(
+    '#!/bin/sh\n',
+    '#!/bin/sh\nhead -c 4096 /dev/zero | tr "\\0" x >&2\n',
+  );
+  const r = runSuite(
+    FLOOR,
+    (dir) => {
+      for (let i = 0; i < FLOOR; i++) {
+        recordAs(dir, `t-${i}`, { tree: '--tree\n', serialize: 'chrome\n' });
+      }
+    },
+    [],
+    noisy,
+  );
+  assert.equal(r.status, 1, r.stderr);
+  for (let i = 0; i < FLOOR; i++) {
+    assert.match(r.stdout, new RegExp(`^FAIL t-${i}\\.serialize$`, 'm'));
+  }
+  assert.match(r.stdout, new RegExp(`dom oracle: ${FLOOR} pass, 0 known, ${FLOOR} fail\\n$`));
 });
 
 test('a fragment case runs lava with --fragment and its context', () => {
