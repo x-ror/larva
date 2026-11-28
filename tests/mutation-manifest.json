@@ -4750,6 +4750,15 @@
       "replace": "",
       "gate": "make:test-dom",
       "expect_detail": "FAIL dom-reflect-elements.page"
+    },
+    {
+      "name": "window_layout_observers_drive_an_infinite_feed dies when a first observation is geometric",
+      "why": "Lazy loaders need every observed element reported intersecting on its first observation; judged by the estimate alone, everything below the fold never loads.",
+      "source": "pkg/runtime/js/internal/observers.js",
+      "find": "state = t.last === -1 || meets(",
+      "replace": "state = meets(",
+      "gate": "odin:cmd/lava:main.window_layout_observers_drive_an_infinite_feed",
+      "expect_detail": "feed:"
     }
   ]
 }

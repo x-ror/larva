@@ -27,6 +27,7 @@
   var webErrors = require('internal/web_errors');
   var eventTarget = require('internal/event_target');
   var navigatorApis = require('internal/navigator_apis');
+  var layout = require('internal/layout');
   var ArrayPrototypeIncludes = P.ArrayPrototypeIncludes;
   var ArrayPrototypeSlice = P.ArrayPrototypeSlice;
   var PromiseReject = P.PromiseReject;
@@ -460,25 +461,25 @@
     true,
   );
 
-  // The window's geometry, each a [Replaceable] attribute of the window. Larva lays
-  // nothing out and never scrolls, so the viewport is the profile's and the scroll
-  // offsets stay 0.
+  // The window's geometry, each a [Replaceable] attribute of the window. The viewport
+  // is the profile's; the scroll offsets are internal/layout's, which scrollTo and
+  // scrollIntoView move over its estimated document.
+  layout.setViewport(native);
   function constant(value) {
     return function () {
       return value;
     };
   }
 
-  var ZERO = constant(0);
   var screenX = constant(native.screenX);
   var screenY = constant(native.screenY);
   var WINDOW_ATTRIBUTES = [
     ['innerWidth', constant(native.innerWidth)],
     ['innerHeight', constant(native.innerHeight)],
-    ['scrollX', ZERO],
-    ['pageXOffset', ZERO],
-    ['scrollY', ZERO],
-    ['pageYOffset', ZERO],
+    ['scrollX', layout.scrollX],
+    ['pageXOffset', layout.scrollX],
+    ['scrollY', layout.scrollY],
+    ['pageYOffset', layout.scrollY],
     ['screenX', screenX],
     ['screenY', screenY],
     ['outerWidth', constant(native.outerWidth)],

@@ -134,6 +134,24 @@ export const FAMILIES = {
     'screenTop',
   ],
   storage: ['Storage', 'localStorage', 'sessionStorage'],
+  // internal/layout, internal/media and internal/observers (#14).
+  layout: [
+    'DOMRectReadOnly',
+    'DOMRect',
+    'DOMRectList',
+    'CSSStyleDeclaration',
+    'getComputedStyle',
+    'scroll',
+    'scrollTo',
+    'scrollBy',
+    'matchMedia',
+    'MediaQueryList',
+    'IntersectionObserver',
+    'IntersectionObserverEntry',
+    'ResizeObserver',
+    'ResizeObserverEntry',
+    'ResizeObserverSize',
+  ],
   xhr: ['XMLHttpRequestEventTarget', 'XMLHttpRequest', 'XMLHttpRequestUpload', 'ProgressEvent'],
 };
 
@@ -147,6 +165,7 @@ export const MISSING = [
   'SubtleCrypto',
   'CryptoKey',
   'reportError',
+  'MediaQueryListEvent',
 ];
 
 // The printer every case shares. Page code, so plain JS; it reads through captured

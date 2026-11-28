@@ -12,3 +12,4 @@ DecompressionStream function
 SubtleCrypto function
 CryptoKey function
 reportError function
+MediaQueryListEvent function

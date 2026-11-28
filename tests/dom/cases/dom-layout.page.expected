@@ -1,0 +1,750 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-28
+# runs: 3 identical
+# command: node scripts/record-dom.mjs dom-layout.page
+# ---
+#tree
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "layout"
+|   "
+"
+|   <body>
+|     "
+"
+|     <div>
+|       id="block"
+|       "hello"
+|     "
+"
+|     <p>
+|       id="para"
+|       style=""
+|       "some "
+|       <span>
+|         id="inline"
+|         "inline"
+|       " text"
+|     "
+"
+|     <div>
+|       id="gone"
+|       style="display: none;"
+|       <span>
+|         id="inside"
+|         "x"
+|     "
+"
+|     <div>
+|       id="hid"
+|       hidden=""
+|       "hidden"
+|     "
+"
+|     <div>
+|       id="invisible"
+|       style="visibility: hidden;"
+|       <b>
+|         id="child"
+|         "x"
+|     "
+"
+|     <div>
+|       id="big"
+|       style="height: 5000px;"
+|       "tall"
+|     "
+"
+|     <div>
+|       id="end"
+|       "end"
+|     "
+"
+|     <pre>
+|       id="log"
+|       "Element scrollTop,scrollLeft,scrollWidth,scrollHeight,clientTop,clientLeft,clientWidth,clientHeight,getBoundingClientRect,getClientRects,scroll,scrollBy,scrollIntoView,scrollIntoViewIfNeeded,scrollTo
+"
+|       "lengths 0,0,0,0,0,0
+"
+|       "HTMLElement offsetParent,offsetTop,offsetLeft,offsetWidth,offsetHeight,style
+"
+|       "Document scrollingElement
+"
+|       "window scroll:function0 scrollTo:function0 scrollBy:function0 getComputedStyle:function1 matchMedia:function1 onscroll null
+"
+|       "rect [object DOMRect] true false
+"
+|       "rect keys x,y,width,height,top,right,bottom,left
+"
+|       "rect sane true true true true
+"
+|       "offset true true true null null
+"
+|       "client true 0 0 true
+"
+|       "inline 0 0 true BODY
+"
+|       "rects [object DOMRectList] 1 true true null
+"
+|       "no box gone true 0 0 0 null 0 0
+"
+|       "no box inside true 0 0 0 null 0 0
+"
+|       "no box hid true 0 0 0 null 0 0
+"
+|       "detached true 0 0 null
+"
+|       "attached true true
+"
+|       "display none 0 display: none;
+"
+|       "illegal TypeError: Illegal invocation
+"
+|       "DOMRect {"x":1,"y":2,"width":-3,"height":4,"top":2,"right":1,"bottom":6,"left":-2} {"x":0,"y":0,"width":0,"height":0,"top":0,"right":0,"bottom":0,"left":0}
+"
+|       "DOMRect NaN {"x":null,"y":0,"width":0,"height":0,"top":0,"right":null,"bottom":0,"left":null} NaN
+"
+|       "fromRect {"x":1,"y":0,"width":5,"height":0,"top":0,"right":6,"bottom":0,"left":1} true false TypeError: Failed to execute 'fromRect' on 'DOMRect': The provided value is not of type 'DOMRectInit'.
+"
+|       "mutable 1 9 11 TypeError: Failed to construct 'DOMRect': Cannot convert a Symbol value to a number
+"
+|       "rect list TypeError: Failed to construct 'DOMRectList': Illegal constructor
+"
+|       "scrolling element true true true true true
+"
+|       "start 0 0 0 0 0
+"
+|       "scrollTo 100 100 100 0
+"
+|       "scrollBy 150
+"
+|       "scrollBy options 130
+"
+|       "scrollTo left only 130
+"
+|       "clamped true
+"
+|       "negative 0 0
+"
+|       "NaN 0
+"
+|       "lone primitive ok undefined 0 ok undefined
+"
+|       "behavior ok undefined
+"
+|       "symbol ok undefined 0
+"
+|       "scrollIntoView true
+"
+|       "scrollIntoView start 8
+"
+|       "scrollIntoView bad ok undefined
+"
+|       "root scrollTop 10 10
+"
+|       "root scrollTo 30
+"
+|       "not a scroll container 0 true
+"
+|       "replaceable 7 number
+"
+|       "after replace 7 20
+"
+|       "style [object CSSStyleDeclaration] true 2 color width "" "color: red; width: 10px;"
+"
+|       "read red 10px |||true null
+"
+|       "written color: red; width: 10px; background-color: blue; margin-top: 3px !important; important 3px
+"
+|       "removed red "" width: 10px; background-color: blue; margin-top: 3px !important;
+"
+|       "null background-color: blue; margin-top: 3px !important;
+"
+|       "cssText opacity: 0.5; width: 3px; height: 1px !important; 3
+"
+|       "put forwards color: green; true
+"
+|       "cssFloat left left
+"
+|       "no attribute 0 "" ""
+"
+|       "setProperty args TypeError: Failed to execute 'setProperty' on 'CSSStyleDeclaration': 2 arguments required, but only 1 present.
+"
+|       "computed [object CSSStyleDeclaration] false "" true
+"
+|       "display block,inline,none,none,block,block none none block block
+"
+|       "visibility visible hidden hidden
+"
+|       "px true true 1 static
+"
+|       "live block
+"
+|       "live after flex
+"
+|       "read only NoModificationAllowedError: Failed to set a named property 'display' on 'CSSStyleDeclaration': These styles are computed, and therefore the 'display' property is read-only.
+"
+|       "read only setProperty NoModificationAllowedError: Failed to execute 'setProperty' on 'CSSStyleDeclaration': These styles are computed, and therefore the 'display' property is read-only.
+"
+|       "read only cssText NoModificationAllowedError: Failed to set the 'cssText' property on 'CSSStyleDeclaration': These styles are computed, and therefore read-only.
+"
+|       "read only removeProperty NoModificationAllowedError: Failed to execute 'removeProperty' on 'CSSStyleDeclaration': These styles are computed, and therefore the 'display' property is read-only.
+"
+|       "getComputedStyle bad TypeError: Failed to execute 'getComputedStyle' on 'Window': parameter 1 is not of type 'Element'. | TypeError: Failed to execute 'getComputedStyle' on 'Window': 1 argument required, but only 0 present.
+"
+|       "CSSStyleDeclaration new TypeError: Failed to construct 'CSSStyleDeclaration': Illegal constructor
+"
+|       "io default null|0px 0px 0px 0px|0px 0px 0px 0px|0|0|false
+"
+|       "io options [object HTMLBodyElement]|10px 5% 10px 5%|0px 0px 0px 0px|0,0.5,1|0|false
+"
+|       "io margins 10px 10px 10px 10px;1px 2px 1px 2px;1px 2px 3px 2px;-5px 0px 0% 1px;0px 0px 0px 0px
+"
+|       "io frozen true
+"
+|       "io no args TypeError: Failed to construct 'IntersectionObserver': 1 argument required, but only 0 present.
+"
+|       "io not function TypeError: Failed to construct 'IntersectionObserver': parameter 1 is not of type 'Function'.
+"
+|       "io call TypeError: Failed to construct 'IntersectionObserver': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+"
+|       "io threshold RangeError: Failed to construct 'IntersectionObserver': Threshold values must be numbers between 0 and 1 | TypeError: Failed to construct 'IntersectionObserver': Failed to read the 'threshold' property from 'IntersectionObserverInit': The provided double value is non-finite.
+"
+|       "io margin SyntaxError: Failed to construct 'IntersectionObserver': rootMargin must be specified in absolute length units or percent. | SyntaxError: Failed to construct 'IntersectionObserver': rootMargin must be specified in absolute length units or percent. | SyntaxError: Failed to construct 'IntersectionObserver': Extra text found at the end of rootMargin.
+"
+|       "io root TypeError: Failed to construct 'IntersectionObserver': Failed to read the 'root' property from 'IntersectionObserverInit': The provided value is not of type '(Document or Element)'.
+"
+|       "io observe TypeError: Failed to execute 'observe' on 'IntersectionObserver': 1 argument required, but only 0 present. | TypeError: Failed to execute 'observe' on 'IntersectionObserver': parameter 1 is not of type 'Element'. | TypeError: Failed to execute 'unobserve' on 'IntersectionObserver': parameter 1 is not of type 'Element'.
+"
+|       "io takeRecords [] undefined undefined
+"
+|       "io entry TypeError: Failed to construct 'IntersectionObserverEntry': Illegal constructor
+"
+|       "ro no args TypeError: Failed to construct 'ResizeObserver': 1 argument required, but only 0 present. | TypeError: Failed to construct 'ResizeObserver': parameter 1 is not of type 'Function'.
+"
+|       "ro observe TypeError: Failed to execute 'observe' on 'ResizeObserver': parameter 1 is not of type 'Element'. | TypeError: Failed to execute 'observe' on 'ResizeObserver': Failed to read the 'box' property from 'ResizeObserverOptions': The provided value 'padding-box' is not a valid enum value of type ResizeObserverBoxOptions. | ok undefined | TypeError: Failed to execute 'unobserve' on 'ResizeObserver': 1 argument required, but only 0 present.
+"
+|       "ro entry TypeError: Failed to construct 'ResizeObserverEntry': Illegal constructor | TypeError: Failed to construct 'ResizeObserverSize': Illegal constructor
+"
+|     "
+"
+|     <script>
+|       "
+// Fake geometry, scrolling, inline and computed style and the observers' synchronous
+// surface (#14). Larva lays nothing out, so no pixel is printed: only what holds in any
+// layout — types, zeros for what has no box, relations between members, clamping, the
+// errors — and in the frame Chrome records in, whose viewport is not the profile's.
+// Styles are set through the CSSOM: the recorder's CSP blocks style attributes in the
+// markup (and setAttribute('style')), not `element.style`.
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function err(f) {
+  try {
+    var r = f();
+    return 'ok ' + r;
+  } catch (e) {
+    return e.name + ': ' + e.message;
+  }
+}
+function own(proto, names) {
+  return Object.getOwnPropertyNames(proto).filter(function (n) { return names.indexOf(n) !== -1; }).join(',');
+}
+function zero(r) {
+  return r.x === 0 && r.y === 0 && r.width === 0 && r.height === 0;
+}
+var $ = function (id) { return document.getElementById(id); };
+$('block').style.cssText = 'color: red; width: 10px';
+$('gone').style.display = 'none';
+$('invisible').style.visibility = 'hidden';
+$('big').style.height = '5000px';
+
+// The members, in Blink's relative order, with their lengths.
+var EL = ['scrollTop', 'scrollLeft', 'scrollWidth', 'scrollHeight', 'clientTop', 'clientLeft', 'clientWidth',
+  'clientHeight', 'getBoundingClientRect', 'getClientRects', 'scroll', 'scrollBy', 'scrollIntoView',
+  'scrollIntoViewIfNeeded', 'scrollTo'];
+log('Element ' + own(Element.prototype, EL));
+log('lengths ' + ['getBoundingClientRect', 'getClientRects', 'scroll', 'scrollBy', 'scrollIntoView', 'scrollTo']
+  .map(function (n) { return Element.prototype[n].length; }).join(','));
+log('HTMLElement ' + own(HTMLElement.prototype, ['offsetParent', 'offsetTop', 'offsetLeft', 'offsetWidth', 'offsetHeight', 'style']));
+log('Document ' + own(Document.prototype, ['scrollingElement']));
+log('window ' + ['scroll', 'scrollTo', 'scrollBy', 'getComputedStyle', 'matchMedia'].map(function (n) {
+  return n + ':' + typeof window[n] + window[n].length;
+}).join(' ') + ' onscroll ' + window.onscroll);
+
+// Boxes.
+var block = $('block');
+var r = block.getBoundingClientRect();
+log('rect ' + Object.prototype.toString.call(r) + ' ' + (r instanceof DOMRect) + ' ' + (r === block.getBoundingClientRect()));
+log('rect keys ' + Object.keys(r.toJSON()).join(','));
+log('rect sane ' + (r.width > 0) + ' ' + (r.height > 0) + ' ' + (r.right === r.left + r.width) + ' ' + (r.bottom === r.top + r.height));
+log('offset ' + (block.offsetWidth === Math.round(r.width)) + ' ' + (block.offsetHeight === Math.round(r.height)) + ' ' +
+  (block.offsetParent === document.body) + ' ' + document.body.offsetParent + ' ' + document.documentElement.offsetParent);
+log('client ' + (block.clientWidth === block.offsetWidth) + ' ' + block.clientTop + ' ' + block.clientLeft + ' ' +
+  (block.scrollHeight >= block.clientHeight));
+var inline = $('inline');
+log('inline ' + inline.clientWidth + ' ' + inline.clientHeight + ' ' + (inline.offsetWidth > 0) + ' ' + inline.offsetParent.tagName);
+log('rects ' + Object.prototype.toString.call(block.getClientRects()) + ' ' + block.getClientRects().length + ' ' +
+  (block.getClientRects()[0] instanceof DOMRect) + ' ' + (block.getClientRects().item(0).width === r.width) + ' ' +
+  block.getClientRects().item(5));
+['gone', 'inside', 'hid'].forEach(function (id) {
+  var e = $(id);
+  log('no box ' + id + ' ' + zero(e.getBoundingClientRect()) + ' ' + e.getClientRects().length + ' ' + e.offsetWidth + ' ' +
+    e.offsetHeight + ' ' + e.offsetParent + ' ' + e.clientHeight + ' ' + e.scrollHeight);
+});
+var detached = document.createElement('div');
+detached.textContent = 'detached';
+log('detached ' + zero(detached.getBoundingClientRect()) + ' ' + detached.getClientRects().length + ' ' + detached.offsetHeight +
+  ' ' + detached.offsetParent);
+document.body.appendChild(detached);
+log('attached ' + (detached.offsetHeight > 0) + ' ' + (detached.getClientRects().length === 1));
+detached.style.display = 'none';
+log('display none ' + detached.offsetHeight + ' ' + detached.getAttribute('style'));
+detached.remove();
+log('illegal ' + err(function () { Element.prototype.getBoundingClientRect.call(document.createTextNode('x')); }));
+
+// DOMRect.
+log('DOMRect ' + JSON.stringify(new DOMRect(1, 2, -3, 4)) + ' ' + JSON.stringify(new DOMRectReadOnly()));
+log('DOMRect NaN ' + JSON.stringify(new DOMRect('a')) + ' ' + new DOMRect('a').left);
+log('fromRect ' + JSON.stringify(DOMRect.fromRect({ x: 1, width: 5 })) + ' ' + (DOMRect.fromRect() instanceof DOMRect) + ' ' +
+  (DOMRectReadOnly.fromRect({}) instanceof DOMRect) + ' ' + err(function () { DOMRect.fromRect(5); }));
+var ro = new DOMRectReadOnly(1, 2, 3, 4);
+ro.x = 9;
+var rw = new DOMRect(1, 2, 3, 4);
+rw.x = 9;
+rw.width = '2';
+log('mutable ' + ro.x + ' ' + rw.x + ' ' + rw.right + ' ' + err(function () { new DOMRect(Symbol()); }));
+log('rect list ' + err(function () { return new DOMRectList(); }));
+
+// Scrolling.
+var root = document.documentElement;
+log('scrolling element ' + (document.scrollingElement === root) + ' ' +
+  (root.clientWidth <= innerWidth) + ' ' + (root.clientHeight <= innerHeight) + ' ' + (root.scrollHeight > 5000) + ' ' + (document.body.scrollHeight > 5000));
+log('start ' + scrollX + ' ' + scrollY + ' ' + pageYOffset + ' ' + root.scrollTop + ' ' + document.body.scrollTop);
+scrollTo(0, 100);
+log('scrollTo ' + scrollY + ' ' + pageYOffset + ' ' + root.scrollTop + ' ' + document.body.scrollTop);
+scrollBy(0, 50);
+log('scrollBy ' + scrollY);
+scrollBy({ top: -20 });
+log('scrollBy options ' + scrollY);
+scrollTo({ left: 0 });
+log('scrollTo left only ' + scrollY);
+scrollTo({ top: 1e9 });
+log('clamped ' + (scrollY === root.scrollHeight - root.clientHeight));
+scroll(0, -5);
+log('negative ' + scrollY + ' ' + scrollX);
+scrollTo(0, NaN);
+log('NaN ' + scrollY);
+log('lone primitive ' + err(function () { scrollTo(5); }) + ' ' + scrollY + ' ' + err(function () { scrollTo('a'); }));
+log('behavior ' + err(function () { scrollTo({ behavior: 'fast' }); }));
+log('symbol ' + err(function () { scrollTo(Symbol(), 1); }) + ' ' + scrollY);
+$('end').scrollIntoView();
+log('scrollIntoView ' + (scrollY > 4000));
+$('block').scrollIntoView({ block: 'start' });
+log('scrollIntoView start ' + scrollY);
+log('scrollIntoView bad ' + err(function () { $('end').scrollIntoView({ block: 'top' }); }));
+root.scrollTop = 10;
+log('root scrollTop ' + scrollY + ' ' + root.scrollTop);
+root.scrollTo(0, 30);
+log('root scrollTo ' + scrollY);
+var big = $('big');
+big.scrollTop = 50;
+big.scrollTo(0, 60);
+log('not a scroll container ' + big.scrollTop + ' ' + (big.scrollHeight === big.clientHeight));
+scrollY = 7;
+log('replaceable ' + scrollY + ' ' + typeof Object.getOwnPropertyDescriptor(window, 'scrollY').value);
+scrollTo(0, 20);
+log('after replace ' + scrollY + ' ' + pageYOffset);
+scrollTo(0, 0);
+
+// Inline style.
+var s = block.style;
+log('style ' + Object.prototype.toString.call(s) + ' ' + (s === block.style) + ' ' + s.length + ' ' + s[0] + ' ' + s.item(1) +
+  ' ' + JSON.stringify(s.item(2)) + ' ' + JSON.stringify(s.cssText));
+log('read ' + s.color + ' ' + s.getPropertyValue('width') + ' ' + s['background-color'] + '|' + s.backgroundColor + '|' +
+  s.getPropertyValue('margin-top') + '|' + ('display' in s) + ' ' + s.parentRule);
+s.backgroundColor = 'blue';
+s.setProperty('margin-top', '3px', 'important');
+s.setProperty('padding-top', '1px', 'bogus');
+log('written ' + block.getAttribute('style') + ' ' + s.getPropertyPriority('margin-top') + ' ' + s.marginTop);
+log('removed ' + s.removeProperty('color') + ' ' + JSON.stringify(s.removeProperty('color')) + ' ' + block.getAttribute('style'));
+s.width = null;
+log('null ' + block.getAttribute('style'));
+s.cssText = 'opacity: 0.5;  WIDTH:3px; height: 1px !IMPORTANT';
+log('cssText ' + block.getAttribute('style') + ' ' + s.length);
+block.style = 'color: green';
+log('put forwards ' + block.getAttribute('style') + ' ' + (block.style === s));
+s.cssFloat = 'left';
+log('cssFloat ' + s.cssFloat + ' ' + s.getPropertyValue('float'));
+block.removeAttribute('style');
+log('no attribute ' + s.length + ' ' + JSON.stringify(s.cssText) + ' ' + JSON.stringify(s.color));
+log('setProperty args ' + err(function () { s.setProperty('color'); }));
+
+// Computed style.
+var cs = getComputedStyle(block);
+log('computed ' + Object.prototype.toString.call(cs) + ' ' + (cs === getComputedStyle(block)) + ' ' + JSON.stringify(cs.cssText) +
+  ' ' + (cs.length > 0));
+log('display ' + ['block', 'inline', 'gone', 'hid', 'log', 'para'].map(function (id) {
+  return getComputedStyle($(id)).display;
+}).join(',') + ' ' + getComputedStyle(document.head).display + ' ' + getComputedStyle(document.querySelector('script')).display +
+  ' ' + getComputedStyle(document.body).display + ' ' + getComputedStyle(document.documentElement).display);
+log('visibility ' + getComputedStyle(block).visibility + ' ' + getComputedStyle($('invisible')).visibility + ' ' +
+  getComputedStyle($('child')).getPropertyValue('visibility'));
+log('px ' + /px$/.test(cs.width) + ' ' + /px$/.test(cs.height) + ' ' + cs.opacity + ' ' + cs.position);
+log('live ' + getComputedStyle($('para')).display);
+$('para').style.display = 'flex';
+log('live after ' + getComputedStyle($('para')).display);
+$('para').style.removeProperty('display');
+log('read only ' + err(function () { cs.display = 'none'; }));
+log('read only setProperty ' + err(function () { cs.setProperty('display', 'none'); }));
+log('read only cssText ' + err(function () { cs.cssText = ''; }));
+log('read only removeProperty ' + err(function () { cs.removeProperty('display'); }));
+log('getComputedStyle bad ' + err(function () { getComputedStyle(document); }) + ' | ' + err(function () { getComputedStyle(); }));
+log('CSSStyleDeclaration new ' + err(function () { return new CSSStyleDeclaration(); }));
+
+// IntersectionObserver.
+function io(options) {
+  var o = new IntersectionObserver(function () {}, options);
+  return o.root + '|' + o.rootMargin + '|' + o.scrollMargin + '|' + o.thresholds + '|' + o.delay + '|' + o.trackVisibility;
+}
+log('io default ' + io());
+log('io options ' + io({ threshold: [1, 0, 0.5], rootMargin: '10px 5%', root: document.body }));
+log('io margins ' + ['10px', '1px 2px', '1px 2px 3px', '-5px 0px 0% 1.5px', ''].map(function (m) { return io({ rootMargin: m }).split('|')[1]; }).join(';'));
+log('io frozen ' + Object.isFrozen(new IntersectionObserver(function () {}).thresholds));
+log('io no args ' + err(function () { new IntersectionObserver(); }));
+log('io not function ' + err(function () { new IntersectionObserver({}); }));
+log('io call ' + err(function () { IntersectionObserver(function () {}); }));
+log('io threshold ' + err(function () { new IntersectionObserver(function () {}, { threshold: 2 }); }) + ' | ' +
+  err(function () { new IntersectionObserver(function () {}, { threshold: [0, NaN] }); }));
+log('io margin ' + err(function () { new IntersectionObserver(function () {}, { rootMargin: '10' }); }) + ' | ' +
+  err(function () { new IntersectionObserver(function () {}, { rootMargin: '1em' }); }) + ' | ' +
+  err(function () { new IntersectionObserver(function () {}, { rootMargin: '1px 1px 1px 1px 1px' }); }));
+log('io root ' + err(function () { new IntersectionObserver(function () {}, { root: {} }); }));
+var observer = new IntersectionObserver(function () {});
+log('io observe ' + err(function () { observer.observe(); }) + ' | ' + err(function () { observer.observe(document); }) + ' | ' +
+  err(function () { observer.unobserve({}); }));
+observer.observe(block);
+observer.observe(block);
+log('io takeRecords ' + JSON.stringify(observer.takeRecords()) + ' ' + observer.unobserve(block) + ' ' + observer.disconnect());
+log('io entry ' + err(function () { return new IntersectionObserverEntry(); }));
+
+// ResizeObserver.
+log('ro no args ' + err(function () { new ResizeObserver(); }) + ' | ' + err(function () { new ResizeObserver(1); }));
+var resize = new ResizeObserver(function () {});
+log('ro observe ' + err(function () { resize.observe(document); }) + ' | ' +
+  err(function () { resize.observe(block, { box: 'padding-box' }); }) + ' | ' +
+  err(function () { resize.observe(block, { box: 'border-box' }); }) + ' | ' + err(function () { resize.unobserve(); }));
+resize.disconnect();
+log('ro entry ' + err(function () { return new ResizeObserverEntry(); }) + ' | ' + err(function () { return new ResizeObserverSize(); }));
+"
+|     "
+
+
+"
+#serialize
+<!DOCTYPE html><html><head><title>layout</title></head>
+<body>
+<div id="block">hello</div>
+<p id="para" style="">some <span id="inline">inline</span> text</p>
+<div id="gone" style="display: none;"><span id="inside">x</span></div>
+<div id="hid" hidden="">hidden</div>
+<div id="invisible" style="visibility: hidden;"><b id="child">x</b></div>
+<div id="big" style="height: 5000px;">tall</div>
+<div id="end">end</div>
+<pre id="log">Element scrollTop,scrollLeft,scrollWidth,scrollHeight,clientTop,clientLeft,clientWidth,clientHeight,getBoundingClientRect,getClientRects,scroll,scrollBy,scrollIntoView,scrollIntoViewIfNeeded,scrollTo
+lengths 0,0,0,0,0,0
+HTMLElement offsetParent,offsetTop,offsetLeft,offsetWidth,offsetHeight,style
+Document scrollingElement
+window scroll:function0 scrollTo:function0 scrollBy:function0 getComputedStyle:function1 matchMedia:function1 onscroll null
+rect [object DOMRect] true false
+rect keys x,y,width,height,top,right,bottom,left
+rect sane true true true true
+offset true true true null null
+client true 0 0 true
+inline 0 0 true BODY
+rects [object DOMRectList] 1 true true null
+no box gone true 0 0 0 null 0 0
+no box inside true 0 0 0 null 0 0
+no box hid true 0 0 0 null 0 0
+detached true 0 0 null
+attached true true
+display none 0 display: none;
+illegal TypeError: Illegal invocation
+DOMRect {"x":1,"y":2,"width":-3,"height":4,"top":2,"right":1,"bottom":6,"left":-2} {"x":0,"y":0,"width":0,"height":0,"top":0,"right":0,"bottom":0,"left":0}
+DOMRect NaN {"x":null,"y":0,"width":0,"height":0,"top":0,"right":null,"bottom":0,"left":null} NaN
+fromRect {"x":1,"y":0,"width":5,"height":0,"top":0,"right":6,"bottom":0,"left":1} true false TypeError: Failed to execute 'fromRect' on 'DOMRect': The provided value is not of type 'DOMRectInit'.
+mutable 1 9 11 TypeError: Failed to construct 'DOMRect': Cannot convert a Symbol value to a number
+rect list TypeError: Failed to construct 'DOMRectList': Illegal constructor
+scrolling element true true true true true
+start 0 0 0 0 0
+scrollTo 100 100 100 0
+scrollBy 150
+scrollBy options 130
+scrollTo left only 130
+clamped true
+negative 0 0
+NaN 0
+lone primitive ok undefined 0 ok undefined
+behavior ok undefined
+symbol ok undefined 0
+scrollIntoView true
+scrollIntoView start 8
+scrollIntoView bad ok undefined
+root scrollTop 10 10
+root scrollTo 30
+not a scroll container 0 true
+replaceable 7 number
+after replace 7 20
+style [object CSSStyleDeclaration] true 2 color width "" "color: red; width: 10px;"
+read red 10px |||true null
+written color: red; width: 10px; background-color: blue; margin-top: 3px !important; important 3px
+removed red "" width: 10px; background-color: blue; margin-top: 3px !important;
+null background-color: blue; margin-top: 3px !important;
+cssText opacity: 0.5; width: 3px; height: 1px !important; 3
+put forwards color: green; true
+cssFloat left left
+no attribute 0 "" ""
+setProperty args TypeError: Failed to execute 'setProperty' on 'CSSStyleDeclaration': 2 arguments required, but only 1 present.
+computed [object CSSStyleDeclaration] false "" true
+display block,inline,none,none,block,block none none block block
+visibility visible hidden hidden
+px true true 1 static
+live block
+live after flex
+read only NoModificationAllowedError: Failed to set a named property 'display' on 'CSSStyleDeclaration': These styles are computed, and therefore the 'display' property is read-only.
+read only setProperty NoModificationAllowedError: Failed to execute 'setProperty' on 'CSSStyleDeclaration': These styles are computed, and therefore the 'display' property is read-only.
+read only cssText NoModificationAllowedError: Failed to set the 'cssText' property on 'CSSStyleDeclaration': These styles are computed, and therefore read-only.
+read only removeProperty NoModificationAllowedError: Failed to execute 'removeProperty' on 'CSSStyleDeclaration': These styles are computed, and therefore the 'display' property is read-only.
+getComputedStyle bad TypeError: Failed to execute 'getComputedStyle' on 'Window': parameter 1 is not of type 'Element'. | TypeError: Failed to execute 'getComputedStyle' on 'Window': 1 argument required, but only 0 present.
+CSSStyleDeclaration new TypeError: Failed to construct 'CSSStyleDeclaration': Illegal constructor
+io default null|0px 0px 0px 0px|0px 0px 0px 0px|0|0|false
+io options [object HTMLBodyElement]|10px 5% 10px 5%|0px 0px 0px 0px|0,0.5,1|0|false
+io margins 10px 10px 10px 10px;1px 2px 1px 2px;1px 2px 3px 2px;-5px 0px 0% 1px;0px 0px 0px 0px
+io frozen true
+io no args TypeError: Failed to construct 'IntersectionObserver': 1 argument required, but only 0 present.
+io not function TypeError: Failed to construct 'IntersectionObserver': parameter 1 is not of type 'Function'.
+io call TypeError: Failed to construct 'IntersectionObserver': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+io threshold RangeError: Failed to construct 'IntersectionObserver': Threshold values must be numbers between 0 and 1 | TypeError: Failed to construct 'IntersectionObserver': Failed to read the 'threshold' property from 'IntersectionObserverInit': The provided double value is non-finite.
+io margin SyntaxError: Failed to construct 'IntersectionObserver': rootMargin must be specified in absolute length units or percent. | SyntaxError: Failed to construct 'IntersectionObserver': rootMargin must be specified in absolute length units or percent. | SyntaxError: Failed to construct 'IntersectionObserver': Extra text found at the end of rootMargin.
+io root TypeError: Failed to construct 'IntersectionObserver': Failed to read the 'root' property from 'IntersectionObserverInit': The provided value is not of type '(Document or Element)'.
+io observe TypeError: Failed to execute 'observe' on 'IntersectionObserver': 1 argument required, but only 0 present. | TypeError: Failed to execute 'observe' on 'IntersectionObserver': parameter 1 is not of type 'Element'. | TypeError: Failed to execute 'unobserve' on 'IntersectionObserver': parameter 1 is not of type 'Element'.
+io takeRecords [] undefined undefined
+io entry TypeError: Failed to construct 'IntersectionObserverEntry': Illegal constructor
+ro no args TypeError: Failed to construct 'ResizeObserver': 1 argument required, but only 0 present. | TypeError: Failed to construct 'ResizeObserver': parameter 1 is not of type 'Function'.
+ro observe TypeError: Failed to execute 'observe' on 'ResizeObserver': parameter 1 is not of type 'Element'. | TypeError: Failed to execute 'observe' on 'ResizeObserver': Failed to read the 'box' property from 'ResizeObserverOptions': The provided value 'padding-box' is not a valid enum value of type ResizeObserverBoxOptions. | ok undefined | TypeError: Failed to execute 'unobserve' on 'ResizeObserver': 1 argument required, but only 0 present.
+ro entry TypeError: Failed to construct 'ResizeObserverEntry': Illegal constructor | TypeError: Failed to construct 'ResizeObserverSize': Illegal constructor
+</pre>
+<script>
+// Fake geometry, scrolling, inline and computed style and the observers' synchronous
+// surface (#14). Larva lays nothing out, so no pixel is printed: only what holds in any
+// layout — types, zeros for what has no box, relations between members, clamping, the
+// errors — and in the frame Chrome records in, whose viewport is not the profile's.
+// Styles are set through the CSSOM: the recorder's CSP blocks style attributes in the
+// markup (and setAttribute('style')), not `element.style`.
+function log(s) {
+  document.getElementById('log').appendChild(document.createTextNode(String(s) + '\n'));
+}
+function err(f) {
+  try {
+    var r = f();
+    return 'ok ' + r;
+  } catch (e) {
+    return e.name + ': ' + e.message;
+  }
+}
+function own(proto, names) {
+  return Object.getOwnPropertyNames(proto).filter(function (n) { return names.indexOf(n) !== -1; }).join(',');
+}
+function zero(r) {
+  return r.x === 0 && r.y === 0 && r.width === 0 && r.height === 0;
+}
+var $ = function (id) { return document.getElementById(id); };
+$('block').style.cssText = 'color: red; width: 10px';
+$('gone').style.display = 'none';
+$('invisible').style.visibility = 'hidden';
+$('big').style.height = '5000px';
+
+// The members, in Blink's relative order, with their lengths.
+var EL = ['scrollTop', 'scrollLeft', 'scrollWidth', 'scrollHeight', 'clientTop', 'clientLeft', 'clientWidth',
+  'clientHeight', 'getBoundingClientRect', 'getClientRects', 'scroll', 'scrollBy', 'scrollIntoView',
+  'scrollIntoViewIfNeeded', 'scrollTo'];
+log('Element ' + own(Element.prototype, EL));
+log('lengths ' + ['getBoundingClientRect', 'getClientRects', 'scroll', 'scrollBy', 'scrollIntoView', 'scrollTo']
+  .map(function (n) { return Element.prototype[n].length; }).join(','));
+log('HTMLElement ' + own(HTMLElement.prototype, ['offsetParent', 'offsetTop', 'offsetLeft', 'offsetWidth', 'offsetHeight', 'style']));
+log('Document ' + own(Document.prototype, ['scrollingElement']));
+log('window ' + ['scroll', 'scrollTo', 'scrollBy', 'getComputedStyle', 'matchMedia'].map(function (n) {
+  return n + ':' + typeof window[n] + window[n].length;
+}).join(' ') + ' onscroll ' + window.onscroll);
+
+// Boxes.
+var block = $('block');
+var r = block.getBoundingClientRect();
+log('rect ' + Object.prototype.toString.call(r) + ' ' + (r instanceof DOMRect) + ' ' + (r === block.getBoundingClientRect()));
+log('rect keys ' + Object.keys(r.toJSON()).join(','));
+log('rect sane ' + (r.width > 0) + ' ' + (r.height > 0) + ' ' + (r.right === r.left + r.width) + ' ' + (r.bottom === r.top + r.height));
+log('offset ' + (block.offsetWidth === Math.round(r.width)) + ' ' + (block.offsetHeight === Math.round(r.height)) + ' ' +
+  (block.offsetParent === document.body) + ' ' + document.body.offsetParent + ' ' + document.documentElement.offsetParent);
+log('client ' + (block.clientWidth === block.offsetWidth) + ' ' + block.clientTop + ' ' + block.clientLeft + ' ' +
+  (block.scrollHeight >= block.clientHeight));
+var inline = $('inline');
+log('inline ' + inline.clientWidth + ' ' + inline.clientHeight + ' ' + (inline.offsetWidth > 0) + ' ' + inline.offsetParent.tagName);
+log('rects ' + Object.prototype.toString.call(block.getClientRects()) + ' ' + block.getClientRects().length + ' ' +
+  (block.getClientRects()[0] instanceof DOMRect) + ' ' + (block.getClientRects().item(0).width === r.width) + ' ' +
+  block.getClientRects().item(5));
+['gone', 'inside', 'hid'].forEach(function (id) {
+  var e = $(id);
+  log('no box ' + id + ' ' + zero(e.getBoundingClientRect()) + ' ' + e.getClientRects().length + ' ' + e.offsetWidth + ' ' +
+    e.offsetHeight + ' ' + e.offsetParent + ' ' + e.clientHeight + ' ' + e.scrollHeight);
+});
+var detached = document.createElement('div');
+detached.textContent = 'detached';
+log('detached ' + zero(detached.getBoundingClientRect()) + ' ' + detached.getClientRects().length + ' ' + detached.offsetHeight +
+  ' ' + detached.offsetParent);
+document.body.appendChild(detached);
+log('attached ' + (detached.offsetHeight > 0) + ' ' + (detached.getClientRects().length === 1));
+detached.style.display = 'none';
+log('display none ' + detached.offsetHeight + ' ' + detached.getAttribute('style'));
+detached.remove();
+log('illegal ' + err(function () { Element.prototype.getBoundingClientRect.call(document.createTextNode('x')); }));
+
+// DOMRect.
+log('DOMRect ' + JSON.stringify(new DOMRect(1, 2, -3, 4)) + ' ' + JSON.stringify(new DOMRectReadOnly()));
+log('DOMRect NaN ' + JSON.stringify(new DOMRect('a')) + ' ' + new DOMRect('a').left);
+log('fromRect ' + JSON.stringify(DOMRect.fromRect({ x: 1, width: 5 })) + ' ' + (DOMRect.fromRect() instanceof DOMRect) + ' ' +
+  (DOMRectReadOnly.fromRect({}) instanceof DOMRect) + ' ' + err(function () { DOMRect.fromRect(5); }));
+var ro = new DOMRectReadOnly(1, 2, 3, 4);
+ro.x = 9;
+var rw = new DOMRect(1, 2, 3, 4);
+rw.x = 9;
+rw.width = '2';
+log('mutable ' + ro.x + ' ' + rw.x + ' ' + rw.right + ' ' + err(function () { new DOMRect(Symbol()); }));
+log('rect list ' + err(function () { return new DOMRectList(); }));
+
+// Scrolling.
+var root = document.documentElement;
+log('scrolling element ' + (document.scrollingElement === root) + ' ' +
+  (root.clientWidth <= innerWidth) + ' ' + (root.clientHeight <= innerHeight) + ' ' + (root.scrollHeight > 5000) + ' ' + (document.body.scrollHeight > 5000));
+log('start ' + scrollX + ' ' + scrollY + ' ' + pageYOffset + ' ' + root.scrollTop + ' ' + document.body.scrollTop);
+scrollTo(0, 100);
+log('scrollTo ' + scrollY + ' ' + pageYOffset + ' ' + root.scrollTop + ' ' + document.body.scrollTop);
+scrollBy(0, 50);
+log('scrollBy ' + scrollY);
+scrollBy({ top: -20 });
+log('scrollBy options ' + scrollY);
+scrollTo({ left: 0 });
+log('scrollTo left only ' + scrollY);
+scrollTo({ top: 1e9 });
+log('clamped ' + (scrollY === root.scrollHeight - root.clientHeight));
+scroll(0, -5);
+log('negative ' + scrollY + ' ' + scrollX);
+scrollTo(0, NaN);
+log('NaN ' + scrollY);
+log('lone primitive ' + err(function () { scrollTo(5); }) + ' ' + scrollY + ' ' + err(function () { scrollTo('a'); }));
+log('behavior ' + err(function () { scrollTo({ behavior: 'fast' }); }));
+log('symbol ' + err(function () { scrollTo(Symbol(), 1); }) + ' ' + scrollY);
+$('end').scrollIntoView();
+log('scrollIntoView ' + (scrollY > 4000));
+$('block').scrollIntoView({ block: 'start' });
+log('scrollIntoView start ' + scrollY);
+log('scrollIntoView bad ' + err(function () { $('end').scrollIntoView({ block: 'top' }); }));
+root.scrollTop = 10;
+log('root scrollTop ' + scrollY + ' ' + root.scrollTop);
+root.scrollTo(0, 30);
+log('root scrollTo ' + scrollY);
+var big = $('big');
+big.scrollTop = 50;
+big.scrollTo(0, 60);
+log('not a scroll container ' + big.scrollTop + ' ' + (big.scrollHeight === big.clientHeight));
+scrollY = 7;
+log('replaceable ' + scrollY + ' ' + typeof Object.getOwnPropertyDescriptor(window, 'scrollY').value);
+scrollTo(0, 20);
+log('after replace ' + scrollY + ' ' + pageYOffset);
+scrollTo(0, 0);
+
+// Inline style.
+var s = block.style;
+log('style ' + Object.prototype.toString.call(s) + ' ' + (s === block.style) + ' ' + s.length + ' ' + s[0] + ' ' + s.item(1) +
+  ' ' + JSON.stringify(s.item(2)) + ' ' + JSON.stringify(s.cssText));
+log('read ' + s.color + ' ' + s.getPropertyValue('width') + ' ' + s['background-color'] + '|' + s.backgroundColor + '|' +
+  s.getPropertyValue('margin-top') + '|' + ('display' in s) + ' ' + s.parentRule);
+s.backgroundColor = 'blue';
+s.setProperty('margin-top', '3px', 'important');
+s.setProperty('padding-top', '1px', 'bogus');
+log('written ' + block.getAttribute('style') + ' ' + s.getPropertyPriority('margin-top') + ' ' + s.marginTop);
+log('removed ' + s.removeProperty('color') + ' ' + JSON.stringify(s.removeProperty('color')) + ' ' + block.getAttribute('style'));
+s.width = null;
+log('null ' + block.getAttribute('style'));
+s.cssText = 'opacity: 0.5;  WIDTH:3px; height: 1px !IMPORTANT';
+log('cssText ' + block.getAttribute('style') + ' ' + s.length);
+block.style = 'color: green';
+log('put forwards ' + block.getAttribute('style') + ' ' + (block.style === s));
+s.cssFloat = 'left';
+log('cssFloat ' + s.cssFloat + ' ' + s.getPropertyValue('float'));
+block.removeAttribute('style');
+log('no attribute ' + s.length + ' ' + JSON.stringify(s.cssText) + ' ' + JSON.stringify(s.color));
+log('setProperty args ' + err(function () { s.setProperty('color'); }));
+
+// Computed style.
+var cs = getComputedStyle(block);
+log('computed ' + Object.prototype.toString.call(cs) + ' ' + (cs === getComputedStyle(block)) + ' ' + JSON.stringify(cs.cssText) +
+  ' ' + (cs.length > 0));
+log('display ' + ['block', 'inline', 'gone', 'hid', 'log', 'para'].map(function (id) {
+  return getComputedStyle($(id)).display;
+}).join(',') + ' ' + getComputedStyle(document.head).display + ' ' + getComputedStyle(document.querySelector('script')).display +
+  ' ' + getComputedStyle(document.body).display + ' ' + getComputedStyle(document.documentElement).display);
+log('visibility ' + getComputedStyle(block).visibility + ' ' + getComputedStyle($('invisible')).visibility + ' ' +
+  getComputedStyle($('child')).getPropertyValue('visibility'));
+log('px ' + /px$/.test(cs.width) + ' ' + /px$/.test(cs.height) + ' ' + cs.opacity + ' ' + cs.position);
+log('live ' + getComputedStyle($('para')).display);
+$('para').style.display = 'flex';
+log('live after ' + getComputedStyle($('para')).display);
+$('para').style.removeProperty('display');
+log('read only ' + err(function () { cs.display = 'none'; }));
+log('read only setProperty ' + err(function () { cs.setProperty('display', 'none'); }));
+log('read only cssText ' + err(function () { cs.cssText = ''; }));
+log('read only removeProperty ' + err(function () { cs.removeProperty('display'); }));
+log('getComputedStyle bad ' + err(function () { getComputedStyle(document); }) + ' | ' + err(function () { getComputedStyle(); }));
+log('CSSStyleDeclaration new ' + err(function () { return new CSSStyleDeclaration(); }));
+
+// IntersectionObserver.
+function io(options) {
+  var o = new IntersectionObserver(function () {}, options);
+  return o.root + '|' + o.rootMargin + '|' + o.scrollMargin + '|' + o.thresholds + '|' + o.delay + '|' + o.trackVisibility;
+}
+log('io default ' + io());
+log('io options ' + io({ threshold: [1, 0, 0.5], rootMargin: '10px 5%', root: document.body }));
+log('io margins ' + ['10px', '1px 2px', '1px 2px 3px', '-5px 0px 0% 1.5px', ''].map(function (m) { return io({ rootMargin: m }).split('|')[1]; }).join(';'));
+log('io frozen ' + Object.isFrozen(new IntersectionObserver(function () {}).thresholds));
+log('io no args ' + err(function () { new IntersectionObserver(); }));
+log('io not function ' + err(function () { new IntersectionObserver({}); }));
+log('io call ' + err(function () { IntersectionObserver(function () {}); }));
+log('io threshold ' + err(function () { new IntersectionObserver(function () {}, { threshold: 2 }); }) + ' | ' +
+  err(function () { new IntersectionObserver(function () {}, { threshold: [0, NaN] }); }));
+log('io margin ' + err(function () { new IntersectionObserver(function () {}, { rootMargin: '10' }); }) + ' | ' +
+  err(function () { new IntersectionObserver(function () {}, { rootMargin: '1em' }); }) + ' | ' +
+  err(function () { new IntersectionObserver(function () {}, { rootMargin: '1px 1px 1px 1px 1px' }); }));
+log('io root ' + err(function () { new IntersectionObserver(function () {}, { root: {} }); }));
+var observer = new IntersectionObserver(function () {});
+log('io observe ' + err(function () { observer.observe(); }) + ' | ' + err(function () { observer.observe(document); }) + ' | ' +
+  err(function () { observer.unobserve({}); }));
+observer.observe(block);
+observer.observe(block);
+log('io takeRecords ' + JSON.stringify(observer.takeRecords()) + ' ' + observer.unobserve(block) + ' ' + observer.disconnect());
+log('io entry ' + err(function () { return new IntersectionObserverEntry(); }));
+
+// ResizeObserver.
+log('ro no args ' + err(function () { new ResizeObserver(); }) + ' | ' + err(function () { new ResizeObserver(1); }));
+var resize = new ResizeObserver(function () {});
+log('ro observe ' + err(function () { resize.observe(document); }) + ' | ' +
+  err(function () { resize.observe(block, { box: 'padding-box' }); }) + ' | ' +
+  err(function () { resize.observe(block, { box: 'border-box' }); }) + ' | ' + err(function () { resize.unobserve(); }));
+resize.disconnect();
+log('ro entry ' + err(function () { return new ResizeObserverEntry(); }) + ' | ' + err(function () { return new ResizeObserverSize(); }));
+</script>
+
+
+</body></html>

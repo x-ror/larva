@@ -1,0 +1,244 @@
+# Recorded from Chrome; Node is never the expectation here (CLAUDE.md §6).
+# chrome: Google Chrome for Testing 158.0.8127.36
+# date: 2026-11-28
+# runs: 3 identical
+# command: node scripts/record-chrome.mjs shape-layout
+# ---
+== DOMRectReadOnly
+global DOMRectReadOnly data -cw fn name="DOMRectReadOnly" length=0 own=[length,name,prototype,fromRect] prototype=true ctor=true src="function DOMRectReadOnly() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Failed to construct 'DOMRectReadOnly': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static fromRect data ecw fn name="fromRect" length=0 own=[length,name] prototype=false ctor=false src="function fromRect() { [native code] }"
+static prototype data --- object [object DOMRectReadOnly]
+prototype [[Prototype]] Object.prototype
+proto x accessor ec
+  get name="get x" length=0 own=[length,name] prototype=false ctor=false src="function get x() { [native code] }"
+  set undefined
+proto y accessor ec
+  get name="get y" length=0 own=[length,name] prototype=false ctor=false src="function get y() { [native code] }"
+  set undefined
+proto width accessor ec
+  get name="get width" length=0 own=[length,name] prototype=false ctor=false src="function get width() { [native code] }"
+  set undefined
+proto height accessor ec
+  get name="get height" length=0 own=[length,name] prototype=false ctor=false src="function get height() { [native code] }"
+  set undefined
+proto top accessor ec
+  get name="get top" length=0 own=[length,name] prototype=false ctor=false src="function get top() { [native code] }"
+  set undefined
+proto right accessor ec
+  get name="get right" length=0 own=[length,name] prototype=false ctor=false src="function get right() { [native code] }"
+  set undefined
+proto bottom accessor ec
+  get name="get bottom" length=0 own=[length,name] prototype=false ctor=false src="function get bottom() { [native code] }"
+  set undefined
+proto left accessor ec
+  get name="get left" length=0 own=[length,name] prototype=false ctor=false src="function get left() { [native code] }"
+  set undefined
+proto toJSON data ecw fn name="toJSON" length=0 own=[length,name] prototype=false ctor=false src="function toJSON() { [native code] }"
+proto constructor data -cw fn name="DOMRectReadOnly" length=0 own=[length,name,prototype,fromRect] prototype=true ctor=true src="function DOMRectReadOnly() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "DOMRectReadOnly"
+== DOMRect
+global DOMRect data -cw fn name="DOMRect" length=0 own=[length,name,prototype,fromRect] prototype=true ctor=true src="function DOMRect() { [native code] }"
+[[Prototype]] function DOMRectReadOnly
+call: TypeError: Failed to construct 'DOMRect': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static fromRect data ecw fn name="fromRect" length=0 own=[length,name] prototype=false ctor=false src="function fromRect() { [native code] }"
+static prototype data --- object [object DOMRect]
+prototype [[Prototype]] DOMRectReadOnly.prototype
+proto x accessor ec
+  get name="get x" length=0 own=[length,name] prototype=false ctor=false src="function get x() { [native code] }"
+  set name="set x" length=1 own=[length,name] prototype=false ctor=false src="function set x() { [native code] }"
+proto y accessor ec
+  get name="get y" length=0 own=[length,name] prototype=false ctor=false src="function get y() { [native code] }"
+  set name="set y" length=1 own=[length,name] prototype=false ctor=false src="function set y() { [native code] }"
+proto width accessor ec
+  get name="get width" length=0 own=[length,name] prototype=false ctor=false src="function get width() { [native code] }"
+  set name="set width" length=1 own=[length,name] prototype=false ctor=false src="function set width() { [native code] }"
+proto height accessor ec
+  get name="get height" length=0 own=[length,name] prototype=false ctor=false src="function get height() { [native code] }"
+  set name="set height" length=1 own=[length,name] prototype=false ctor=false src="function set height() { [native code] }"
+proto constructor data -cw fn name="DOMRect" length=0 own=[length,name,prototype,fromRect] prototype=true ctor=true src="function DOMRect() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "DOMRect"
+== DOMRectList
+global DOMRectList data -cw fn name="DOMRectList" length=0 own=[length,name,prototype] prototype=true ctor=true src="function DOMRectList() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object DOMRectList]
+prototype [[Prototype]] Object.prototype
+proto length accessor ec
+  get name="get length" length=0 own=[length,name] prototype=false ctor=false src="function get length() { [native code] }"
+  set undefined
+proto item data ecw fn name="item" length=1 own=[length,name] prototype=false ctor=false src="function item() { [native code] }"
+proto constructor data -cw fn name="DOMRectList" length=0 own=[length,name,prototype] prototype=true ctor=true src="function DOMRectList() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "DOMRectList"
+proto [Symbol(Symbol.iterator)] data -cw fn name="values" length=0 own=[length,name] prototype=false ctor=false src="function values() { [native code] }"
+== CSSStyleDeclaration
+global CSSStyleDeclaration data -cw fn name="CSSStyleDeclaration" length=0 own=[length,name,prototype] prototype=true ctor=true src="function CSSStyleDeclaration() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object CSSStyleDeclaration]
+prototype [[Prototype]] Object.prototype
+proto cssText accessor ec
+  get name="get cssText" length=0 own=[length,name] prototype=false ctor=false src="function get cssText() { [native code] }"
+  set name="set cssText" length=1 own=[length,name] prototype=false ctor=false src="function set cssText() { [native code] }"
+proto length accessor ec
+  get name="get length" length=0 own=[length,name] prototype=false ctor=false src="function get length() { [native code] }"
+  set undefined
+proto parentRule accessor ec
+  get name="get parentRule" length=0 own=[length,name] prototype=false ctor=false src="function get parentRule() { [native code] }"
+  set undefined
+proto cssFloat accessor ec
+  get name="get cssFloat" length=0 own=[length,name] prototype=false ctor=false src="function get cssFloat() { [native code] }"
+  set name="set cssFloat" length=1 own=[length,name] prototype=false ctor=false src="function set cssFloat() { [native code] }"
+proto getPropertyPriority data ecw fn name="getPropertyPriority" length=1 own=[length,name] prototype=false ctor=false src="function getPropertyPriority() { [native code] }"
+proto getPropertyValue data ecw fn name="getPropertyValue" length=1 own=[length,name] prototype=false ctor=false src="function getPropertyValue() { [native code] }"
+proto item data ecw fn name="item" length=1 own=[length,name] prototype=false ctor=false src="function item() { [native code] }"
+proto removeProperty data ecw fn name="removeProperty" length=1 own=[length,name] prototype=false ctor=false src="function removeProperty() { [native code] }"
+proto setProperty data ecw fn name="setProperty" length=2 own=[length,name] prototype=false ctor=false src="function setProperty() { [native code] }"
+proto constructor data -cw fn name="CSSStyleDeclaration" length=0 own=[length,name,prototype] prototype=true ctor=true src="function CSSStyleDeclaration() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "CSSStyleDeclaration"
+proto [Symbol(Symbol.iterator)] data -cw fn name="values" length=0 own=[length,name] prototype=false ctor=false src="function values() { [native code] }"
+== getComputedStyle
+global getComputedStyle data ecw fn name="getComputedStyle" length=1 own=[length,name] prototype=false ctor=false src="function getComputedStyle() { [native code] }"
+[[Prototype]] Function.prototype
+== scroll
+global scroll data ecw fn name="scroll" length=0 own=[length,name] prototype=false ctor=false src="function scroll() { [native code] }"
+[[Prototype]] Function.prototype
+== scrollTo
+global scrollTo data ecw fn name="scrollTo" length=0 own=[length,name] prototype=false ctor=false src="function scrollTo() { [native code] }"
+[[Prototype]] Function.prototype
+== scrollBy
+global scrollBy data ecw fn name="scrollBy" length=0 own=[length,name] prototype=false ctor=false src="function scrollBy() { [native code] }"
+[[Prototype]] Function.prototype
+== matchMedia
+global matchMedia data ecw fn name="matchMedia" length=1 own=[length,name] prototype=false ctor=false src="function matchMedia() { [native code] }"
+[[Prototype]] Function.prototype
+== MediaQueryList
+global MediaQueryList data -cw fn name="MediaQueryList" length=0 own=[length,name,prototype] prototype=true ctor=true src="function MediaQueryList() { [native code] }"
+[[Prototype]] function EventTarget
+call: TypeError: Illegal constructor
+static prototype data --- object [object MediaQueryList]
+prototype [[Prototype]] EventTarget.prototype
+proto media accessor ec
+  get name="get media" length=0 own=[length,name] prototype=false ctor=false src="function get media() { [native code] }"
+  set undefined
+proto matches accessor ec
+  get name="get matches" length=0 own=[length,name] prototype=false ctor=false src="function get matches() { [native code] }"
+  set undefined
+proto onchange accessor ec
+  get name="get onchange" length=0 own=[length,name] prototype=false ctor=false src="function get onchange() { [native code] }"
+  set name="set onchange" length=1 own=[length,name] prototype=false ctor=false src="function set onchange() { [native code] }"
+proto addListener data ecw fn name="addListener" length=1 own=[length,name] prototype=false ctor=false src="function addListener() { [native code] }"
+proto removeListener data ecw fn name="removeListener" length=1 own=[length,name] prototype=false ctor=false src="function removeListener() { [native code] }"
+proto constructor data -cw fn name="MediaQueryList" length=0 own=[length,name,prototype] prototype=true ctor=true src="function MediaQueryList() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "MediaQueryList"
+== IntersectionObserver
+global IntersectionObserver data -cw fn name="IntersectionObserver" length=1 own=[length,name,prototype] prototype=true ctor=true src="function IntersectionObserver() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Failed to construct 'IntersectionObserver': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static prototype data --- object [object IntersectionObserver]
+prototype [[Prototype]] Object.prototype
+proto root accessor ec
+  get name="get root" length=0 own=[length,name] prototype=false ctor=false src="function get root() { [native code] }"
+  set undefined
+proto rootMargin accessor ec
+  get name="get rootMargin" length=0 own=[length,name] prototype=false ctor=false src="function get rootMargin() { [native code] }"
+  set undefined
+proto scrollMargin accessor ec
+  get name="get scrollMargin" length=0 own=[length,name] prototype=false ctor=false src="function get scrollMargin() { [native code] }"
+  set undefined
+proto thresholds accessor ec
+  get name="get thresholds" length=0 own=[length,name] prototype=false ctor=false src="function get thresholds() { [native code] }"
+  set undefined
+proto delay accessor ec
+  get name="get delay" length=0 own=[length,name] prototype=false ctor=false src="function get delay() { [native code] }"
+  set undefined
+proto trackVisibility accessor ec
+  get name="get trackVisibility" length=0 own=[length,name] prototype=false ctor=false src="function get trackVisibility() { [native code] }"
+  set undefined
+proto disconnect data ecw fn name="disconnect" length=0 own=[length,name] prototype=false ctor=false src="function disconnect() { [native code] }"
+proto observe data ecw fn name="observe" length=1 own=[length,name] prototype=false ctor=false src="function observe() { [native code] }"
+proto takeRecords data ecw fn name="takeRecords" length=0 own=[length,name] prototype=false ctor=false src="function takeRecords() { [native code] }"
+proto unobserve data ecw fn name="unobserve" length=1 own=[length,name] prototype=false ctor=false src="function unobserve() { [native code] }"
+proto constructor data -cw fn name="IntersectionObserver" length=1 own=[length,name,prototype] prototype=true ctor=true src="function IntersectionObserver() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "IntersectionObserver"
+== IntersectionObserverEntry
+global IntersectionObserverEntry data -cw fn name="IntersectionObserverEntry" length=0 own=[length,name,prototype] prototype=true ctor=true src="function IntersectionObserverEntry() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object IntersectionObserverEntry]
+prototype [[Prototype]] Object.prototype
+proto time accessor ec
+  get name="get time" length=0 own=[length,name] prototype=false ctor=false src="function get time() { [native code] }"
+  set undefined
+proto rootBounds accessor ec
+  get name="get rootBounds" length=0 own=[length,name] prototype=false ctor=false src="function get rootBounds() { [native code] }"
+  set undefined
+proto boundingClientRect accessor ec
+  get name="get boundingClientRect" length=0 own=[length,name] prototype=false ctor=false src="function get boundingClientRect() { [native code] }"
+  set undefined
+proto intersectionRect accessor ec
+  get name="get intersectionRect" length=0 own=[length,name] prototype=false ctor=false src="function get intersectionRect() { [native code] }"
+  set undefined
+proto isIntersecting accessor ec
+  get name="get isIntersecting" length=0 own=[length,name] prototype=false ctor=false src="function get isIntersecting() { [native code] }"
+  set undefined
+proto isVisible accessor ec
+  get name="get isVisible" length=0 own=[length,name] prototype=false ctor=false src="function get isVisible() { [native code] }"
+  set undefined
+proto intersectionRatio accessor ec
+  get name="get intersectionRatio" length=0 own=[length,name] prototype=false ctor=false src="function get intersectionRatio() { [native code] }"
+  set undefined
+proto target accessor ec
+  get name="get target" length=0 own=[length,name] prototype=false ctor=false src="function get target() { [native code] }"
+  set undefined
+proto constructor data -cw fn name="IntersectionObserverEntry" length=0 own=[length,name,prototype] prototype=true ctor=true src="function IntersectionObserverEntry() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "IntersectionObserverEntry"
+== ResizeObserver
+global ResizeObserver data -cw fn name="ResizeObserver" length=1 own=[length,name,prototype] prototype=true ctor=true src="function ResizeObserver() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Failed to construct 'ResizeObserver': Please use the 'new' operator, this DOM object constructor cannot be called as a function.
+static prototype data --- object [object ResizeObserver]
+prototype [[Prototype]] Object.prototype
+proto disconnect data ecw fn name="disconnect" length=0 own=[length,name] prototype=false ctor=false src="function disconnect() { [native code] }"
+proto observe data ecw fn name="observe" length=1 own=[length,name] prototype=false ctor=false src="function observe() { [native code] }"
+proto unobserve data ecw fn name="unobserve" length=1 own=[length,name] prototype=false ctor=false src="function unobserve() { [native code] }"
+proto constructor data -cw fn name="ResizeObserver" length=1 own=[length,name,prototype] prototype=true ctor=true src="function ResizeObserver() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "ResizeObserver"
+== ResizeObserverEntry
+global ResizeObserverEntry data -cw fn name="ResizeObserverEntry" length=0 own=[length,name,prototype] prototype=true ctor=true src="function ResizeObserverEntry() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object ResizeObserverEntry]
+prototype [[Prototype]] Object.prototype
+proto target accessor ec
+  get name="get target" length=0 own=[length,name] prototype=false ctor=false src="function get target() { [native code] }"
+  set undefined
+proto contentRect accessor ec
+  get name="get contentRect" length=0 own=[length,name] prototype=false ctor=false src="function get contentRect() { [native code] }"
+  set undefined
+proto contentBoxSize accessor ec
+  get name="get contentBoxSize" length=0 own=[length,name] prototype=false ctor=false src="function get contentBoxSize() { [native code] }"
+  set undefined
+proto borderBoxSize accessor ec
+  get name="get borderBoxSize" length=0 own=[length,name] prototype=false ctor=false src="function get borderBoxSize() { [native code] }"
+  set undefined
+proto devicePixelContentBoxSize accessor ec
+  get name="get devicePixelContentBoxSize" length=0 own=[length,name] prototype=false ctor=false src="function get devicePixelContentBoxSize() { [native code] }"
+  set undefined
+proto constructor data -cw fn name="ResizeObserverEntry" length=0 own=[length,name,prototype] prototype=true ctor=true src="function ResizeObserverEntry() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "ResizeObserverEntry"
+== ResizeObserverSize
+global ResizeObserverSize data -cw fn name="ResizeObserverSize" length=0 own=[length,name,prototype] prototype=true ctor=true src="function ResizeObserverSize() { [native code] }"
+[[Prototype]] Function.prototype
+call: TypeError: Illegal constructor
+static prototype data --- object [object ResizeObserverSize]
+prototype [[Prototype]] Object.prototype
+proto inlineSize accessor ec
+  get name="get inlineSize" length=0 own=[length,name] prototype=false ctor=false src="function get inlineSize() { [native code] }"
+  set undefined
+proto blockSize accessor ec
+  get name="get blockSize" length=0 own=[length,name] prototype=false ctor=false src="function get blockSize() { [native code] }"
+  set undefined
+proto constructor data -cw fn name="ResizeObserverSize" length=0 own=[length,name,prototype] prototype=true ctor=true src="function ResizeObserverSize() { [native code] }"
+proto [Symbol(Symbol.toStringTag)] data -c- string "ResizeObserverSize"

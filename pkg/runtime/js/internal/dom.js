@@ -39,6 +39,7 @@
   var events = require('internal/event_target');
   var mutationObserver = require('internal/mutation_observer');
   var reflect = require('internal/dom_reflect');
+  var layout = require('internal/layout');
   var DOMException = require('internal/domexception').DOMException;
   var cookieJar = require('internal/cookie');
   var ObjectDefineProperty = P.ObjectDefineProperty;
@@ -1277,6 +1278,9 @@
         'childElementCount',
         'previousElementSibling',
         'nextElementSibling',
+      ],
+      layout.elementMembers(Element.prototype),
+      [
         'getAttribute:1',
         'getElementsByClassName:1',
         'getElementsByTagName:1',
@@ -1293,7 +1297,10 @@
     'HTMLElement',
     HTMLElement,
     PublicElement,
-    reflect.members('HTMLElement', HTMLElement.prototype),
+    P.ArrayPrototypeConcat(
+      reflect.members('HTMLElement', HTMLElement.prototype),
+      layout.htmlElementMembers(HTMLElement.prototype),
+    ),
   );
   var PublicCharacterData = define('CharacterData', CharacterData, PublicNode, [
     'data',
@@ -1313,8 +1320,10 @@
     'querySelector:1',
     'querySelectorAll:1',
   ]);
+  layout.documentMembers(Document.prototype);
   var PublicDocument = define('Document', Document, PublicNode, [
     'documentElement',
+    'scrollingElement',
     'cookie',
     'readyState',
     'title',
@@ -1421,6 +1430,19 @@
     nSetAttribute = observed.setAttribute;
     nRemoveAttribute = observed.removeAttribute;
 
+    // And each drops internal/layout's geometry estimate, which a mutation stales.
+    var dirtying = layout.dirtying;
+    nInsertBefore = dirtying(nInsertBefore);
+    nRemoveChild = dirtying(nRemoveChild);
+    nReplaceChild = dirtying(nReplaceChild);
+    nRemove = dirtying(nRemove);
+    nSetTextContent = dirtying(nSetTextContent);
+    nSetData = dirtying(nSetData);
+    nSetInnerHTML = dirtying(nSetInnerHTML);
+    nSetAttribute = dirtying(nSetAttribute);
+    nRemoveAttribute = dirtying(nRemoveAttribute);
+    nWrite = dirtying(nWrite);
+
     var global = globalThis;
     events.setHostTargets(nIsNode, nParent, isDocument);
     nativeShape.defineGlobalAttribute('window', function () {
@@ -1430,6 +1452,19 @@
       return nDocument();
     });
     windowTarget = global;
+    layout.attach({
+      __proto__: null,
+      isNode: nIsNode,
+      nodeType: nNodeType,
+      localName: nLocalName,
+      parent: nParent,
+      firstChild: nFirstChild,
+      nextSibling: nNextSibling,
+      data: nData,
+      getAttribute: nGetAttribute,
+      setAttribute: nSetAttribute,
+      document: nDocument,
+    });
 
     var protos = [];
     for (var j = 0; j < names.length; j++) {

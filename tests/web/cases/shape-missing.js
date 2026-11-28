@@ -9,5 +9,6 @@ for (const name of [
   'SubtleCrypto',
   'CryptoKey',
   'reportError',
+  'MediaQueryListEvent',
 ])
   print(name + ' ' + typeof globalThis[name]);
